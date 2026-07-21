@@ -97,13 +97,29 @@ PROVIDERS: dict[str, ProviderSpec] = {
     "groq": ProviderSpec(
         name="groq",
         kind="openai_compat",
-        default_model="openai/gpt-oss-20b",
+        default_model="openai/gpt-oss-120b",
         env_var="GROQ_API_KEY",
         base_url="https://api.groq.com/openai/v1",
         signup_url="https://console.groq.com",
+        min_max_tokens=4096,
         notes="Free tier, no credit card, up to ~14,400 RPD — the volume option for "
-              "the efficacy study. Model ids churn (llama-3.3-70b-versatile was "
-              "deprecated 2026-06); confirm with --check before a long run.",
+              "the efficacy study. Model choice here is load-bearing; all four "
+              "candidates were measured against a real faust compile 2026-07-21 on "
+              "the L4 anchor prompt:\n"
+              "  gpt-oss-120b  COMPILES clean — the default.\n"
+              "  gpt-oss-20b   spends the ENTIRE output budget on hidden reasoning "
+              "and returns EMPTY content at 1024/4096/8192 alike (reasoning_tokens "
+              "tracks max_tokens-2), reaching Faust as an empty .dsp: 'syntax "
+              "error, unexpected $end'. Raising max_tokens does not fix it; "
+              "reasoning_effort='low' does. Never default to it.\n"
+              "  llama-3.3-70b-versatile  emits no reasoning tokens, but "
+              "hallucinates stdlib (ba.log2linear, ba.linear2log) and writes ': * "
+              "gain'. NOTE it is NOT deprecated — an earlier note here said so, "
+              "wrongly; it is live.\n"
+              "  qwen/qwen3.6-27b  overruns 4096 without finishing.\n"
+              "TPM cap is 8000 for gpt-oss-120b: max_tokens above ~7500 returns 413 "
+              "rate_limit_exceeded, so 4096 is chosen to sit between the reasoning "
+              "floor and that ceiling.",
     ),
     "openrouter": ProviderSpec(
         name="openrouter",
