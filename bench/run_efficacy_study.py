@@ -28,7 +28,6 @@ stdout stays clean.
 """
 import argparse
 import json
-import os
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -45,9 +44,10 @@ sys.path.insert(0, str(BENCH_DIR))
 # run_benchmark.py via subprocess (it imports score_results, not
 # run_benchmark), so no import cycle is introduced.
 import run_benchmark  # noqa: E402
-from run_benchmark import CLAUDE_MODEL, validate_faust  # noqa: E402,F401
+from run_benchmark import CLAUDE_MODEL, registry_name, validate_faust  # noqa: E402,F401
 
-import anthropic  # noqa: E402
+sys.path.insert(0, str(BENCH_DIR.parent / "llm"))
+import providers  # noqa: E402
 
 # Locked confound control: same system prompt as the benchmark for every call.
 SYSTEM_PROMPT = run_benchmark.SYSTEM_PROMPTS["faust"]
@@ -62,13 +62,14 @@ ERROR_CONTEXT_TEMPLATE = "\n\nYour previous output had this compiler error — f
 
 # ── Preflight ─────────────────────────────────────────────────────────────────
 
-def preflight_check() -> None:
-    """Mirrors run_benchmark.preflight_check(["claude"]), but prints to stderr
+def preflight_check(provider: str = "claude") -> None:
+    """Mirrors run_benchmark.preflight_check([provider]), but prints to stderr
     so stdout stays clean for piping."""
     errors = []
 
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        errors.append("ANTHROPIC_API_KEY not set — add it to PluginForge/.env")
+    credential_error = providers.check_credentials(registry_name(provider))
+    if credential_error:
+        errors.append(credential_error)
 
     try:
         subprocess.run(["faust", "--version"], capture_output=True, timeout=5)
@@ -81,7 +82,7 @@ def preflight_check() -> None:
             print(f"  ✗ {e}", file=sys.stderr)
         sys.exit(1)
 
-    print("Preflight passed — provider: claude | compiler: faust", file=sys.stderr)
+    print(f"Preflight passed — provider: {provider} | compiler: faust", file=sys.stderr)
 
 
 # ── Dataset handling ──────────────────────────────────────────────────────────
@@ -122,29 +123,25 @@ def build_user_message(prompt: str, error_context: str = "") -> str:
     return content
 
 
-def make_claude_generator():
-    """Callable(user_message) -> code string. Matches run_benchmark._make_generators
-    for the claude provider: claude-opus-4-6, temperature=0, max_tokens=1024."""
-    client = anthropic.Anthropic()
-
-    def gen_claude(user_message: str) -> str:
-        r = client.messages.create(
-            model=CLAUDE_MODEL,
-            max_tokens=1024,
-            temperature=0,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": user_message}],
-        )
-        return r.content[0].text.strip()
-
-    return gen_claude
+def make_generator(provider: str = "claude", model: str | None = None):
+    """Callable(user_message) -> code string. Matches run_benchmark._make_generators:
+    temperature=0, max_tokens=1024, pinned model per provider."""
+    return providers.make_generator(
+        registry_name(provider),
+        system_prompt=SYSTEM_PROMPT,
+        model=model or run_benchmark.model_for(provider),
+        temperature=0.0,
+        max_tokens=1024,
+    )
 
 
-def run_effect_tier(generator, effect: dict, tier: str, prompt: str, retries: int) -> dict:
+def run_effect_tier(generator, effect: dict, tier: str, prompt: str, retries: int,
+                    provider: str = "claude", model: str | None = None) -> dict:
     """Run one (effect, tier) cell: initial attempt + up to `retries` corrective
     retries, feeding compiler stderr back exactly like the product loop."""
     record = {
-        "provider": "claude",
+        "provider": provider,
+        "model": model or run_benchmark.model_for(provider),
         "effect_id": effect["effect_id"],
         "category": effect["category"],
         "tier": tier,
@@ -188,9 +185,10 @@ def write_results(out_file: Path, records: list) -> None:
 
 
 def run_study(tasks: list, retries: int, out_file: Path,
-              generator=None, dry_run: bool = False) -> list:
+              generator=None, dry_run: bool = False,
+              provider: str = "claude", model: str | None = None) -> list:
     if generator is None:
-        generator = make_claude_generator()
+        generator = make_generator(provider, model)
 
     if dry_run:
         tasks = tasks[:1]
@@ -201,7 +199,8 @@ def run_study(tasks: list, retries: int, out_file: Path,
 
     records = []
     for i, (effect, tier, prompt) in enumerate(tasks, 1):
-        record = run_effect_tier(generator, effect, tier, prompt, retries)
+        record = run_effect_tier(generator, effect, tier, prompt, retries,
+                                 provider=provider, model=model)
         records.append(record)
         # Incremental write: a crashed run keeps everything up to this record.
         write_results(out_file, records)
@@ -247,7 +246,20 @@ def main(argv=None) -> int:
                              "efficacy_<UTCtimestamp>.json)")
     parser.add_argument("--dry-run", action="store_true",
                         help="Run a single generation to verify setup, then exit.")
+    parser.add_argument("--provider", choices=run_benchmark.ALL_PROVIDERS, default="gemini",
+                        help="LLM provider (default: gemini). 'claude' is PAID and needs "
+                             "PLUGINFORGE_ALLOW_PAID=1. NOTE: a provider change is a "
+                             "confound against the §4-locked study design — see "
+                             "docs/prompt_efficacy_study.md.")
+    parser.add_argument("--model", metavar="ID", default=None,
+                        help="Override the provider's pinned model id.")
     args = parser.parse_args(argv)
+
+    try:  # free-only rule; see llm/providers.py
+        providers.assert_free(registry_name(args.provider))
+    except providers.PaidProviderError as exc:
+        print(f"Preflight check FAILED:\n  ✗ {exc}", file=sys.stderr)
+        return 1
 
     dataset = load_dataset(Path(args.prompts))
 
@@ -270,9 +282,9 @@ def main(argv=None) -> int:
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         out_file = DEFAULT_OUT_DIR / f"efficacy_{stamp}.json"
 
-    preflight_check()
+    preflight_check(args.provider)
     records = run_study(tasks, retries=args.retries, out_file=out_file,
-                        dry_run=args.dry_run)
+                        dry_run=args.dry_run, provider=args.provider, model=args.model)
     print_summary(records, dataset["tiers"])
     print(f"\nResults saved to: {out_file}", file=sys.stderr)
     return 0

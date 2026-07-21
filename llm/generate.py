@@ -17,20 +17,26 @@ import tempfile
 import traceback
 from pathlib import Path
 from dotenv import load_dotenv
-import anthropic
+
+sys.path.insert(0, str(Path(__file__).parent))
+import providers  # noqa: E402
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 
-DEFAULT_PROVIDER = "anthropic"
-# Bumped from claude-opus-4-6 2026-07-21. Benchmark numbers recorded before this
-# date (the 88% ADR-009 baseline, the 50-generation tier pilot) are opus-4-6-era
-# and are not directly comparable — see docs/prompt_efficacy_study.md.
+# Resolved at import, AFTER load_dotenv — so PLUGINFORGE_PROVIDER in PluginForge/.env
+# reaches the plugin (which shells out to this script) with no C++ change and no
+# rebuild. Falls back to "anthropic" when unset, preserving the historical default.
+DEFAULT_PROVIDER = providers.resolve_provider()
+# Per-provider; see llm/providers.py PROVIDERS. For anthropic this is
+# claude-opus-4-8 (bumped from opus-4-6 2026-07-21) — benchmark numbers recorded
+# before that date are opus-4-6-era and not directly comparable, see
+# docs/prompt_efficacy_study.md.
 #
-# NOTE: opus-4-7 and later reject temperature/top_p/top_k and the old
-# thinking={"type": "enabled", "budget_tokens": N} form with a 400. _call_api()
-# sends none of those, which is why this bump is a plain string swap. Anything
-# added to the request below must respect that.
-DEFAULT_MODEL = "claude-opus-4-8"
+# NOTE: opus-4-7 and later reject temperature/top_p/top_k with a 400. This layer
+# passes temperature=None (the parameter is omitted entirely), which is why the
+# model bump was a plain string swap. providers.make_generator() raises with an
+# actionable message if a caller ever passes a temperature to such a model.
+DEFAULT_MODEL = providers.resolve_model(DEFAULT_PROVIDER)
 
 SYSTEM_PROMPT = (Path(__file__).parent / "prompts" / "system_prompt.txt").read_text()
 
@@ -39,25 +45,24 @@ SYSTEM_PROMPT = (Path(__file__).parent / "prompts" / "system_prompt.txt").read_t
 # present (it only stores None); the SDK's "Could not resolve authentication
 # method" error is raised lazily, at request-send time. So this stays eager —
 # no need for a get_client() indirection.
-client = anthropic.Anthropic()
+#
+# SUBTLE: this is providers.anthropic_client()'s singleton, not a second client.
+# Tests patch generate.client.messages.create; because it is the same object, the
+# patch is still seen by calls dispatched through the providers module.
+client = providers.anthropic_client()
 
 
-def _call_api(content: str, provider: str, model: str) -> str:
-    """Single API dispatch point. Add new providers here."""
-    if provider == "anthropic":
-        response = client.messages.create(
-            model=model,
-            max_tokens=1024,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": content}],
-        )
-        return response.content[0].text.strip()
-    raise ValueError(f"Unknown provider: {provider!r}")
+def _call_api(content: str, provider: str, model: str | None = None) -> str:
+    """Single API dispatch point — delegates to the llm/providers.py registry."""
+    generate = providers.make_generator(
+        provider, system_prompt=SYSTEM_PROMPT, model=model, max_tokens=1024
+    )
+    return generate(content)
 
 
 def generate_faust(user_prompt: str, error_context: str = "",
                    provider: str = DEFAULT_PROVIDER,
-                   model: str = DEFAULT_MODEL) -> str:
+                   model: str | None = None) -> str:
     content = user_prompt
     if error_context:
         content += f"\n\nYour previous output had this compiler error — fix it:\n{error_context}"
@@ -81,7 +86,7 @@ def validate_faust(faust_code: str) -> tuple[bool, str]:
 
 def generate_with_retry(user_prompt: str, max_retries: int = 3,
                         provider: str = DEFAULT_PROVIDER,
-                        model: str = DEFAULT_MODEL) -> str:
+                        model: str | None = None) -> str:
     """Returns validated Faust code string. Raises RuntimeError after exhausting retries."""
     error_ctx = ""
     for attempt in range(1, max_retries + 1):
@@ -102,7 +107,9 @@ def generate_json(request: dict) -> dict:
     """
     prompt = request["prompt"]
     provider = request.get("provider", DEFAULT_PROVIDER)
-    model = request.get("model", DEFAULT_MODEL)
+    # None → providers.resolve_model() picks the selected provider's default, so a
+    # request naming a provider but no model can't inherit another provider's model.
+    model = request.get("model")
     max_retries = request.get("max_retries", 3)
 
     error_ctx = ""
@@ -116,14 +123,20 @@ def generate_json(request: dict) -> dict:
     return {"success": False, "faust_code": None, "attempts": max_retries, "error": error_ctx}
 
 
-def _missing_api_key_response() -> dict:
-    """ADR-011 failure shape for a missing/empty ANTHROPIC_API_KEY."""
+def _missing_api_key_response(message: str | None = None) -> dict:
+    """ADR-011 failure shape for a missing/empty credential.
+
+    SUBTLE: the default message is the anthropic one, kept verbatim — the host
+    surfaces this string to the user and tests/test_generate_unit.py asserts it
+    character-for-character as part of the ADR-011 wire contract. Other providers
+    pass their own message (naming their own env var) explicitly.
+    """
     return {
         "success": False,
         "faust_code": None,
         "attempts": 0,
-        "error": "ANTHROPIC_API_KEY is not set. Add it to PluginForge/.env or "
-                 "the plugin's environment.",
+        "error": message or ("ANTHROPIC_API_KEY is not set. Add it to PluginForge/.env or "
+                             "the plugin's environment."),
     }
 
 
@@ -146,8 +159,12 @@ def _run_subprocess_mode(build_request):
     exit would mask the structured error the JSON already carries. All
     diagnostics/tracebacks go to stderr, never stdout.
     """
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        print(json.dumps(_missing_api_key_response()))
+    # Provider-aware precheck: names whichever credential the selected provider
+    # actually needs, and is skipped entirely for local ollama (which needs none).
+    credential_error = providers.check_credentials(DEFAULT_PROVIDER)
+    if credential_error:
+        legacy_text = DEFAULT_PROVIDER == "anthropic"
+        print(json.dumps(_missing_api_key_response(None if legacy_text else credential_error)))
         return
     try:
         response = generate_json(build_request())
@@ -158,6 +175,22 @@ def _run_subprocess_mode(build_request):
 
 
 if __name__ == "__main__":
+    # Free-only guard. Lives here rather than in the library functions so that
+    # every path that can actually spend money is covered (the plugin invokes this
+    # script as a subprocess) without blocking unit tests that drive the functions
+    # directly with a mocked transport. See llm/providers.py.
+    _subprocess_mode = "--json" in sys.argv or "--prompt" in sys.argv
+    try:
+        providers.assert_free(DEFAULT_PROVIDER)
+    except providers.PaidProviderError as exc:
+        if _subprocess_mode:
+            # ADR-011: exactly one JSON line on stdout, exit 0 — the host reads the
+            # structured error and shows it as a status label.
+            print(json.dumps(_exception_response(exc)))
+            sys.exit(0)
+        print(f"[!] {exc}", file=sys.stderr)
+        sys.exit(1)
+
     if "--json" in sys.argv:
         _run_subprocess_mode(lambda: json.loads(sys.stdin.read()))
     elif "--prompt" in sys.argv:

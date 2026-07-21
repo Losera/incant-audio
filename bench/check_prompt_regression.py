@@ -37,6 +37,7 @@ stated >=96% validation bar) stays a manual, human-triggered final check before
 merging a prompt change -- this script deliberately does not run it every tick,
 to control API cost.
 """
+import argparse
 import hashlib
 import json
 import subprocess
@@ -54,8 +55,14 @@ RECOVERY_PROMPTS = BENCH_DIR / "prompts" / "recovery_prompts.json"
 RESULTS_FILE = BENCH_DIR / "results" / "results.json"
 BASELINE_FILE = BENCH_DIR / "results" / ".prompt_baseline.json"
 
-FAUST_RATE_FLOOR = 0.90  # absolute floor regardless of recorded baseline
+# Default floor when a provider's baseline entry doesn't set its own. Derived from
+# Claude's 88% run; a weaker free model may legitimately sit lower, which is why
+# the per-provider entry can override it with "faust_rate_floor".
+FAUST_RATE_FLOOR = 0.90
 FLOAT_TOLERANCE = 0.05  # 5 percentage points under the recorded baseline
+
+# Free-only by default (see llm/providers.py); "claude" needs PLUGINFORGE_ALLOW_PAID=1.
+DEFAULT_CHECK_PROVIDER = "gemini"
 
 
 def sha256_of(path: Path) -> str:
@@ -78,6 +85,22 @@ def save_baseline(baseline: dict) -> None:
     BASELINE_FILE.write_text(json.dumps(baseline, indent=2) + "\n")
 
 
+def provider_baseline(baseline: dict, provider: str) -> dict | None:
+    """Per-provider recorded rate (schema v2), falling back to the v1 flat shape.
+
+    Rates are only comparable within one provider+model, so each provider carries
+    its own recorded rate and its own floor. Returns None when this provider has
+    never been baselined — the caller reports that rather than comparing against
+    another provider's number.
+    """
+    entry = baseline.get("providers", {}).get(provider)
+    if entry is not None:
+        return entry
+    if provider == "claude" and "recorded_faust_compile_rate" in baseline:
+        return baseline  # v1 file: flat keys, implicitly claude
+    return None
+
+
 def faust_compile_rate(records: list[dict], provider: str) -> tuple[float, int, int]:
     scores = compute_scores(records, provider)["faust"]
     passes = sum(p for p, _ in scores.values())
@@ -87,6 +110,14 @@ def faust_compile_rate(records: list[dict], provider: str) -> tuple[float, int, 
 
 
 def run(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[1])
+    parser.add_argument("--provider", default=DEFAULT_CHECK_PROVIDER,
+                        help=f"Provider to smoke-test against (default: "
+                             f"{DEFAULT_CHECK_PROVIDER}). Rates are only comparable "
+                             f"within one provider, so each has its own baseline entry.")
+    args = parser.parse_args(argv)
+    provider = args.provider
+
     baseline = load_baseline()
 
     current_hashes = {
@@ -122,7 +153,7 @@ def run(argv: list[str]) -> int:
             sys.executable,
             "run_benchmark.py",
             "--provider",
-            "claude",
+            provider,
             "--prompts",
             str(RECOVERY_PROMPTS),
         ],
@@ -137,19 +168,35 @@ def run(argv: list[str]) -> int:
         return 1
 
     records = json.loads(RESULTS_FILE.read_text())
-    rate, passes, total = faust_compile_rate(records, "claude")
-    recorded_rate = baseline["recorded_faust_compile_rate"]
+    rate, passes, total = faust_compile_rate(records, provider)
+    entry = provider_baseline(baseline, provider)
+
+    if entry is None:
+        # No recorded rate for this provider. Comparing against another provider's
+        # number would be meaningless, so report and let the human seed it.
+        print(
+            f"check_prompt_regression: measured {rate:.0%} ({passes}/{total}) for "
+            f"provider {provider!r}, but no baseline is recorded for it. Seed "
+            f"providers.{provider} in {BASELINE_FILE.name} (see bench/README.md) "
+            f"before this check can flag regressions.",
+        )
+        baseline.update(current_hashes)
+        save_baseline(baseline)
+        return 0
+
+    recorded_rate = entry["recorded_faust_compile_rate"]
+    floor = entry.get("faust_rate_floor", FAUST_RATE_FLOOR)
 
     print(
-        f"check_prompt_regression: Faust first-try compile rate = {rate:.0%} "
-        f"({passes}/{total}), recorded baseline = {recorded_rate:.0%}"
+        f"check_prompt_regression: [{provider}] Faust first-try compile rate = "
+        f"{rate:.0%} ({passes}/{total}), recorded baseline = {recorded_rate:.0%}"
     )
 
-    regressed = rate < FAUST_RATE_FLOOR or rate < recorded_rate - FLOAT_TOLERANCE
+    regressed = rate < floor or rate < recorded_rate - FLOAT_TOLERANCE
     if regressed:
         print(
             f"check_prompt_regression: REGRESSION -- rate {rate:.0%} is below the "
-            f"{FAUST_RATE_FLOOR:.0%} floor or more than {FLOAT_TOLERANCE:.0%} under "
+            f"{floor:.0%} floor or more than {FLOAT_TOLERANCE:.0%} under "
             f"the recorded baseline of {recorded_rate:.0%}. Do not merge this prompt "
             "change without investigating.",
             file=sys.stderr,

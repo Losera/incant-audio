@@ -19,7 +19,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
-import anthropic
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "llm"))
+import providers  # noqa: E402
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 
@@ -27,8 +29,17 @@ BENCH_DIR    = Path(__file__).parent
 RESULTS_DIR  = BENCH_DIR / "results"
 PROMPTS_FILE = BENCH_DIR / "prompts" / "prompts.json"
 
+# "claude" is this harness's historical name for llm/providers.py's "anthropic"
+# entry — every results.json and the committed baseline use it, so it stays.
+PROVIDER_ALIASES = {"claude": "anthropic"}
+ALL_PROVIDERS = ["claude"] + sorted(p for p in providers.PROVIDERS if p != "anthropic")
+
 CLAUDE_MODEL = "claude-opus-4-6"
-GEMINI_MODEL = "gemini-2.0-flash-lite"
+GEMINI_MODEL = providers.PROVIDERS["gemini"].default_model
+
+
+def registry_name(provider: str) -> str:
+    return PROVIDER_ALIASES.get(provider, provider)
 
 
 def _load_prompt(filename: str) -> str:
@@ -42,14 +53,13 @@ SYSTEM_PROMPTS = {
 
 # ── Preflight ─────────────────────────────────────────────────────────────────
 
-def preflight_check(providers: list[str]):
+def preflight_check(providers_list: list[str]):
     errors = []
 
-    if "claude" in providers and not os.environ.get("ANTHROPIC_API_KEY"):
-        errors.append("ANTHROPIC_API_KEY not set — add it to PluginForge/.env")
-
-    if "gemini" in providers and not os.environ.get("GOOGLE_API_KEY"):
-        errors.append("GOOGLE_API_KEY not set — add it to PluginForge/.env")
+    for prov in providers_list:
+        error = providers.check_credentials(registry_name(prov))
+        if error:
+            errors.append(error)
 
     try:
         subprocess.run(["faust", "--version"], capture_output=True, timeout=5)
@@ -62,48 +72,43 @@ def preflight_check(providers: list[str]):
             print(f"  ✗ {e}")
         sys.exit(1)
 
-    print(f"Preflight passed — providers: {', '.join(providers)} | compiler: faust\n")
+    print(f"Preflight passed — providers: {', '.join(providers_list)} | compiler: faust\n")
 
 
 # ── Code generation ────────────────────────────────────────────────────────────
 
-def _make_generators(providers: list[str]) -> dict:
-    """Returns {provider_name: callable(system_prompt, user_prompt) -> str}."""
+def model_for(provider: str) -> str:
+    """Pinned model per provider — benchmark numbers are only comparable per model."""
+    if provider == "claude":
+        return CLAUDE_MODEL
+    return providers.resolve_model(registry_name(provider))
+
+
+def _make_generators(providers_list: list[str]) -> dict:
+    """Returns {provider_name: callable(system_prompt, user_prompt) -> str}.
+
+    temperature=0 is a locked confound control (docs/prompt_efficacy_study.md §4).
+    Every free provider accepts it; claude-opus-4-7+ do not, which is why
+    CLAUDE_MODEL stays pinned at opus-4-6 here.
+    """
     generators = {}
+    for prov in providers_list:
+        model = model_for(prov)
 
-    if "claude" in providers:
-        client = anthropic.Anthropic()
-        def gen_claude(sys_p, usr_p):
-            r = client.messages.create(
-                model=CLAUDE_MODEL,
-                max_tokens=1024,
-                temperature=0,
-                system=sys_p,
-                messages=[{"role": "user", "content": usr_p}],
+        def make(sys_p, prov=prov, model=model):
+            return providers.make_generator(
+                registry_name(prov), system_prompt=sys_p, model=model,
+                temperature=0.0, max_tokens=1024,
             )
-            return r.content[0].text.strip()
-        generators["claude"] = gen_claude
 
-    if "gemini" in providers:
-        from google import genai as gai
-        from google.genai import types as gai_types
-        gclient = gai.Client(api_key=os.environ["GOOGLE_API_KEY"])
-        _cache: dict = {}
-        def gen_gemini(sys_p, usr_p, cache=_cache, gc=gclient):
-            k = sys_p[:40]
-            if k not in cache:
-                cache[k] = sys_p
-            r = gc.models.generate_content(
-                model=GEMINI_MODEL,
-                contents=usr_p,
-                config=gai_types.GenerateContentConfig(
-                    system_instruction=sys_p,
-                    temperature=0.0,
-                    max_output_tokens=1024,
-                ),
-            )
-            return r.text.strip()
-        generators["gemini"] = gen_gemini
+        # The system prompt is fixed per run but arrives per call, so build the
+        # generator on first use and reuse the client for the rest of the run.
+        def gen(sys_p, usr_p, _cache={}, make=make):  # noqa: B006 — per-generator cache
+            if "g" not in _cache:
+                _cache["g"] = make(sys_p)
+            return _cache["g"](usr_p)
+
+        generators[prov] = gen
 
     return generators
 
@@ -129,16 +134,16 @@ VALIDATORS = {"faust": validate_faust}
 
 # ── Main run ──────────────────────────────────────────────────────────────────
 
-def run(providers: list[str], dry_run: bool = False, prompts_file: Path = PROMPTS_FILE):
-    preflight_check(providers)
-    generators = _make_generators(providers)
+def run(providers_list: list[str], dry_run: bool = False, prompts_file: Path = PROMPTS_FILE):
+    preflight_check(providers_list)
+    generators = _make_generators(providers_list)
     prompts_data: dict[str, list[str]] = json.loads(prompts_file.read_text())
 
     tasks = [
         (category, prompt, "faust", prov)
         for category, prompts in prompts_data.items()
         for prompt in prompts
-        for prov in providers
+        for prov in providers_list
     ]
 
     if dry_run:
@@ -146,11 +151,11 @@ def run(providers: list[str], dry_run: bool = False, prompts_file: Path = PROMPT
         print("DRY RUN — 1 generation to verify setup.\n")
     else:
         print(f"Full benchmark: {len(tasks)} generations "
-              f"(25 prompts × 1 DSL × {len(providers)} provider(s)).\n")
+              f"(25 prompts × 1 DSL × {len(providers_list)} provider(s)).\n")
 
     results = []
-    passes  = {p: 0 for p in providers}
-    totals  = {p: 0 for p in providers}
+    passes  = {p: 0 for p in providers_list}
+    totals  = {p: 0 for p in providers_list}
 
     for i, (category, prompt, dsl, prov) in enumerate(tasks, 1):
         label = f"[{i:03d}/{len(tasks):03d}] {prov.upper():6s} {dsl.upper():7s} | {category:10s} | {prompt[:48]}"
@@ -184,14 +189,18 @@ def run(providers: list[str], dry_run: bool = False, prompts_file: Path = PROMPT
 
         results.append(record)
 
-    out_file = RESULTS_DIR / "results.json"
+    # SUBTLE: a dry run must NOT land in results.json. It used to, and on 2026-07-21
+    # two setup dry-runs silently overwrote the committed 25-record Claude run that
+    # the ADR-009 verdict rests on (recovered from git). A 1-record smoke test has no
+    # business replacing a full suite's evidence.
+    out_file = RESULTS_DIR / ("results_dryrun.json" if dry_run else "results.json")
     out_file.write_text(json.dumps(results, indent=2))
 
     # Summary table
     print(f"\n{'─'*40}")
     print(f"  {'':12s} {'FAUST':>14s}")
     print(f"{'─'*40}")
-    for prov in providers:
+    for prov in providers_list:
         n, p = totals[prov], passes[prov]
         pct = p / n * 100 if n else 0
         print(f"  {prov.upper():<12s}  {p}/{n} ({pct:3.0f}%)".rjust(28))
@@ -210,8 +219,11 @@ def run(providers: list[str], dry_run: bool = False, prompts_file: Path = PROMPT
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="PluginForge DSL benchmark harness.")
     parser.add_argument(
-        "--provider", choices=["claude", "gemini", "both"], default="both",
-        help="Which LLM provider to use (default: both)",
+        "--provider", choices=ALL_PROVIDERS + ["both"], default="gemini",
+        help=f"Which LLM provider to use: {', '.join(ALL_PROVIDERS)}, or 'both' "
+             f"(claude+gemini, the ADR-008 comparison). Default: gemini. "
+             f"Anything involving 'claude' is a PAID provider and needs "
+             f"PLUGINFORGE_ALLOW_PAID=1.",
     )
     parser.add_argument(
         "--dry-run", action="store_true",
@@ -223,6 +235,12 @@ if __name__ == "__main__":
              "Useful for running targeted subsets (e.g. recovery_prompts.json).",
     )
     args = parser.parse_args()
-    providers = ["claude", "gemini"] if args.provider == "both" else [args.provider]
+    selected = ["claude", "gemini"] if args.provider == "both" else [args.provider]
+    try:  # free-only rule; see llm/providers.py
+        for _prov in selected:
+            providers.assert_free(registry_name(_prov))
+    except providers.PaidProviderError as exc:
+        print(f"Preflight check FAILED:\n  ✗ {exc}")
+        sys.exit(1)
     prompts_file = Path(args.prompts) if args.prompts else PROMPTS_FILE
-    run(providers=providers, dry_run=args.dry_run, prompts_file=prompts_file)
+    run(providers_list=selected, dry_run=args.dry_run, prompts_file=prompts_file)

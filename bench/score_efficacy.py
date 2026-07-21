@@ -20,7 +20,7 @@ the tiered_prompts.json dataset it was run against, and prints:
 Optional --chart FILE.png: grouped bar chart (tiers on x, first-try vs
 retry-corrected rates), matplotlib, styled like score_results.py.
 
-Optional --judge: runs claude-haiku-4-5 over each compiled record, scoring
+Optional --judge: runs a separate judge model over each compiled record, scoring
 0-2 fidelity against the effect's L4 text as ground truth. Writes judge_score
 into a copy of the results file (suffix _judged.json). Default OFF.
 
@@ -31,6 +31,7 @@ Usage:
 """
 import argparse
 import json
+import os
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -343,7 +344,8 @@ def make_chart(scores: dict, chart_file: Path) -> None:
 
 # ── Judge (optional) ───────────────────────────────────────────────────────────
 
-JUDGE_MODEL = "claude-haiku-4-5"
+JUDGE_PROVIDER = os.environ.get("PLUGINFORGE_JUDGE_PROVIDER", "gemini")
+JUDGE_MODEL = os.environ.get("PLUGINFORGE_JUDGE_MODEL") or None  # None → provider default
 
 JUDGE_RUBRIC = """You are grading Faust DSP code for fidelity against a ground-truth
 specification. Score 0, 1, or 2:
@@ -361,10 +363,23 @@ Respond with ONLY a single digit: 0, 1, or 2."""
 
 
 def run_judge(records: list, dataset: dict) -> list:
-    """Runs claude-haiku-4-5 over each compiled record; adds a judge_score key.
-    Returns a NEW list (copy) — does not mutate the caller's records."""
-    import anthropic
-    client = anthropic.Anthropic()
+    """Runs the judge model over each compiled record; adds a judge_score key.
+    Returns a NEW list (copy) — does not mutate the caller's records.
+
+    SUBTLE: the judge must not be the same model that generated the code — a
+    model grading its own output is not an independent measurement. Keep
+    PLUGINFORGE_JUDGE_PROVIDER different from the run's --provider.
+    """
+    import sys as _sys
+    from pathlib import Path as _Path
+    _sys.path.insert(0, str(_Path(__file__).resolve().parent.parent / "llm"))
+    import providers
+
+    providers.assert_free(providers.resolve_provider(JUDGE_PROVIDER))
+    judge = providers.make_generator(
+        JUDGE_PROVIDER, system_prompt="", model=JUDGE_MODEL,
+        temperature=0.0, max_tokens=300,
+    )
     effects = _effects_by_id(dataset)
 
     judged = []
@@ -380,13 +395,7 @@ def run_judge(records: list, dataset: dict) -> list:
         l4_spec = effect["tiers"]["L4"] if effect else ""
         prompt = JUDGE_RUBRIC.format(l4_spec=l4_spec, code=r.get("code", ""))
         try:
-            resp = client.messages.create(
-                model=JUDGE_MODEL,
-                max_tokens=300,
-                temperature=0,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            text = resp.content[0].text.strip()
+            text = judge(prompt)
             digit = next((c for c in text if c in "012"), None)
             rec["judge_score"] = int(digit) if digit is not None else None
         except Exception as e:
@@ -410,7 +419,8 @@ def main(argv=None) -> int:
     parser.add_argument("--chart", metavar="FILE.png", default=None,
                         help="Optional PNG chart path")
     parser.add_argument("--judge", action="store_true",
-                        help="Run claude-haiku-4-5 fidelity judge (extra API calls; default off)")
+                        help="Run the fidelity judge (extra API calls; default off). Judge model "
+                             "comes from PLUGINFORGE_JUDGE_PROVIDER/_MODEL.")
     args = parser.parse_args(argv)
 
     results_path = Path(args.results)
@@ -432,7 +442,7 @@ def main(argv=None) -> int:
         make_chart(scores, Path(args.chart))
 
     if args.judge:
-        print("\nRunning fidelity judge (claude-haiku-4-5)...", file=sys.stderr)
+        print(f"\nRunning fidelity judge ({JUDGE_PROVIDER})...", file=sys.stderr)
         judged_records = run_judge(records, dataset)
         judged_path = results_path.with_name(results_path.stem + "_judged.json")
         judged_path.write_text(json.dumps(judged_records, indent=2))

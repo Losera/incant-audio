@@ -14,7 +14,9 @@ Pipeline: Natural language prompt → LLM → Faust DSL → LLVM JIT → VST3/AU
 ## Stack
 - JUCE 7 (C++17) — audio plugin framework, VST3/AU output
 - libfaust + LLVM — JIT compiler embedded in host plugin
-- Python (anthropic SDK) — LLM prompt layer
+- Python — LLM prompt layer; provider-agnostic via llm/providers.py (free-only by
+  default: gemini / groq / openrouter / local ollama; anthropic is paid and gated
+  behind PLUGINFORGE_ALLOW_PAID=1). Draft rationale: docs/ADR-012-free-provider-layer-DRAFT.md
 - CMake + Ninja — build system
 - Arch Linux (primary dev target)
 
@@ -68,13 +70,31 @@ Pipeline: Natural language prompt → LLM → Faust DSL → LLVM JIT → VST3/AU
   subprocess returns).
 - LLM layer (llm/generate.py) — functional: --prompt / --json / CLI modes; generate_json()
   used by the C++ subprocess path.
+- llm/providers.py — IMPLEMENTED 2026-07-21: single provider registry used by generate.py
+  and all three bench harnesses. Five providers, three adapters (groq/openrouter/ollama
+  share one OpenAI-compatible httpx path); no new dependencies. Free-only rule enforced by
+  assert_free() at each __main__. Also carries two things that could not go in the
+  HUMAN-OWNED prompts: markdown-fence stripping (open models fence their output; off for
+  anthropic to keep the 0.88 baseline bit-comparable) and ProviderSpec.min_max_tokens
+  (reasoning models bill hidden thinking against the output cap — gemini-3.6-flash at
+  max_output_tokens=1024 gave 981 thinking / 39 visible tokens, truncated). Doctor CLI:
+  `python llm/providers.py --check all`.
+- END-TO-END GENERATION — WORKING 2026-07-21 on a free provider, for the first time since
+  the Anthropic credit ran out. `python llm/generate.py --prompt "..."` returns valid,
+  faust-compiled DSP via gemini-3.6-flash (verified first-try and via the stderr-feedback
+  retry path). .env now carries PLUGINFORGE_PROVIDER=gemini; the plugin inherits it through
+  juce::ChildProcess with no C++ change and no rebuild. The audible half of P6
+  (docs/prototype_test_plan.md Part A) is still unrun — it needs the human's ears.
 - ADR-009 duplicate-symbol rule — applied to both llm/prompts/system_prompt.txt and
   bench/prompts/system_faust.txt.
 - CI — .github/workflows/test.yml runs pytest -m "not integration" on every push.
-- Test suite — 145 unit tests pass (109 pre-existing + 36 added 2026-07-19 for the
-  efficacy-study harness); 10 integration tests guarded by @pytest.mark.integration.
-  (Corrected 2026-07-19: this line previously said "99 unit tests" — that count was
-  already stale before today's additions; verified actual count via pytest.)
+- Test suite — 231 unit tests pass (145 pre-existing + 82 added 2026-07-21 for the
+  provider registry + 4 for efficacy-record provenance); 10 integration tests guarded by
+  @pytest.mark.integration. The 145 pre-existing tests were NOT modified by the provider
+  refactor — that was its acceptance gate. NOTE: tests/conftest.py now pins
+  PLUGINFORGE_PROVIDER=anthropic for the session; without it, a developer's .env
+  selection makes the mocked-client unit tests dispatch real network calls (this
+  happened 2026-07-21 and hung the suite).
 - ADR-009 verdict — SETTLED 2026-07-19: full 25-prompt Faust re-run measured 22/25
   (88%), not the ADR-009-predicted ≥96%. bench/results/.prompt_baseline.json updated
   0.84→0.88. Two of three failures (ping-pong SEMANTIC, flanger HALLUCINATION) are

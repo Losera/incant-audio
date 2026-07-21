@@ -56,12 +56,15 @@ Each tick:
 2. Changed → runs `pytest -m "not integration"` (cheap, structural).
 3. If that passes → runs the 9-prompt recovery subset
    (`bench/prompts/recovery_prompts.json`) via
-   `run_benchmark.py --provider claude --prompts ...` — a cheap smoke signal, **not**
+   `run_benchmark.py --provider <provider> --prompts ...` — a cheap smoke signal, **not**
    the full 25-prompt suite. This overwrites `bench/results/results.json`, same as
-   running `run_benchmark.py` by hand.
-4. Compares the resulting Faust first-try rate against
+   running `run_benchmark.py` by hand. (`--dry-run` does **not** — it writes
+   `results_dryrun.json`, so a smoke test can't clobber a real run's evidence.) Provider defaults to `gemini` (free);
+   `--provider claude` needs `PLUGINFORGE_ALLOW_PAID=1`.
+4. Compares the resulting Faust first-try rate against that **provider's**
    `recorded_faust_compile_rate` in the baseline file; flags a regression if it
-   drops more than 5 points below that, or under 90% outright.
+   drops more than 5 points below that, or under the provider's floor (default 90%).
+   A provider with no recorded entry is reported, not compared — see below.
 5. Never edits the prompt files itself — report only. (They're HUMAN-OWNED per
    COLLABORATION.md §1; `.claude/hooks/protect_human_owned.py` blocks a direct edit
    to them regardless.)
@@ -73,11 +76,27 @@ final check before merging a prompt change — the loop's 9-prompt subset is a c
 early-warning signal, not a substitute for that.
 
 **Seeding/resetting the baseline:** `bench/results/.prompt_baseline.json` holds the
-two file hashes and the recorded compile rate to compare against. Update
-`recorded_faust_compile_rate` by hand after a deliberate, human-approved prompt
-change that intentionally moves the number (e.g. after actually re-running the
-full 25-prompt suite and reviewing the result) — the script never rewrites that
-field itself, only the hash fields.
+two file hashes and, since schema v2 (2026-07-21), a `providers` map of recorded
+compile rates — one entry per provider:
+
+```json
+"providers": {
+  "claude":  { "model": "claude-opus-4-6", "recorded_faust_compile_rate": 0.88, ... },
+  "gemini":  { "model": "gemini-3.6-flash", "recorded_faust_compile_rate": 0.xx,
+               "faust_rate_floor": 0.xx }
+}
+```
+
+Rates are only comparable within one provider **and** model, so a provider switch
+**seeds a new entry rather than overwriting an existing one**. Update a
+`recorded_faust_compile_rate` by hand after a deliberate, human-approved change that
+intentionally moves the number (e.g. after re-running the full 25-prompt suite and
+reviewing the result) — the script never rewrites that field itself, only the hash
+fields. Optional `faust_rate_floor` overrides the default 90% absolute floor, which
+was derived from Claude and may not suit a weaker free model.
+
+⚠️ The `claude` entry is **frozen historical record**: the Anthropic account is out of
+credit, so 0.88 is not currently re-measurable, and the ADR-009 verdict rests on it.
 
 ---
 
@@ -86,6 +105,7 @@ field itself, only the hash fields.
 | File | Description |
 |------|-------------|
 | `bench/results/results.json` | One record per generation — prompt, DSL, code, compile result, error |
+| `bench/results/results_dryrun.json` | `--dry-run` output only (gitignored) — kept separate so a 1-record smoke test never overwrites a full run |
 | `bench/results/benchmark_chart.png` | Bar charts: per-category rates + overall comparison |
 
 ### results.json record schema

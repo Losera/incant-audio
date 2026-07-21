@@ -1,5 +1,8 @@
 anthropic>=0.40.0
 google-genai>=1.0.0
+# Used directly by llm/providers.py for the OpenAI-compatible providers
+# (groq / openrouter / ollama) — no separate SDK needed for any of them.
+httpx>=0.27.0
 python-dotenv>=1.0.0
 matplotlib>=3.8.0
 numpy>=1.26.0

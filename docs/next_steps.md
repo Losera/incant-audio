@@ -10,6 +10,27 @@ CLAUDE.md "Current status".**
 
 ## Priority Queue (2026-07-21) — cross-track, ordered
 
+**-1. Landed 2026-07-21 (session: free-provider layer) — THE BILLING BLOCK IS GONE:**
+- **`llm/providers.py`** — one registry, five providers, three adapters, zero new
+  dependencies. Free-only enforced in code (`assert_free()`), not just documented.
+  Wired into `generate.py` and all three bench harnesses + the scorer's judge.
+- **End-to-end generation works again** on `gemini-3.6-flash` (free tier). A working
+  `GOOGLE_API_KEY` turned out to already be present in `.env` — no key acquisition was
+  needed. `.env` now sets `PLUGINFORGE_PROVIDER=gemini`.
+- **Baseline schema v2** — `bench/results/.prompt_baseline.json` is keyed per provider;
+  Claude's 0.88 is frozen verbatim as historical record, not overwritten.
+- **231 tests pass** (145 pre-existing, unmodified — that was the refactor's gate).
+- Drafted for you: `docs/ADR-012-free-provider-layer-DRAFT.md` (ADR-012, the
+  `prompt_efficacy_study.md` §4 amendment, and a note that ADR-008 is now answerable
+  or supersedable).
+- **What's now unblocked:** P6 (the audible end-to-end test — needs your ears), P9 (run
+  it on `groq`, whose ~14,400/day free tier suits 375 calls far better than Gemini's
+  5/minute), and ADR-008's Gemini side.
+- Two items in section 1 below are **resolved by this work**: the stranded bench-harness
+  model bump (free providers accept `temperature=0`, so the determinism control and the
+  current model no longer conflict), and the billing block itself.
+
+
 Executable task text for items marked P9–P17 lives in the root README's prompt series.
 
 **0. Landed 2026-07-21 (session: state review):**

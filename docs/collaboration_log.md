@@ -4,6 +4,45 @@ Entries appended per COLLABORATION.md §6 after non-trivial sessions.
 
 ---
 
+### 2026-07-21 — Free-provider layer (billing block removed)
+
+**Mode:** DELEGATE for all Python (new module, three call sites, 82 tests, READMEs).
+One deliberate stop into HUMAN-OWNED: ADR-012 and the `prompt_efficacy_study.md` §4
+amendment were drafted to `docs/ADR-012-free-provider-layer-DRAFT.md`, not applied.
+
+**Task:** The attention report identified the Anthropic credit exhaustion as the single
+blocker on the prototype's last 15%. User asked for free model alternatives under a hard
+free-only rule, with a step-by-step human plan where intervention was needed and
+implementation+testing otherwise.
+
+**What landed:** `llm/providers.py` — one registry (5 providers, 3 adapters; groq,
+openrouter and ollama all speak OpenAI-compatible so they share one httpx path), wired
+into `generate.py`, `run_benchmark.py`, `run_efficacy_study.py` and `score_efficacy.py`'s
+judge. Zero new dependencies; zero C++ changes (`.env` reaches the plugin through
+`load_dotenv()` + `ChildProcess` inheritance). Free-only is enforced in code via
+`assert_free()`, deliberately placed in each `__main__` rather than in `make_generator()`
+— every money-spending path is a CLI invocation, so that is complete coverage while
+leaving library functions drivable by mocked tests. **Generation works end to end again**
+on `gemini-3.6-flash`. Baseline file went to schema v2 (per-provider keys) with Claude's
+0.88 frozen verbatim. 231 tests pass, of which the 145 pre-existing ones were unmodified.
+
+**Would do differently:** I planned the human runbook around acquiring a Gemini key, then
+discovered during execution that a working `GOOGLE_API_KEY` had been sitting in `.env` the
+whole time — my earlier audit had printed only the key *names* (`grep -o "^[A-Z_]*="`, to
+avoid echoing secrets) and I read an unknown value as an empty one. Redacting a value is
+not the same as knowing it is absent; the doctor CLI I wrote later answers that question
+in one command, and should have existed before the plan did.
+
+**Mode signal:** DELEGATE held. The three most valuable findings all came from running
+the thing rather than reasoning about it — the 2.5-model family 404ing for new accounts,
+the 5-requests-per-minute free cap, and reasoning tokens silently eating the 1024-token
+output budget (981 thinking / 39 visible, truncated). None were visible from the code or
+from my training data, which is the argument for the plan's "no hardcoded model ids"
+rule. The suite hanging on a live API call after I wrote `PLUGINFORGE_PROVIDER` into
+`.env` was the sharpest lesson: config that reaches the product also reaches the tests.
+
+---
+
 ### 2026-07-21 — State review; version-control baseline; widget-kind; doc reconciliation
 
 **Mode:** DELEGATE throughout, with two deliberate stops into HUMAN-OWNED (ADR-009

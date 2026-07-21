@@ -443,6 +443,33 @@ class TestPreflightCheck:
         assert "Preflight passed" in captured.err
 
 
+class TestProviderProvenance:
+    """A record must say which provider/model produced it — free-provider runs and
+    the frozen claude baseline land in the same results directory."""
+
+    EFFECT = FIXTURE_DATASET["effects"][0]
+
+    def _record(self, **kwargs):
+        generator = MagicMock(return_value=VALID_FAUST)
+        with patch.object(efs, "validate_faust", return_value=(True, "")):
+            return efs.run_effect_tier(generator, self.EFFECT, "L4",
+                                       self.EFFECT["tiers"]["L4"], retries=2, **kwargs)
+
+    def test_provider_defaults_to_claude_for_back_compat(self):
+        assert self._record()["provider"] == "claude"
+
+    def test_provider_is_recorded_when_given(self):
+        assert self._record(provider="gemini")["provider"] == "gemini"
+
+    def test_model_is_recorded(self):
+        record = self._record(provider="gemini", model="gemini-3.6-flash")
+        assert record["model"] == "gemini-3.6-flash"
+
+    def test_model_falls_back_to_the_providers_pinned_default(self):
+        record = self._record(provider="gemini")
+        assert record["model"] == efs.run_benchmark.model_for("gemini")
+
+
 class TestLoadDataset:
     def test_missing_required_key_raises(self, tmp_path):
         bad = tmp_path / "bad.json"
