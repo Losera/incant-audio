@@ -22,7 +22,15 @@ import anthropic
 load_dotenv(Path(__file__).parent.parent / ".env")
 
 DEFAULT_PROVIDER = "anthropic"
-DEFAULT_MODEL = "claude-opus-4-6"
+# Bumped from claude-opus-4-6 2026-07-21. Benchmark numbers recorded before this
+# date (the 88% ADR-009 baseline, the 50-generation tier pilot) are opus-4-6-era
+# and are not directly comparable — see docs/prompt_efficacy_study.md.
+#
+# NOTE: opus-4-7 and later reject temperature/top_p/top_k and the old
+# thinking={"type": "enabled", "budget_tokens": N} form with a 400. _call_api()
+# sends none of those, which is why this bump is a plain string swap. Anything
+# added to the request below must respect that.
+DEFAULT_MODEL = "claude-opus-4-8"
 
 SYSTEM_PROMPT = (Path(__file__).parent / "prompts" / "system_prompt.txt").read_text()
 
