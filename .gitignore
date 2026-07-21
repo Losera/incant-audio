@@ -47,3 +47,5 @@ scheduled_tasks.lock
 # Throwaway --dry-run output. Real runs write results.json, which is tracked
 # evidence; a 1-record smoke test must never stand in for it.
 bench/results/results_dryrun.json
+.env.*
+!.env.example
