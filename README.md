@@ -143,17 +143,8 @@ per COLLABORATION.md §6. Do not modify any prompt file.
 
 **P10 — settled 2026-07-20:** 21 repos surveyed, see `docs/juce_plugin_survey.md`.
 Headline: zero of 19 fixed-param entries used bare GenericAudioProcessorEditor.
-
-**P10 — JUCE/Faust ecosystem survey** *(DELEGATE, research agents)*
-
-```
-Execute the ecosystem survey spec'd in docs/ui_design_plan.md §4: 2–3 parallel
-research agents over awesome-juce, GitHub topic:juce-plugin, and the faust2juce
-ecosystem. Produce docs/juce_plugin_survey.md with the per-repo data table
-(plugin type per the design taxonomy, param count, UI paradigm, complexity
-proxy) and a complexity-ladder summary. Read-only research; no repo changes
-beyond the new doc.
-```
+The survey spec in `docs/ui_design_plan.md` §4 is marked executed; there is no
+live prompt to run here anymore.
 
 **P11 — state persistence (the UX-roadmap enabler)** *(PAIR — confirm mode first)*
 
@@ -167,10 +158,61 @@ that classification with me before drafting, and I review before it lands.
 
 **P12 — AI-centered UI: widget metadata + auto-layout** *(DELEGATE draft, PAIR at the swap boundary)*
 
+**P12a settled 2026-07-21:** the widget-kind half landed — `FaustEngine::Kind` on
+`ParamInfo`, set at all five `ParamCapture` sites. The auto-layout half below is
+still open and belongs after P11.
+
 ```
-Execute docs/ui_design_plan.md §3: add the missing widget-kind field to
-ParamCapture/ParamInfo (FaustEngine.h — capture currently discards whether a
-param was a slider/button/checkbox), then the param-count-driven auto-layout in
-refreshParamKnobs() so more than 8 of the 64 slots can surface. Anything
-touching the compile/swap path gets flagged for my review.
+Execute the rest of docs/ui_design_plan.md §3: the param-count-driven auto-layout
+in refreshParamKnobs() so more than 8 of the 64 slots can surface, now that
+ParamInfo::kind tells you whether each slot is a slider, button, or checkbox.
+Read §2's "UI paradigms observed in the wild" first — the declarative/GUI-Magic
+prior art is the closest thing to what this is. Anything touching the
+compile/swap path gets flagged for my review.
+```
+
+---
+
+**P13 — version-control baseline** — ✅ **DONE 2026-07-21.** The project had no git
+repo; 956M sat untracked inside the unrelated CS310 course repo at `/home/losera`.
+Now `git init` + one baseline commit (93 files, 1.1M). **No remote yet — that's your
+call, and P16 is blocked until it exists.**
+
+**P14 — doc & ADR reconciliation** — ✅ **DONE 2026-07-21** for the DELEGATE half
+(`ui_design_plan.md` §4/§2, `next_steps.md`, the efficacy-study model-era note). The
+ADR half is drafted for you in `docs/ADR-009-verdict-DRAFT.md` — ADR-009 still reads
+as though its ≥96% prediction is pending, and it cites a file that doesn't exist.
+
+**P15 — settle the model pin, then re-run P9** *(PAIR — methodology call)*
+
+```
+llm/generate.py is on claude-opus-4-8 as of 2026-07-21, but bench/run_benchmark.py,
+bench/run_efficacy_study.py, and bench/score_efficacy.py still pin opus-4-6 because
+they pass temperature=0, which opus-4-7+ reject with a 400. docs/prompt_efficacy_
+study.md §3 lists temperature=0 as a locked confound control, so bumping them is a
+change to the experiment, not a mechanical edit. Decide: run P9 on opus-4-6 for
+continuity with the 88% baseline, or drop determinism and re-baseline on 4-8. Then
+run the full 125-prompt study per that doc. Still blocked on Anthropic billing.
+```
+
+**P16 — CI's first real run** *(PAIR)*
+
+```
+.github/workflows/test.yml has never executed — there was no git repo until
+2026-07-21 and there is still no remote. Once a remote exists, push and work
+through the 5 TODO VERIFY assumptions at the bottom of that file: apt package
+availability on ubuntu-latest, whether Ubuntu's libfaust.so links LLVM, stdfaust.lib
+resolution, and faust version compat. Every one of them is currently unverified
+reasoning from a local Arch box.
+```
+
+**P17 — ADR-009 follow-through: the two durable failure modes** *(HUMAN-OWNED)*
+
+```
+Two Faust failures survived from 2026-05 to 2026-07 unchanged: ping-pong delay
+(SEMANTIC, circular with{} → endless evaluation cycle) and tape-style flanger
+(HALLUCINATION, undefined symbol flanger_mono). Same errors, same prompts, two
+months and one prompt revision apart — these are stable, not noise. Decide whether
+to author targeted prompt rules or few-shot examples. Touches llm/prompts/*, so
+it's yours; I can draft and benchmark but not author.
 ```

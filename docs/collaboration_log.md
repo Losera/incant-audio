@@ -4,6 +4,46 @@ Entries appended per COLLABORATION.md §6 after non-trivial sessions.
 
 ---
 
+### 2026-07-21 — State review; version-control baseline; widget-kind; doc reconciliation
+
+**Mode:** DELEGATE throughout, with two deliberate stops into HUMAN-OWNED (ADR-009
+verdict drafted to a separate file, not applied) and PAIR (bench-harness model bump
+halted before the edit).
+
+**Task:** User asked for a full review of the codebase state, a series of prompts for
+the path forward, and execution of whatever Claude could do.
+
+**What landed:** Verified CLAUDE.md's implementation claims against the code — all
+accurate, file:line confirmed. But the review's headline finding was absent from every
+doc: **PluginForge had no version control at all**, 956M untracked inside the unrelated
+CS310 course repo rooted at `/home/losera`. The 2026-07-19 attention report flagged "no
+git repo" and it was recorded as fixed; it was not. Initialized with a baseline commit
+after hardening `.gitignore` for ~400M of in-source CMake residue (`host/CMakeFiles`,
+`host/JUCE`, `*_artefacts`) that the existing `build/` rule did not cover — dry-run
+verified `.env` excluded and the tree at 1.1M before committing. No remote: that's the
+human's call. Also landed P12a (widget-kind on `ParamInfo`; four targets build clean,
+TSan still zero races), the opus-4-6 → opus-4-8 pin on `generate.py` (145 tests pass),
+and the doc reconciliation (`ui_design_plan.md` §4 had described P10 as "deferred" for
+three weeks after it shipped). README gained P13–P17.
+
+**Would do differently:** I planned P15 as "a pure string change" on the strength of
+`generate.py` alone, and only caught that the four bench call sites pass `temperature=0`
+— which opus-4-7+ reject with a 400 — after loading the migration reference *during*
+execution. Had I not, a "mechanical" model bump would have either broken the harnesses or
+silently stripped a locked confound control. The lesson is narrow and worth keeping:
+when a change is characterized as mechanical, grep the whole repo for the symbol before
+believing it, not just the file that motivated the change.
+
+**Mode signal:** DELEGATE held for the code and doc work. The two stops both proved
+right on inspection rather than on principle — ADR-009 turned out to need a *factual*
+correction beyond the verdict (it cites `llm/prompts/system_faust.txt`, which does not
+exist), and the bench bump turned out to be an experiment-design change rather than an
+edit. Neither was visible from the plan; both surfaced only once the files were open,
+which is an argument for the stop conditions being checked continuously rather than at
+classification time.
+
+---
+
 ### 2026-07-20 — P10 ecosystem survey + tiered-prompt L0 phrasing fix
 
 **Mode:** DELEGATE (research/documentation + a 3-line data-file wording fix). No
