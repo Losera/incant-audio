@@ -28,9 +28,27 @@ now both unnecessary and wrong: anthropic is the paid provider and is refused un
 Optional overrides: `PLUGINFORGE_LLM_SCRIPT=/path/to/generate.py`,
 `PLUGINFORGE_PYTHON=/path/to/python3`.
 
-**Free-tier pacing:** `gemini` allows ~5 requests/minute *per model*, and one Generate click
-can spend up to 3 (the retry loop). Leave ~15 s between clicks. If two rapid generates fail
-in a row, suspect the rate limit before suspecting the DSP — the error label will say so.
+**Free-tier budget — read this before planning a session.** The binding Gemini free-tier
+limit is **requests per DAY per model**, not per minute, and it is small: measured
+2026-07-21, `gemini-3.6-flash` reported `quotaValue: 20`. One Generate click can spend up to
+3 (the retry loop), so a day's budget is roughly **7 clicks, worst case**.
+
+When you hit it, the plugin shows `LLM error: ... resources exhausted` and the API replies
+`RESOURCE_EXHAUSTED` with a `retryDelay` — **ignore that delay, it's boilerplate**; a daily
+quota does not refill in 28 seconds. Check which quota actually tripped:
+
+```bash
+python llm/providers.py --check all
+```
+
+Two ways out, in order of preference:
+1. **Switch provider to `groq`** — the quota is ~14,400 requests/day, enough for a whole
+   battery plus retries, and it keeps one model across the run so results stay comparable.
+2. **Switch model** — the quota is `PerProjectPerModel`, so another model has its own
+   bucket (`PLUGINFORGE_MODEL=gemini-3.5-flash`). Verified working 2026-07-21:
+   `gemini-3.5-flash`, `gemini-3.5-flash-lite`. Also exhausted: `gemini-2.0-flash`.
+   **Caveat:** changing model mid-battery makes the run a mix of two generators, which
+   confounds exactly what the battery measures. Prefer option 1 for a real session.
 
 Feed the plugin audio: in the Standalone's options button (top-left), pick your input device —
 or route a media player through it via `pw-link`/qpwgraph (PipeWire). The meter shows

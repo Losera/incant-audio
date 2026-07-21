@@ -133,8 +133,13 @@ passthrough). Confirm that before blaming generation for silence.
 
 ### Phase 2 — the run
 
-For each prompt, in order, **~15 s apart** (free-tier pacing — one click can spend 3 requests
-against a 5/min cap):
+**Budget check first.** On `gemini` the free tier's binding limit is requests **per day per
+model** — measured 20 for `gemini-3.6-flash` on 2026-07-21 — and one click can spend 3. That
+is not enough for 14 prompts. Run the battery on `groq` (~14,400/day) so a single model
+covers the whole run; see `docs/prototype_test_plan.md` Setup. Splitting the battery across
+two models confounds the thing it measures.
+
+For each prompt, in order:
 
 1. Paste the prompt verbatim → Generate.
 2. Watch the status label walk: `Generating…` → `JIT compiling: …` →
