@@ -14,25 +14,28 @@ struct ParamCapture : public UI
     void addHorizontalSlider(const char* label, FAUSTFLOAT*, FAUSTFLOAT init,
                               FAUSTFLOAT fmin, FAUSTFLOAT fmax, FAUSTFLOAT step) override
     {
-        params.push_back({ label, float(init), float(fmin), float(fmax), float(step) });
+        params.push_back({ label, float(init), float(fmin), float(fmax), float(step),
+                           FaustEngine::Kind::HSlider });
     }
     void addVerticalSlider(const char* label, FAUSTFLOAT*, FAUSTFLOAT init,
                             FAUSTFLOAT fmin, FAUSTFLOAT fmax, FAUSTFLOAT step) override
     {
-        params.push_back({ label, float(init), float(fmin), float(fmax), float(step) });
+        params.push_back({ label, float(init), float(fmin), float(fmax), float(step),
+                           FaustEngine::Kind::VSlider });
     }
     void addNumEntry(const char* label, FAUSTFLOAT*, FAUSTFLOAT init,
                      FAUSTFLOAT fmin, FAUSTFLOAT fmax, FAUSTFLOAT step) override
     {
-        params.push_back({ label, float(init), float(fmin), float(fmax), float(step) });
+        params.push_back({ label, float(init), float(fmin), float(fmax), float(step),
+                           FaustEngine::Kind::NumEntry });
     }
     void addButton(const char* label, FAUSTFLOAT*) override
     {
-        params.push_back({ label, 0.0f, 0.0f, 1.0f, 1.0f });
+        params.push_back({ label, 0.0f, 0.0f, 1.0f, 1.0f, FaustEngine::Kind::Button });
     }
     void addCheckButton(const char* label, FAUSTFLOAT*) override
     {
-        params.push_back({ label, 0.0f, 0.0f, 1.0f, 1.0f });
+        params.push_back({ label, 0.0f, 0.0f, 1.0f, 1.0f, FaustEngine::Kind::CheckButton });
     }
     void addHorizontalBargraph(const char*, FAUSTFLOAT*, FAUSTFLOAT, FAUSTFLOAT) override {}
     void addVerticalBargraph(const char*, FAUSTFLOAT*, FAUSTFLOAT, FAUSTFLOAT) override {}

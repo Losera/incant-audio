@@ -12,6 +12,21 @@
 class FaustEngine
 {
 public:
+    // Which Faust UI primitive declared this parameter. Faust's buildUserInterface
+    // reports slider/button/checkbox through distinct callbacks, but the metadata
+    // capture used to flatten them all into a bare min/max/step range — so a
+    // toggle was indistinguishable from a continuous control downstream.
+    // Auto-layout (docs/ui_design_plan.md §3) needs the distinction to pick a
+    // widget, so it is preserved here rather than re-inferred from the range.
+    enum class Kind
+    {
+        HSlider,
+        VSlider,
+        NumEntry,
+        Button,      // momentary — resets to 0 when released
+        CheckButton  // latching toggle
+    };
+
     struct ParamInfo
     {
         std::string label;
@@ -19,6 +34,7 @@ public:
         float       min;
         float       max;
         float       step;
+        Kind        kind;
     };
 
     using ParamList = std::vector<ParamInfo>;
