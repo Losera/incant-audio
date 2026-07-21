@@ -1,0 +1,34 @@
+{
+  "PreToolUse": [
+    {
+      "matcher": "Write",
+      "hooks": [
+        { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/check_rt_safety.py\"" },
+        { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/protect_human_owned.py\"" },
+        { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/check_adr009_prompt_sync.py\"" }
+      ]
+    },
+    {
+      "matcher": "Edit",
+      "hooks": [
+        { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/check_rt_safety.py\"" },
+        { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/protect_human_owned.py\"" },
+        { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/check_adr009_prompt_sync.py\"" }
+      ]
+    },
+    {
+      "matcher": "MultiEdit",
+      "hooks": [
+        { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/check_rt_safety.py\"" },
+        { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/protect_human_owned.py\"" },
+        { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/check_adr009_prompt_sync.py\"" }
+      ]
+    },
+    {
+      "matcher": "Bash",
+      "hooks": [
+        { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/check_bash_denylist.py\"" }
+      ]
+    }
+  ]
+}

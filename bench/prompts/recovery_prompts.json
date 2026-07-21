@@ -1,0 +1,17 @@
+{
+  "filters": [
+    "a high-pass filter with a gentle 12dB per octave slope",
+    "a band-pass filter with adjustable center frequency and Q",
+    "a notch filter for removing 60Hz hum, with a width control",
+    "a high-shelf filter for adding air to vocals"
+  ],
+  "time-based": [
+    "a subtle chorus effect with rate and depth",
+    "a tape-style flanger with feedback",
+    "a simple plate reverb with decay time and damping"
+  ],
+  "generative": [
+    "a 2-operator FM synth with ratio and modulation index",
+    "a Karplus-Strong plucked string synthesizer"
+  ]
+}

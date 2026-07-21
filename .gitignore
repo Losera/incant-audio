@@ -1,0 +1,45 @@
+# --- Secrets ---
+.env
+
+# --- Python ---
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+dist/
+
+# --- Build output ---
+build/
+*.o
+*.a
+*.so
+*.vst3
+*.component
+
+# --- Generated artifacts ---
+artifacts/
+
+# --- In-source CMake residue -------------------------------------------------
+# cmake was run directly in host/ as well as in host/build/, leaving ~400M of
+# build tree beside the sources. These are anchored to /host/ so an equivalent
+# name elsewhere in the repo is still tracked.
+/host/CMakeCache.txt
+/host/CMakeFiles/
+/host/cmake_install.cmake
+/host/Makefile
+/host/juce_vst3_helper
+
+# JUCE build tree emitted by the host configure step (CMakeFiles/, Makefile,
+# modules/ ...) — not a source clone. Real JUCE lives at $HOME/JUCE via
+# -DJUCE_PATH, see host/README.md.
+/host/JUCE/
+
+# JUCE per-target output dirs (PluginForgeHost_artefacts, ParamPoolTsanTest_artefacts)
+*_artefacts/
+
+# --- Local-only tool config --------------------------------------------------
+# .claude/{hooks,agents,skills}/ and settings.json ARE project architecture and
+# stay tracked (see README "Agentic architecture"); only per-machine overrides
+# are ignored.
+settings.local.json
+scheduled_tasks.lock

@@ -1,0 +1,332 @@
+{
+  "version": 1,
+  "description": "Matched-set prompt-efficacy dataset: 25 effects x 5 knowledge tiers. L3 is verbatim from prompts.json (anchors the committed 84% first-try baseline). Tier rules: L4 must name algorithm/topology + at least one numeric range; L3 = informed producer (effect + parameter names); L2 = functional lay description, no parameter jargon; L1 = sensory metaphor only, no effect-category or parameter names; L0 = artist/song/gear reference only, no mechanical description. expected_primitives is an ANY-OF substring list used by score_efficacy.py as a coarse semantic heuristic (weak for the trivial category by design).",
+  "tiers": ["L4", "L3", "L2", "L1", "L0"],
+  "effects": [
+    {
+      "effect_id": "trivial-01",
+      "category": "trivial",
+      "target": "stereo gain control (dB)",
+      "expected_primitives": ["ba.db2linear", "pow(10"],
+      "tiers": {
+        "L4": "A stereo gain utility: single gain parameter in decibels, range -60 to +12 dB, default 0 dB, 0.1 dB steps, converted dB-to-linear and applied equally to both channels.",
+        "L3": "a simple stereo gain control with a dB slider",
+        "L2": "a simple volume knob to make my track louder or quieter",
+        "L1": "let me push a sound forward or fade it back until it almost disappears",
+        "L0": "just the channel volume fader from an SSL mixing console"
+      }
+    },
+    {
+      "effect_id": "trivial-02",
+      "category": "trivial",
+      "target": "mute toggle",
+      "expected_primitives": ["checkbox", "button"],
+      "tiers": {
+        "L4": "A stereo mute utility: one boolean checkbox parameter; when engaged the output is hard-muted (gain 0), when off audio passes unchanged; no other controls.",
+        "L3": "a mute toggle with one boolean parameter",
+        "L2": "an on/off switch that silences my track completely when I flip it",
+        "L1": "a kill switch - one press and everything goes dead quiet, press again and it's all back",
+        "L0": "the cut button DJs slam on a Pioneer mixer to drop a channel out"
+      }
+    },
+    {
+      "effect_id": "trivial-03",
+      "category": "trivial",
+      "target": "mono-to-stereo converter",
+      "expected_primitives": ["<:"],
+      "tiers": {
+        "L4": "A mono-to-stereo converter: one input channel duplicated to left and right outputs at unity gain (a 1-to-2 signal split); no parameters required.",
+        "L3": "a mono-to-stereo converter that duplicates the channel",
+        "L2": "take my mono recording and make it come out of both speakers",
+        "L1": "my sound only lives in one ear - make it fill both sides evenly",
+        "L0": "what a Y-split cable does to a mono bass signal in a stereo session"
+      }
+    },
+    {
+      "effect_id": "trivial-04",
+      "category": "trivial",
+      "target": "DC blocker",
+      "expected_primitives": ["fi.dcblocker", "dcblock", "fi.highpass", "fi.pole", "fi.zero"],
+      "tiers": {
+        "L4": "A DC-blocking filter: first-order pole-zero highpass with cutoff around 10-20 Hz that removes DC offset while leaving the audible band untouched; stereo, no parameters needed.",
+        "L3": "a DC blocker that removes low-frequency offset",
+        "L2": "something that cleans up the inaudible low rumble that makes my waveform sit off-center",
+        "L1": "my waveform is lopsided and pushes the speakers without making any sound - fix that",
+        "L0": "the thing audio interfaces do so a wonky synth signal doesn't slowly shove your speaker cones"
+      }
+    },
+    {
+      "effect_id": "trivial-05",
+      "category": "trivial",
+      "target": "polarity inverter with bypass",
+      "expected_primitives": ["-1", "select2"],
+      "tiers": {
+        "L4": "A polarity inverter: multiplies the signal by -1, with a bypass checkbox that toggles between inverted and unprocessed signal; stereo.",
+        "L3": "a polarity inverter with a bypass switch",
+        "L2": "a switch that flips my audio's waveform upside down, with a way to turn it off",
+        "L1": "when I layer my two mics the sound goes thin and hollow - give me the switch that fixes that",
+        "L0": "the little Ø button on every mixing console channel strip"
+      }
+    },
+    {
+      "effect_id": "filters-01",
+      "category": "filters",
+      "target": "resonant low-pass filter",
+      "expected_primitives": ["fi.resonlp", "fi.lowpass", "moog", "fi.svf"],
+      "tiers": {
+        "L4": "A stereo resonant low-pass filter: 24 dB/oct ladder-style response, cutoff 20 Hz-20 kHz with exponential taper defaulting to 1 kHz, resonance Q 0.5-10, and gentle saturation for analog character.",
+        "L3": "a warm analog-style low-pass filter with cutoff and resonance",
+        "L2": "something that makes my sound darker and rounder, with one knob for how dark and another that makes it squelch when turned up",
+        "L1": "make my synth sound warm and muffled, like it's playing from another room behind a wall",
+        "L0": "the squelchy sweep sound from Daft Punk's 'Da Funk'"
+      }
+    },
+    {
+      "effect_id": "filters-02",
+      "category": "filters",
+      "target": "12 dB/oct high-pass filter",
+      "expected_primitives": ["fi.highpass", "fi.resonhp", "fi.svf"],
+      "tiers": {
+        "L4": "A stereo high-pass filter: 2nd-order Butterworth response (12 dB/oct), cutoff 20 Hz-2 kHz with exponential taper, default 100 Hz.",
+        "L3": "a high-pass filter with a gentle 12dB per octave slope",
+        "L2": "a tool that thins out the boomy low end so only the crisp top part of my sound is left",
+        "L1": "make it sound like it's coming out of a tiny phone speaker, all the weight gone",
+        "L0": "the button engineers press on every vocal channel of a mixing desk"
+      }
+    },
+    {
+      "effect_id": "filters-03",
+      "category": "filters",
+      "target": "band-pass filter",
+      "expected_primitives": ["fi.resonbp", "fi.bandpass", "fi.svf"],
+      "tiers": {
+        "L4": "A stereo band-pass filter: 2nd-order resonant design, center frequency 100 Hz-8 kHz with exponential taper defaulting to 1 kHz, Q adjustable 0.5-20.",
+        "L3": "a band-pass filter with adjustable center frequency and Q",
+        "L2": "keep just one narrow slice of my sound and cut everything above and below it, with knobs for where the slice sits and how narrow it is",
+        "L1": "make my track sound like it's squeezed through a walkie-talkie",
+        "L0": "the telephone-voice sound on Julian Casablancas' vocals on early Strokes records"
+      }
+    },
+    {
+      "effect_id": "filters-04",
+      "category": "filters",
+      "target": "notch filter for hum removal",
+      "expected_primitives": ["fi.notch", "fi.peak_eq", "fi.svf"],
+      "tiers": {
+        "L4": "A stereo notch filter tuned for hum removal: center frequency 40-120 Hz defaulting to 60 Hz, adjustable width (Q 1-50), deep attenuation at the center frequency.",
+        "L3": "a notch filter for removing 60Hz hum, with a width control",
+        "L2": "something that surgically removes an annoying electrical buzz from my recording without changing how the rest sounds, plus a control for how wide the cut is",
+        "L1": "my recording has a constant low mosquito-drone underneath everything - carve just that out and leave the rest alone",
+        "L0": "what studio engineers use to kill the ground-loop buzz from a guitar amp plugged into a bad outlet"
+      }
+    },
+    {
+      "effect_id": "filters-05",
+      "category": "filters",
+      "target": "high-shelf EQ (air)",
+      "expected_primitives": ["shelf", "fi.peak_eq"],
+      "tiers": {
+        "L4": "A stereo high-shelf EQ: corner frequency 2-16 kHz defaulting to 8 kHz, shelf gain -12 to +12 dB, gentle slope suitable for adding 'air' to vocals.",
+        "L3": "a high-shelf filter for adding air to vocals",
+        "L2": "a brightness knob that adds sparkle to the top of my vocal, or dulls it down if I turn it the other way",
+        "L1": "make my singer sound expensive - like the recording suddenly has fresh air and light around it",
+        "L0": "the silky top-end lift mastering engineers get from a Pultec on the vocal bus"
+      }
+    },
+    {
+      "effect_id": "time-based-01",
+      "category": "time-based",
+      "target": "stereo delay",
+      "expected_primitives": ["de.delay", "de.fdelay", "de.sdelay", "@"],
+      "tiers": {
+        "L4": "A stereo delay: delay time 1-2000 ms defaulting to 350 ms, feedback 0-95%, dry/wet mix 0-100%, using an interpolated delay line for click-free time changes.",
+        "L3": "a stereo delay with time, feedback, and dry/wet",
+        "L2": "an echo effect with knobs for how far apart the echoes are, how many times they repeat, and how loud they are next to the original",
+        "L1": "make my guitar answer itself, with trailing copies fading off into the distance",
+        "L0": "the dotted-eighth echo The Edge uses on 'Where the Streets Have No Name'"
+      }
+    },
+    {
+      "effect_id": "time-based-02",
+      "category": "time-based",
+      "target": "ping-pong delay",
+      "expected_primitives": ["ping_pong", "de.delay", "de.fdelay", "@"],
+      "tiers": {
+        "L4": "A ping-pong delay: cross-fed left/right delay lines so successive echoes alternate channels strictly L-R-L, delay time 50-1500 ms, feedback 0-90%, dry/wet mix.",
+        "L3": "a ping-pong delay that bounces between left and right",
+        "L2": "an echo that bounces back and forth between my left and right speakers as it fades",
+        "L1": "throw my sound across the room - it should ricochet from one side to the other while it dies away",
+        "L0": "the bouncing stereo echo all over Pink Floyd's 'One of These Days'"
+      }
+    },
+    {
+      "effect_id": "time-based-03",
+      "category": "time-based",
+      "target": "chorus",
+      "expected_primitives": ["ef.chorus", "de.fdelay", "de.delay"],
+      "tiers": {
+        "L4": "A stereo chorus: modulated delay of 5-30 ms, LFO rate 0.1-5 Hz defaulting to 0.8 Hz, depth 0-100%, equal-power dry/wet mix, with LFO phase offset between channels for width.",
+        "L3": "a subtle chorus effect with rate and depth",
+        "L2": "an effect that makes one instrument sound like several playing the same part slightly apart, with knobs for how fast and how strong the shimmer is",
+        "L1": "make my clean guitar sound wide, watery and dreamy, like it's gently swaying underwater",
+        "L0": "the glassy warble on Kurt Cobain's guitar in 'Come as You Are'"
+      }
+    },
+    {
+      "effect_id": "time-based-04",
+      "category": "time-based",
+      "target": "flanger with feedback",
+      "expected_primitives": ["flanger", "de.fdelay"],
+      "tiers": {
+        "L4": "A stereo flanger: short modulated delay 0.5-10 ms swept by a 0.05-2 Hz LFO, feedback -0.95 to +0.95 for tape-style resonance, dry/wet mix.",
+        "L3": "a tape-style flanger with feedback",
+        "L2": "a whooshing jet-plane sweep that slowly moves up and down over my sound, with a control for how intense the swirl gets",
+        "L1": "make my drums feel like they're being pulled through a wind tunnel that slowly breathes",
+        "L0": "the psychedelic swooshing sweep on Small Faces' 'Itchycoo Park'"
+      }
+    },
+    {
+      "effect_id": "time-based-05",
+      "category": "time-based",
+      "target": "plate reverb",
+      "expected_primitives": ["re.", "reverb", "allpass"],
+      "tiers": {
+        "L4": "A plate-style reverb: dense early diffusion feeding an allpass/feedback-delay network, decay time 0.5-8 s, high-frequency damping control, dry/wet mix, stereo output.",
+        "L3": "a simple plate reverb with decay time and damping",
+        "L2": "a smooth wash that makes my vocal sound like it's in a big room, with knobs for how long the tail lasts and how dark it gets",
+        "L1": "give my voice a halo - a soft silver shimmer that hangs in the air after every word",
+        "L0": "the lush metal-plate vocal reverb on every 1960s Abbey Road record"
+      }
+    },
+    {
+      "effect_id": "dynamics-01",
+      "category": "dynamics",
+      "target": "compressor",
+      "expected_primitives": ["co.", "compress"],
+      "tiers": {
+        "L4": "A stereo feed-forward compressor: threshold -60 to 0 dB, ratio 1:1 to 20:1, attack 0.1-100 ms, release 10-1000 ms, with makeup gain.",
+        "L3": "a compressor with threshold, ratio, attack, and release",
+        "L2": "something that evens out my track's volume - it catches the loud hits and lifts the quiet parts so everything sits together",
+        "L1": "glue my mix so it feels dense and controlled, like a firm hand keeping every sound in its place",
+        "L0": "that punchy 'everything glued together' drum sound on Dr. Dre records"
+      }
+    },
+    {
+      "effect_id": "dynamics-02",
+      "category": "dynamics",
+      "target": "brick-wall limiter",
+      "expected_primitives": ["co.", "limit"],
+      "tiers": {
+        "L4": "A brick-wall limiter for mastering: ceiling -20 to 0 dBFS defaulting to -0.3 dBFS, sub-millisecond attack, release 10-500 ms; output must never exceed the ceiling.",
+        "L3": "a brick-wall limiter for mastering",
+        "L2": "a safety wall that stops my song from ever going over a set loudness, no matter how hard I push into it",
+        "L1": "make my track slam as loud as it can possibly go without ever cracking apart",
+        "L0": "the loudness-war sound of a 2000s mastered CD like 'Californication'"
+      }
+    },
+    {
+      "effect_id": "dynamics-03",
+      "category": "dynamics",
+      "target": "noise gate",
+      "expected_primitives": ["gate", "co."],
+      "tiers": {
+        "L4": "A noise gate: threshold -80 to 0 dB, hold time 0-500 ms, fast attack and moderate release, closing to silence whenever the input falls below threshold.",
+        "L3": "a noise gate with threshold and hold time",
+        "L2": "something that automatically mutes my mic in the gaps between phrases so you can't hear the background hiss",
+        "L1": "when I stop playing, the amp buzz should vanish instantly - total silence between my notes",
+        "L0": "the drum sound from Phil Collins' 'In the Air Tonight' where the huge hit gets chopped off dead"
+      }
+    },
+    {
+      "effect_id": "dynamics-04",
+      "category": "dynamics",
+      "target": "upward expander",
+      "expected_primitives": ["expand", "co."],
+      "tiers": {
+        "L4": "An upward expander: signals below threshold are boosted toward it with ratio 1:1 to 1:4, threshold -60 to 0 dB, attack and release controls; brings up low-level detail.",
+        "L3": "an upward expander to bring out quiet details",
+        "L2": "the opposite of squashing - it makes the quiet little details of my recording louder while leaving the loud parts alone",
+        "L1": "surface the ghost notes and room air buried deep in my take - the stuff you feel more than hear",
+        "L0": "what mastering engineers do to bring out the breaths and finger noise on a Norah Jones record"
+      }
+    },
+    {
+      "effect_id": "dynamics-05",
+      "category": "dynamics",
+      "target": "sidechain compressor",
+      "expected_primitives": ["co.", "compress"],
+      "tiers": {
+        "L4": "A sidechain-capable compressor: stereo program input plus an external key input, threshold -60 to 0 dB, ratio up to 10:1, attack 0.1-50 ms, release 50-1000 ms; gain reduction driven by the key signal.",
+        "L3": "a sidechain-capable compressor",
+        "L2": "a compressor that ducks my track down whenever another sound like the kick drum hits, then lets it swell back up",
+        "L1": "make my pads breathe in and out with the beat, dipping every time the kick lands",
+        "L0": "the pumping sound of Eric Prydz's 'Call on Me'"
+      }
+    },
+    {
+      "effect_id": "generative-01",
+      "category": "generative",
+      "target": "sine oscillator",
+      "expected_primitives": ["os.osc", "sin"],
+      "tiers": {
+        "L4": "A sine-wave test oscillator: frequency 20 Hz-20 kHz with exponential taper defaulting to 440 Hz, amplitude 0-1 defaulting to 0.5; a pure sinusoid with no harmonics.",
+        "L3": "a pure sine wave oscillator with frequency and amplitude",
+        "L2": "a generator that plays one perfectly smooth, pure tone, with controls for its pitch and volume",
+        "L1": "the cleanest possible beep - a single glassy tone with nothing rough or buzzy about it",
+        "L0": "the 440 tuning tone, like the beep in a hearing test"
+      }
+    },
+    {
+      "effect_id": "generative-02",
+      "category": "generative",
+      "target": "sawtooth synth with ADSR",
+      "expected_primitives": ["saw", "adsr"],
+      "tiers": {
+        "L4": "A sawtooth synth voice: band-limited sawtooth oscillator 40 Hz-4 kHz, ADSR amplitude envelope (attack 1-1000 ms, decay 1-1000 ms, sustain 0-1, release 10-3000 ms), and a gate control to trigger notes.",
+        "L3": "a sawtooth synth with an ADSR envelope",
+        "L2": "a buzzy synth tone whose volume shape I can control - how fast it starts, how it settles, and how long it takes to fade when I let go",
+        "L1": "a bright sharp synth note that blooms open when I press and sighs away when I release",
+        "L0": "the raw buzzing analog synth lead from 'Popcorn'"
+      }
+    },
+    {
+      "effect_id": "generative-03",
+      "category": "generative",
+      "target": "2-operator FM synth",
+      "expected_primitives": ["os.osc", "fm"],
+      "tiers": {
+        "L4": "A 2-operator FM synthesizer: sine carrier 40 Hz-2 kHz, modulator at an adjustable frequency ratio 0.25-8 of the carrier, modulation index 0-20; classic Chowning-style FM.",
+        "L3": "a 2-operator FM synth with ratio and modulation index",
+        "L2": "a synth where one tone wobbles another so fast it turns into bells and metallic timbres, with knobs for the flavor and the intensity",
+        "L1": "glassy, bell-like electric tones - somewhere between a wine glass and a robot choir",
+        "L0": "the DX7 electric-piano sound from every 80s ballad, like 'Careless Whisper'"
+      }
+    },
+    {
+      "effect_id": "generative-04",
+      "category": "generative",
+      "target": "white noise with tone control",
+      "expected_primitives": ["no.noise", "noise"],
+      "tiers": {
+        "L4": "A white-noise generator with tone shaping: uniform white noise source into a one-pole low-pass tone control 100 Hz-15 kHz, plus an output level 0-1.",
+        "L3": "a white noise generator with a tone control",
+        "L2": "a static hiss generator with a knob that sweeps it from bright crackle down to a deep rumble",
+        "L1": "the sound of ocean spray or a distant waterfall that I can brighten or darken",
+        "L0": "the wind-and-surf sound from a white-noise sleep machine"
+      }
+    },
+    {
+      "effect_id": "generative-05",
+      "category": "generative",
+      "target": "Karplus-Strong plucked string",
+      "expected_primitives": ["no.noise", "karplus", "pm."],
+      "tiers": {
+        "L4": "Karplus-Strong plucked-string synthesis: a noise-burst-excited delay line with a two-point averaging low-pass in the feedback loop, frequency 40 Hz-2 kHz, decay time and damping controls, and a trigger gate.",
+        "L3": "a Karplus-Strong plucked string synthesizer",
+        "L2": "an instrument that sounds like plucking a guitar string, with a pitch control and one for how long the note rings out",
+        "L1": "a plucky harp-like note that dies away naturally, like touching a real string",
+        "L0": "the plucked intro sound of The Police's 'Every Breath You Take', playable at different pitches"
+      }
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "trivial": [
+    "a simple stereo gain control with a dB slider",
+    "a mute toggle with one boolean parameter",
+    "a mono-to-stereo converter that duplicates the channel",
+    "a DC blocker that removes low-frequency offset",
+    "a polarity inverter with a bypass switch"
+  ],
+  "filters": [
+    "a warm analog-style low-pass filter with cutoff and resonance",
+    "a high-pass filter with a gentle 12dB per octave slope",
+    "a band-pass filter with adjustable center frequency and Q",
+    "a notch filter for removing 60Hz hum, with a width control",
+    "a high-shelf filter for adding air to vocals"
+  ],
+  "time-based": [
+    "a stereo delay with time, feedback, and dry/wet",
+    "a ping-pong delay that bounces between left and right",
+    "a subtle chorus effect with rate and depth",
+    "a tape-style flanger with feedback",
+    "a simple plate reverb with decay time and damping"
+  ],
+  "dynamics": [
+    "a compressor with threshold, ratio, attack, and release",
+    "a brick-wall limiter for mastering",
+    "a noise gate with threshold and hold time",
+    "an upward expander to bring out quiet details",
+    "a sidechain-capable compressor"
+  ],
+  "generative": [
+    "a pure sine wave oscillator with frequency and amplitude",
+    "a sawtooth synth with an ADSR envelope",
+    "a 2-operator FM synth with ratio and modulation index",
+    "a white noise generator with a tone control",
+    "a Karplus-Strong plucked string synthesizer"
+  ]
+}

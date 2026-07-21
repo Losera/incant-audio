@@ -1,0 +1,2002 @@
+[
+  {
+    "provider": "claude",
+    "effect_id": "trivial-01",
+    "category": "trivial",
+    "tier": "L4",
+    "prompt": "A stereo gain utility: single gain parameter in decibels, range -60 to +12 dB, default 0 dB, 0.1 dB steps, converted dB-to-linear and applied equally to both channels.",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzGe8pemUaceUixf7P'}"
+    ],
+    "timestamp": "2026-07-20T12:29:30.598081+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "trivial-01",
+    "category": "trivial",
+    "tier": "L3",
+    "prompt": "a simple stereo gain control with a dB slider",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzHT11LWLYASMtyff4'}"
+    ],
+    "timestamp": "2026-07-20T12:29:30.876194+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "trivial-01",
+    "category": "trivial",
+    "tier": "L2",
+    "prompt": "a simple volume knob to make my track louder or quieter",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzJV1rVZthqBDFMLJR'}"
+    ],
+    "timestamp": "2026-07-20T12:29:31.079101+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "trivial-01",
+    "category": "trivial",
+    "tier": "L1",
+    "prompt": "let me push a sound forward or fade it back until it almost disappears",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzKazGBcpumnjkQTNZ'}"
+    ],
+    "timestamp": "2026-07-20T12:29:31.285411+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "trivial-01",
+    "category": "trivial",
+    "tier": "L0",
+    "prompt": "just the channel volume fader from an SSL mixing console",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzLK9Vm2wakWApwqWQ'}"
+    ],
+    "timestamp": "2026-07-20T12:29:31.580013+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "trivial-02",
+    "category": "trivial",
+    "tier": "L4",
+    "prompt": "A stereo mute utility: one boolean checkbox parameter; when engaged the output is hard-muted (gain 0), when off audio passes unchanged; no other controls.",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzLucQnpeDmZpyx5px'}"
+    ],
+    "timestamp": "2026-07-20T12:29:31.702229+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "trivial-02",
+    "category": "trivial",
+    "tier": "L3",
+    "prompt": "a mute toggle with one boolean parameter",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzMsuSwAQS8wGwS5nn'}"
+    ],
+    "timestamp": "2026-07-20T12:29:31.925633+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "trivial-02",
+    "category": "trivial",
+    "tier": "L2",
+    "prompt": "an on/off switch that silences my track completely when I flip it",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzNzdFhLnmYRKKu5Vt'}"
+    ],
+    "timestamp": "2026-07-20T12:29:32.202331+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "trivial-02",
+    "category": "trivial",
+    "tier": "L1",
+    "prompt": "a kill switch - one press and everything goes dead quiet, press again and it's all back",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzPWsnUZ4Wbjs1qSPz'}"
+    ],
+    "timestamp": "2026-07-20T12:29:32.332124+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "trivial-02",
+    "category": "trivial",
+    "tier": "L0",
+    "prompt": "the cut button DJs slam on a Pioneer mixer to drop a channel out",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzQBKJ1pNChEKRLJT2'}"
+    ],
+    "timestamp": "2026-07-20T12:29:32.453486+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "trivial-03",
+    "category": "trivial",
+    "tier": "L4",
+    "prompt": "A mono-to-stereo converter: one input channel duplicated to left and right outputs at unity gain (a 1-to-2 signal split); no parameters required.",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzQsyxu5b5k5ySZTgY'}"
+    ],
+    "timestamp": "2026-07-20T12:29:32.607995+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "trivial-03",
+    "category": "trivial",
+    "tier": "L3",
+    "prompt": "a mono-to-stereo converter that duplicates the channel",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzRiLgH9M1RRka2W2E'}"
+    ],
+    "timestamp": "2026-07-20T12:29:32.845790+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "trivial-03",
+    "category": "trivial",
+    "tier": "L2",
+    "prompt": "take my mono recording and make it come out of both speakers",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzSHp6631CSrPvjxfs'}"
+    ],
+    "timestamp": "2026-07-20T12:29:32.964436+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "trivial-03",
+    "category": "trivial",
+    "tier": "L1",
+    "prompt": "my sound only lives in one ear - make it fill both sides evenly",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzSoKpo1h5nigKcoHc'}"
+    ],
+    "timestamp": "2026-07-20T12:29:33.102218+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "trivial-03",
+    "category": "trivial",
+    "tier": "L0",
+    "prompt": "what a Y-split cable does to a mono bass signal in a stereo session",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzTQ3F7nTcEKnnmnU2'}"
+    ],
+    "timestamp": "2026-07-20T12:29:33.228363+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "trivial-04",
+    "category": "trivial",
+    "tier": "L4",
+    "prompt": "A DC-blocking filter: first-order pole-zero highpass with cutoff around 10-20 Hz that removes DC offset while leaving the audible band untouched; stereo, no parameters needed.",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzUH7zHhpmDvN8Ay4A'}"
+    ],
+    "timestamp": "2026-07-20T12:29:33.426847+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "trivial-04",
+    "category": "trivial",
+    "tier": "L3",
+    "prompt": "a DC blocker that removes low-frequency offset",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzUntAHnWiGW8NrLnL'}"
+    ],
+    "timestamp": "2026-07-20T12:29:33.568227+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "trivial-04",
+    "category": "trivial",
+    "tier": "L2",
+    "prompt": "something that cleans up the inaudible low rumble that makes my waveform sit off-center",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzVTp7s44LFrd4JRaQ'}"
+    ],
+    "timestamp": "2026-07-20T12:29:33.684428+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "trivial-04",
+    "category": "trivial",
+    "tier": "L1",
+    "prompt": "my waveform is lopsided and pushes the speakers without making any sound - fix that",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzWvsD1z9L3Y1bYQpq'}"
+    ],
+    "timestamp": "2026-07-20T12:29:33.972479+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "trivial-04",
+    "category": "trivial",
+    "tier": "L0",
+    "prompt": "the thing audio interfaces do so a wonky synth signal doesn't slowly shove your speaker cones",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzXrS9FCV3a1MbN1MN'}"
+    ],
+    "timestamp": "2026-07-20T12:29:34.186065+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "trivial-05",
+    "category": "trivial",
+    "tier": "L4",
+    "prompt": "A polarity inverter: multiplies the signal by -1, with a bypass checkbox that toggles between inverted and unprocessed signal; stereo.",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzYdoxQDCfp2GgMDcw'}"
+    ],
+    "timestamp": "2026-07-20T12:29:34.404494+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "trivial-05",
+    "category": "trivial",
+    "tier": "L3",
+    "prompt": "a polarity inverter with a bypass switch",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzZrUsk7EbiaqHHVxJ'}"
+    ],
+    "timestamp": "2026-07-20T12:29:34.693628+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "trivial-05",
+    "category": "trivial",
+    "tier": "L2",
+    "prompt": "a switch that flips my audio's waveform upside down, with a way to turn it off",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzakZJVycMvrSVuENS'}"
+    ],
+    "timestamp": "2026-07-20T12:29:34.879423+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "trivial-05",
+    "category": "trivial",
+    "tier": "L1",
+    "prompt": "when I layer my two mics the sound goes thin and hollow - give me the switch that fixes that",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzbRVNW4AqTULCYNfo'}"
+    ],
+    "timestamp": "2026-07-20T12:29:35.099909+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "trivial-05",
+    "category": "trivial",
+    "tier": "L0",
+    "prompt": "the little \u00d8 button on every mixing console channel strip",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzc2hYhc1nPSrqJui4'}"
+    ],
+    "timestamp": "2026-07-20T12:29:35.240721+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "filters-01",
+    "category": "filters",
+    "tier": "L4",
+    "prompt": "A stereo resonant low-pass filter: 24 dB/oct ladder-style response, cutoff 20 Hz-20 kHz with exponential taper defaulting to 1 kHz, resonance Q 0.5-10, and gentle saturation for analog character.",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzchPPNcMjNoUwcWbh'}"
+    ],
+    "timestamp": "2026-07-20T12:29:35.411718+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "filters-01",
+    "category": "filters",
+    "tier": "L3",
+    "prompt": "a warm analog-style low-pass filter with cutoff and resonance",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzdQJLFz9RBfuwyUyh'}"
+    ],
+    "timestamp": "2026-07-20T12:29:35.551732+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "filters-01",
+    "category": "filters",
+    "tier": "L2",
+    "prompt": "something that makes my sound darker and rounder, with one knob for how dark and another that makes it squelch when turned up",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzeF9puWYuRfN1Abn7'}"
+    ],
+    "timestamp": "2026-07-20T12:29:35.754780+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "filters-01",
+    "category": "filters",
+    "tier": "L1",
+    "prompt": "make my synth sound warm and muffled, like it's playing from another room behind a wall",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzfv7FsM5TeXwz3WG8'}"
+    ],
+    "timestamp": "2026-07-20T12:29:36.126339+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "filters-01",
+    "category": "filters",
+    "tier": "L0",
+    "prompt": "the squelchy filter sweep sound from Daft Punk's 'Da Funk'",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzgYK5z2BarmgqgzPQ'}"
+    ],
+    "timestamp": "2026-07-20T12:29:36.291635+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "filters-02",
+    "category": "filters",
+    "tier": "L4",
+    "prompt": "A stereo high-pass filter: 2nd-order Butterworth response (12 dB/oct), cutoff 20 Hz-2 kHz with exponential taper, default 100 Hz.",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzh6JnFJmrTyZfSiaQ'}"
+    ],
+    "timestamp": "2026-07-20T12:29:36.436911+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "filters-02",
+    "category": "filters",
+    "tier": "L3",
+    "prompt": "a high-pass filter with a gentle 12dB per octave slope",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzhdo4R3hnQGoGtZM3'}"
+    ],
+    "timestamp": "2026-07-20T12:29:36.562868+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "filters-02",
+    "category": "filters",
+    "tier": "L2",
+    "prompt": "a tool that thins out the boomy low end so only the crisp top part of my sound is left",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzjTSJmS6i1CbdyY1p'}"
+    ],
+    "timestamp": "2026-07-20T12:29:36.739456+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "filters-02",
+    "category": "filters",
+    "tier": "L1",
+    "prompt": "make it sound like it's coming out of a tiny phone speaker, all the weight gone",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzkk5BZ6m3iQnkcvgV'}"
+    ],
+    "timestamp": "2026-07-20T12:29:37.276722+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "filters-02",
+    "category": "filters",
+    "tier": "L0",
+    "prompt": "the low-cut button engineers press on the mixing desk for every vocal channel",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzmSjw57Pm5aXBUwMK'}"
+    ],
+    "timestamp": "2026-07-20T12:29:37.424102+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "filters-03",
+    "category": "filters",
+    "tier": "L4",
+    "prompt": "A stereo band-pass filter: 2nd-order resonant design, center frequency 100 Hz-8 kHz with exponential taper defaulting to 1 kHz, Q adjustable 0.5-20.",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJznsKTxNckCUNTGZhR'}"
+    ],
+    "timestamp": "2026-07-20T12:29:37.660921+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "filters-03",
+    "category": "filters",
+    "tier": "L3",
+    "prompt": "a band-pass filter with adjustable center frequency and Q",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzoQKQvnzXZDrzD4T7'}"
+    ],
+    "timestamp": "2026-07-20T12:29:37.912942+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "filters-03",
+    "category": "filters",
+    "tier": "L2",
+    "prompt": "keep just one narrow slice of my sound and cut everything above and below it, with knobs for where the slice sits and how narrow it is",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzp8UDR9rAmWdva39K'}"
+    ],
+    "timestamp": "2026-07-20T12:29:38.045019+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "filters-03",
+    "category": "filters",
+    "tier": "L1",
+    "prompt": "make my track sound like it's squeezed through a walkie-talkie",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzprsq4oe2qFovZGSY'}"
+    ],
+    "timestamp": "2026-07-20T12:29:38.256205+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "filters-03",
+    "category": "filters",
+    "tier": "L0",
+    "prompt": "the telephone-voice sound on Julian Casablancas' vocals on early Strokes records",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzqzatLfCsT448XHXT'}"
+    ],
+    "timestamp": "2026-07-20T12:29:38.383746+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "filters-04",
+    "category": "filters",
+    "tier": "L4",
+    "prompt": "A stereo notch filter tuned for hum removal: center frequency 40-120 Hz defaulting to 60 Hz, adjustable width (Q 1-50), deep attenuation at the center frequency.",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzsUt4nC2YaKJHWAjo'}"
+    ],
+    "timestamp": "2026-07-20T12:29:38.654792+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "filters-04",
+    "category": "filters",
+    "tier": "L3",
+    "prompt": "a notch filter for removing 60Hz hum, with a width control",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJztBZ5UGe9TSQkN4wk'}"
+    ],
+    "timestamp": "2026-07-20T12:29:38.992875+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "filters-04",
+    "category": "filters",
+    "tier": "L2",
+    "prompt": "something that surgically removes an annoying electrical buzz from my recording without changing how the rest sounds, plus a control for how wide the cut is",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzum3uBVyYCpCAAis8'}"
+    ],
+    "timestamp": "2026-07-20T12:29:39.374313+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "filters-04",
+    "category": "filters",
+    "tier": "L1",
+    "prompt": "my recording has a constant low mosquito-drone underneath everything - carve just that out and leave the rest alone",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzvUDcMPeXBzANKT33'}"
+    ],
+    "timestamp": "2026-07-20T12:29:39.529066+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "filters-04",
+    "category": "filters",
+    "tier": "L0",
+    "prompt": "what studio engineers use to kill the ground-loop buzz from a guitar amp plugged into a bad outlet",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzvyUh7fLKtZUZKioj'}"
+    ],
+    "timestamp": "2026-07-20T12:29:39.691949+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "filters-05",
+    "category": "filters",
+    "tier": "L4",
+    "prompt": "A stereo high-shelf EQ: corner frequency 2-16 kHz defaulting to 8 kHz, shelf gain -12 to +12 dB, gentle slope suitable for adding 'air' to vocals.",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzwaSd2xTqU3qX3iWv'}"
+    ],
+    "timestamp": "2026-07-20T12:29:39.813796+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "filters-05",
+    "category": "filters",
+    "tier": "L3",
+    "prompt": "a high-shelf filter for adding air to vocals",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzxGNGpy3aedjDDRz3'}"
+    ],
+    "timestamp": "2026-07-20T12:29:39.954461+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "filters-05",
+    "category": "filters",
+    "tier": "L2",
+    "prompt": "a brightness knob that adds sparkle to the top of my vocal, or dulls it down if I turn it the other way",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzxocfwrNLZWKowqTX'}"
+    ],
+    "timestamp": "2026-07-20T12:29:40.120456+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "filters-05",
+    "category": "filters",
+    "tier": "L1",
+    "prompt": "make my singer sound expensive - like the recording suddenly has fresh air and light around it",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzydE8A3sY8JBAM5pG'}"
+    ],
+    "timestamp": "2026-07-20T12:29:40.306006+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "filters-05",
+    "category": "filters",
+    "tier": "L0",
+    "prompt": "the silky top-end lift mastering engineers get from a Pultec on the vocal bus",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDJzzVKCtWVireJHHUfP'}"
+    ],
+    "timestamp": "2026-07-20T12:29:40.477107+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "time-based-01",
+    "category": "time-based",
+    "tier": "L4",
+    "prompt": "A stereo delay: delay time 1-2000 ms defaulting to 350 ms, feedback 0-95%, dry/wet mix 0-100%, using an interpolated delay line for click-free time changes.",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK11jUhVpBPVJwduKbY'}"
+    ],
+    "timestamp": "2026-07-20T12:29:40.758579+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "time-based-01",
+    "category": "time-based",
+    "tier": "L3",
+    "prompt": "a stereo delay with time, feedback, and dry/wet",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK12eHnuwGsqRoZAkUD'}"
+    ],
+    "timestamp": "2026-07-20T12:29:41.006319+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "time-based-01",
+    "category": "time-based",
+    "tier": "L2",
+    "prompt": "an echo effect with knobs for how far apart the echoes are, how many times they repeat, and how loud they are next to the original",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK13epTqC4KRrHhr1TR'}"
+    ],
+    "timestamp": "2026-07-20T12:29:41.244730+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "time-based-01",
+    "category": "time-based",
+    "tier": "L1",
+    "prompt": "make my guitar answer itself, with trailing copies fading off into the distance",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK14uy5c6nhYAG2MsdA'}"
+    ],
+    "timestamp": "2026-07-20T12:29:41.399271+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "time-based-01",
+    "category": "time-based",
+    "tier": "L0",
+    "prompt": "the dotted-eighth echo The Edge uses on 'Where the Streets Have No Name'",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK15vjw8SM3WEcEaMav'}"
+    ],
+    "timestamp": "2026-07-20T12:29:41.756723+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "time-based-02",
+    "category": "time-based",
+    "tier": "L4",
+    "prompt": "A ping-pong delay: cross-fed left/right delay lines so successive echoes alternate channels strictly L-R-L, delay time 50-1500 ms, feedback 0-90%, dry/wet mix.",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK16n5oPeiAvZDM2FCs'}"
+    ],
+    "timestamp": "2026-07-20T12:29:41.906329+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "time-based-02",
+    "category": "time-based",
+    "tier": "L3",
+    "prompt": "a ping-pong delay that bounces between left and right",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK17Po3LbJzFh79LJoK'}"
+    ],
+    "timestamp": "2026-07-20T12:29:42.109994+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "time-based-02",
+    "category": "time-based",
+    "tier": "L2",
+    "prompt": "an echo that bounces back and forth between my left and right speakers as it fades",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK17z1bpsXGaaJEzVuG'}"
+    ],
+    "timestamp": "2026-07-20T12:29:42.269063+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "time-based-02",
+    "category": "time-based",
+    "tier": "L1",
+    "prompt": "throw my sound across the room - it should ricochet from one side to the other while it dies away",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK18ps7WqmWPmF9kKj5'}"
+    ],
+    "timestamp": "2026-07-20T12:29:42.385443+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "time-based-02",
+    "category": "time-based",
+    "tier": "L0",
+    "prompt": "the bouncing stereo echo all over Pink Floyd's 'One of These Days'",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK19r8dpsrRaTCW4Z4N'}"
+    ],
+    "timestamp": "2026-07-20T12:29:42.581224+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "time-based-03",
+    "category": "time-based",
+    "tier": "L4",
+    "prompt": "A stereo chorus: modulated delay of 5-30 ms, LFO rate 0.1-5 Hz defaulting to 0.8 Hz, depth 0-100%, equal-power dry/wet mix, with LFO phase offset between channels for width.",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1AttMjfx7x2jSq8Ks'}"
+    ],
+    "timestamp": "2026-07-20T12:29:42.937258+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "time-based-03",
+    "category": "time-based",
+    "tier": "L3",
+    "prompt": "a subtle chorus effect with rate and depth",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1BcJ2YG9i6mzUiwv5'}"
+    ],
+    "timestamp": "2026-07-20T12:29:43.075992+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "time-based-03",
+    "category": "time-based",
+    "tier": "L2",
+    "prompt": "an effect that makes one instrument sound like several playing the same part slightly apart, with knobs for how fast and how strong the shimmer is",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1CLx51keJiCVULoAv'}"
+    ],
+    "timestamp": "2026-07-20T12:29:43.292353+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "time-based-03",
+    "category": "time-based",
+    "tier": "L1",
+    "prompt": "make my clean guitar sound wide, watery and dreamy, like it's gently swaying underwater",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1D8KyKfpwxNVdKMo8'}"
+    ],
+    "timestamp": "2026-07-20T12:29:43.463093+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "time-based-03",
+    "category": "time-based",
+    "tier": "L0",
+    "prompt": "the glassy warble on Kurt Cobain's guitar in 'Come as You Are'",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1DoWextuf95qApmXV'}"
+    ],
+    "timestamp": "2026-07-20T12:29:43.607994+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "time-based-04",
+    "category": "time-based",
+    "tier": "L4",
+    "prompt": "A stereo flanger: short modulated delay 0.5-10 ms swept by a 0.05-2 Hz LFO, feedback -0.95 to +0.95 for tape-style resonance, dry/wet mix.",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1Ed7nVLtTFipcsTXQ'}"
+    ],
+    "timestamp": "2026-07-20T12:29:43.805009+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "time-based-04",
+    "category": "time-based",
+    "tier": "L3",
+    "prompt": "a tape-style flanger with feedback",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1FHoRnPApW9xs4dhD'}"
+    ],
+    "timestamp": "2026-07-20T12:29:43.940535+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "time-based-04",
+    "category": "time-based",
+    "tier": "L2",
+    "prompt": "a whooshing jet-plane sweep that slowly moves up and down over my sound, with a control for how intense the swirl gets",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1G6RUXR1Win3iXT8i'}"
+    ],
+    "timestamp": "2026-07-20T12:29:44.143490+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "time-based-04",
+    "category": "time-based",
+    "tier": "L1",
+    "prompt": "make my drums feel like they're being pulled through a wind tunnel that slowly breathes",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1H5x2GqdeiV5bUTK6'}"
+    ],
+    "timestamp": "2026-07-20T12:29:44.316658+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "time-based-04",
+    "category": "time-based",
+    "tier": "L0",
+    "prompt": "the psychedelic swooshing sweep on Small Faces' 'Itchycoo Park'",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1J8TaTTyt8aKtBkwi'}"
+    ],
+    "timestamp": "2026-07-20T12:29:44.582620+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "time-based-05",
+    "category": "time-based",
+    "tier": "L4",
+    "prompt": "A plate-style reverb: dense early diffusion feeding an allpass/feedback-delay network, decay time 0.5-8 s, high-frequency damping control, dry/wet mix, stereo output.",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1Jxp5os2av2rHyY5s'}"
+    ],
+    "timestamp": "2026-07-20T12:29:44.829066+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "time-based-05",
+    "category": "time-based",
+    "tier": "L3",
+    "prompt": "a simple plate reverb with decay time and damping",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1KrPtgKPk7vhyPnZB'}"
+    ],
+    "timestamp": "2026-07-20T12:29:44.974552+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "time-based-05",
+    "category": "time-based",
+    "tier": "L2",
+    "prompt": "a smooth wash that makes my vocal sound like it's in a big room, with knobs for how long the tail lasts and how dark it gets",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1LdmqtdVWzsgKMLku'}"
+    ],
+    "timestamp": "2026-07-20T12:29:45.161671+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "time-based-05",
+    "category": "time-based",
+    "tier": "L1",
+    "prompt": "give my voice a halo - a soft silver shimmer that hangs in the air after every word",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1Mb4uEAQisofxyJyF'}"
+    ],
+    "timestamp": "2026-07-20T12:29:45.423177+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "time-based-05",
+    "category": "time-based",
+    "tier": "L0",
+    "prompt": "the lush metal-plate vocal reverb on every 1960s Abbey Road record",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1NXd8dyrECMMsGVuA'}"
+    ],
+    "timestamp": "2026-07-20T12:29:45.602629+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "dynamics-01",
+    "category": "dynamics",
+    "tier": "L4",
+    "prompt": "A stereo feed-forward compressor: threshold -60 to 0 dB, ratio 1:1 to 20:1, attack 0.1-100 ms, release 10-1000 ms, with makeup gain.",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1PnH8pV1nUisWPtSw'}"
+    ],
+    "timestamp": "2026-07-20T12:29:45.853495+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "dynamics-01",
+    "category": "dynamics",
+    "tier": "L3",
+    "prompt": "a compressor with threshold, ratio, attack, and release",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1QecticHKBg2zkgei'}"
+    ],
+    "timestamp": "2026-07-20T12:29:46.161167+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "dynamics-01",
+    "category": "dynamics",
+    "tier": "L2",
+    "prompt": "something that evens out my track's volume - it catches the loud hits and lifts the quiet parts so everything sits together",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1RA8MK9K9TLWfmhZ3'}"
+    ],
+    "timestamp": "2026-07-20T12:29:46.284604+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "dynamics-01",
+    "category": "dynamics",
+    "tier": "L1",
+    "prompt": "glue my mix so it feels dense and controlled, like a firm hand keeping every sound in its place",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1RfPhnR6yCvexkt5U'}"
+    ],
+    "timestamp": "2026-07-20T12:29:46.399705+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "dynamics-01",
+    "category": "dynamics",
+    "tier": "L0",
+    "prompt": "that punchy 'everything glued together' drum sound on Dr. Dre records",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1SD8g9oK3zch34cEZ'}"
+    ],
+    "timestamp": "2026-07-20T12:29:46.530123+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "dynamics-02",
+    "category": "dynamics",
+    "tier": "L4",
+    "prompt": "A brick-wall limiter for mastering: ceiling -20 to 0 dBFS defaulting to -0.3 dBFS, sub-millisecond attack, release 10-500 ms; output must never exceed the ceiling.",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1Svnh7GuDiEENEq8k'}"
+    ],
+    "timestamp": "2026-07-20T12:29:46.693527+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "dynamics-02",
+    "category": "dynamics",
+    "tier": "L3",
+    "prompt": "a brick-wall limiter for mastering",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1UJPYrdg3bRPBysVV'}"
+    ],
+    "timestamp": "2026-07-20T12:29:46.876600+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "dynamics-02",
+    "category": "dynamics",
+    "tier": "L2",
+    "prompt": "a safety wall that stops my song from ever going over a set loudness, no matter how hard I push into it",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1V1JsWL698MsFtyBE'}"
+    ],
+    "timestamp": "2026-07-20T12:29:47.183994+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "dynamics-02",
+    "category": "dynamics",
+    "tier": "L1",
+    "prompt": "make my track slam as loud as it can possibly go without ever cracking apart",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1VstchEtwq4pwgG15'}"
+    ],
+    "timestamp": "2026-07-20T12:29:47.311058+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "dynamics-02",
+    "category": "dynamics",
+    "tier": "L0",
+    "prompt": "the loudness-war maximizer sound of a 2000s mastered CD like 'Californication'",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1WZKpDQ2Mb4Lj47V3'}"
+    ],
+    "timestamp": "2026-07-20T12:29:47.542967+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "dynamics-03",
+    "category": "dynamics",
+    "tier": "L4",
+    "prompt": "A noise gate: threshold -80 to 0 dB, hold time 0-500 ms, fast attack and moderate release, closing to silence whenever the input falls below threshold.",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1Xc5ScafFkEds77tg'}"
+    ],
+    "timestamp": "2026-07-20T12:29:47.707393+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "dynamics-03",
+    "category": "dynamics",
+    "tier": "L3",
+    "prompt": "a noise gate with threshold and hold time",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1YYP94eRgzWj862Bq'}"
+    ],
+    "timestamp": "2026-07-20T12:29:47.984242+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "dynamics-03",
+    "category": "dynamics",
+    "tier": "L2",
+    "prompt": "something that automatically mutes my mic in the gaps between phrases so you can't hear the background hiss",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1ZF3tU66WibJp3f6d'}"
+    ],
+    "timestamp": "2026-07-20T12:29:48.179594+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "dynamics-03",
+    "category": "dynamics",
+    "tier": "L1",
+    "prompt": "when I stop playing, the amp buzz should vanish instantly - total silence between my notes",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1Zs1ZBBrEsR6fXXdQ'}"
+    ],
+    "timestamp": "2026-07-20T12:29:48.301376+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "dynamics-03",
+    "category": "dynamics",
+    "tier": "L0",
+    "prompt": "the drum sound from Phil Collins' 'In the Air Tonight' where the huge hit gets chopped off dead",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1cV24GGRiNbuoTX56'}"
+    ],
+    "timestamp": "2026-07-20T12:29:48.497257+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "dynamics-04",
+    "category": "dynamics",
+    "tier": "L4",
+    "prompt": "An upward expander: signals below threshold are boosted toward it with ratio 1:1 to 1:4, threshold -60 to 0 dB, attack and release controls; brings up low-level detail.",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1dfD6uXgYX5CJRUuo'}"
+    ],
+    "timestamp": "2026-07-20T12:29:49.056627+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "dynamics-04",
+    "category": "dynamics",
+    "tier": "L3",
+    "prompt": "an upward expander to bring out quiet details",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1eGvHAfJgbp2bktA2'}"
+    ],
+    "timestamp": "2026-07-20T12:29:49.334096+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "dynamics-04",
+    "category": "dynamics",
+    "tier": "L2",
+    "prompt": "the opposite of squashing - it makes the quiet little details of my recording louder while leaving the loud parts alone",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1fJgUx6wJmzHg4na3'}"
+    ],
+    "timestamp": "2026-07-20T12:29:49.476234+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "dynamics-04",
+    "category": "dynamics",
+    "tier": "L1",
+    "prompt": "surface the ghost notes and room air buried deep in my take - the stuff you feel more than hear",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1g1bYVezBZaD6gpBp'}"
+    ],
+    "timestamp": "2026-07-20T12:29:49.755800+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "dynamics-04",
+    "category": "dynamics",
+    "tier": "L0",
+    "prompt": "what mastering engineers do to bring out the breaths and finger noise on a Norah Jones record",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1h2rmB4V5N5Vy86go'}"
+    ],
+    "timestamp": "2026-07-20T12:29:49.876615+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "dynamics-05",
+    "category": "dynamics",
+    "tier": "L4",
+    "prompt": "A sidechain-capable compressor: stereo program input plus an external key input, threshold -60 to 0 dB, ratio up to 10:1, attack 0.1-50 ms, release 50-1000 ms; gain reduction driven by the key signal.",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1hfonchhQYa2Fj84j'}"
+    ],
+    "timestamp": "2026-07-20T12:29:50.132606+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "dynamics-05",
+    "category": "dynamics",
+    "tier": "L3",
+    "prompt": "a sidechain-capable compressor",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1jSijX1cASEhWnqb3'}"
+    ],
+    "timestamp": "2026-07-20T12:29:50.477139+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "dynamics-05",
+    "category": "dynamics",
+    "tier": "L2",
+    "prompt": "a compressor that ducks my track down whenever another sound like the kick drum hits, then lets it swell back up",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1kB7qV5cuCZKfUnu4'}"
+    ],
+    "timestamp": "2026-07-20T12:29:50.680092+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "dynamics-05",
+    "category": "dynamics",
+    "tier": "L1",
+    "prompt": "make my pads breathe in and out with the beat, dipping every time the kick lands",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1mL5SjXEnidxrVbg7'}"
+    ],
+    "timestamp": "2026-07-20T12:29:50.973848+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "dynamics-05",
+    "category": "dynamics",
+    "tier": "L0",
+    "prompt": "the pumping sound of Eric Prydz's 'Call on Me'",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1nVGwzSxUK3UBvcJ5'}"
+    ],
+    "timestamp": "2026-07-20T12:29:51.139974+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "generative-01",
+    "category": "generative",
+    "tier": "L4",
+    "prompt": "A sine-wave test oscillator: frequency 20 Hz-20 kHz with exponential taper defaulting to 440 Hz, amplitude 0-1 defaulting to 0.5; a pure sinusoid with no harmonics.",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1oQqkGsvb1KvQFfpQ'}"
+    ],
+    "timestamp": "2026-07-20T12:29:51.410176+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "generative-01",
+    "category": "generative",
+    "tier": "L3",
+    "prompt": "a pure sine wave oscillator with frequency and amplitude",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1p628eyK3MktbfYZf'}"
+    ],
+    "timestamp": "2026-07-20T12:29:51.609429+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "generative-01",
+    "category": "generative",
+    "tier": "L2",
+    "prompt": "a generator that plays one perfectly smooth, pure tone, with controls for its pitch and volume",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1pd1hJduKeqPy6wyr'}"
+    ],
+    "timestamp": "2026-07-20T12:29:51.764994+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "generative-01",
+    "category": "generative",
+    "tier": "L1",
+    "prompt": "the cleanest possible beep - a single glassy tone with nothing rough or buzzy about it",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1q7n8NdJFmkGmY8gA'}"
+    ],
+    "timestamp": "2026-07-20T12:29:51.890719+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "generative-01",
+    "category": "generative",
+    "tier": "L0",
+    "prompt": "the 440 tuning tone, like the beep in a hearing test",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1quuQ2YCMuviXmVN5'}"
+    ],
+    "timestamp": "2026-07-20T12:29:52.008956+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "generative-02",
+    "category": "generative",
+    "tier": "L4",
+    "prompt": "A sawtooth synth voice: band-limited sawtooth oscillator 40 Hz-4 kHz, ADSR amplitude envelope (attack 1-1000 ms, decay 1-1000 ms, sustain 0-1, release 10-3000 ms), and a gate control to trigger notes.",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1s958wXeBQYxjDNVA'}"
+    ],
+    "timestamp": "2026-07-20T12:29:52.205975+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "generative-02",
+    "category": "generative",
+    "tier": "L3",
+    "prompt": "a sawtooth synth with an ADSR envelope",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1si3skDgLwfHYihzR'}"
+    ],
+    "timestamp": "2026-07-20T12:29:52.477764+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "generative-02",
+    "category": "generative",
+    "tier": "L2",
+    "prompt": "a buzzy synth tone whose volume shape I can control - how fast it starts, how it settles, and how long it takes to fade when I let go",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1tNz3gxwbERuSshDp'}"
+    ],
+    "timestamp": "2026-07-20T12:29:52.611537+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "generative-02",
+    "category": "generative",
+    "tier": "L1",
+    "prompt": "a bright sharp synth note that blooms open when I press and sighs away when I release",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1uwzfhbv6V7GVAVvu'}"
+    ],
+    "timestamp": "2026-07-20T12:29:52.780510+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "generative-02",
+    "category": "generative",
+    "tier": "L0",
+    "prompt": "the raw buzzing analog synth lead from 'Popcorn'",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1vVjZD2rSGjD48Gc7'}"
+    ],
+    "timestamp": "2026-07-20T12:29:53.146736+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "generative-03",
+    "category": "generative",
+    "tier": "L4",
+    "prompt": "A 2-operator FM synthesizer: sine carrier 40 Hz-2 kHz, modulator at an adjustable frequency ratio 0.25-8 of the carrier, modulation index 0-20; classic Chowning-style FM.",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1wLqN6bHjECQRkCSy'}"
+    ],
+    "timestamp": "2026-07-20T12:29:53.280042+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "generative-03",
+    "category": "generative",
+    "tier": "L3",
+    "prompt": "a 2-operator FM synth with ratio and modulation index",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1xDfeTdnEityDvmZW'}"
+    ],
+    "timestamp": "2026-07-20T12:29:53.494783+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "generative-03",
+    "category": "generative",
+    "tier": "L2",
+    "prompt": "a synth where one tone wobbles another so fast it turns into bells and metallic timbres, with knobs for the flavor and the intensity",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK1zhVL6FpHBo3hDaxs'}"
+    ],
+    "timestamp": "2026-07-20T12:29:53.982723+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "generative-03",
+    "category": "generative",
+    "tier": "L1",
+    "prompt": "glassy, bell-like electric tones - somewhere between a wine glass and a robot choir",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK21j1QwFT37SBVBgNJ'}"
+    ],
+    "timestamp": "2026-07-20T12:29:54.249332+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "generative-03",
+    "category": "generative",
+    "tier": "L0",
+    "prompt": "the DX7 electric-piano sound from every 80s ballad, like 'Careless Whisper'",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK22bbC8qKsXeE83mtg'}"
+    ],
+    "timestamp": "2026-07-20T12:29:54.558122+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "generative-04",
+    "category": "generative",
+    "tier": "L4",
+    "prompt": "A white-noise generator with tone shaping: uniform white noise source into a one-pole low-pass tone control 100 Hz-15 kHz, plus an output level 0-1.",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK23ygt6xRwgApnkpS1'}"
+    ],
+    "timestamp": "2026-07-20T12:29:54.860954+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "generative-04",
+    "category": "generative",
+    "tier": "L3",
+    "prompt": "a white noise generator with a tone control",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK25fPuqVTBCy1ZFDf7'}"
+    ],
+    "timestamp": "2026-07-20T12:29:55.246706+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "generative-04",
+    "category": "generative",
+    "tier": "L2",
+    "prompt": "a static hiss generator with a knob that sweeps it from bright crackle down to a deep rumble",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK26R31x2co1iunQoeg'}"
+    ],
+    "timestamp": "2026-07-20T12:29:55.418431+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "generative-04",
+    "category": "generative",
+    "tier": "L1",
+    "prompt": "the sound of ocean spray or a distant waterfall that I can brighten or darken",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK2AqCMySWoZvatMxt6'}"
+    ],
+    "timestamp": "2026-07-20T12:29:56.502955+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "generative-04",
+    "category": "generative",
+    "tier": "L0",
+    "prompt": "the wind-and-surf sound from a white-noise sleep machine",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK2BLxGURqVe6kftuHE'}"
+    ],
+    "timestamp": "2026-07-20T12:29:56.617967+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "generative-05",
+    "category": "generative",
+    "tier": "L4",
+    "prompt": "Karplus-Strong plucked-string synthesis: a noise-burst-excited delay line with a two-point averaging low-pass in the feedback loop, frequency 40 Hz-2 kHz, decay time and damping controls, and a trigger gate.",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK2Bz9Pja17HayeAeVS'}"
+    ],
+    "timestamp": "2026-07-20T12:29:56.759522+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "generative-05",
+    "category": "generative",
+    "tier": "L3",
+    "prompt": "a Karplus-Strong plucked string synthesizer",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK2CmH5NBVtNVyj1d2Z'}"
+    ],
+    "timestamp": "2026-07-20T12:29:56.955325+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "generative-05",
+    "category": "generative",
+    "tier": "L2",
+    "prompt": "an instrument that sounds like plucking a guitar string, with a pitch control and one for how long the note rings out",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK2DJGt7gRXqHo15S1L'}"
+    ],
+    "timestamp": "2026-07-20T12:29:57.074461+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "generative-05",
+    "category": "generative",
+    "tier": "L1",
+    "prompt": "a plucky harp-like note that dies away naturally, like touching a real string",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK2Eh7XDHK1ZQSh558o'}"
+    ],
+    "timestamp": "2026-07-20T12:29:57.197413+00:00"
+  },
+  {
+    "provider": "claude",
+    "effect_id": "generative-05",
+    "category": "generative",
+    "tier": "L0",
+    "prompt": "the plucked intro sound of The Police's 'Every Breath You Take', playable at different pitches",
+    "dsl": "faust",
+    "code": "",
+    "first_try_compiles": false,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [
+      "BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CdDK2GWW1ncQ1jnHkgyNw'}"
+    ],
+    "timestamp": "2026-07-20T12:29:57.758003+00:00"
+  }
+]

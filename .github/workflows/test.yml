@@ -1,0 +1,143 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  # Python job — intentionally unchanged (P3 scope: C++ build lives in its own
+  # job below so a C++ failure never masks the Python signal, and vice versa).
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run unit tests (no API key or faust compiler required)
+        run: pytest tests/ -m "not integration" -v
+
+  build-host:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        # libfaust — package names checked against packages.ubuntu.com (noble,
+        # faust 2.70.3+ds, all in universe):
+        #   faust        -> /usr/bin/faust AND the unversioned
+        #                   /usr/lib/x86_64-linux-gnu/libfaust.so symlink that
+        #                   host/CMakeLists.txt's find_library(faust REQUIRED) needs
+        #   libfaust2t64 -> libfaust.so.2 runtime
+        #   faust-common -> /usr/include/faust headers + /usr/share/faust stdlib
+        #                   (stdfaust.lib — needed at ParamPoolTsanTest RUNTIME:
+        #                   FaustEngine::compile() passes no -I args, so imports
+        #                   resolve via libfaust's built-in default path)
+        #
+        # JUCE Linux deps — deliberately REDUCED set: host/CMakeLists.txt sets
+        # JUCE_WEB_BROWSER=0 / JUCE_USE_CURL=0 via target_compile_definitions
+        # (see its comment block), so gtk3/webkit2gtk-4.x/libcurl dev packages
+        # are NOT needed here. No juce_opengl module is linked either, so no
+        # mesa/GL dev packages. What remains: ALSA (juce_audio_devices),
+        # freetype (juce_graphics), X11 + extensions (juce_gui_basics).
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build pkg-config \
+            faust faust-common libfaust2t64 \
+            libasound2-dev \
+            libfreetype-dev \
+            libx11-dev libxext-dev libxrender-dev libxrandr-dev \
+            libxinerama-dev libxcursor-dev libxcomposite-dev
+
+      # Pinned to the JUCE version verified working locally (2026-07-18 full
+      # build): the local checkout at ~/JUCE is tag 7.0.9. Cache key includes
+      # the tag so bumping JUCE invalidates the cache automatically.
+      - name: Cache JUCE
+        id: cache-juce
+        uses: actions/cache@v4
+        with:
+          path: ~/JUCE
+          key: juce-7.0.9
+
+      - name: Clone JUCE
+        if: steps.cache-juce.outputs.cache-hit != 'true'
+        run: git clone --depth 1 --branch 7.0.9 https://github.com/juce-framework/JUCE.git "$HOME/JUCE"
+
+      # Mirrors README.md "Build the JUCE host plugin" (Debug + JUCE_PATH), with
+      # two CI-specific deviations: -G Ninja made explicit (project convention;
+      # the runner's default is Unix Makefiles), and a build dir named build-ci
+      # so it can never collide with a developer's host/build tree if these
+      # steps are ever replicated locally. Note the CMake root is host/, not
+      # the repo root.
+      - name: Configure
+        run: cmake -S host -B build-ci -G Ninja -DCMAKE_BUILD_TYPE=Debug -DJUCE_PATH="$HOME/JUCE"
+
+      # PluginForgeHost is the juce_add_plugin shared-code target; the two
+      # format targets and the TSan console app are requested explicitly so a
+      # regression in any one of the four fails the job by name.
+      - name: Build host targets + TSan test
+        run: cmake --build build-ci --target PluginForgeHost PluginForgeHost_Standalone PluginForgeHost_VST3 ParamPoolTsanTest
+
+      # Decision (P3 "if TSan runtime in Actions is questionable"): RUN it, not
+      # build-only. Rationale: the harness is cheap (~20 tiny JIT compiles +
+      # a fixed 5 s window, well under a minute locally) and it is the only
+      # execution-level check on ParamPool's double-buffer. The known TSan
+      # blocker on modern runners (ASLR entropy: kernels with
+      # vm.mmap_rnd_bits=32 crash TSan-instrumented binaries at startup) is
+      # worked around with the standard sysctl below. If this step proves flaky
+      # on real runners, demote it to build-only rather than continue-on-error.
+      #
+      # Expected stderr noise, NOT failures (see the header comment in
+      # host/tests/ParamPoolConcurrencyTest.cpp): JUCE Timer/AsyncUpdater
+      # assertion messages, LeakedObjectDetector reports at shutdown, and —
+      # only if the FaustEngine activeUI TOCTOU (reported 2026-07-18) is still
+      # unfixed at push time — Faust MapUI "setParamValue ... not found" lines.
+      # Pass/fail is the exit code: TSAN_OPTIONS=halt_on_error=1 makes any data
+      # race exit non-zero; "PASS" on stdout plus exit 0 is a clean run.
+      - name: Run ParamPoolTsanTest under ThreadSanitizer
+        run: |
+          # TODO: VERIFY: sysctl workaround needed/sufficient on current
+          # ubuntu-latest kernel — cannot be tested outside a real runner.
+          sudo sysctl vm.mmap_rnd_bits=28
+          # Located by find because JUCE artefact layout differs with
+          # CMAKE_BUILD_TYPE: local evidence shows
+          # <build>/ParamPoolTsanTest_artefacts/ParamPoolTsanTest with no config
+          # subdir (empty build type); a Debug configure inserts a Debug/ level.
+          BIN="$(find build-ci/ParamPoolTsanTest_artefacts -type f -name ParamPoolTsanTest | head -n 1)"
+          if [ -z "$BIN" ]; then
+            echo "ParamPoolTsanTest binary not found under build-ci/ParamPoolTsanTest_artefacts" >&2
+            exit 1
+          fi
+          # timeout: harness has no hard bound if a JIT compile hangs; 300 s is
+          # ~10x the expected wall time.
+          TSAN_OPTIONS="halt_on_error=1" timeout 300 "$BIN"
+
+# TODO: VERIFY (first real push — none of these are checkable from the Arch dev
+# box):
+#   1. apt package names/availability on the live ubuntu-latest image (checked
+#      against packages.ubuntu.com for noble on 2026-07-18, but ubuntu-latest
+#      may have moved past noble, and universe must be enabled — it is by
+#      default on GitHub-hosted runners).
+#   2. Ubuntu's shared libfaust.so is built WITH the LLVM backend
+#      (createDSPFactoryFromString must resolve at link time; the separate
+#      libfaustwithllvm.a static variant suggests the .so links LLVM
+#      dynamically, but only a real link run proves it).
+#   3. libfaust's default import path on the Debian/Ubuntu build actually
+#      resolves /usr/share/faust/stdfaust.lib with zero -I args (FaustEngine
+#      passes argc=0), i.e. the TSan test's import("stdfaust.lib") works at
+#      runtime in CI.
+#   4. faust 2.70.3 (noble) is new enough for the llvm-dsp.h API surface
+#      FaustEngine uses; local dev box runs a newer Arch faust.
+#   5. JUCE 7.0.9 configures cleanly against noble's freetype/X11 versions with
+#      the reduced (no gtk/webkit/curl/GL) package set.

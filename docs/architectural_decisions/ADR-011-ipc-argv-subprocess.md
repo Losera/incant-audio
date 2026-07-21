@@ -1,0 +1,57 @@
+# ADR-011 — Editor ↔ LLM-layer IPC: one-shot argv subprocess
+
+**Status:** Accepted — ratified by the human 2026-07-19 and recorded in `../decisions.md`
+(the authoritative copy).
+
+## Context
+
+`PluginEditor` needs the Faust code that `llm/generate.py` produces. The mechanism shipped on
+2026-07-16 without a decision being recorded first — `docs/decisions_reconstructed.md` flags
+Decision [011] as the last Open item. This ADR ratifies (rather than re-litigates) the shipped
+mechanism, now that it has survived a month of use and a full build.
+
+## Decision
+
+One-shot subprocess per generation, arguments via argv, result via stdout:
+
+- The editor spawns `python3 <path>/generate.py --prompt "<text>"` with
+  `juce::ChildProcess::start(StringArray, ...)` — argv array, **no shell interpretation** of the
+  prompt text.
+- `generate.py --prompt` (→ `generate_json()`) prints exactly **one JSON line** to stdout:
+  `{"success": bool, "faust_code": str, "error": str, "attempts": int}` — the wire contract
+  already pinned by `tests/test_generate_unit.py::TestGenerateJson`.
+- The editor takes the last stdout line starting with `{` (tolerates stray stderr/traceback
+  text), parses with `juce::JSON`, and hands `faust_code` to
+  `PluginForgeProcessor::loadFaustCode()`.
+
+## Alternatives considered
+
+- **Persistent stdin/stdout pipe** (long-lived Python worker): saves ~100ms interpreter startup
+  per generation, but needs a framing protocol, liveness/restart handling, and version-skew
+  management between plugin and worker. Generation latency is dominated by the LLM call
+  (seconds), so the saving is noise.
+- **Local socket / HTTP daemon:** all of the above plus port management and a security surface —
+  unjustified for a same-machine, same-user, one-request pipeline.
+
+## Rationale
+
+Stateless (each generation independent — no worker lifecycle), crash-isolated (a Python
+traceback can't take the plugin down; it degrades to an error label), trivially debuggable
+(run the same command in a terminal), and the perf cost is invisible behind LLM latency.
+
+## Consequences / hardening status
+
+| Item | Status |
+|---|---|
+| Prompt injection via shell | Closed by design — argv array, never a shell string |
+| Unbounded hang if generate.py stalls | **Closed 2026-07-19** — 120s `waitForProcessToFinish` cap + `kill()` (PluginEditor.cpp) |
+| Locating `generate.py` from the installed binary | **Closed 2026-07-19** — upward search from the executable (dev layouts) + `PLUGINFORGE_LLM_SCRIPT` env override (installed layouts); old sibling-path guess never matched any real layout |
+| Interpreter discovery (`python3` must be on PATH) | **Closed 2026-07-19** — `PLUGINFORGE_PYTHON` env override for venv/installed layouts; bare `python3` PATH lookup remains the dev default |
+| Per-call interpreter startup (~100ms) | Accepted — invisible behind LLM latency |
+| Ready-state UX (button re-enables before JIT finishes) | **Closed 2026-07-19** — `onFaustCompileSuccess` callback fires from the compile thread when the JIT swap lands; status label shows "Ready — DSP live, N params mapped" (point E of `docs/pair_draft_editor_llm_bridge.md`) |
+
+## Revisit trigger
+
+If generation becomes interactive/streaming (token-by-token preview) or multi-turn, the
+one-shot model stops fitting — that's the point to reopen this against the persistent-worker
+option, as a new ADR.

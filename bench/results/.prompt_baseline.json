@@ -1,0 +1,7 @@
+{
+  "system_prompt_hash": "4e520376349e05e13022f70c9fa0b13930c09dcd83a9b76421f5a85dfa1419db",
+  "system_faust_prompt_hash": "fa8e501fe56c692df19cd9dc8e269fe5f78ef8dd8bd21c840105318dcf0b8464",
+  "recorded_faust_compile_rate": 0.88,
+  "recorded_at": "2026-07-19",
+  "note": "Updated 2026-07-19 after the deliberate full 25-prompt re-run (P5, per bench/README.md seeding rules): 22/25 (88%) Claude/Faust first-try, up from the 0.84 recorded 2026-07-16, still short of ADR-009's >=96% prediction -- the prediction did not hold. Failures: ping-pong delay (SEMANTIC endless-cycle, repeat of 2026-05), tape flanger (HALLUCINATION flanger_mono, repeat of 2026-05), sidechain compressor (SYNTAX unexpected ARROW, new). Detail: docs/prompt_efficacy_study.md section 6. Prompt files were NOT changed, so the two _hash fields remain the 2026-07-16 seeds. This update was made under the delegated P5 task; human review of this number is part of the 2026-07-19 session diff review."
+}
