@@ -8,11 +8,39 @@ CLAUDE.md "Current status".**
 
 ---
 
-## Priority Queue (2026-07-19) — cross-track, ordered
+## Priority Queue (2026-07-21) — cross-track, ordered
 
-Executable task text for items marked P9–P12 lives in the root README's prompt series.
+Executable task text for items marked P9–P17 lives in the root README's prompt series.
+
+**0. Landed 2026-07-21 (session: state review):**
+- **P13 — version control.** The project had **no git repository at all**: 956M of work
+  untracked inside the unrelated CS310 course repo rooted at `/home/losera`. A
+  `.gitignore` existed but `git init` had never run. Now initialized with a baseline
+  commit (93 files, 1.1M — ignores hardened first for ~400M of in-source CMake residue
+  that `build/` alone did not cover). **No remote yet** — choosing where this is hosted
+  is a human call, and CI cannot run until it exists (see P16). Note the 2026-07-19
+  attention report flagged "no git repo" and it was recorded as fixed; it was not.
+- **P12a — widget-kind metadata.** `FaustEngine::Kind` added to `ParamInfo`, set at all
+  five `ParamCapture` sites. Unblocks the §3 auto-layout. All four targets build clean;
+  TSan still reports zero races.
+- **P15 (partial) — model pin.** `llm/generate.py` bumped opus-4-6 → opus-4-8. See the
+  blocker in item 1 for why the bench harnesses were *not* bumped.
+- **P14 — doc reconciliation.** `ui_design_plan.md` §4 no longer claims P10 is deferred;
+  §2 gained the declarative/GUI-Magic paradigm the survey found.
 
 **1. HUMAN attention required (report-only — Claude does not execute these):**
+- **Bench harnesses cannot follow the model bump without a methodology decision.**
+  `bench/run_benchmark.py`, `bench/run_efficacy_study.py`, and `bench/score_efficacy.py`
+  all pass `temperature=0` — which opus-4-7+ **reject outright with a 400**. So the
+  harnesses still pin `claude-opus-4-6` and the product path is now on `claude-opus-4-8`.
+  Closing that split means dropping `temperature=0`, which
+  `docs/prompt_efficacy_study.md` §3 lists as a *locked confound control*. Options: run
+  P9 on opus-4-6 for continuity with the 88% baseline, or drop determinism and re-baseline
+  on 4-8. Not a mechanical edit — see the model-era note in §3 of the study doc.
+- **ADR-009 verdict + path correction drafted** — `docs/ADR-009-verdict-DRAFT.md`. The ADR
+  still reads as though ≥96% is pending confirmation, and it cites
+  `llm/prompts/system_faust.txt`, which does not exist. HUMAN-OWNED: review, paste, delete
+  the draft.
 - **Anthropic account is out of credit balance.** The P9 full 125-prompt efficacy
   run (2026-07-20) failed 125/125 with `BadRequestError: Your credit balance is too
   low to access the Anthropic API` — every request was rejected before generation

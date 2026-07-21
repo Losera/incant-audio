@@ -68,6 +68,14 @@ reviewing the diff.
   `llm/prompts/system_prompt.txt` (no stdlib cheat-sheet), so absolute rates here
   overstate the product slightly; tier *deltas* are the object of study.
 - Model: `claude-opus-4-6`, `temperature=0`, `max_tokens=1024` (identical to bench).
+  **Model-era boundary (2026-07-21):** every number recorded in §6 and §7 was produced on
+  `claude-opus-4-6`. The product path (`llm/generate.py`) has since moved to
+  `claude-opus-4-8`; the bench harnesses have **not** — they still pin opus-4-6 because
+  `temperature=0` is a locked confound control here and opus-4-7+ reject `temperature`
+  outright with a 400. Bumping the harnesses therefore means dropping the determinism
+  control, which is a change to this locked design and needs a human decision (see §9).
+  Until that is resolved, do not compare a post-bump run against the figures below without
+  labelling the model change as a confound.
 - Provider: claude only for the main run. Gemini comparison belongs to P8/ADR-008.
 - Sampling: N=1 at temp 0 (not perfectly deterministic; noted). Resolution: 5 effects
   per tier×category cell → 20-point cell resolution; 25 per tier → 4-point tier

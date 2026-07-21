@@ -72,6 +72,24 @@ PluginForge targets. Four types:
 | **64-slot ParamPool mapping** | Heaviest user; grouping metadata matters most | Comfortable fit; flat grid usually fine | Nearly empty pool; hide unused surface | Mid-heavy; benefits from sectioning |
 | **Example prompts** | "an 80s analog-style synth pad with two detuned saws" | "a warm low-pass filter with a cutoff knob"; "an aggressive distortion with drive and output level" | "a stereo gain trim with a peak meter" | "a granular cloud texture from the input with density and pitch spray" |
 
+### UI paradigms observed in the wild
+
+The "Natural UI paradigm" row above was written from first principles. The P10 survey (§4)
+found four paradigms actually in use, and the fourth was not in our vocabulary:
+
+| Paradigm | What it is | Relevance to PluginForge |
+|---|---|---|
+| Generic editor | `GenericAudioProcessorEditor`, zero layout code | **Observed in 0 of 19** fixed-param repos — not a credible floor |
+| Custom `LookAndFeel` | Hand-laid components, restyled JUCE widgets | The common case; what §3 auto-layout approximates |
+| Webview | HTML/JS UI hosted in the plugin | Out of scope (we compile `JUCE_WEB_BROWSER=0`) |
+| **Declarative / GUI-Magic** | Layout declared as XML/data, no hand-written `PluginEditor.cpp` | **Architecturally closest to our own plan** — see below |
+
+The declarative paradigm (2 of 21 entries) is worth naming because PluginForge is already
+heading there by a different route: an auto-layout driven by `ParamCapture` metadata *is* a
+declarative layout, with the compiled DSP's parameter table standing in for the XML. The
+proposed LLM-emitted layout hints (§3) would make that explicit. Prior art worth reading
+before drafting the auto-layout rather than inventing the data model from scratch.
+
 Notes:
 - The current UI serves only the Effect/Utility bands well (≤8 params). Generator and
   Hybrid overflow `MAX_KNOBS` immediately — the strongest argument for auto-layout (§3).
@@ -129,10 +147,17 @@ or compile-thread interaction. Engagement mode: PAIR for the first dynamic-layou
 
 ---
 
-## 4. P10 — Ecosystem survey spec (deferred execution)
+## 4. P10 — Ecosystem survey spec — **EXECUTED 2026-07-20**
 
-Planned, NOT yet run. A research-agent task to ground the taxonomy and complexity
-assumptions in real projects before we invest in custom layout work.
+**Results: `docs/juce_plugin_survey.md`** (21 repos, 3 parallel research agents). The spec
+below is retained as the executed design; the findings supersede the assumptions it was
+written to test. Headline: **zero of 19 fixed-param entries used a bare
+`GenericAudioProcessorEditor`**, even at 1–2 params — so the complexity-ladder question
+posed under "Deliverable" resolved to *nobody ships GenericEditor at any param count*.
+That supports keeping the §3 auto-layout as the UI floor rather than falling back to a
+generic editor. The survey also surfaced a 4th UI paradigm now folded into §2.
+
+The original spec, as executed:
 
 **Scope.** Survey open-source JUCE plugins and Faust-based plugins.
 - Seeds: `github.com/sudara/awesome-juce`; GitHub topics `juce-plugin`, `vst3`, `faust`;
@@ -155,4 +180,5 @@ wild (does anyone ship GenericEditor past ~10 params? where do custom panels sta
 
 **Execution estimate:** 2–3 parallel research agents (split by seed list), read-only.
 Engagement mode: DELEGATE (research/documentation; human reviews the survey doc).
-Blocked on: nothing technical — deferred by priority until the human green-lights P10.
+**Outcome:** ran 2026-07-20 with 3 agents; `docs/juce_plugin_survey.md` landed with the
+full table. Human review of that doc is still outstanding.
