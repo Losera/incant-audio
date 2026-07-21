@@ -13,12 +13,24 @@ tangible outputs that double as regression evidence and demo material.
 
 ```bash
 cd host && cmake --build build -- -j$(nproc)
-export ANTHROPIC_API_KEY=...        # or have .env loaded via pf-env
+python llm/providers.py --check all      # pre-flight: which provider is live?
 ./build/PluginForgeHost_artefacts/Debug/Standalone/"PluginForge Host"
 ```
 
+**No API key needs exporting.** Since ADR-012 (2026-07-21) the provider is selected by
+`PLUGINFORGE_PROVIDER` in `PluginForge/.env`, and `generate.py` loads that file by absolute
+path at import — so the plugin inherits it through `juce::ChildProcess` regardless of the
+working directory it was launched from. Only the *selected* provider's key is needed;
+`ollama` needs none. This block previously told you to `export ANTHROPIC_API_KEY`, which is
+now both unnecessary and wrong: anthropic is the paid provider and is refused unless
+`PLUGINFORGE_ALLOW_PAID=1`.
+
 Optional overrides: `PLUGINFORGE_LLM_SCRIPT=/path/to/generate.py`,
 `PLUGINFORGE_PYTHON=/path/to/python3`.
+
+**Free-tier pacing:** `gemini` allows ~5 requests/minute *per model*, and one Generate click
+can spend up to 3 (the retry loop). Leave ~15 s between clicks. If two rapid generates fail
+in a row, suspect the rate limit before suspecting the DSP — the error label will say so.
 
 Feed the plugin audio: in the Standalone's options button (top-left), pick your input device —
 or route a media player through it via `pw-link`/qpwgraph (PipeWire). The meter shows
