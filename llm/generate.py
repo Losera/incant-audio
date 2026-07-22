@@ -71,13 +71,25 @@ def generate_faust(user_prompt: str, error_context: str = "",
 
 def validate_faust(faust_code: str) -> tuple[bool, str]:
     """Returns (is_valid, error_message)."""
-    with tempfile.NamedTemporaryFile(suffix=".dsp", mode="w", delete=False) as f:
+    # SUBTLE: encoding and errors are both load-bearing, and neither is a default.
+    # An LLM reply can contain non-ASCII (curly quotes, em dashes, a degree sign in
+    # a slider label). When it does, `faust` echoes the offending source line to
+    # stderr but cuts it mid-character, emitting a lone 0xe2 — invalid UTF-8.
+    # With the default errors="strict", subprocess.run(text=True) then RAISES
+    # UnicodeDecodeError instead of returning, so this function never gets to
+    # report a compile failure and the ADR-005 retry loop never engages: the whole
+    # generation dies on what should have been a recoverable attempt.
+    # Reproduced 2026-07-21 against faust on the Arch dev box; regression test in
+    # tests/test_faust_validator_unit.py::test_non_utf8_compiler_output.
+    with tempfile.NamedTemporaryFile(suffix=".dsp", mode="w", encoding="utf-8",
+                                     delete=False) as f:
         f.write(faust_code)
         tmp = f.name
     try:
         result = subprocess.run(
             ["faust", "-lang", "cpp", tmp, "-o", "/dev/null"],
             capture_output=True, text=True, timeout=15,
+            encoding="utf-8", errors="replace",
         )
         return result.returncode == 0, result.stderr.strip()
     finally:

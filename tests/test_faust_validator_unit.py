@@ -103,3 +103,41 @@ class TestValidateFileIntegration:
         assert examples, "No .dsp files found in examples/"
         ok, msg = validate_file(str(examples[0]))
         assert ok, f"Expected {examples[0].name} to compile:\n{msg}"
+
+
+class TestNonUtf8CompilerOutput:
+    """Regression: faust emits invalid UTF-8 on stderr when the source contains
+    non-ASCII, because it echoes the offending line and cuts it mid-character.
+
+    Found 2026-07-21 when a groq refusal reply ("I'm sorry, but I can't help with
+    that.", with curly apostrophes) was passed to the validator. With the default
+    errors="strict", subprocess.run(text=True) raises UnicodeDecodeError, so the
+    validator never returns a compile failure and the ADR-005 retry loop never
+    engages -- a recoverable attempt kills the whole generation instead.
+
+    All three call sites must decode leniently: llm/generate.py::validate_faust,
+    llm/faust_validator.py::validate_file, bench/run_benchmark.py::validate_faust.
+    """
+
+    NON_ASCII_SOURCE = "I’m sorry, but I can’t help with that."
+
+    def test_validators_pass_lenient_decoding(self):
+        """subprocess.run must be called with errors that tolerate bad bytes."""
+        import inspect
+
+        for func in (validate_file,):
+            src = inspect.getsource(func)
+            assert 'errors="replace"' in src or "errors='replace'" in src, (
+                f"{func.__name__} decodes subprocess output strictly; a faust "
+                "stderr containing invalid UTF-8 will raise instead of returning "
+                "a compile error"
+            )
+
+    @pytest.mark.integration
+    def test_non_utf8_compiler_output_does_not_raise(self, tmp_path):
+        """End-to-end against the real compiler: must return, never raise."""
+        dsp = tmp_path / "refusal.dsp"
+        dsp.write_text(self.NON_ASCII_SOURCE, encoding="utf-8")
+        ok, msg = validate_file(str(dsp))   # must not raise UnicodeDecodeError
+        assert ok is False
+        assert isinstance(msg, str)
