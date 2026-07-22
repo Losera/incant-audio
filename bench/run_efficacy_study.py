@@ -8,10 +8,15 @@ product-style retry loop (compiler stderr fed back, up to --retries extra
 attempts).
 
 Confound controls (locked decisions — do not change casually):
-  * The system prompt is bench/prompts/system_faust.txt for ALL calls,
-    including retry attempts. We deliberately do NOT call llm/generate.py,
-    because it would swap in llm/prompts/system_prompt.txt and confound the
-    tier variable with a system-prompt variable.
+  * ONE system prompt for ALL calls, including retry attempts:
+    llm/prompts/system_prompt.txt, loaded via run_benchmark.SYSTEM_PROMPTS.
+    Until 2026-07-21 this was a separate bench copy, on the theory that calling
+    llm/generate.py would confound the tier variable with a prompt variable. The
+    copy then drifted, which confounded the study against PRODUCTION instead —
+    the worse of the two failures, since it silently invalidated the transfer of
+    every measured rate. There is now one file; the study measures what ships.
+    We still do not call llm/generate.py, to keep the retry loop under this
+    harness's own control (attempt accounting, per-attempt error capture).
   * Provider/model/params match bench/run_benchmark.py exactly:
     claude (claude-opus-4-6), temperature=0, max_tokens=1024.
 
@@ -37,7 +42,7 @@ BENCH_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(BENCH_DIR))
 
 # Importing run_benchmark as a module is safe: its only module-level side
-# effects are load_dotenv() and reading bench/prompts/system_faust.txt
+# effects are load_dotenv() and reading llm/prompts/system_prompt.txt
 # (verified 2026-07-19 by importing it with a bare env). The anthropic client
 # is constructed lazily inside _make_generators(), not at import time, so no
 # API key is required just to import. check_prompt_regression.py invokes

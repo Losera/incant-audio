@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Regression check for llm/prompts/system_prompt.txt and bench/prompts/system_faust.txt.
+Regression check for llm/prompts/system_prompt.txt — the single system prompt, shared
+by the product and the benchmark since 2026-07-21.
 
 Operationalizes a manual step that's already written down but never automated:
 ADR-009's Consequences section and docs/next_steps.md B8 both say "re-run the
@@ -49,8 +50,11 @@ BENCH_DIR = REPO_ROOT / "bench"
 sys.path.insert(0, str(BENCH_DIR))
 from score_results import compute_scores  # noqa: E402  (needs sys.path insert above)
 
+# One prompt file since 2026-07-21 -- bench and product share it (see
+# bench/run_benchmark.py SYSTEM_PROMPT_FILE). The former second hash,
+# "system_faust_prompt_hash", is no longer computed; a baseline carrying it is
+# stale by definition and load_baseline() treats a missing match as changed.
 SYSTEM_PROMPT = REPO_ROOT / "llm" / "prompts" / "system_prompt.txt"
-SYSTEM_FAUST_PROMPT = BENCH_DIR / "prompts" / "system_faust.txt"
 RECOVERY_PROMPTS = BENCH_DIR / "prompts" / "recovery_prompts.json"
 RESULTS_FILE = BENCH_DIR / "results" / "results.json"
 BASELINE_FILE = BENCH_DIR / "results" / ".prompt_baseline.json"
@@ -122,13 +126,8 @@ def run(argv: list[str]) -> int:
 
     current_hashes = {
         "system_prompt_hash": sha256_of(SYSTEM_PROMPT),
-        "system_faust_prompt_hash": sha256_of(SYSTEM_FAUST_PROMPT),
     }
-    if (
-        current_hashes["system_prompt_hash"] == baseline.get("system_prompt_hash")
-        and current_hashes["system_faust_prompt_hash"]
-        == baseline.get("system_faust_prompt_hash")
-    ):
+    if current_hashes["system_prompt_hash"] == baseline.get("system_prompt_hash"):
         print("check_prompt_regression: no change since last check, skipping.")
         return 0
 

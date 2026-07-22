@@ -42,12 +42,21 @@ def registry_name(provider: str) -> str:
     return PROVIDER_ALIASES.get(provider, provider)
 
 
-def _load_prompt(filename: str) -> str:
-    return (BENCH_DIR / "prompts" / filename).read_text()
+# UNIFIED 2026-07-21: the benchmark now measures the SAME prompt the product ships.
+# bench/prompts/system_faust.txt used to hold a divergent copy; it had drifted to carry
+# a hand-written stdlib section, extra wiring rules, and different few-shot examples, so
+# no benchmark number transferred to production. Worse, three of its stdlib entries
+# (ef.chorus, ef.flanger, ef.ping_pong) named functions that do not exist -- see
+# tools/gen_stdlib_block.py. One file, one measurement.
+SYSTEM_PROMPT_FILE = BENCH_DIR.parent / "llm" / "prompts" / "system_prompt.txt"
+
+
+def _load_prompt(path: Path) -> str:
+    return path.read_text()
 
 
 SYSTEM_PROMPTS = {
-    "faust": _load_prompt("system_faust.txt"),
+    "faust": _load_prompt(SYSTEM_PROMPT_FILE),
 }
 
 
@@ -116,13 +125,20 @@ def _make_generators(providers_list: list[str]) -> dict:
 # ── Validators ────────────────────────────────────────────────────────────────
 
 def validate_faust(code: str) -> tuple[bool, str]:
-    with tempfile.NamedTemporaryFile(suffix=".dsp", mode="w", delete=False) as f:
+    # errors="replace": faust can emit invalid UTF-8 on stderr when the source
+    # contains non-ASCII (it truncates the echoed line mid-character). Without this
+    # the harness CRASHES on such a generation instead of recording it as a failed
+    # attempt — which is exactly what a refusal reply ("I'm sorry, but I can't...")
+    # produces, via its curly apostrophes. See llm/generate.py::validate_faust.
+    with tempfile.NamedTemporaryFile(suffix=".dsp", mode="w", encoding="utf-8",
+                                     delete=False) as f:
         f.write(code)
         tmp = f.name
     try:
         result = subprocess.run(
             ["faust", "-lang", "cpp", tmp, "-o", "/dev/null"],
             capture_output=True, text=True, timeout=30,
+            encoding="utf-8", errors="replace",
         )
         return result.returncode == 0, result.stderr.strip()[:500]
     finally:
@@ -141,7 +157,11 @@ def run(providers_list: list[str], dry_run: bool = False, prompts_file: Path = P
 
     tasks = [
         (category, prompt, "faust", prov)
-        for category, prompts in prompts_data.items()
+        # Keys starting with "_" are file-level comments, not categories --
+        # JSON has no comment syntax, and a subset file that explains its own
+        # purpose is worth more than the convention costs. Without this skip the
+        # comment text gets sent to the LLM as a prompt.
+        for category, prompts in prompts_data.items() if not category.startswith("_")
         for prompt in prompts
         for prov in providers_list
     ]

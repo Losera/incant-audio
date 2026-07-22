@@ -39,11 +39,18 @@ python bench/score_results.py
 ## Regression-check loop
 
 `bench/check_prompt_regression.py` automates a step that was previously manual:
-re-running the benchmark whenever `llm/prompts/system_prompt.txt` or
-`bench/prompts/system_faust.txt` changes, to catch a prompt-wording regression in
-the Faust first-try compile rate before it's discovered by hand later.
+re-running the benchmark whenever `llm/prompts/system_prompt.txt` changes, to catch a
+prompt-wording regression in the Faust first-try compile rate before it's discovered by
+hand later.
 
-Start it during a session where you're actively editing either prompt file:
+> **The benchmark measures the production prompt.** Until 2026-07-21 `bench/prompts/
+> system_faust.txt` held a separate copy, which drifted far enough that no benchmark
+> number transferred to production — and three of its stdlib entries named functions that
+> do not exist. That file is deleted; `run_benchmark.SYSTEM_PROMPT_FILE` points at
+> `llm/prompts/system_prompt.txt`. Every rate recorded before 2026-07-21 was measured
+> against the old bench prompt and is **not** comparable to a run made today.
+
+Start it during a session where you're actively editing the prompt file:
 
 ```bash
 /loop 15m python bench/check_prompt_regression.py
