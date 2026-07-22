@@ -82,11 +82,43 @@ def test_generated_block_is_current(prompt_text):
         "the block must stay delimited so the generator can splice it"
     )
     actual = prompt_text[start:end + len(END_MARKER)]
-    assert actual == expected, (
-        "The generated stdlib block in the system prompt is stale or was "
-        "hand-edited. Regenerate it:\n"
-        "    python tools/gen_stdlib_block.py --write"
-    )
+
+    # The block's TEXT is faust-version-dependent; its CONTENT is not. faust
+    # 2.70.3 (Ubuntu noble, what CI runs) declares ef.softclipQuadratic with no
+    # argument list; 2.85.5 (Arch, the dev box) declares it as
+    # ef.softclipQuadratic(x). Asserting byte-equality against a block rendered
+    # from whatever faust happens to be installed therefore fails on any machine
+    # that did not generate it -- which is exactly how CI run 29883328421 failed
+    # on a prompt that was correct.
+    #
+    # So: byte-exact where it is meaningful (same version -- this is what catches
+    # a hand-edit or a stale block), and the version-independent property
+    # everywhere else.
+    from gen_stdlib_block import block_faust_version, entry_names, faust_version
+
+    recorded = block_faust_version(actual)
+    running = faust_version()
+
+    if recorded != "unknown" and recorded == running:
+        assert actual == expected, (
+            "The generated stdlib block in the system prompt is stale or was "
+            "hand-edited. Regenerate it:\n"
+            "    python tools/gen_stdlib_block.py --write"
+        )
+    else:
+        missing = entry_names(expected) - entry_names(actual)
+        extra = entry_names(actual) - entry_names(expected)
+        assert not missing and not extra, (
+            f"The stdlib block teaches a different SET of functions than this "
+            f"machine's faust produces (block generated with {recorded}, running "
+            f"{running}).\n"
+            f"  missing from the prompt: {sorted(missing)}\n"
+            f"  present but unresolvable: {sorted(extra)}\n"
+            "A pure formatting difference between faust releases is expected and "
+            "is deliberately not asserted here; a difference in which functions "
+            "are taught is not. Regenerate with:\n"
+            "    python tools/gen_stdlib_block.py --write"
+        )
 
 
 @needs_faust_libs
