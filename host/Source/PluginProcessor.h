@@ -2,6 +2,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "FaustEngine.h"
 #include "ParamPool.h"
+#include "OutputGuard.h"
 
 class PluginForgeProcessor : public juce::AudioProcessor
 {
@@ -42,6 +43,12 @@ public:
     // juce::MessageManager::callAsync.
     std::function<void(const juce::String& error)> onFaustCompileError;
 
+    // Latched output-guard state, polled by the editor's 30Hz timer. True means
+    // the generated DSP produced NaN/Inf or sat at/over 0 dBFS for half a second
+    // and has been muted; it stays true until the next successful compile.
+    bool isOutputMuted() const { return outputGuard.isMuted(); }
+    OutputGuard::Trip outputTrip() const { return outputGuard.trippedBy(); }
+
     // Per-block output peak (post-DSP), published for the editor's level meter.
     // Written with a relaxed store in processBlock (RT-safe: one atomic store,
     // no allocation); read by the editor's 30Hz repaint timer. Relaxed is enough —
@@ -64,6 +71,7 @@ public:
 private:
     FaustEngine faustEngine;
     ParamPool   paramPool;
+    OutputGuard outputGuard;
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 

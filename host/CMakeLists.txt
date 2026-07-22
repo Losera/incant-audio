@@ -29,6 +29,7 @@ target_sources(PluginForgeHost PRIVATE
     Source/PluginEditor.cpp
     Source/FaustEngine.cpp
     Source/ParamPool.cpp
+    Source/OutputGuard.cpp
 )
 
 target_compile_features(PluginForgeHost PRIVATE cxx_std_17)
@@ -82,6 +83,7 @@ target_sources(ParamPoolTsanTest PRIVATE
     Source/PluginEditor.cpp
     Source/FaustEngine.cpp
     Source/ParamPool.cpp
+    Source/OutputGuard.cpp
 )
 
 target_compile_features(ParamPoolTsanTest PRIVATE cxx_std_17)
@@ -101,4 +103,36 @@ target_link_libraries(ParamPoolTsanTest PRIVATE
     juce::juce_gui_extra
     juce::juce_recommended_config_flags
     ${LIBFAUST_LIB}
+)
+
+# OutputGuardTest -- behavioural tests for the audio-output safety net
+# (host/tests/OutputGuardTest.cpp). Separate console app so ASan/UBSan apply
+# only here. Deliberately links NOTHING but juce_audio_basics and
+# Source/OutputGuard.cpp: the guard must stay free of plugin/JIT dependencies so
+# it can be reasoned about (and fuzzed) in isolation. ASan is worth the cost
+# here specifically -- the guard indexes fixed-size per-channel state arrays
+# against a host-supplied channel count.
+juce_add_console_app(OutputGuardTest
+    PRODUCT_NAME "OutputGuard Test"
+)
+
+target_sources(OutputGuardTest PRIVATE
+    tests/OutputGuardTest.cpp
+    Source/OutputGuard.cpp
+)
+
+target_compile_features(OutputGuardTest PRIVATE cxx_std_17)
+
+target_compile_definitions(OutputGuardTest PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_VST3_CAN_REPLACE_VST2=0
+)
+
+target_compile_options(OutputGuardTest PRIVATE -fsanitize=address,undefined -g -O1)
+target_link_options(OutputGuardTest PRIVATE -fsanitize=address,undefined)
+
+target_link_libraries(OutputGuardTest PRIVATE
+    juce::juce_audio_basics
+    juce::juce_recommended_config_flags
 )

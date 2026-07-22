@@ -312,6 +312,24 @@ void PluginForgeEditor::timerCallback()
     auto peak = processor.outputLevel.load(std::memory_order_relaxed);
     displayLevel = (peak > displayLevel) ? peak : displayLevel * 0.85f;
     repaint(meterBounds);
+
+    // Output-guard edge detection. The guard latches on the audio thread; this
+    // is the only place the UI learns about it. Written on transition only (see
+    // wasOutputMuted) so a compile error message isn't overwritten 30x/second.
+    const bool nowMuted = processor.isOutputMuted();
+    if (nowMuted != wasOutputMuted)
+    {
+        wasOutputMuted = nowMuted;
+        if (nowMuted)
+        {
+            const auto why = processor.outputTrip() == OutputGuard::Trip::NonFinite
+                                 ? "produced NaN/Inf"
+                                 : "ran away to full scale";
+            statusLabel.setText(juce::String("DSP MUTED - output ") + why
+                                    + ". Generate again to reset.",
+                                juce::dontSendNotification);
+        }
+    }
 }
 
 void PluginForgeEditor::paint(juce::Graphics& g)

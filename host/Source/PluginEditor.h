@@ -29,6 +29,11 @@ private:
     juce::Rectangle<int> meterBounds;      // set in resized(), painted in paint()
     float displayLevel = 0.0f;             // message-thread only
 
+    // Edge-detect for the output guard's latched mute, polled by timerCallback.
+    // Stored so the status label is written only on a transition -- rewriting it
+    // at 30Hz would stomp compile/error messages every frame.
+    bool wasOutputMuted = false;           // message-thread only
+
     // ── Parameter knobs ─────────────────────────────────────────────────────
     // Bound once (constructor) to pool slots macro_0..macro_(MAX_KNOBS-1) via
     // SliderAttachment; hidden until a compile succeeds, then labelled and

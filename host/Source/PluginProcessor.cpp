@@ -38,6 +38,7 @@ PluginForgeProcessor::createParameterLayout()
 void PluginForgeProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
     faustEngine.prepare(sampleRate, samplesPerBlock);
+    outputGuard.prepare(sampleRate);
 }
 
 void PluginForgeProcessor::releaseResources()
@@ -65,6 +66,15 @@ void PluginForgeProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 
     paramPool.pushToFaust(faustEngine);
     faustEngine.process(buffer);
+
+    // SUBTLE: the guard runs ONLY on the generated-DSP path, deliberately. The
+    // early-return above passes the host's own input through untouched, and
+    // limiting or DC-blocking a user's dry signal would be a bug, not a safety
+    // measure. Everything this guards against originates in machine-generated
+    // Faust. Kept inside the enterAudio bracket so its cost is included in the
+    // drain the compile thread waits on.
+    outputGuard.process(buffer);
+
     faustEngine.exitAudio();
 
     outputLevel.store(buffer.getMagnitude(0, buffer.getNumSamples()),
@@ -78,6 +88,19 @@ void PluginForgeProcessor::loadFaustCode(const juce::String& faustCode)
         if (error.empty())
         {
             paramPool.remap(params);
+
+            // A new patch gets a clean verdict: clear any latched mute from the
+            // one it replaces.
+            //
+            // SUBTLE: reset() writes non-atomic filter state (dcX1/dcY1/
+            // runawayBlocks) from the COMPILE thread, which would be a data race
+            // against the audio thread anywhere else. It is safe at exactly this
+            // point and nowhere else: this callback runs at FaustEngine::compile
+            // step 5 -- after the audioBusy drain (step 2) proved no audio-thread
+            // section is in flight, and before ready=true (step 6) lets a new one
+            // start. The same drain that makes the activeDSP/activeUI swap safe
+            // covers this. Do not move this call outside the compile callback.
+            outputGuard.reset();
             if (onFaustCompileSuccess)
                 onFaustCompileSuccess(params);
         }
