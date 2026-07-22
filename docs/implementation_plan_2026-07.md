@@ -140,9 +140,29 @@ failed code* are new.
 
 1. **ADR-001…011 are settled**: Faust DSL output, JUCE 7, 64 macro slots, 3-attempt retry,
    argv one-shot subprocess, free-only providers. No task reopens these.
-2. **`llm/prompts/system_prompt.txt` is human-authored IP.** It may be read, diffed, and
-   benchmarked. **No task in this plan assigns any agent to edit it.** Improvements reach the
-   model through *context injection at retry time*, never through the prompt file.
+2. ~~**`llm/prompts/system_prompt.txt` is human-authored IP.** No task in this plan assigns
+   any agent to edit it; improvements reach the model through context injection at retry
+   time, never through the prompt file.~~
+   **SUPERSEDED 2026-07-21, same day this plan was written.** COLLABORATION.md revision 2
+   §1 removed authorship gating entirely — "Claude has write access to every file in this
+   repository, including the real-time audio path and the generation prompts" — and
+   `protect_human_owned.py` was unregistered from `.claude/settings.json` and retired.
+   The prompt is directly editable.
+
+   The replacement guarantee is stronger, and is about content rather than authorship:
+   `check_prompt_invariants.py` (registered) and `tests/test_prompt_stdlib.py` require
+   every `ns.func` in the prompt to resolve against the installed stdlib and every
+   few-shot example to compile. The old gate protected the file from being edited without
+   protecting it from being wrong — the product prompt carried no stdlib grounding at all
+   while the bench prompt did, which is a direct cause of the `smoothclip` /
+   `ba.log2linear` / `flanger_mono` hallucination class.
+
+   **What still applies:** the prompt's failure mode is silent and statistical — a bad
+   edit does not fail a test, it costs a few points of success rate discovered weeks
+   later. So prompt changes carry the §3 Tier 2 evidence bar (before/after measurement),
+   and the binding constraint on that is quota, not permission. This invalidates the
+   premise of workstream ⑤ below, which was designed around the edit ban; see the note
+   there.
 3. **Quota is binding.** Gemini 5 rpm / **20 req/day per model** (measured, `quotaValue: 20`);
    Groq ≈14,400/day with an 8000 TPM cap; OpenRouter ≈50/day; Ollama local. No task spends
    Gemini casually. Bulk runs go to Groq.
@@ -383,7 +403,18 @@ call and shows no added latency.
 **Trigger:** stderr of the **undefined-symbol** class only. Extract the offending symbol, find
 nearest real signatures in `stdfaust.lib`, inject them into the **retry context**.
 
-**This is context injection. It never touches `llm/prompts/system_prompt.txt`** (constraint 2).
+> **⚠️ PREMISE INVALIDATED, 2026-07-21 (same day).** This workstream existed because
+> constraint 2 forbade editing the prompt, so stdlib knowledge had to arrive at *retry*
+> time. Two things killed that premise within hours: the constraint was retired (see
+> constraint 2 above), and the human then put a **generated** stdlib reference directly
+> into `llm/prompts/system_prompt.txt` via `tools/gen_stdlib_block.py`, which is the
+> simpler solution — grounding every first attempt instead of repairing failed ones.
+>
+> ⑤ is therefore **descoped to the residual case**: symbols the generated block omits,
+> found only after a real failure. That residual may be empty. **Do not build this until
+> the ledger (②) shows undefined-symbol failures still occurring at a rate worth
+> spending code on.** Independently, `ParamCapture`'s zone-pointer caching (landed in
+> `efbb5a5`) removed the MapUI lookup path this workstream also cited.
 
 **Touchpoints:** new `llm/stdlib_index.py` (parse the installed `.lib` files once, cache to
 JSON); hook into the retry composer. **Size:** ~150 lines. **Depends on:** C (which quantifies
