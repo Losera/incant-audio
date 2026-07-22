@@ -136,3 +136,32 @@ target_link_libraries(OutputGuardTest PRIVATE
     juce::juce_audio_basics
     juce::juce_recommended_config_flags
 )
+
+# ParamMapTest -- slot<->zone conversion (host/Source/ParamMap.h). Header-only
+# under test, so this compiles just the test TU; it links libfaust only because
+# FaustEngine.h (where ParamInfo lives) includes the libfaust headers, not
+# because any libfaust function is called.
+juce_add_console_app(ParamMapTest
+    PRODUCT_NAME "ParamMap Test"
+)
+
+target_sources(ParamMapTest PRIVATE
+    tests/ParamMapTest.cpp
+)
+
+target_compile_features(ParamMapTest PRIVATE cxx_std_17)
+
+target_compile_definitions(ParamMapTest PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_VST3_CAN_REPLACE_VST2=0
+)
+
+target_compile_options(ParamMapTest PRIVATE -fsanitize=address,undefined -g -O1)
+target_link_options(ParamMapTest PRIVATE -fsanitize=address,undefined)
+
+target_link_libraries(ParamMapTest PRIVATE
+    juce::juce_audio_basics
+    juce::juce_recommended_config_flags
+    ${LIBFAUST_LIB}
+)

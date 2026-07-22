@@ -27,6 +27,13 @@ public:
         CheckButton  // latching toggle
     };
 
+    // Value-curve requested by the patch via [scale:log] / [scale:exp].
+    // Faust strips metadata from the label and delivers it through
+    // UI::declare(zone, "scale", ...) immediately BEFORE the widget's add call
+    // (verified against faust -lang cpp output, 2026-07-21) -- so this can only
+    // be populated by a UI that implements declare(), never by parsing labels.
+    enum class Scale { None, Log, Exp };
+
     struct ParamInfo
     {
         std::string label;
@@ -35,6 +42,25 @@ public:
         float       max;
         float       step;
         Kind        kind;
+
+        // ── Declared metadata (see Scale above) ─────────────────────────────
+        Scale       scale = Scale::None;
+        std::string unit;                 // "Hz", "dB", "ms", ... ; drives the
+                                          // default curve when scale == None
+        bool        isMenu = false;       // [style:menu{...}] -- discrete indices
+
+        // Direct pointer into the owning DSP instance's memory, captured during
+        // buildUserInterface. This is what makes pushToFaust RT-safe: writing
+        // *zone replaces a string-keyed MapUI lookup (up to three std::map
+        // probes per parameter per block, plus an fprintf on miss -- an I/O
+        // syscall on the audio thread).
+        //
+        // ⚠️ LIFETIME: valid only while the DSP instance that produced it is
+        // alive. It dangles the moment that instance is deleted, so it may only
+        // ever be read from the buffer ParamPool published for the CURRENT DSP.
+        // FaustEngine::compile's drain + double-buffer swap is what makes that
+        // safe; see ParamPool::remap.
+        FAUSTFLOAT* zone = nullptr;
     };
 
     using ParamList = std::vector<ParamInfo>;

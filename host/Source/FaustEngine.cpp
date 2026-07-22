@@ -11,31 +11,106 @@ struct ParamCapture : public UI
 {
     FaustEngine::ParamList params;
 
-    void addHorizontalSlider(const char* label, FAUSTFLOAT*, FAUSTFLOAT init,
+    // ── Pending declare() metadata ──────────────────────────────────────────
+    // Faust emits metadata as declare(zone, key, value) calls immediately
+    // BEFORE the widget they describe, all carrying that widget's zone pointer:
+    //
+    //     declare(&fHslider0, "scale", "log");
+    //     declare(&fHslider0, "unit",  "Hz");
+    //     addHorizontalSlider("Cutoff", &fHslider0, 1e3, 2e1, 2e4, 1.0);
+    //
+    // (Verified against `faust -lang cpp` output, 2026-07-21.) Note the label
+    // reaching addHorizontalSlider is "Cutoff" -- the bracketed metadata is
+    // already stripped, so it CANNOT be recovered by parsing the label. This
+    // accumulator is the only way to see it. Mirrors APIUI's fCurrentScale
+    // approach, including resetting after each widget consumes it.
+    FAUSTFLOAT*         pendingZone  = nullptr;
+    FaustEngine::Scale  pendingScale = FaustEngine::Scale::None;
+    std::string         pendingUnit;
+    bool                pendingIsMenu = false;
+
+    void declare(FAUSTFLOAT* zone, const char* key, const char* value) override
+    {
+        // A declare for a different zone means the previous widget never
+        // arrived (bargraph, or a form we ignore); drop the stale accumulation
+        // rather than letting it leak onto the next widget.
+        if (zone != pendingZone)
+        {
+            pendingZone   = zone;
+            pendingScale  = FaustEngine::Scale::None;
+            pendingUnit.clear();
+            pendingIsMenu = false;
+        }
+
+        const std::string k = key ? key : "";
+        const std::string v = value ? value : "";
+
+        if (k == "scale")
+        {
+            if (v == "log")      pendingScale = FaustEngine::Scale::Log;
+            else if (v == "exp") pendingScale = FaustEngine::Scale::Exp;
+        }
+        else if (k == "unit")
+        {
+            pendingUnit = v;
+        }
+        else if (k == "style")
+        {
+            // "menu{'A':0;'B':1}" / "radio{...}" -- both are discrete choosers.
+            pendingIsMenu = v.rfind("menu", 0) == 0 || v.rfind("radio", 0) == 0;
+        }
+    }
+
+    // Attaches whatever declare() accumulated for this zone, then clears it so
+    // the next widget starts clean.
+    FaustEngine::ParamInfo consume(const char* label, FAUSTFLOAT* zone,
+                                   float init, float fmin, float fmax, float step,
+                                   FaustEngine::Kind kind)
+    {
+        FaustEngine::ParamInfo info { label ? label : "", init, fmin, fmax, step, kind };
+        info.zone = zone;
+
+        if (zone != nullptr && zone == pendingZone)
+        {
+            info.scale  = pendingScale;
+            info.unit   = pendingUnit;
+            info.isMenu = pendingIsMenu;
+        }
+
+        pendingZone   = nullptr;
+        pendingScale  = FaustEngine::Scale::None;
+        pendingUnit.clear();
+        pendingIsMenu = false;
+        return info;
+    }
+
+    void addHorizontalSlider(const char* label, FAUSTFLOAT* zone, FAUSTFLOAT init,
                               FAUSTFLOAT fmin, FAUSTFLOAT fmax, FAUSTFLOAT step) override
     {
-        params.push_back({ label, float(init), float(fmin), float(fmax), float(step),
-                           FaustEngine::Kind::HSlider });
+        params.push_back(consume(label, zone, float(init), float(fmin), float(fmax),
+                                 float(step), FaustEngine::Kind::HSlider));
     }
-    void addVerticalSlider(const char* label, FAUSTFLOAT*, FAUSTFLOAT init,
+    void addVerticalSlider(const char* label, FAUSTFLOAT* zone, FAUSTFLOAT init,
                             FAUSTFLOAT fmin, FAUSTFLOAT fmax, FAUSTFLOAT step) override
     {
-        params.push_back({ label, float(init), float(fmin), float(fmax), float(step),
-                           FaustEngine::Kind::VSlider });
+        params.push_back(consume(label, zone, float(init), float(fmin), float(fmax),
+                                 float(step), FaustEngine::Kind::VSlider));
     }
-    void addNumEntry(const char* label, FAUSTFLOAT*, FAUSTFLOAT init,
+    void addNumEntry(const char* label, FAUSTFLOAT* zone, FAUSTFLOAT init,
                      FAUSTFLOAT fmin, FAUSTFLOAT fmax, FAUSTFLOAT step) override
     {
-        params.push_back({ label, float(init), float(fmin), float(fmax), float(step),
-                           FaustEngine::Kind::NumEntry });
+        params.push_back(consume(label, zone, float(init), float(fmin), float(fmax),
+                                 float(step), FaustEngine::Kind::NumEntry));
     }
-    void addButton(const char* label, FAUSTFLOAT*) override
+    void addButton(const char* label, FAUSTFLOAT* zone) override
     {
-        params.push_back({ label, 0.0f, 0.0f, 1.0f, 1.0f, FaustEngine::Kind::Button });
+        params.push_back(consume(label, zone, 0.0f, 0.0f, 1.0f, 1.0f,
+                                 FaustEngine::Kind::Button));
     }
-    void addCheckButton(const char* label, FAUSTFLOAT*) override
+    void addCheckButton(const char* label, FAUSTFLOAT* zone) override
     {
-        params.push_back({ label, 0.0f, 0.0f, 1.0f, 1.0f, FaustEngine::Kind::CheckButton });
+        params.push_back(consume(label, zone, 0.0f, 0.0f, 1.0f, 1.0f,
+                                 FaustEngine::Kind::CheckButton));
     }
     void addHorizontalBargraph(const char*, FAUSTFLOAT*, FAUSTFLOAT, FAUSTFLOAT) override {}
     void addVerticalBargraph(const char*, FAUSTFLOAT*, FAUSTFLOAT, FAUSTFLOAT) override {}
@@ -44,7 +119,6 @@ struct ParamCapture : public UI
     void openHorizontalBox(const char*) override {}
     void openVerticalBox(const char*) override {}
     void closeBox() override {}
-    void declare(FAUSTFLOAT*, const char*, const char*) override {}
 };
 
 // ---------------------------------------------------------------------------

@@ -36,8 +36,14 @@ private:
     // to activeBufferIndex; pushToFaust() acquire-loads the index once and reads
     // only that buffer for the block. Neither buffer is ever freed while live,
     // so there's no delete to synchronize (unlike FaustEngine's DSP pointer swap).
-    std::array<std::vector<std::string>, 2> labelBuffers;
-    std::atomic<int>                         activeBufferIndex { 0 };
+    //
+    // These hold the FULL ParamInfo, not just labels: pushToFaust needs each
+    // param's min/max/step/scale to denormalise the slot, and its zone pointer
+    // to write the result without a string lookup. The zone pointers are why
+    // the buffer that is NOT active must never be read -- see the LIFETIME note
+    // on ParamInfo::zone in FaustEngine.h.
+    std::array<FaustEngine::ParamList, 2> infoBuffers;
+    std::atomic<int>                      activeBufferIndex { 0 };
 
     std::vector<juce::RangedAudioParameter*> slots;
 };

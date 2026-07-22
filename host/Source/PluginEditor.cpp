@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "ParamMap.h"
 #include <thread>
 
 PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
@@ -272,7 +273,31 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
 
 void PluginForgeEditor::refreshParamKnobs(const FaustEngine::ParamList& params)
 {
-    numVisibleKnobs = juce::jmin(static_cast<int>(params.size()), MAX_KNOBS);
+    const int numMapped =
+        juce::jmin(static_cast<int>(params.size()), ParamPool::POOL_SIZE);
+
+    // ── Seed EVERY mapped slot, not just the ones with a visible knob ───────
+    // This loop used to stop at MAX_KNOBS (8) while the pool holds 64. Slots
+    // 8..63 therefore kept whatever they last held (0.0 on a fresh instance).
+    // Under the old raw push that was merely wrong; now that pushToFaust
+    // denormalises, 0.0 maps to each zone's MINIMUM -- a 12-param patch would
+    // come up with its 9th..12th controls pinned to the bottom of their range
+    // (a cutoff at 20 Hz: silence). Knob *visibility* is still capped at 8
+    // below; slot *seeding* must cover the whole pool.
+    for (int i = 0; i < numMapped; ++i)
+    {
+        const auto& p = params[static_cast<size_t>(i)];
+        if (auto* rp = processor.apvts.getParameter(ParamPool::slotId(i)))
+        {
+            // Shared with pushToFaust's forward direction -- the two must be
+            // exact inverses or the knob lies about the value it is sending.
+            rp->setValueNotifyingHost(
+                juce::jlimit(0.0f, 1.0f, ParamMap::mapZoneToSlot(p.defaultValue, p)));
+        }
+    }
+
+    // ── Knob visibility and labels ─────────────────────────────────────────
+    numVisibleKnobs = juce::jmin(numMapped, MAX_KNOBS);
 
     for (int i = 0; i < MAX_KNOBS; ++i)
     {
@@ -283,22 +308,9 @@ void PluginForgeEditor::refreshParamKnobs(const FaustEngine::ParamList& params)
         if (!on)
             continue;
 
-        const auto& p = params[static_cast<size_t>(i)];
         paramNameLabels[static_cast<size_t>(i)].setText(
-            juce::String(p.label), juce::dontSendNotification);
-
-        // Seed the slot at the patch's declared default, normalised into the
-        // slot's 0-1 range, so a fresh compile starts where the Faust author
-        // intended instead of at 0. (For Faust params whose own range is 0-1,
-        // normalised == raw; for real-unit ranges this is forward-compatible
-        // with a denormalising pushToFaust.)
-        if (auto* rp = processor.apvts.getParameter(ParamPool::slotId(i)))
-        {
-            const float range = p.max - p.min;
-            const float norm  = range > 0.0f ? (p.defaultValue - p.min) / range
-                                             : 0.0f;
-            rp->setValueNotifyingHost(juce::jlimit(0.0f, 1.0f, norm));
-        }
+            juce::String(params[static_cast<size_t>(i)].label),
+            juce::dontSendNotification);
     }
 }
 
