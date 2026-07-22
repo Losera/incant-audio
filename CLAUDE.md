@@ -85,8 +85,19 @@ Pipeline: Natural language prompt → LLM → Faust DSL → LLVM JIT → VST3/AU
   retry path). .env now carries PLUGINFORGE_PROVIDER=gemini; the plugin inherits it through
   juce::ChildProcess with no C++ change and no rebuild. The audible half of P6
   (docs/prototype_test_plan.md Part A) is still unrun — it needs the human's ears.
-- ADR-009 duplicate-symbol rule — applied to both llm/prompts/system_prompt.txt and
-  bench/prompts/system_faust.txt.
+- PROMPT SURFACE — UNIFIED 2026-07-21. There is now ONE system prompt,
+  llm/prompts/system_prompt.txt, loaded by generate.py, run_benchmark.py and
+  run_efficacy_study.py alike; bench/prompts/system_faust.txt is deleted. Root cause of
+  the change: both files taught Faust functions that DO NOT EXIST (ef.ping_pong,
+  ef.chorus, ef.flanger) and two of the four production few-shot examples did not
+  compile — the actual source of the flanger HALLUCINATION and ping-pong SEMANTIC
+  failures logged as "persistent" since 2026-05. The stdlib section is now GENERATED
+  from the installed /usr/share/faust/*.lib by tools/gen_stdlib_block.py; the ADR-009
+  duplicate-symbol rule lives in that one file. Guarded by
+  .claude/hooks/check_prompt_invariants.py (every ns.func must resolve) and
+  tests/test_prompt_stdlib.py (5 tests, incl. every few-shot example must compile).
+  ALL benchmark numbers recorded before 2026-07-21 were measured on the old bench
+  prompt and are NOT comparable to a run made today.
 - CI — .github/workflows/test.yml runs pytest -m "not integration" on every push.
 - Test suite — 231 unit tests pass (145 pre-existing + 82 added 2026-07-21 for the
   provider registry + 4 for efficacy-record provenance); 10 integration tests guarded by
@@ -138,7 +149,14 @@ llm/prompts/system_prompt.txt   — few-shot Faust generation prompt
 examples/*.dsp                  — reference Faust patches
 
 ## Collaboration protocol
-Before any non-trivial task, also load COLLABORATION.md. It defines the three engagement
-modes (DELEGATE / PAIR / HUMAN-OWNED), the pre-task protocol you must follow, explicit stop
-conditions, the fail-loud comment markers, and the end-of-task log format. CLAUDE.md
-answers what this project is; COLLABORATION.md answers how we build it together.
+Before any non-trivial task, also load COLLABORATION.md (revision 2, 2026-07-21). Claude
+writes the code, including the audio path and the prompts; what is gated is consequence,
+not file category. It defines the four consult-first triggers, the two-tier evidence bar
+(Tier 2 requires a primary source cited by file:line), the change-report format, and
+STATUS.md. The three-mode protocol (DELEGATE / PAIR / HUMAN-OWNED) is retired — see
+COLLABORATION.md §9. CLAUDE.md answers what this project is; COLLABORATION.md answers how
+we build it; STATUS.md answers where it currently stands.
+
+Read STATUS.md at the start of every session — it supersedes the per-file status narrative
+below, which is being migrated out of CLAUDE.md and should be treated as stale where the
+two disagree.
