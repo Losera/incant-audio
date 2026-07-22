@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""PreToolUse hook (Write/Edit/MultiEdit): blocks direct Claude writes to files
+"""RETIRED 2026-07-21 by COLLABORATION.md revision 2 --- UNREGISTERED from
+.claude/settings.json, kept only for reference. This hook gated *authorship* by file
+category, which revision 2 no longer does: llm/prompts/* and docs/decisions.md are now
+Claude-writable, under the Tier 2 evidence bar (COLLABORATION.md §3) and the consult
+gate for architectural direction (§2). Do not re-register it without reading §9.
+
+Original docstring follows.
+
+PreToolUse hook (Write/Edit/MultiEdit): blocks direct Claude writes to files
 COLLABORATION.md §1 marks as HUMAN-OWNED *in their entirety* --- llm/prompts/*
 (product IP, wording-sensitive) and docs/decisions.md (human is author of record).
 

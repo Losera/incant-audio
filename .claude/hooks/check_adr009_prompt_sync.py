@@ -1,5 +1,23 @@
 #!/usr/bin/env python3
-"""PreToolUse hook (Write/Edit/MultiEdit): keeps the ADR-009 duplicate-symbol
+"""RETIRED 2026-07-21 --- UNREGISTERED from .claude/settings.json, superseded by
+.claude/hooks/check_prompt_invariants.py. Kept for reference only.
+
+Why it was retired: it synchronised two prompt files, and there is now only one.
+bench/prompts/system_faust.txt was deleted and the benchmark loads the production
+prompt directly, so this hook's counterpart lookup would fail closed on every edit.
+
+Worth recording what it taught us. This hook did exactly what its docstring said --
+verify one sentence and one regex -- and the team read that as "the two prompt files
+cannot drift apart." They had drifted substantially, and BOTH files taught Faust
+functions that do not exist (ef.ping_pong, ef.chorus, ef.flanger); two of the four
+few-shot examples in the production prompt did not compile. A check on a proxy
+creates confidence proportional to the invariant, not to the proxy. Its successor
+therefore verifies the real property -- that every stdlib name in the prompt exists
+in the installed library -- and states its own blind spots explicitly.
+
+Original docstring follows.
+
+PreToolUse hook (Write/Edit/MultiEdit): keeps the ADR-009 duplicate-symbol
 RULE TEXT in sync between llm/prompts/system_prompt.txt and
 bench/prompts/system_faust.txt, closing the gap protect_human_owned.py
 deliberately leaves open (bench/prompts/* is Claude-editable, so the two copies
