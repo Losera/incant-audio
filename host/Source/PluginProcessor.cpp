@@ -10,7 +10,15 @@ PluginForgeProcessor::PluginForgeProcessor()
 {
 }
 
-PluginForgeProcessor::~PluginForgeProcessor() {}
+PluginForgeProcessor::~PluginForgeProcessor()
+{
+    // Stop and join the compile worker FIRST, while paramPool and the
+    // onFaustCompile* handlers it calls into are still alive. Members are
+    // destroyed in reverse declaration order and faustEngine is declared before
+    // paramPool, so ~FaustEngine would otherwise run after ~ParamPool — with a
+    // compile potentially still in flight calling remap() on a destroyed pool.
+    faustEngine.shutdown();
+}
 
 juce::AudioProcessorValueTreeState::ParameterLayout
 PluginForgeProcessor::createParameterLayout()

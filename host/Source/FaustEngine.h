@@ -6,8 +6,10 @@
 #include <string>
 #include <vector>
 #include <atomic>
+#include <condition_variable>
 #include <memory>
 #include <mutex>
+#include <thread>
 
 class FaustEngine
 {
@@ -75,9 +77,27 @@ public:
     void release();
     void process(juce::AudioBuffer<float>& buffer);
 
-    // Async — compiles on a detached background thread; cb fires on that compile
-    // thread (NOT the message thread), inside compileMutex, before ready=true.
+    // Async — queues a compile on the engine's single persistent worker thread.
+    // cb fires on that worker (NOT the message thread), inside compileMutex,
+    // before ready=true. Returns immediately.
+    //
+    // Only the NEWEST queued request survives: the pending slot holds one job, so
+    // a rapid sequence of Generate clicks compiles the last prompt and silently
+    // drops the superseded ones rather than queueing a backlog the user has
+    // already moved past.
     void compile(const juce::String& faustCode, CompileCallback cb);
+
+    // Stops the worker and joins it. Idempotent, safe to call from any thread
+    // except the worker itself.
+    //
+    // ⚠️ CALL THIS BEFORE ANYTHING THE CALLBACK TOUCHES IS DESTROYED.
+    // The compile callback reaches into ParamPool and the processor's
+    // onFaustCompile* handlers. ~FaustEngine calls shutdown() as a backstop, but
+    // by then sibling members may already be gone: members are destroyed in
+    // reverse declaration order, and FaustEngine is declared before ParamPool in
+    // PluginProcessor.h, so ~FaustEngine runs LAST. PluginForgeProcessor's
+    // destructor therefore calls this explicitly, first.
+    void shutdown();
 
     bool isReady() const { return ready.load(std::memory_order_acquire); }
 
@@ -118,5 +138,30 @@ private:
     // SUBTLE: compileMutex is held only on the compile thread, never on the audio thread.
     // createDSPFactoryFromString is not thread-safe per faust/dsp/llvm-dsp.h —
     // this mutex prevents two concurrent compile() calls from racing inside libfaust.
+    // The single worker already serialises compiles, so it is now uncontended;
+    // it is kept because ParamPool::remap's single-writer argument is written in
+    // terms of it, and because it fails safe if a second worker is ever added.
     std::mutex compileMutex;
+
+    // ── Compile worker ──────────────────────────────────────────────────────
+    // Replaces the per-call `std::thread(...).detach()`, which had no owner and
+    // no join: on 2026-07-22 CI run 29883556305, ThreadSanitizer caught the main
+    // thread running static destructors at process exit while a detached compile
+    // thread was still live (race at FaustEngine.cpp:192 against JUCE's
+    // LeakedObjectDetector teardown). A detached thread capturing `this` cannot
+    // be made safe by ordering alone — it has to be joined.
+    //
+    // Single pending slot rather than a queue: superseded compiles are worthless,
+    // and a queue would make the plugin work through a backlog of prompts the
+    // user has already replaced.
+    void workerLoop();
+    void runCompile(const std::string& code, const CompileCallback& cb);
+
+    std::thread             worker;
+    std::mutex              jobMutex;
+    std::condition_variable jobCv;
+    std::string             pendingCode;
+    CompileCallback         pendingCb;
+    bool                    hasJob   = false;
+    bool                    stopping = false;   // guarded by jobMutex
 };

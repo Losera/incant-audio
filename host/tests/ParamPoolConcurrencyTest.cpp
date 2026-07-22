@@ -108,17 +108,30 @@ int main()
         }
     });
 
-    // Compile-thread stand-in: fire compiles back-to-back without waiting for
-    // each to finish. FaustEngine::compileMutex serializes the actual libfaust
-    // work, but each call spawns its own detached std::thread immediately, so
-    // this deliberately creates overlap at the ParamPool::remap() call site --
-    // exactly the scenario the double-buffer exists to survive.
+    // Compile-thread stand-in: drive remap() repeatedly while the audio thread
+    // hammers pushToFaust(), which is the concurrency the double-buffer exists
+    // to survive.
+    //
+    // PACING IS LOAD-BEARING, and it was not always. Until 2026-07-22 every
+    // loadFaustCode() spawned its own detached thread, so firing 20 back-to-back
+    // produced 20 overlapping compiles. FaustEngine now runs ONE worker with a
+    // single pending slot (newest wins), so an unpaced burst would be collapsed
+    // into roughly two compiles -- the first, and whichever was queued last --
+    // and this test would quietly stop testing anything. The gap is chosen to
+    // exceed a single libfaust compile of these tiny programs so each iteration
+    // is actually picked up.
     for (int i = 0; i < kCompileIterations; ++i)
+    {
         processor.loadFaustCode(i % 2 == 0 ? kProgramA : kProgramB);
+        std::this_thread::sleep_for(std::chrono::milliseconds(120));
+    }
 
-    // See the KNOWN LIMITATION note at the top of this file: this sleep is a
-    // best-effort wait for in-flight compiles, not a guarantee.
-    std::this_thread::sleep_for(std::chrono::seconds(5));
+    // Settle time for the final compile. No longer load-bearing for correctness:
+    // ~PluginForgeProcessor calls FaustEngine::shutdown(), which joins the
+    // worker, so no compile can outlive main() the way the detached threads
+    // could -- that outliving is precisely what ThreadSanitizer caught in CI run
+    // 29883556305 (race against JUCE's static-destructor teardown at exit).
+    std::this_thread::sleep_for(std::chrono::seconds(2));
 
     stopAudioThread.store(true, std::memory_order_relaxed);
     audioThread.join();

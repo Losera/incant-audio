@@ -125,9 +125,30 @@ struct ParamCapture : public UI
 
 FaustEngine::~FaustEngine()
 {
+    // Backstop only — PluginForgeProcessor's destructor calls shutdown() first,
+    // while the objects the compile callback touches are still alive. See the
+    // warning on shutdown() in FaustEngine.h.
+    shutdown();
+
     delete activeDSP.load();
     if (factory)
         deleteDSPFactory(factory);
+}
+
+void FaustEngine::shutdown()
+{
+    {
+        std::lock_guard<std::mutex> lock(jobMutex);
+        if (stopping)
+            return;                 // idempotent
+        stopping = true;
+        hasJob   = false;           // drop anything queued but not started
+        pendingCb = nullptr;
+    }
+    jobCv.notify_all();
+
+    if (worker.joinable())
+        worker.join();
 }
 
 void FaustEngine::prepare(double sampleRate, int blockSize)
@@ -164,7 +185,46 @@ void FaustEngine::process(juce::AudioBuffer<float>& buffer)
 
 void FaustEngine::compile(const juce::String& faustCode, CompileCallback cb)
 {
-    std::thread([this, code = faustCode.toStdString(), cb]() mutable
+    {
+        std::lock_guard<std::mutex> lock(jobMutex);
+        if (stopping)
+            return;                 // shutting down: drop the request
+
+        // Single slot: a newer request replaces an older un-started one. Rapid
+        // Generate clicks should land on the last prompt, not work through a
+        // backlog of prompts the user has already abandoned.
+        pendingCode = faustCode.toStdString();
+        pendingCb   = std::move(cb);
+        hasJob      = true;
+
+        if (!worker.joinable())     // started lazily, on first use
+            worker = std::thread([this] { workerLoop(); });
+    }
+    jobCv.notify_one();
+}
+
+void FaustEngine::workerLoop()
+{
+    for (;;)
+    {
+        std::string     code;
+        CompileCallback cb;
+        {
+            std::unique_lock<std::mutex> lock(jobMutex);
+            jobCv.wait(lock, [this] { return hasJob || stopping; });
+            if (stopping)
+                return;
+            code   = std::move(pendingCode);
+            cb     = std::move(pendingCb);
+            hasJob = false;
+        }
+
+        runCompile(code, cb);
+    }
+}
+
+void FaustEngine::runCompile(const std::string& code, const CompileCallback& cb)
+{
     {
         // compileMutex prevents two concurrent compiles from racing inside libfaust.
         // createDSPFactoryFromString is not thread-safe (per llvm-dsp.h header comment).
@@ -191,6 +251,21 @@ void FaustEngine::compile(const juce::String& faustCode, CompileCallback cb)
 
         dsp->init(static_cast<int>(sr));
 
+        // Bail out before publishing if shutdown began while libfaust was working.
+        // Past this point the protocol calls cb(), which reaches into ParamPool and
+        // the processor's handlers — the very objects a teardown is dismantling.
+        // Discarding a compile nobody will hear is free; calling back into a
+        // half-destroyed processor is not.
+        {
+            std::lock_guard<std::mutex> lock(jobMutex);
+            if (stopping)
+            {
+                delete dsp;
+                deleteDSPFactory(f);
+                return;
+            }
+        }
+
         // Capture parameter metadata (min/max/default/step) for the ParamPool.
         ParamCapture capture;
         dsp->buildUserInterface(&capture);
@@ -212,9 +287,9 @@ void FaustEngine::compile(const juce::String& faustCode, CompileCallback cb)
 
         // Step 2: drain in-flight audio-thread sections. processBlock() brackets all
         // engine use in enterAudio()/exitAudio(); once audioBusy hits zero, no reader
-        // holds activeDSP or activeUI. Spinning is fine here: this is the detached
-        // compile thread (never the audio thread) and the wait is bounded by one
-        // audio callback.
+        // holds activeDSP or activeUI. Spinning is fine here: this is the compile
+        // worker (never the audio thread) and the wait is bounded by one audio
+        // callback.
         while (audioBusy.load(std::memory_order_seq_cst) != 0)
             std::this_thread::yield();
 
@@ -248,5 +323,5 @@ void FaustEngine::compile(const juce::String& faustCode, CompileCallback cb)
         delete old;
         if (oldFactory)
             deleteDSPFactory(oldFactory);
-    }).detach();
+    }
 }
