@@ -1,0 +1,23 @@
+{
+  "_comment": [
+    "Targeted 5-prompt subset for the 2026-07-21 prompt-grounding fix.",
+    "The first three are the effects whose failures were caused by the prompt",
+    "teaching functions that do not exist (ef.ping_pong, ef.chorus, ef.flanger).",
+    "ping-pong and flanger failed identically in the 2026-05 and 2026-07-19 runs",
+    "and were recorded as persistent MODEL failures; they were prompt bugs.",
+    "The last two are controls that already passed, to catch a regression from",
+    "the rewrite. Run with:",
+    "  python bench/run_benchmark.py --provider groq --prompts bench/prompts/regression_check.json"
+  ],
+  "time-based": [
+    "a ping-pong delay that bounces between left and right",
+    "a tape-style flanger with feedback",
+    "a subtle chorus effect with rate and depth"
+  ],
+  "filters": [
+    "a warm analog-style low-pass filter with cutoff and resonance"
+  ],
+  "trivial": [
+    "a stereo gain control in decibels"
+  ]
+}

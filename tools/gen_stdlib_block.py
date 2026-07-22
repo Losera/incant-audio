@@ -1,0 +1,419 @@
+#!/usr/bin/env python3
+"""
+Generate the STDLIB REFERENCE block for llm/prompts/system_prompt.txt from the
+*installed* Faust standard library.
+
+Why this exists
+---------------
+On 2026-07-21 both prompt files were found to teach functions that do not exist:
+`ef.ping_pong`, `ef.chorus`, and `ef.flanger`. Two of the four few-shot examples in
+the production prompt did not compile. This directly produced the two failure modes
+that had been recorded as "persistent model failures" for two months:
+
+  * the flanger prompt failed with `undefined symbol : flanger_mono` -- the model
+    recalled the CORRECT name (phaflangers.lib really does export flanger_mono) and
+    used the wrong namespace, because the prompt taught a fictitious `ef.flanger`.
+  * the ping-pong prompt failed with a circular `with{}` definition -- told that
+    `ef.ping_pong` was a one-liner that does not exist, the model wrote its own.
+
+A hand-copied mirror of an external library's API drifts from that library silently.
+This script removes the possibility: the NAME of every function in the block is
+curated by a human below, but its SIGNATURE is read out of the installed .lib file.
+An entry that does not resolve is a hard error, not a silent omission.
+
+Division of responsibility
+--------------------------
+  CURATED (editorial, human judgement)  -- which functions are worth showing the
+      model, how they are grouped, and the one-line description of each.
+  MECHANICAL (this script)              -- the namespace prefix, the exact argument
+      list, and the guarantee that the function exists.
+
+Usage
+-----
+    python tools/gen_stdlib_block.py            # print the block to stdout
+    python tools/gen_stdlib_block.py --check    # exit 1 if any entry is missing
+    python tools/gen_stdlib_block.py --write    # splice into the system prompt
+
+`--check` is what CI runs (tests/test_prompt_stdlib.py); it is how a Faust upgrade
+that renames or drops a function turns into a failing build instead of a silent
+regression in generation quality.
+"""
+import argparse
+import re
+import sys
+from pathlib import Path
+
+FAUST_LIB_DIR = Path("/usr/share/faust")
+STDFAUST = FAUST_LIB_DIR / "stdfaust.lib"
+
+PROMPT_FILE = Path(__file__).resolve().parent.parent / "llm" / "prompts" / "system_prompt.txt"
+
+BEGIN_MARKER = "# BEGIN GENERATED STDLIB REFERENCE"
+END_MARKER = "# END GENERATED STDLIB REFERENCE"
+
+# ── Curated selection ─────────────────────────────────────────────────────────
+# (namespace, function, description). Names verified present 2026-07-21; the
+# script re-verifies on every run. Descriptions are editorial and are the only
+# free text here -- a wrong description misleads, a wrong signature does not
+# compile, which is why only the latter is mechanically enforced.
+CURATED: list[tuple[str, list[tuple[str, str, str]]]] = [
+    ("Filters", [
+        ("fi", "lowpass",   "Butterworth low-pass; order is a constant"),
+        ("fi", "highpass",  "Butterworth high-pass; order is a constant"),
+        ("fi", "bandpass",  "Butterworth band-pass"),
+        ("fi", "resonlp",   "resonant low-pass -- the workhorse for 'filter with resonance'"),
+        ("fi", "resonhp",   "resonant high-pass"),
+        ("fi", "notchw",    "notch filter, width in Hz"),
+        ("fi", "peak_eq",   "peaking EQ band, gain in dB"),
+        ("fi", "lowshelf",  "low shelf, gain in dB"),
+        ("fi", "highshelf", "high shelf, gain in dB"),
+        ("fi", "dcblocker", "DC blocker; no arguments"),
+    ]),
+    ("Virtual-analog filters", [
+        ("ve", "moog_vcf",   "Moog ladder VCF"),
+        ("ve", "moogLadder", "alternative Moog ladder model"),
+        ("ve", "korg35LPF",  "Korg 35 low-pass"),
+        ("ve", "diodeLadder", "diode-ladder (TB-303 style) low-pass"),
+    ]),
+    ("Delays", [
+        ("de", "delay",  "integer-sample delay; first arg is the MAXIMUM delay"),
+        ("de", "fdelay", "fractional-sample delay (interpolated) -- use for modulated delays"),
+        ("de", "sdelay", "crossfaded delay, click-free when the delay time changes"),
+    ]),
+    ("Modulation effects", [
+        ("pf", "flanger_mono",   "mono flanger -- NOTE the pf. namespace, not ef."),
+        ("pf", "flanger_stereo", "stereo flanger"),
+        ("pf", "phaser2_mono",   "mono phaser"),
+        ("pf", "phaser2_stereo", "stereo phaser"),
+        ("pf", "vibrato2_mono",  "vibrato"),
+    ]),
+    ("Dynamics", [
+        ("co", "compressor_mono",         "mono compressor"),
+        ("co", "compressor_stereo",       "stereo compressor, linked detection"),
+        ("co", "limiter_1176_R4_mono",    "1176-style limiter, mono"),
+        ("co", "limiter_1176_R4_stereo",  "1176-style limiter, stereo"),
+        ("ef", "gate_mono",               "noise gate, mono"),
+        ("ef", "gate_stereo",             "noise gate, stereo"),
+        ("an", "amp_follower_ar",         "envelope follower with attack/release"),
+    ]),
+    ("Distortion / saturation", [
+        ("ef", "cubicnl",            "cubic nonlinearity -- soft saturation / drive"),
+        ("ef", "softclipQuadratic",  "quadratic soft clipper"),
+        ("ef", "wavefold",           "wavefolder"),
+    ]),
+    ("Reverb", [
+        ("re", "mono_freeverb",     "Freeverb, mono"),
+        ("re", "stereo_freeverb",   "Freeverb, stereo"),
+        ("re", "zita_rev1_stereo",  "high-quality FDN reverb"),
+    ]),
+    ("Echo / utility effects", [
+        ("ef", "echo",         "feedback echo; first arg is the MAXIMUM duration"),
+        ("ef", "dryWetMixer",  "wraps an effect with a dry/wet control"),
+        ("ef", "stereo_width", "stereo width control"),
+        ("ef", "transpose",    "pitch shifter (windowed)"),
+    ]),
+    ("Oscillators and noise", [
+        ("os", "osc",       "sine oscillator"),
+        ("os", "sawtooth",  "band-limited sawtooth"),
+        ("os", "square",    "band-limited square"),
+        ("os", "triangle",  "band-limited triangle"),
+        ("os", "lf_saw",    "low-frequency saw -- use for LFOs, not audio"),
+        ("os", "lf_triangle", "low-frequency triangle -- use for LFOs"),
+        ("no", "noise",     "white noise; no arguments"),
+        ("no", "pink_noise", "pink noise; no arguments"),
+    ]),
+    ("Envelopes", [
+        ("en", "ar",   "attack/release envelope"),
+        ("en", "asr",  "attack/sustain/release envelope"),
+        ("en", "adsr", "full ADSR envelope"),
+    ]),
+    ("Conversions and helpers", [
+        ("ba", "db2linear",  "decibels to linear gain"),
+        ("ba", "linear2db",  "linear gain to decibels"),
+        ("ba", "midikey2hz", "MIDI note number to Hz"),
+        ("ba", "sec2samp",   "seconds to samples"),
+        ("ba", "bypass1",    "bypass switch around a mono effect"),
+        ("ba", "bypass2",    "bypass switch around a stereo effect"),
+        ("si", "smoo",       "one-pole smoothing -- use on slider values to avoid zipper noise"),
+        ("ma", "SR",         "current sample rate; no arguments"),
+        ("ma", "PI",         "pi; no arguments"),
+    ]),
+]
+
+
+class MissingFunction(Exception):
+    """A curated entry does not exist in the installed Faust library."""
+
+
+def load_namespace_map() -> dict[str, Path]:
+    """Parse stdfaust.lib's `xx = library("yy.lib");` lines into {prefix: path}."""
+    if not STDFAUST.exists():
+        raise FileNotFoundError(
+            f"{STDFAUST} not found -- is Faust installed? "
+            "This script reads the real library, by design."
+        )
+    mapping = {}
+    pattern = re.compile(r'^\s*(\w+)\s*=\s*library\("([^"]+)"\)')
+    for line in STDFAUST.read_text().splitlines():
+        m = pattern.match(line)
+        if m:
+            mapping[m.group(1)] = FAUST_LIB_DIR / m.group(2)
+    return mapping
+
+
+def _params_of(text: str, func: str) -> list[str] | None:
+    """Explicit parameter list of `func` if it is defined as `func(a,b) = ...`."""
+    m = re.search(rf"^{re.escape(func)}\s*\(([^)]*)\)\s*=", text, re.MULTILINE)
+    if not m:
+        return None
+    return [a.strip() for a in m.group(1).split(",") if a.strip()]
+
+
+def _alias_of(text: str, func: str) -> tuple[str, int] | None:
+    """If `func` is a point-free alias, return (target_name, n_args_applied).
+
+    Faust libraries define many public names by aliasing or partially applying
+    another function, so the arity is not written at the definition site:
+
+        osc = oscsin;                                    -> ("oscsin", 0)
+        compressor_mono = compressor_lad_mono(0);        -> ("compressor_lad_mono", 1)
+        limiter_1176_R4_mono = compressor_mono(4,-6,...) -> ("compressor_mono", 4)
+
+    Emitting these as zero-argument would be its own kind of fabrication -- the
+    model would write `os.osc` bare and hit an arity error. Returns None when the
+    right-hand side is a real expression rather than a simple (partial) call.
+    """
+    m = re.search(rf"^{re.escape(func)}\s*=\s*([^;]+);", text, re.MULTILINE)
+    if not m:
+        return None
+    rhs = m.group(1).strip()
+
+    call = re.fullmatch(r"(\w+)\s*\((.*)\)", rhs, re.DOTALL)
+    if call:
+        inner = call.group(2)
+        # Count top-level commas only; nested calls may contain their own.
+        depth, applied = 0, 1 if inner.strip() else 0
+        for ch in inner:
+            if ch in "([":
+                depth += 1
+            elif ch in ")]":
+                depth -= 1
+            elif ch == "," and depth == 0:
+                applied += 1
+        return call.group(1), applied
+
+    if re.fullmatch(r"\w+", rhs):
+        return rhs, 0
+
+    return None
+
+
+def find_signature(lib_path: Path, func: str, all_libs: list[Path],
+                   _depth: int = 0) -> str:
+    """Return the rendered argument list for `func`, following alias chains.
+
+    Returns "" only when the definition is genuinely point-free with no resolvable
+    arity (`no.noise`, `fi.dcblocker`) -- those are used bare, piped with `:`.
+    Raises MissingFunction if no top-level definition exists anywhere.
+
+    Only column-0 definitions are matched: that is the Faust library convention for
+    a public export, and it avoids matching a same-named local inside a `with{}`.
+    """
+    if not lib_path.exists():
+        raise MissingFunction(f"library {lib_path} not found (for {func})")
+
+    text = lib_path.read_text()
+
+    params = _params_of(text, func)
+    if params is not None:
+        return "(" + ", ".join(params) + ")"
+
+    if _depth < 4:
+        alias = _alias_of(text, func)
+        if alias:
+            target, applied = alias
+            # The alias target usually lives in the same library; fall back to a
+            # sweep so cross-library aliases still resolve.
+            for candidate in [lib_path] + [p for p in all_libs if p != lib_path]:
+                try:
+                    sig = find_signature(candidate, target, all_libs, _depth + 1)
+                except MissingFunction:
+                    continue
+                if not sig:
+                    return ""
+                remaining = [a.strip() for a in sig[1:-1].split(",") if a.strip()]
+                remaining = remaining[applied:]
+                return "(" + ", ".join(remaining) + ")" if remaining else ""
+            # Alias target not found anywhere: fall through to the bare check.
+
+    if re.search(rf"^{re.escape(func)}\s*=", text, re.MULTILINE):
+        return ""
+
+    raise MissingFunction(f"{func} is not defined at top level in {lib_path.name}")
+
+
+def resolve_all() -> tuple[list[tuple[str, list[str]]], list[str]]:
+    """Resolve every curated entry. Returns (rendered_groups, errors)."""
+    ns_map = load_namespace_map()
+    all_libs = sorted(set(ns_map.values()))
+    groups, errors = [], []
+
+    for group_name, entries in CURATED:
+        lines = []
+        for ns, func, desc in entries:
+            lib = ns_map.get(ns)
+            if lib is None:
+                errors.append(f"{ns}.{func}: namespace {ns!r} not in stdfaust.lib")
+                continue
+            try:
+                sig = find_signature(lib, func, all_libs)
+            except MissingFunction as exc:
+                errors.append(f"{ns}.{func}: {exc}")
+                continue
+            lines.append(f"{ns}.{func}{sig}|{desc}")
+        groups.append((group_name, lines))
+
+    return groups, errors
+
+
+def render(groups: list[tuple[str, list[str]]]) -> str:
+    """Format as an aligned two-column reference block."""
+    # Cap the alignment column: one outlier (pf.phaser2_mono has 10 parameters)
+    # would otherwise push every description off to the right and waste tokens.
+    # Longer signatures get their description on a continuation line instead.
+    all_sigs = [ln.split("|", 1)[0] for _, lines in groups for ln in lines]
+    width = min(max(len(s) for s in all_sigs) + 2, 46)
+
+    out = [BEGIN_MARKER,
+           "# Generated by tools/gen_stdlib_block.py from the installed stdfaust.lib.",
+           "# Do not hand-edit: run the script. Signatures are read from the library,",
+           "# so a function that does not exist cannot appear here.",
+           ""]
+    for group_name, lines in groups:
+        out.append(f"{group_name}:")
+        for ln in lines:
+            sig, desc = ln.split("|", 1)
+            if len(sig) < width:
+                out.append(f"  {sig.ljust(width)}{desc}")
+            else:
+                out.append(f"  {sig}")
+                out.append(f"  {' ' * width}{desc}")
+        out.append("")
+    out.append(END_MARKER)
+    return "\n".join(out)
+
+
+def splice(prompt_text: str, block: str) -> str:
+    """Replace the region between the markers, preserving everything else."""
+    start = prompt_text.find(BEGIN_MARKER)
+    end = prompt_text.find(END_MARKER)
+    if start == -1 or end == -1:
+        raise ValueError(
+            f"markers not found in {PROMPT_FILE}. Expected {BEGIN_MARKER!r} and "
+            f"{END_MARKER!r}. Add them where the reference block should go."
+        )
+    return prompt_text[:start] + block + prompt_text[end + len(END_MARKER):]
+
+
+def verify_prompt_references(prompt_text: str) -> list[str]:
+    """Check that EVERY `ns.func` token in the prompt exists in the installed library.
+
+    This is the invariant the 2026-07-21 incident actually needed. The generated
+    block cannot contain a fabricated function, but the hand-written parts of the
+    prompt -- the rules, the prose, and above all the few-shot EXAMPLES -- still
+    can, and that is precisely where `ef.ping_pong` and `ef.chorus` lived.
+
+    Only tokens whose prefix is a real stdfaust namespace are checked, so local
+    helper names in the examples (echoCh, lfo, voice, chorusCh) are ignored.
+
+    Returns a list of human-readable problems; empty means clean.
+    """
+    ns_map = load_namespace_map()
+    all_libs = sorted(set(ns_map.values()))
+
+    problems, seen = [], set()
+    for ns, func in re.findall(r"\b([a-z]{2})\.([A-Za-z_]\w*)", prompt_text):
+        if ns not in ns_map or (ns, func) in seen:
+            continue
+        seen.add((ns, func))
+        try:
+            find_signature(ns_map[ns], func, all_libs)
+        except MissingFunction:
+            problems.append(
+                f"{ns}.{func} does not exist in {ns_map[ns].name} "
+                f"(namespace {ns!r})"
+            )
+    return sorted(problems)
+
+
+def iter_prompt_examples(prompt_text: str) -> list[tuple[int, str]]:
+    """Extract every few-shot Faust example as (index, code).
+
+    An example runs from a line that is exactly `FAUST:` to the next blank line
+    that is followed by a non-indented `USER:` or end of text. Faust programs here
+    have no blank lines inside them, so splitting on the `USER:`/`FAUST:` markers
+    is sufficient and avoids a fragile parser.
+    """
+    examples = []
+    blocks = prompt_text.split("\nFAUST:\n")[1:]
+    for i, block in enumerate(blocks, 1):
+        code = block.split("\nUSER:")[0].rstrip()
+        if code.strip():
+            examples.append((i, code))
+    return examples
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[1])
+    parser.add_argument("--check", action="store_true",
+                        help="Verify every curated entry resolves; exit 1 if not.")
+    parser.add_argument("--verify-prompt", action="store_true",
+                        help="Verify every ns.func reference in the system prompt "
+                             "exists in the installed library; exit 1 if not.")
+    parser.add_argument("--write", action="store_true",
+                        help="Splice the block into llm/prompts/system_prompt.txt.")
+    args = parser.parse_args(argv)
+
+    if args.verify_prompt:
+        problems = verify_prompt_references(PROMPT_FILE.read_text())
+        if problems:
+            print(f"FABRICATED STDLIB REFERENCES in {PROMPT_FILE}:", file=sys.stderr)
+            for p in problems:
+                print(f"  {p}", file=sys.stderr)
+            return 1
+        print(f"OK -- every stdlib reference in {PROMPT_FILE.name} resolves")
+        return 0
+
+    groups, errors = resolve_all()
+
+    if errors:
+        print("STDLIB REFERENCE IS STALE -- these curated entries do not exist in the "
+              "installed Faust library:", file=sys.stderr)
+        for e in errors:
+            print(f"  MISSING  {e}", file=sys.stderr)
+        print("\nEither the function was renamed/removed by a Faust upgrade, or the "
+              "curated list in this file names something that never existed (this is "
+              "exactly how ef.chorus / ef.ping_pong / ef.flanger got into the prompt). "
+              "Fix CURATED, do not weaken the check.", file=sys.stderr)
+        return 1
+
+    if args.check:
+        total = sum(len(lines) for _, lines in groups)
+        print(f"OK -- all {total} curated stdlib entries resolve against "
+              f"{FAUST_LIB_DIR}")
+        return 0
+
+    block = render(groups)
+
+    if args.write:
+        text = PROMPT_FILE.read_text()
+        PROMPT_FILE.write_text(splice(text, block))
+        print(f"Wrote generated block into {PROMPT_FILE}", file=sys.stderr)
+        return 0
+
+    print(block)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

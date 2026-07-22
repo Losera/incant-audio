@@ -47,8 +47,8 @@ python llm/providers.py --check all              # key / reachability / model ta
 python llm/providers.py --list-models gemini     # live ids; they churn, don't guess
 ```
 
-Two behaviors live in the adapter layer rather than in the prompts, because
-`prompts/system_prompt.txt` is HUMAN-OWNED:
+Two behaviors live in the adapter layer rather than in the prompts, because they are
+transport concerns rather than prompt-engineering ones:
 
 - **Fence stripping** — open-weight models wrap output in ```` ```faust ```` fences, which fails
   `faust -lang cpp` on line 1. Stripped for every free provider; deliberately **off** for
@@ -57,10 +57,26 @@ Two behaviors live in the adapter layer rather than in the prompts, because
   cap. Measured on `gemini-3.6-flash`: `max_output_tokens=1024` yielded 981 thinking tokens, 39
   visible, truncated mid-sentence; 4096 yielded valid Faust.
 
-⚠️ `prompts/system_prompt.txt` is **HUMAN-OWNED product IP** (`COLLABORATION.md` §1).
-`.claude/hooks/protect_human_owned.py` blocks Claude from editing it; don't paste its contents
-into logs, READMEs, or benchmarks — reference it by path. The ADR-009 duplicate-symbol rule
-lives in both this file and `bench/prompts/system_faust.txt` and must stay in sync.
+### `prompts/system_prompt.txt` — the single system prompt
+
+Since 2026-07-21 there is **one** prompt file. The product (`generate.py`), the benchmark
+(`bench/run_benchmark.py`), and the efficacy study all load it, so an edit changes generated
+audio *and* invalidates every recorded measurement. It is Tier 2 under `COLLABORATION.md` §3:
+state what changed, and either re-run the affected benchmark or declare the baseline stale.
+
+Its stdlib reference section is **generated, not hand-written**:
+
+```bash
+python tools/gen_stdlib_block.py --check          # every curated name exists
+python tools/gen_stdlib_block.py --verify-prompt  # no fabricated ns.func anywhere
+python tools/gen_stdlib_block.py --write          # regenerate the block in place
+```
+
+This exists because on 2026-07-21 both prompt files were found to teach functions that do
+not exist — `ef.ping_pong`, `ef.chorus`, `ef.flanger` — and two of the four few-shot examples
+did not compile. That was the root cause of the flanger and ping-pong failures recorded as
+"persistent model failures" for two months. `.claude/hooks/check_prompt_invariants.py` and
+`tests/test_prompt_stdlib.py` now make it mechanically impossible to reintroduce.
 
 ## Tests
 
