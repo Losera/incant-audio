@@ -27,6 +27,9 @@ juce_add_plugin(PluginForgeHost
 target_sources(PluginForgeHost PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
+    Source/PromptPanel.cpp
+    Source/CodeEditorPanel.cpp
+    Source/ParamGridPanel.cpp
     Source/FaustEngine.cpp
     Source/ParamPool.cpp
     Source/OutputGuard.cpp
@@ -81,6 +84,9 @@ target_sources(ParamPoolTsanTest PRIVATE
     tests/ParamPoolConcurrencyTest.cpp
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
+    Source/PromptPanel.cpp
+    Source/CodeEditorPanel.cpp
+    Source/ParamGridPanel.cpp
     Source/FaustEngine.cpp
     Source/ParamPool.cpp
     Source/OutputGuard.cpp
@@ -181,6 +187,9 @@ target_sources(StatePersistenceTest PRIVATE
     tests/StatePersistenceTest.cpp
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
+    Source/PromptPanel.cpp
+    Source/CodeEditorPanel.cpp
+    Source/ParamGridPanel.cpp
     Source/FaustEngine.cpp
     Source/ParamPool.cpp
     Source/OutputGuard.cpp
