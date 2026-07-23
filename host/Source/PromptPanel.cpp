@@ -82,10 +82,15 @@ PromptPanel::PromptPanel(PluginForgeProcessor& p)
         auto pythonExe = juce::SystemStats::getEnvironmentVariable(
             "PLUGINFORGE_PYTHON", "python3");
 
-        // SUBTLE: processor is a reference to PluginForgeProcessor, which creates the
-        // editor (and therefore this panel) via createEditor() and is always destroyed
-        // after it by the JUCE/DAW host contract — capturing &processor is safe even
-        // if the panel is destroyed before this thread finishes.
+        // TODO: VERIFY: PF-006 (docs/BUGS.md, FLEET req #10) — this &proc capture is
+        // NOT safe as written. The thread is detached and can sit up to 120s in
+        // waitForProcessToFinish; if the processor is destroyed in that window, the
+        // proc.loadFaustCode() call below is a use-after-free. The "processor outlives
+        // the editor" host contract does not cover a detached thread that outlives
+        // BOTH. Fix (next S3 change): make this an owned, joinable worker with an
+        // atomic abort + child.kill() on teardown, mirroring FaustEngine's PF-003
+        // worker (commit d10f59e). Deferred out of the zero-behaviour Task-0 split so
+        // the threading rework gets its own Tier-2 report; check: PF-006 in docs/BUGS.md.
         auto& proc = processor;
 
         std::thread([safeThis, scriptPath, pythonExe, prompt = text.toStdString(), &proc]() mutable
