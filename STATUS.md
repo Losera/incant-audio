@@ -53,12 +53,18 @@ Narrative history lives in git.
 ---
 
 ## Broken — ranked
+See `docs/BUGS.md` for the full registry (IDs, severity, discovery dates, closed commits).
 
-**1. The editor exposes only 8 of 64 parameters.** *(Plugin-UX/S3)*
+**1. The editor exposes only 8 of 64 parameters.** *(PF-005, Plugin-UX/S3)*
 `MAX_KNOBS = 8` (`PluginEditor.h:41`). The value-loss half is already fixed (all 64 slots push
 to Faust), but patches with >8 controls have no on-screen control for the remainder, and
 toggle-kind params render as rotaries. Deterministic auto-layout is specified in
 `docs/ui_design_plan.md` §3; `FaustEngine.h:23-30` already exposes the per-param `Kind` enum.
+
+**2. Shutdown UAF on the editor's detached generate thread.** *(PF-006, Plugin-UX/S3, unfixed)*
+The editor spawns `generate.py` as a detached child and captures `&proc` without guarding
+against deletion. No gate on the thread join; if the host closes before the subprocess returns,
+the thread writes to a deleted processor. Needs a bounded join + abort flag or a SafePointer wrap.
 
 ---
 
