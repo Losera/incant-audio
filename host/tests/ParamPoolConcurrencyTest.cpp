@@ -34,23 +34,25 @@
 // production one -- please read this note before trusting a report from a run
 // that finishes suspiciously fast.
 //
-// SEPARATE FINDING, NOT WHAT THIS HARNESS TARGETS (reported to the human rather
-// than fixed here -- FaustEngine.cpp's audio-thread/atomic-swap code is
-// HUMAN-OWNED per COLLABORATION.md SS1): running this harness prints a large
-// number of "ERROR : setParamValue 'x' not found" lines to stderr from Faust's
-// own MapUI (faust/gui/MapUI.h). That is NOT this harness failing, and it is NOT
-// a ParamPool bug -- ParamPool's own double-buffer (the thing this file is
-// actually testing) never falls over, and ThreadSanitizer reports zero races on
-// it. Isolating the symptom down to raw libfaust + MapUI with no JUCE/ParamPool
-// involved at all (see the scratch probes referenced in the 2026-07-18
-// collaboration_log.md entry) narrowed it to FaustEngine::activeUI: the
-// `activeUI = std::move(newUI)` swap (FaustEngine.cpp, the "Step 3" comment) is
-// guarded only by the `ready` flag, and pushToFaust()/setParamValue() only check
-// `isReady()` once before iterating all 64 slots -- there is a real TOCTOU
-// window between that check and the swap where a concurrent read can land on a
-// `MapUI` mid-move-assignment. This harness's aggressive back-to-back compiles
-// make that window common instead of rare; it doesn't reproduce under a single
-// isolated compile. Left as a reported finding, not a fix, pending human review.
+// HISTORICAL FINDING -- NOW CLOSED (kept for provenance): early runs of this
+// harness printed a large number of "ERROR : setParamValue 'x' not found" lines
+// to stderr from Faust's own MapUI (faust/gui/MapUI.h). It was never a ParamPool
+// bug -- ParamPool's double-buffer never fell over and TSan reported zero races.
+// The symptom was isolated (2026-07-18 collaboration_log.md scratch probes) to a
+// real TOCTOU in FaustEngine::activeUI: the `activeUI = std::move(newUI)` swap
+// was guarded only by the `ready` flag, and pushToFaust()/setParamValue() checked
+// `isReady()` once before iterating all 64 slots, so a concurrent read could land
+// on a `MapUI` mid-move-assignment.
+//
+// That TOCTOU was fixed 2026-07-19 by the audioBusy drain guard
+// (FaustEngine.h:115-126 enterAudio()/exitAudio(); FaustEngine.cpp:286-303:
+// compile() stores ready=false then spins until audioBusy==0 before mutating
+// activeDSP/activeUI, a seq_cst store->load handshake with enterAudio()). This
+// harness, whose aggressive back-to-back compiles made the window common, is the
+// verification: run 2026-07-23 printed ZERO "setParamValue not found" lines and
+// ZERO TSan reports (grep counts, /tmp/tsan_out.txt). If that spam ever returns,
+// the drain guard has regressed -- treat it as a real audio-thread bug, not
+// harness noise.
 
 #include "../Source/PluginProcessor.h"
 
