@@ -165,3 +165,47 @@ target_link_libraries(ParamMapTest PRIVATE
     juce::juce_recommended_config_flags
     ${LIBFAUST_LIB}
 )
+
+# StatePersistenceTest -- round-trips the P11 persisted-state blob through a real
+# PluginForgeProcessor (host/tests/StatePersistenceTest.cpp): getStateInformation ->
+# MemoryBlock -> setStateInformation on a fresh processor, asserting macro values,
+# Faust source, and prompt survive. Constructs the full processor, so it mirrors
+# ParamPoolTsanTest's source/link set (incl. PluginEditor.cpp, pulled in by
+# createEditor()); ASan/UBSan like the other behavioural tests. Links libfaust
+# because loadFaustCode() queues a real compile (not awaited; the destructor joins).
+juce_add_console_app(StatePersistenceTest
+    PRODUCT_NAME "State Persistence Test"
+)
+
+target_sources(StatePersistenceTest PRIVATE
+    tests/StatePersistenceTest.cpp
+    Source/PluginProcessor.cpp
+    Source/PluginEditor.cpp
+    Source/FaustEngine.cpp
+    Source/ParamPool.cpp
+    Source/OutputGuard.cpp
+)
+
+target_compile_features(StatePersistenceTest PRIVATE cxx_std_17)
+
+target_compile_definitions(StatePersistenceTest PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_VST3_CAN_REPLACE_VST2=0
+)
+
+# -fno-sanitize=vptr: UBSan's vptr check needs RTTI typeinfo for the polymorphic
+# llvm_dsp / llvm_dsp_factory types, but libfaust.so is built -fno-rtti and does not
+# export it (link fails with "undefined reference to typeinfo for llvm_dsp"). The
+# header-only ASan tests dodge this only because they never compile FaustEngine.cpp.
+# Everything else in UBSan is kept.
+target_compile_options(StatePersistenceTest PRIVATE -fsanitize=address,undefined -fno-sanitize=vptr -g -O1)
+target_link_options(StatePersistenceTest PRIVATE -fsanitize=address,undefined -fno-sanitize=vptr)
+
+target_link_libraries(StatePersistenceTest PRIVATE
+    juce::juce_audio_utils
+    juce::juce_dsp
+    juce::juce_gui_extra
+    juce::juce_recommended_config_flags
+    ${LIBFAUST_LIB}
+)

@@ -3,6 +3,8 @@
 #include "FaustEngine.h"
 #include "ParamPool.h"
 #include "OutputGuard.h"
+#include <atomic>
+#include <mutex>
 
 class PluginForgeProcessor : public juce::AudioProcessor
 {
@@ -28,11 +30,25 @@ public:
     const juce::String getProgramName(int) override { return {}; }
     void changeProgramName(int, const juce::String&) override {}
 
-    void getStateInformation(juce::MemoryBlock&) override {}
-    void setStateInformation(const void*, int) override {}
+    // State persistence (P11 / docs/ux_roadmap.md Phase 1). Serialises the Faust
+    // source + originating prompt + the 64 APVTS macro values + the slot-label map
+    // as a versioned ValueTree->XML blob. The DSP itself is never serialised: the
+    // Faust source is the artifact of record and setState recompiles it. Format is
+    // the COLLABORATION.md §2 trigger-3 contract documented above getStateInformation
+    // in the .cpp.
+    void getStateInformation(juce::MemoryBlock& destData) override;
+    void setStateInformation(const void* data, int sizeInBytes) override;
 
-    // Called from editor when a new Faust string arrives
-    void loadFaustCode(const juce::String& faustCode);
+    // Persisted-state schema version. Bump when the blob layout changes; setState
+    // rejects a blob whose version it does not understand rather than misreading it.
+    static constexpr int kStateSchemaVersion = 1;
+
+    // Called from editor when a new Faust string arrives. The optional prompt is
+    // the natural-language request that produced the code; it is retained for
+    // persistence and future "refine" flows. The default keeps the editor's
+    // existing one-arg call compiling while the editor lane adopts the two-arg form
+    // (FLEET.md cross-lane request).
+    void loadFaustCode(const juce::String& faustCode, const juce::String& prompt = {});
 
     // Set by the editor to surface a Faust compile failure (as opposed to an
     // LLM-generation failure, which the editor already handles from its own
@@ -68,12 +84,38 @@ public:
 
     juce::AudioProcessorValueTreeState apvts;
 
+    // Test-only accessors for the retained metadata, so the state round-trip test
+    // can assert what setState restored without reaching into private members.
+    juce::String currentSourceForTest() const;
+    juce::String currentPromptForTest() const;
+
 private:
     FaustEngine faustEngine;
     ParamPool   paramPool;
     OutputGuard outputGuard;
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+
+    // ── Retained generation metadata ────────────────────────────────────────
+    // The Faust source, its originating prompt, and the current slot->label map.
+    // Written by loadFaustCode() (whatever thread called it) and the compile
+    // callback (compile thread); read by getStateInformation() (message thread).
+    // Guarded by metaMutex — none of these are ever touched on the audio thread,
+    // so a plain mutex is correct here (unlike the lock-free swap in FaustEngine).
+    mutable std::mutex metaMutex;
+    juce::String       currentFaustSource;
+    juce::String       currentPrompt;
+    juce::StringArray  currentLabels;
+
+    // A restore blob can arrive (setStateInformation) before the host has called
+    // prepareToPlay, at which point FaustEngine still holds the default 44100 Hz
+    // sample rate (FaustEngine.cpp:154-158) and would JIT the DSP at the wrong
+    // rate. So the restore recompile is deferred: setState stashes the source here
+    // and prepareToPlay kicks it once the real sample rate is known. Guarded by
+    // metaMutex; `prepared` gates which side fires the compile.
+    std::atomic<bool> prepared { false };
+    juce::String      pendingRestoreSource;
+    juce::String      pendingRestorePrompt;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PluginForgeProcessor)
 };

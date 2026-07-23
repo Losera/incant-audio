@@ -47,6 +47,22 @@ void PluginForgeProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
     faustEngine.prepare(sampleRate, samplesPerBlock);
     outputGuard.prepare(sampleRate);
+
+    // If a session was restored before the host told us the sample rate (setState
+    // can precede prepareToPlay), the restore recompile was deferred to here so the
+    // DSP JITs at the real rate rather than the 44100 default. Fire it now.
+    prepared.store(true, std::memory_order_release);
+
+    juce::String source, prompt;
+    {
+        std::lock_guard<std::mutex> lock(metaMutex);
+        source = pendingRestoreSource;
+        prompt = pendingRestorePrompt;
+        pendingRestoreSource.clear();
+        pendingRestorePrompt.clear();
+    }
+    if (source.isNotEmpty())
+        loadFaustCode(source, prompt);
 }
 
 void PluginForgeProcessor::releaseResources()
@@ -89,13 +105,34 @@ void PluginForgeProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                       std::memory_order_relaxed);
 }
 
-void PluginForgeProcessor::loadFaustCode(const juce::String& faustCode)
+void PluginForgeProcessor::loadFaustCode(const juce::String& faustCode,
+                                         const juce::String& prompt)
 {
+    // Retain the source and prompt so a DAW save can serialise them. Set before
+    // the compile is queued: the source is the artifact of record regardless of
+    // whether this particular compile ends up succeeding.
+    {
+        std::lock_guard<std::mutex> lock(metaMutex);
+        currentFaustSource = faustCode;
+        currentPrompt      = prompt;
+    }
+
     faustEngine.compile(faustCode, [this](const FaustEngine::ParamList& params,
                                           const std::string& error) {
         if (error.empty())
         {
             paramPool.remap(params);
+
+            // Capture the slot->label map for persistence. Runs on the compile
+            // thread, same as remap(); metaMutex (never taken on the audio thread)
+            // guards it against a concurrent getStateInformation() on the message
+            // thread. Only the FaustEngine swap protocol touches the audio thread.
+            {
+                std::lock_guard<std::mutex> lock(metaMutex);
+                currentLabels.clearQuick();
+                for (const auto& p : params)
+                    currentLabels.add(juce::String(p.label));
+            }
 
             // A new patch gets a clean verdict: clear any latched mute from the
             // one it replaces.
@@ -119,6 +156,138 @@ void PluginForgeProcessor::loadFaustCode(const juce::String& faustCode)
                 onFaustCompileError(juce::String(error));
         }
     });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// State persistence (P11 / docs/ux_roadmap.md Phase 1).
+//
+// PERSISTED-STATE FORMAT — COLLABORATION.md §2 trigger-3 contract, signed off
+// 2026-07-23. Consumers: this processor, and (future) preset / .pforge export /
+// schema migration. A ValueTree serialised to XML then to a binary blob:
+//
+//   <PluginForgeState schemaVersion="1"
+//                     faustSource="import(&quot;stdfaust.lib&quot;);&#10;process = _;"
+//                     prompt="a warm lowpass">
+//     <STATE> ... verbatim apvts.copyState(): 64 macro_* PARAM children ... </STATE>
+//     <SlotLabels>
+//       <Slot index="0" label="Cutoff"/> ...
+//     </SlotLabels>
+//   </PluginForgeState>
+//
+// - faustSource / prompt are root attributes; JUCE escapes newlines and quotes in
+//   XML attribute values, so multi-line source survives without CDATA.
+// - <STATE> is the APVTS's own tree appended verbatim, so the 64 slot values ride
+//   JUCE's standard mechanism.
+// - <SlotLabels> is a HINT for the editor to label knobs before the async restore
+//   recompile finishes; remap() regenerates the authoritative map on recompile, so
+//   on any disagreement the recompile wins.
+// - The DSP is never serialised. The Faust source is the artifact of record and
+//   setState recompiles it.
+// ─────────────────────────────────────────────────────────────────────────────
+
+static const juce::Identifier kStateRootTag  ("PluginForgeState");
+static const juce::Identifier kSlotLabelsTag  ("SlotLabels");
+static const juce::Identifier kSlotTag        ("Slot");
+static const juce::Identifier kSchemaVersionId ("schemaVersion");
+static const juce::Identifier kFaustSourceId   ("faustSource");
+static const juce::Identifier kPromptId        ("prompt");
+static const juce::Identifier kIndexId         ("index");
+static const juce::Identifier kLabelId         ("label");
+
+void PluginForgeProcessor::getStateInformation(juce::MemoryBlock& destData)
+{
+    juce::ValueTree root(kStateRootTag);
+    root.setProperty(kSchemaVersionId, kStateSchemaVersion, nullptr);
+
+    {
+        std::lock_guard<std::mutex> lock(metaMutex);
+        root.setProperty(kFaustSourceId, currentFaustSource, nullptr);
+        root.setProperty(kPromptId,      currentPrompt,      nullptr);
+
+        juce::ValueTree labels(kSlotLabelsTag);
+        for (int i = 0; i < currentLabels.size(); ++i)
+        {
+            juce::ValueTree slot(kSlotTag);
+            slot.setProperty(kIndexId, i, nullptr);
+            slot.setProperty(kLabelId, currentLabels[i], nullptr);
+            labels.appendChild(slot, nullptr);
+        }
+        root.appendChild(labels, nullptr);
+    }
+
+    // copyState() flushes pending parameter updates and returns a thread-safe copy
+    // (juce_AudioProcessorValueTreeState.h:375-382). Its tree type is "STATE" (the
+    // valueTreeType passed to the apvts constructor in the initialiser list above).
+    root.appendChild(apvts.copyState(), nullptr);
+
+    // copyXmlToBinary: XmlElement -> binary blob, reversed by getXmlFromBinary
+    // (juce_AudioProcessor.h:1306-1312).
+    if (auto xml = root.createXml())
+        copyXmlToBinary(*xml, destData);
+}
+
+void PluginForgeProcessor::setStateInformation(const void* data, int sizeInBytes)
+{
+    // getXmlFromBinary may return nullptr on corrupt/unsuitable data
+    // (juce_AudioProcessor.h:1309-1312) — treat as "leave current state untouched".
+    auto xml = getXmlFromBinary(data, sizeInBytes);
+    if (xml == nullptr)
+        return;
+
+    auto root = juce::ValueTree::fromXml(*xml);
+    if (! root.isValid() || root.getType() != kStateRootTag)
+        return;   // not our blob, or a foreign one — do not misread it.
+
+    const int version = root.getProperty(kSchemaVersionId, 0);
+    if (version < 1 || version > kStateSchemaVersion)
+        return;   // unknown version: refuse rather than guess at the layout.
+
+    // Restore the 64 macro values. replaceState() updates the APVTS tree in a
+    // thread-safe way (juce_AudioProcessorValueTreeState.h:384-395); it swaps the
+    // backing ValueTree, not the RangedAudioParameter objects, so the pointers
+    // ParamPool captured in its constructor (ParamPool.cpp:16-17) stay valid.
+    auto stateChild = root.getChildWithName(apvts.state.getType());
+    if (stateChild.isValid())
+        apvts.replaceState(stateChild);
+
+    const juce::String source = root.getProperty(kFaustSourceId, juce::String());
+    const juce::String prompt = root.getProperty(kPromptId,      juce::String());
+
+    {
+        std::lock_guard<std::mutex> lock(metaMutex);
+        currentFaustSource = source;
+        currentPrompt      = prompt;
+    }
+
+    if (source.isEmpty())
+        return;   // param values restored; no source to recompile.
+
+    // Trigger the restore recompile — but only if the host has already told us the
+    // sample rate. Before prepareToPlay, FaustEngine still holds the 44100 default
+    // (FaustEngine.cpp:154-158) and would JIT at the wrong rate; defer to
+    // prepareToPlay, which drains the stash below.
+    if (prepared.load(std::memory_order_acquire))
+    {
+        loadFaustCode(source, prompt);
+    }
+    else
+    {
+        std::lock_guard<std::mutex> lock(metaMutex);
+        pendingRestoreSource = source;
+        pendingRestorePrompt = prompt;
+    }
+}
+
+juce::String PluginForgeProcessor::currentSourceForTest() const
+{
+    std::lock_guard<std::mutex> lock(metaMutex);
+    return currentFaustSource;
+}
+
+juce::String PluginForgeProcessor::currentPromptForTest() const
+{
+    std::lock_guard<std::mutex> lock(metaMutex);
+    return currentPrompt;
 }
 
 juce::AudioProcessorEditor* PluginForgeProcessor::createEditor()
