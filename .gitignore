@@ -49,3 +49,6 @@ scheduled_tasks.lock
 bench/results/results_dryrun.json
 .env.*
 !.env.example
+
+# agent-session git worktrees (separate checkouts, not repo content)
+.claude/worktrees/

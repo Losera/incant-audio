@@ -1,0 +1,16 @@
+S2 UNBLOCKED — 2026-07-23 (overseer-validated)
+
+Gate A (PluginEditor split):   MET. PromptPanel/CodeEditorPanel/ParamGridPanel exist;
+                               PluginEditor wires all three; CMake registers them.
+                               CAVEAT: uncommitted working-tree state, build not yet verified
+                               by the overseer. S4 should build-verify; S3 should commit.
+Gate B (Faust-source retained): MET & COMMITTED (c34bbb6). currentFaustSource/currentPrompt
+                               members; loadFaustCode gained an optional prompt arg
+                               (backward-compatible). StatePersistenceTest 13/13, ASan/UBSan clean.
+
+S2 may start Wave 1: flesh out PromptPanel and the CodeEditorPanel stub.
+- Use the indeterminate progress indicator (overseer ruling #2 option (a)), NOT stderr.
+- CodeEditorPanel reads the retained source via the processor API, not the serialized blob,
+  so it is independent of the still-open persisted-state FORMAT sign-off (§2 trigger-3).
+
+Delete this file to re-arm the relay.
