@@ -1,21 +1,25 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "PluginProcessor.h"
-#include <array>
 #include <memory>
+#include <vector>
 
 // ── ParamGridPanel ──────────────────────────────────────────────────────────
-// The parameter-control surface of the editor. Owns the knob grid and the
-// slot-seeding logic that runs on every successful compile.
+// Deterministic auto-layout for the compiled patch's parameters
+// (docs/ui_design_plan.md §3). Replaces the old fixed 8-rotary grid:
+//   • shows ALL mapped params, up to ParamPool::POOL_SIZE (64) — no MAX_KNOBS cap;
+//   • picks a widget from each param's Faust Kind (FaustEngine.h:23-30):
+//       Button / CheckButton → ToggleButton (never a rotary),
+//       HSlider → horizontal, VSlider → vertical, NumEntry → inc/dec,
+//       anything else → rotary;
+//   • lays them on a sqrt-derived grid (cols = clamp(ceil(sqrt(N)),2,6)) inside a
+//     vertically-scrolling Viewport, so a 40-param synth doesn't overflow.
+// Per-slot Attachment wiring is preserved (Slider→SliderAttachment,
+// Toggle→ButtonAttachment), one attachment per pool slot, rebuilt each compile.
 //
-// This is currently a mechanical lift of the fixed 8-knob grid out of the
-// old monolithic PluginForgeEditor (docs/FLEET.md Wave 0, Task 0): ZERO
-// behaviour change. The deterministic auto-layout (ui_design_plan.md §3 —
-// cols=clamp(ceil(sqrt(N)),2,6), kind-aware widgets, N>24 scrolling, lifting
-// MAX_KNOBS) lands on top of this seam in Wave 1.
-//
-// Message-thread only. refreshParamKnobs() is invoked by the shell from inside
-// its onFaustCompileSuccess callAsync hop.
+// Message-thread only. refreshParamKnobs() is called by the shell from inside its
+// onFaustCompileSuccess callAsync hop; the shell then reads preferredContentHeight()
+// to grow the window to the row count.
 class ParamGridPanel : public juce::Component
 {
 public:
@@ -23,22 +27,47 @@ public:
 
     void resized() override;
 
-    // Called by the shell when a compile succeeds, with the full captured
-    // param list (already copied onto the message thread by the shell).
+    // Rebuild the control surface for a freshly compiled patch: seed every mapped
+    // pool slot from the patch defaults, then (re)create one kind-appropriate
+    // widget + attachment per param.
     void refreshParamKnobs(const FaustEngine::ParamList& params);
 
+    // Pixel height the grid *content* wants for the current control count (rows ×
+    // cell height). The shell uses it to size the window; when the shell grants
+    // less (its resize cap), the Viewport scrolls the remainder.
+    int preferredContentHeight() const;
+
+    // Cell geometry — the single source of truth shared by layout and the shell's
+    // height math.
+    static constexpr int kCellH  = 95;   // label (kLabelH) + widget body
+    static constexpr int kLabelH = 16;
+
 private:
+    // One control = its widget (Slider OR ToggleButton), a name label, and exactly
+    // one attachment (the other stays null). Declaration order is deliberate: the
+    // attachments come AFTER the widget so they are destroyed BEFORE it — an
+    // AudioProcessorValueTreeState attachment must never outlive the widget it
+    // binds (juce_AudioProcessorValueTreeState.h keeps a reference to the control).
+    struct Control
+    {
+        std::unique_ptr<juce::Component> widget;
+        std::unique_ptr<juce::Label>     label;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> sliderAtt;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> buttonAtt;
+    };
+
+    void layoutControls();
+
     PluginForgeProcessor& processor;
 
-    // Bound once (constructor) to pool slots macro_0..macro_(MAX_KNOBS-1) via
-    // SliderAttachment; hidden until a compile succeeds, then labelled and
-    // shown by refreshParamKnobs().
-    static constexpr int MAX_KNOBS = 8;
-    std::array<juce::Slider, MAX_KNOBS> paramSliders;
-    std::array<juce::Label,  MAX_KNOBS> paramNameLabels;
-    std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>,
-               MAX_KNOBS> paramAttachments;
-    int numVisibleKnobs = 0;
+    // The grid lives inside a Viewport so N can exceed what the window shows.
+    // `content` is the scrolled surface; the control widgets are ITS children.
+    // Declared before `viewport` (and `controls` last) so teardown runs
+    // controls → viewport → content: child widgets deregister while their parent
+    // `content` is still alive, and the viewport drops its view before `content` dies.
+    juce::Component      content;
+    juce::Viewport       viewport;
+    std::vector<Control> controls;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ParamGridPanel)
 };

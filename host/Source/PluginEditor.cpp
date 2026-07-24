@@ -4,16 +4,16 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
     : AudioProcessorEditor(&p), processor(p),
       promptPanel(p), codeEditorPanel(p), paramGridPanel(p)
 {
-    setSize(480, 410);
+    // Taller default than the pre-split 480×410 so S2's widened prompt/error band
+    // (kPromptBandH, FLEET req #17) fits with a grid row visible below the meter.
+    setSize(480, 460);
 
-    // Resizable shell (FLEET req #1, overseer-routed into Task 0): the Code/Errors
-    // panel Session 2 will add cannot fit the old fixed 480×410, so the shell now
-    // resizes and hands each child panel its own bounds in resized(). Default size
-    // is unchanged, so the pre-split layout is reproduced pixel-for-pixel at launch;
-    // min size keeps the prompt band + meter + one knob row visible. The banded
-    // resized() below already tolerates arbitrary sizes (grid takes the remainder).
+    // Resizable shell (FLEET req #1/#17): the prompt+error band and the auto-layout
+    // grid both need to flex, and the code editor won't fit a fixed window. Each
+    // child panel gets its own bounds in resized(); min height keeps the prompt
+    // band + meter visible, max stays within a sane on-screen size.
     setResizable(true, true);
-    setResizeLimits(480, 360, 1400, 1200);
+    setResizeLimits(480, kMinWindowH, 1400, 1200);
 
     addAndMakeVisible(promptPanel);
     addAndMakeVisible(paramGridPanel);
@@ -62,8 +62,23 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
                 + juce::String(numParams)
                 + (numParams == 1 ? " param mapped." : " params mapped."));
             safeThis->paramGridPanel.refreshParamKnobs(params);
+            safeThis->updateWindowSizeForParams();
         });
     };
+}
+
+void PluginForgeEditor::updateWindowSizeForParams()
+{
+    // Grid content height the panel wants, capped to kMaxGridRows so the window
+    // stays reasonable (the Viewport scrolls beyond the cap), and floored so the
+    // window never drops below the setResizeLimits minimum (480×360). The result
+    // is clamped again by the ComponentBoundsConstrainer setResizeLimits installed.
+    const int wanted = paramGridPanel.preferredContentHeight();
+    const int capH   = kMaxGridRows * ParamGridPanel::kCellH;
+    const int gridH  = juce::jmin(wanted, capH);
+    const int codeH  = codeEditorPanel.isVisible() ? kCodeBandH : 0;
+    const int winH   = juce::jmax(kMinWindowH, kChromeHeight + gridH + codeH);
+    setSize(getWidth(), winH);   // synchronously triggers resized() below
 }
 
 PluginForgeEditor::~PluginForgeEditor() {}
@@ -124,18 +139,22 @@ void PluginForgeEditor::paint(juce::Graphics& g)
 
 void PluginForgeEditor::resized()
 {
-    // Vertical bands, identical geometry to the pre-split monolith. Each panel
-    // lays its own widgets out relative to the bounds it is handed here, so the
-    // absolute positions are unchanged.
+    // Vertical bands. Each panel lays its own widgets out relative to the bounds
+    // it is handed here (S2 owns PromptPanel's internal split; S3 owns the grid).
+    // The band heights here MUST match kChromeHeight in the header.
     auto area = getLocalBounds().reduced(16);
     area.removeFromTop(36);                       // title spacer (title painted full-width)
 
-    // PromptPanel band = prompt(36) + gap(8) + button(32) + gap(8) + status(24).
-    promptPanel.setBounds(area.removeFromTop(36 + 8 + 32 + 8 + 24));
+    promptPanel.setBounds(area.removeFromTop(kPromptBandH));   // FLEET req #17
     area.removeFromTop(8);
     meterBounds = area.removeFromTop(14);
     area.removeFromTop(10);
 
-    // Remaining space is the knob grid.
+    // Code/Errors region (S2): reserved at the bottom only while the panel is
+    // visible. It starts hidden, so the grid keeps the whole remainder today.
+    if (codeEditorPanel.isVisible())
+        codeEditorPanel.setBounds(area.removeFromBottom(kCodeBandH));
+
+    // Remaining space is the auto-layout grid.
     paramGridPanel.setBounds(area);
 }
