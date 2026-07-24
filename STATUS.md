@@ -47,8 +47,15 @@ Narrative history lives in git.
   human is asked to confirm — see "Waiting on you." Retained metadata is `metaMutex`-guarded,
   never touched on the audio thread.
 - **PluginEditor split into panels.** *(Plugin-UX/S3, Task 0.)* `PromptPanel` / `CodeEditorPanel`
-  (stub) / `ParamGridPanel` extracted; shell wires all three; CMake updated.
-  **CAVEAT:** uncommitted working-tree state, build not yet overseer-verified.
+  (stub) / `ParamGridPanel` extracted; shell wires all three; CMake updated; resizable shell
+  (`setResizable(true,true)`, limits 480×360–1400×1200); all four editor-linking targets
+  (`PluginForgeHost`, `_Standalone`, `_VST3`, both `ParamPoolTsanTest` + `StatePersistenceTest`)
+  build+link clean. Committed `471d045`. Shell's `resized()` wires each panel's bounds.
+- **BYO-LLM module export ready.** *(Backend/S1, Phase 0 built & verified.)* `llm/export_prompt.py`
+  (+112) + `tests/test_export_prompt.py` (+134) landed on main `0ba4b51`. Module exports
+  compiled Faust DSP param metadata (name/min/max/step/unit/kind) as JSON; reuses `providers.strip_code_fences` 
+  (lazy import, no fork); verified under scrubbed env (`env -i`). Test suite: 254 passed (240 baseline + 14 new).
+  Worktree Phase 0 ready to merge once module is live (now it is).
 
 ---
 
@@ -108,17 +115,22 @@ the thread writes to a deleted processor. Needs a bounded join + abort flag or a
 
 ## Waiting on you
 
-- **Confirm the persisted-state format** — a §2 trigger-3 contract landed in `c34bbb6`. S1
-  reports it was approved via plan-mode; the overseer couldn't see that approval, so please
-  confirm you knowingly signed off. Format: schemaVersion=1 ValueTree→XML, Faust source + prompt
-  as attributes, verbatim `<STATE>`, `<SlotLabels>` hint. Versioned/forward-defensive, so
-  amending it now while v1 is the only blob in the wild is cheap.
-- **DECIDE: add a "bring-your-own-LLM" mode? (§2 trigger-2, architectural)** S7's landscape
-  (`docs/competitive_research.md`) finds competitor **Amorph** ships our exact thesis (in-DAW
-  compile + auto-UI) free today on Cmajor, with an *external* LLM — $0 inference while we fight
-  free-tier quotas. Proposed optional paste-external-code path alongside the integrated
-  generator. Trade-off: neutralizes our quota/cost exposure and works offline, but dilutes the
-  closed-loop auto-retry moat. No lane scopes this until you decide. (FLEET request #6.)
-- **A listening pass** — the P6 battery, script coming from the Testing session.
-- **Authorize the benchmark re-run** (overwrites the void baseline; spends free-tier quota — use
-  groq for the 25-prompt run).
+Three human-gated decisions (all in COLLABORATION.md §2 territory):
+
+1. **Confirm the persisted-state format (§2 trigger-3).** Code is in `c34bbb6` (state persistence
+   fully implemented + verified: 13/13 tests, ASan/UBSan clean). The *design* — schemaVersion=1
+   ValueTree→XML, Faust source + prompt as attributes, verbatim `<STATE>`, `<SlotLabels>` hint —
+   is §2 trigger-3 (a contract between components). S1 says this was approved via plan-mode; the
+   overseer gate still lists it pending because I cannot independently verify that. **Please confirm:**
+   you knowingly approved this design, or propose amendments. (Cheap to amend now; v1 is the only
+   blob in the wild.)
+
+2. **Run the P6 listening pass (first audible validation ever).** Script is prepped in
+   `docs/p6_human_run_script.md`, ready to copy-paste. ~15 minutes + your ears on a free provider
+   (groq). No generated plugin has ever been listened to; this is the fastest way to find what the
+   old bugs were masking. Run when you have time + ears.
+
+3. **Authorize the benchmark re-run.** S1 will post the exact command (25 effects, all compile-pass,
+   measure first-try rate; use groq ~14.4k/day). Overwriting `bench/results/.prompt_baseline.json`
+   (0.88) is a §2 trigger-1 act (irreversible measurement). Current baseline is void (measured
+   against the deleted old prompt). Say go, and S1 will spend the quota and record the new result.

@@ -83,7 +83,7 @@ overseer owns). If your row still says `NOT PROMPTED`, this lane has no session 
 | S3 Plugin UX | **ACTIVE** | Task 0 DONE — split PluginEditor into shell + PromptPanel/CodeEditorPanel/ParamGridPanel; resizable shell (req #1); adopted loadFaustCode(prompt) (req #4). All 4 editor-linking targets build+link clean; both editor C++ tests pass. Next: Wave-1 auto-layout in ParamGridPanel | 2026-07-23 |
 | S4 Testing | PROMPTED — awaiting check-in (weak hint: pytest ran) | — | — |
 | S5 Bug tracking | **ACTIVE** | `docs/BUGS.md` seeded (PF-001..018, each verified vs code) + Routing & fix plan added; filed PF-018 per req #5; proposing 3 cross-lane rows (PF-006→S3, PF-018→S1, PF-002 reconcile→overseer) | 2026-07-23 |
-| S6 Overseer | **ACTIVE** | Board + STATUS.md live; ruling on requests #1–3 | 2026-07-23 |
+| S6 Overseer | **ACTIVE** | Burst session live: consolidating reports, resolving req #12 (state-persist sign-off), req #16 (PF-006 ownership), routing human-gated items. Gate state updated. | 2026-07-23 (resumed) |
 | S7 Competitive research | **ACTIVE** | Living doc consolidated → `docs/competitive_landscape.md` (absorbs P10 by reference; old `competitive_research.md` renamed). BYO-LLM plan `docs/byo_llm_plan.md`; req #6 AUTHORIZED; **Phase 0 BUILT & VERIFIED** (254 passed; worktree diff, nothing on main) — merge routed S1(module)/S4(test) in req #6; Phase 1 = reqs #7/#8/#9. Advisory A1–A3 posted (A3 = STATUS.md ref for overseer) | 2026-07-23 |
 
 Overseer note (2026-07-23): all seven lanes are now prompted. Presence is confirmed for the
@@ -98,8 +98,11 @@ check-in` until they sign their own row. Sessions: overwrite your row on launch.
 | PluginEditor component split landed | S3 | ✅ **landed & committed `471d045`** (2026-07-23) — shell + PromptPanel/CodeEditorPanel/ParamGridPanel, resizable (req #1); Standalone+VST3+both editor test apps build/link clean. **S2 unblocked.** |
 | Processor retains Faust source + prompt | S1 | ✅ met & committed (`c34bbb6`) |
 | **S2 auto-resume signal** (`docs/.fleet/S2_UNBLOCKED`) | overseer | ✅ set 2026-07-23 — S2 may start Wave 1 |
-| Persisted-state format signed off (human) | S1 → overseer → human | ⚠️ S1 reports plan-approval; **human to confirm** |
-| Benchmark-baseline overwrite authorized (human) | S4 → overseer → human | ⬜ awaiting request |
+| State persistence **code** landed | S1 | ✅ committed `c34bbb6` |
+| Persisted-state **format** sign-off (human) | S1 → overseer → human | ⚠️ **HUMAN STILL NEEDS TO CONFIRM** — schemaVersion=1 ValueTree→XML design. Code is in; sign-off is not. Ruling: see above. |
+| BYO-LLM Phase 0 merged | S7 | ✅ Module (`llm/export_prompt.py`) landed on main `0ba4b51` (S1); Phase 0 worktree ready to merge (S7) — unblocked. |
+| Benchmark-baseline re-run authorized (human) | S1 → overseer → human | ⬜ S1 to post the exact command; awaits your authorization before `.prompt_baseline.json` is overwritten (§2 trigger-1). |
+| P6 listening pass authorization (human) | S4 → overseer → human | ⬜ S4 script verified; awaits your decision to run (~15 min + your ears; **first audible validation of the project**). |
 
 ---
 
@@ -139,8 +142,30 @@ Known contracts to route here when they arise:
 
 ---
 
-## Overseer rulings
+## Overseer rulings — burst session 2026-07-23
 Overseer-only section (avoids racing on the request rows above). References request numbers.
+
+**Req #12 resolved — Ruling on state-persistence sign-off status:**
+The roll-call row for S1 says "format signed off via plan approval"; the Gate table says 
+"awaiting human §2 trigger-3 sign-off." These are contradictory. I cannot independently 
+verify whether S1's plan-mode approval included the human; COLLABORATION.md §2 trigger-3 
+requires **human** confirmation, not just plan approval. **DECISION:** the Gate table is 
+authoritative; the format sign-off is still pending. S1: update your roll-call row to drop 
+the "signed off" language and say "State persistence landed, format schemaVersion=1 pending 
+human §2 trigger-3 confirmation per c34bbb6." The human must confirm the format design 
+(ValueTree→XML: Faust source + prompt as attributes, verbatim `<STATE>`, `<SlotLabels>` 
+hint) before it is considered *ratified*; the code landing does not imply sign-off.
+
+**Req #16 resolved — PF-006 ownership (UAF on generate thread):**
+S2 asks whether to own the fix or leave it to S3. The generate thread now lives in 
+`PromptPanel.cpp` (S2's lane, after the split). **DECISION:** S2 owns the PF-006 fix, 
+folded into the PromptPanel rework as one Tier-2 change. Fix is: replace the detached 
+thread with a persistent owned worker (mirroring PF-003's pattern), atomic abort flag, 
+and bounded join on teardown. S2: add to your PromptPanel Tier-2 scope; cite `d10f59e` 
+as the pattern (compile-thread owned worker), test the join+abort, and state what you 
+didn't verify (e.g., "tested shutdown on a 5-second blocking read; >120s untested").
+
+## Earlier rulings (from prior sessions)
 
 - **Request #1 (S2 → S3) — ROUTED to S3, in scope for Task 0.** When S3 does the PluginEditor
   split, make the shell resizable (`setResizable(true, true)` with a min size) and give each
