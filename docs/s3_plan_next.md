@@ -10,7 +10,12 @@ Ordering: **1 (PF-006) first** — small, high-severity, self-contained. Then **
 
 ---
 
-## 1. PF-006 — fix the generate-thread shutdown UAF  *(Tier 2, do first)*
+## 1. PF-006 — fix the generate-thread shutdown UAF  *(REASSIGNED TO S2 — 2026-07-23)*
+
+> **Handed off.** The detached generate thread now lives in S2's `PromptPanel.cpp`,
+> and S2 is rewriting it for Wave 1, so per FLEET req #16 S2 owns this fix (folded
+> into their PromptPanel rework). S3 no longer executes it. The design below is
+> retained as the agreed approach for whoever implements it.
 
 **Defect.** `PromptPanel`'s Generate handler launches `std::thread(...).detach()`
 capturing a raw `&proc` (`host/Source/PromptPanel.cpp`, the `std::thread([...&proc]...)`
