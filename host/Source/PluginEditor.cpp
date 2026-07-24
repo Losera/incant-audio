@@ -34,8 +34,10 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
     juce::Component::SafePointer<PluginForgeEditor> safeThis(this);
 
     // Surface a Faust compile failure (as opposed to an LLM-generation failure,
-    // handled inside PromptPanel) in the status line.
-    processor.onFaustCompileError = [safeThis](const juce::String& error)
+    // handled inside PromptPanel) in the status line. Uses the canonical
+    // onFaustCompileFailure name (FLEET req #7); the deprecated onFaustCompileError
+    // alias in PluginProcessor.h can now be removed by S1.
+    processor.onFaustCompileFailure = [safeThis](const juce::String& error)
     {
         juce::MessageManager::callAsync([safeThis, error]
         {
