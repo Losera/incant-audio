@@ -52,11 +52,20 @@ public:
 
     // Set by the editor to surface a Faust compile failure (as opposed to an
     // LLM-generation failure, which the editor already handles from its own
-    // subprocess result) in the UI. Fires on FaustEngine's detached compile
-    // thread, not the message thread. Whoever assigns this must hop to the
-    // message thread themselves before touching any UI component, the same
-    // way PluginEditor's existing generateButton.onClick callbacks do via
-    // juce::MessageManager::callAsync.
+    // subprocess result) in the UI — including the BYO-LLM paste-back flow, where
+    // the user feeds this compiler stderr to their own LLM (FLEET req #7). Named
+    // to pair with onFaustCompileSuccess below. Fires on FaustEngine's detached
+    // compile thread, not the message thread. Whoever assigns this must hop to the
+    // message thread themselves before touching any UI component, the same way
+    // PluginEditor's existing callbacks do via juce::MessageManager::callAsync.
+    std::function<void(const juce::String& error)> onFaustCompileFailure;
+
+    // DEPRECATED transitional alias for onFaustCompileFailure. The rename (FLEET
+    // req #7) pairs Success/Failure; the old name lived in the editor's call site
+    // (PluginEditor.cpp:38, S3's shell lane), which this session cannot edit, so
+    // both names are fired from the compile error path to keep main building while
+    // S3 migrates the assignment to onFaustCompileFailure. REMOVE this member once
+    // S3 has adopted the new name (tracked in FLEET req #7).
     std::function<void(const juce::String& error)> onFaustCompileError;
 
     // Latched output-guard state, polled by the editor's 30Hz timer. True means
@@ -74,7 +83,7 @@ public:
     // Set by the editor to surface true JIT-ready status (ADR-011 "point E":
     // the Generate button re-enables when the subprocess returns, but the DSP
     // only goes live when this fires). Same threading contract as
-    // onFaustCompileError: compile thread, hop via callAsync before touching UI.
+    // onFaustCompileFailure: compile thread, hop via callAsync before touching UI.
     // Fires after ParamPool::remap() has published the new labels, just before
     // FaustEngine flips ready=true — "success" here means audio is about to
     // switch over, not that it already has. Receives the full captured param

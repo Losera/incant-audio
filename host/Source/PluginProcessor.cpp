@@ -152,8 +152,17 @@ void PluginForgeProcessor::loadFaustCode(const juce::String& faustCode,
         else
         {
             juce::Logger::writeToLog("FaustEngine compile error: " + juce::String(error));
+
+            // Fire the canonical failure callback plus the deprecated alias
+            // (FLEET req #7). Both are fired only until S3 migrates the editor's
+            // call site from onFaustCompileError to onFaustCompileFailure; the
+            // alias is then removed. In practice the editor sets exactly one, so
+            // this is a single delivery today, not a double-notify.
+            const juce::String errStr(error);
+            if (onFaustCompileFailure)
+                onFaustCompileFailure(errStr);
             if (onFaustCompileError)
-                onFaustCompileError(juce::String(error));
+                onFaustCompileError(errStr);
         }
     });
 }
