@@ -157,7 +157,7 @@ class TestGenerateWithRetry:
     def test_retries_and_succeeds_on_second_attempt(self):
         validate_calls = {"n": 0}
 
-        def flaky_validate(_code):
+        def flaky_validate(_code, *_):
             validate_calls["n"] += 1
             return (False, "compile error") if validate_calls["n"] == 1 else (True, "")
 
@@ -176,7 +176,7 @@ class TestGenerateWithRetry:
             generate_calls.append(error_context)
             return VALID_FAUST
 
-        def validate_after_first(code):
+        def validate_after_first(code, *_):
             return (False, compile_error) if len(generate_calls) == 1 else (True, "")
 
         with patch.object(generate, "generate_faust", side_effect=tracking_generate), \
@@ -254,7 +254,7 @@ class TestGenerateJson:
     def test_attempt_count_reflects_actual_tries(self):
         calls = {"n": 0}
 
-        def flaky(code):
+        def flaky(code, *_):
             calls["n"] += 1
             return (True, "") if calls["n"] == 2 else (False, "err")
 
@@ -312,6 +312,11 @@ class TestSubprocessModeMissingApiKey:
             "attempts": 0,
             "error": "ANTHROPIC_API_KEY is not set. Add it to PluginForge/.env or "
                      "the plugin's environment.",
+            # `reason` added with PF-019 (2026-07-25). This exact-equality
+            # assertion is deliberate and is the ADR-011 wire contract test: it
+            # fails whenever the response shape changes, which is the point. The
+            # `error` string above is still asserted character-for-character.
+            "reason": "no_credentials",
         }
 
     def test_empty_key_treated_as_missing(self, monkeypatch, capsys):
@@ -352,6 +357,9 @@ class TestSubprocessModeUnexpectedException:
             "faust_code": None,
             "attempts": 0,
             "error": "boom: something broke",
+            # An unclassified exception is reason="error" — the generic bucket.
+            # PF-019's typed reasons are for the two cases the user can act on.
+            "reason": "error",
         }
         assert "Traceback" not in captured.out
         assert "Traceback" in captured.err

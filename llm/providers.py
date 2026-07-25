@@ -29,6 +29,10 @@ Selection
     PLUGINFORGE_MODEL      override the registry's default model id
     PLUGINFORGE_ALLOW_PAID 1 to permit the paid provider
     PLUGINFORGE_MIN_INTERVAL  seconds to space calls apart (free-tier RPM caps)
+    PLUGINFORGE_GENERATION_BUDGET  wall-clock seconds for ONE generation, all
+                           attempts included (read by generate.py; default 100).
+                           Must stay well under the host's subprocess cap — see
+                           the Budget class and PF-019.
 
 generate.py loads PluginForge/.env before reading these, and juce::ChildProcess
 inherits the environment, so setting PLUGINFORGE_PROVIDER in .env reaches the plugin
@@ -47,12 +51,95 @@ DEFAULT_PROVIDER = "anthropic"
 
 # Free-tier request budgets as advertised 2026-07; they move, and every provider
 # below rate-limits by account age/region. Treat as ordering hints, not contracts.
+#
+# _HTTP_TIMEOUT is the per-POST ceiling used ONLY when no Budget is supplied
+# (library/test callers). Every path that can reach a user — generate.py, and so
+# the plugin — passes a Budget, and the effective timeout is then
+# min(Budget.per_attempt_cap, Budget.remaining()). See the Budget docstring for
+# why that distinction is the whole of PF-019.
 _HTTP_TIMEOUT = 120.0
 _MAX_BACKOFF_TRIES = 5
+
+# A retry is only worth sleeping for if enough budget remains afterwards to
+# actually make the request. Below this, give up and report typed exhaustion
+# rather than sleeping into a kill.
+_MIN_USEFUL_REQUEST_S = 5.0
 
 
 class PaidProviderError(RuntimeError):
     """Raised by assert_free() when a paid provider is selected without opt-in."""
+
+
+class BudgetExhausted(RuntimeError):
+    """The generation's wall-clock budget ran out. Maps to reason="timeout"."""
+
+
+class RateLimited(RuntimeError):
+    """The provider throttled us and the budget cannot absorb the wait.
+
+    Distinct from BudgetExhausted because the user-facing advice differs: wait and
+    retry (rate_limited) versus something is stalled (timeout). Maps to
+    reason="rate_limited" in the ADR-011 response.
+    """
+
+
+@dataclass
+class Budget:
+    """Wall-clock budget shared by every HTTP attempt inside ONE generation.
+
+    PF-019, found by the 2026-07-24 P6 listening battery: prompts #11-#14 failed
+    consecutively with "LLM subprocess timed out after 120s and was killed", and
+    #14 — the robustness test that must never hang — hung. Root cause was a budget
+    collision, not a slow provider:
+
+      * the httpx per-POST timeout was 120.0s (this module), and
+      * the C++ subprocess cap was ALSO 120s (host/Source/PromptPanel.cpp), and
+      * generate.py makes up to 3 attempts, each fanning to <=5 backoff tries.
+
+    So a single stalled or 429'd POST consumed the entire outer budget, the host
+    killed the child before any retry finished, and the user got a frozen UI and
+    an untyped error instead of the structured ADR-011 JSON generate.py was about
+    to produce.
+
+    A Budget makes the deadline explicit and *shared* rather than per-request:
+
+      * every POST is issued with min(per_attempt_cap, remaining()) — so three
+        attempts fit inside the total by construction;
+      * a backoff sleep that would overrun the deadline is REFUSED, and raises a
+        typed exception, instead of being slept through into a kill;
+      * pacing never sleeps past the deadline either.
+
+    SUBTLE: `budget` is optional everywhere and None means "old behaviour,
+    unbounded". That is deliberate — the 240 pre-existing tests drive
+    _post_with_backoff/_call_with_retry/_pace with their original signatures, and
+    keeping them untouched is this change's acceptance gate. Every path that can
+    reach a user passes a real Budget; see generate.py's generate_json().
+    """
+
+    total: float
+    per_attempt_cap: float = 30.0
+    # Light default pacing (PF-019 measure 4). Free tiers cap RPM, and a run that
+    # never spaces its calls spends its budget on Retry-After sleeps.
+    min_interval: float = 1.0
+    started: float = field(default_factory=time.monotonic)
+
+    def remaining(self) -> float:
+        return self.total - (time.monotonic() - self.started)
+
+    def expired(self) -> bool:
+        return self.remaining() <= 0.0
+
+    def request_timeout(self) -> float:
+        """Timeout for the next HTTP request. Never negative, never over the cap."""
+        return max(1.0, min(self.per_attempt_cap, self.remaining()))
+
+    def can_sleep(self, seconds: float) -> bool:
+        """True when sleeping this long still leaves room to make the request."""
+        return seconds + _MIN_USEFUL_REQUEST_S <= self.remaining()
+
+
+def _budget_timeout(budget) -> float:
+    return _HTTP_TIMEOUT if budget is None else budget.request_timeout()
 
 
 @dataclass(frozen=True)
@@ -257,7 +344,7 @@ def anthropic_client():
     return _anthropic_client
 
 
-def _make_anthropic(spec, model, system_prompt, temperature, max_tokens):
+def _make_anthropic(spec, model, system_prompt, temperature, max_tokens, budget=None):
     client = anthropic_client()
 
     def generate(user_message: str) -> str:
@@ -272,10 +359,10 @@ def _make_anthropic(spec, model, system_prompt, temperature, max_tokens):
         response = client.messages.create(**kwargs)
         return response.content[0].text.strip()
 
-    return _call_with_retry(generate)
+    return _call_with_retry(generate, budget)
 
 
-def _make_gemini(spec, model, system_prompt, temperature, max_tokens):
+def _make_gemini(spec, model, system_prompt, temperature, max_tokens, budget=None):
     # Lifted from bench/run_benchmark.py's gen_gemini (2026-07 vintage, working).
     from google import genai as gai
     from google.genai import types as gai_types
@@ -296,10 +383,10 @@ def _make_gemini(spec, model, system_prompt, temperature, max_tokens):
         )
         return (response.text or "").strip()
 
-    return _call_with_retry(generate)
+    return _call_with_retry(generate, budget)
 
 
-def _make_openai_compat(spec, model, system_prompt, temperature, max_tokens):
+def _make_openai_compat(spec, model, system_prompt, temperature, max_tokens, budget=None):
     """Serves groq, openrouter and ollama — all three speak /chat/completions."""
     api_key = os.environ.get(spec.env_var, "") if spec.env_var else "local"
     url = f"{spec.base_url}/chat/completions"
@@ -316,7 +403,7 @@ def _make_openai_compat(spec, model, system_prompt, temperature, max_tokens):
         }
         if temperature is not None:
             payload["temperature"] = temperature
-        data = _post_with_backoff(url, headers, payload)
+        data = _post_with_backoff(url, headers, payload, budget)
         try:
             return (data["choices"][0]["message"]["content"] or "").strip()
         except (KeyError, IndexError, TypeError) as exc:
@@ -339,15 +426,33 @@ _ADAPTERS = {
 _last_call_at = 0.0
 
 
-def _pace() -> None:
-    """Space calls by PLUGINFORGE_MIN_INTERVAL seconds — free tiers cap RPM."""
+def _pace(budget=None) -> None:
+    """Space calls by PLUGINFORGE_MIN_INTERVAL seconds — free tiers cap RPM.
+
+    PF-019 asked for "light default pacing": sustained clicking drove groq into
+    rate-limit state with zero spacing, and the resulting Retry-After sleeps were
+    what actually burned the budget. That default lives on Budget.min_interval
+    (1.0s) rather than here, deliberately — this function's contract is "0 unless
+    PLUGINFORGE_MIN_INTERVAL says otherwise", the pre-existing tests pin it, and
+    pacing a *library* call the caller did not ask to pace would be a surprise.
+    The product path always carries a Budget and therefore always paces.
+
+    An explicit PLUGINFORGE_MIN_INTERVAL still wins over the Budget default, so
+    the bench harnesses' existing env-based pacing is unaffected.
+
+    With a Budget, the sleep is clamped to the remaining time — pacing must never
+    be the thing that pushes a run past its own deadline.
+    """
     global _last_call_at
+    default = "0" if budget is None else str(budget.min_interval)
     try:
-        interval = float(os.environ.get("PLUGINFORGE_MIN_INTERVAL", "0"))
+        interval = float(os.environ.get("PLUGINFORGE_MIN_INTERVAL", default))
     except ValueError:
         interval = 0.0
     if interval > 0:
         wait = interval - (time.monotonic() - _last_call_at)
+        if budget is not None:
+            wait = min(wait, max(0.0, budget.remaining()))
         if wait > 0:
             time.sleep(wait)
     _last_call_at = time.monotonic()
@@ -398,17 +503,26 @@ def _is_retryable(exc: BaseException) -> bool:
     return any(phrase in lowered for phrase in _RETRYABLE_PHRASES)
 
 
-def _call_with_retry(call):
+def _call_with_retry(call, budget=None):
     """Wrap an SDK call with the same backoff the raw-HTTP path gets.
 
     The google-genai and anthropic SDKs raise typed exceptions rather than
     returning a status code, so _post_with_backoff can't cover them. Free tiers
     throttle hard (Gemini: 5 requests/minute/model, measured 2026-07-21), which
     makes this load-bearing for any multi-prompt run, not a nicety.
+
+    PF-019: with a Budget, a backoff sleep that would overrun the deadline raises
+    RateLimited immediately rather than being slept through. Sleeping 58s into a
+    kill produces no information; the typed exception produces a reason string the
+    user can act on.
     """
     def wrapped(*args, **kwargs):
         for attempt in range(_MAX_BACKOFF_TRIES):
-            _pace()
+            if budget is not None and budget.expired():
+                raise BudgetExhausted(
+                    f"generation budget of {budget.total:.0f}s exhausted before "
+                    f"attempt {attempt + 1}")
+            _pace(budget)
             try:
                 return call(*args, **kwargs)
             except Exception as exc:  # noqa: BLE001 — re-raised below if not retryable
@@ -417,22 +531,42 @@ def _call_with_retry(call):
                 hint = _RETRY_HINT_RE.search(str(exc))
                 # +1s: the server's own hint is the earliest permissible moment.
                 delay = float(hint.group(1)) + 1.0 if hint else min(2.0 ** attempt, 60.0)
+                if budget is not None and not budget.can_sleep(delay):
+                    raise RateLimited(
+                        f"provider asked us to wait {delay:.0f}s but only "
+                        f"{max(0.0, budget.remaining()):.0f}s of budget remains"
+                    ) from exc
                 time.sleep(delay)
         raise AssertionError("unreachable")  # pragma: no cover
 
     return wrapped
 
 
-def _post_with_backoff(url: str, headers: dict, payload: dict) -> dict:
-    """POST with exponential backoff on 429/5xx. Free tiers throttle aggressively."""
+def _post_with_backoff(url: str, headers: dict, payload: dict, budget=None) -> dict:
+    """POST with exponential backoff on 429/5xx. Free tiers throttle aggressively.
+
+    PF-019: the request timeout is min(per_attempt_cap, remaining) when a Budget
+    is supplied, so N attempts fit inside the total by construction instead of the
+    first one being able to consume all of it.
+    """
     last_error = ""
     for attempt in range(_MAX_BACKOFF_TRIES):
-        _pace()
+        if budget is not None and budget.expired():
+            raise BudgetExhausted(
+                f"generation budget of {budget.total:.0f}s exhausted — last error: "
+                f"{last_error or 'none'}")
+        _pace(budget)
         try:
-            response = httpx.post(url, headers=headers, json=payload, timeout=_HTTP_TIMEOUT)
+            response = httpx.post(url, headers=headers, json=payload,
+                                  timeout=_budget_timeout(budget))
         except httpx.RequestError as exc:
             last_error = f"{type(exc).__name__}: {exc}"
-            time.sleep(min(2.0 ** attempt, 30.0))
+            delay = min(2.0 ** attempt, 30.0)
+            if budget is not None and not budget.can_sleep(delay):
+                raise BudgetExhausted(
+                    f"request kept failing and the budget cannot absorb another "
+                    f"retry — last error: {last_error}") from exc
+            time.sleep(delay)
             continue
 
         if response.status_code == 200:
@@ -441,7 +575,15 @@ def _post_with_backoff(url: str, headers: dict, payload: dict) -> dict:
         last_error = f"HTTP {response.status_code}: {response.text[:300]}"
         if response.status_code == 429 or response.status_code >= 500:
             if attempt < _MAX_BACKOFF_TRIES - 1:
-                time.sleep(_retry_after_seconds(response, attempt))
+                delay = _retry_after_seconds(response, attempt)
+                if budget is not None and not budget.can_sleep(delay):
+                    # Distinguish throttling from a stall: the advice differs.
+                    exhausted = RateLimited if response.status_code == 429 else BudgetExhausted
+                    raise exhausted(
+                        f"provider asked us to wait {delay:.0f}s but only "
+                        f"{max(0.0, budget.remaining()):.0f}s of budget remains "
+                        f"— {last_error}")
+                time.sleep(delay)
                 continue
         break
 
@@ -451,12 +593,18 @@ def _post_with_backoff(url: str, headers: dict, payload: dict) -> dict:
 # ── The seam every call site uses ─────────────────────────────────────────────
 
 def make_generator(provider: str, *, system_prompt: str, model: str | None = None,
-                   temperature: float | None = None, max_tokens: int = 1024):
+                   temperature: float | None = None, max_tokens: int = 1024,
+                   budget: "Budget | None" = None):
     """Returns callable(user_message) -> code string.
 
     temperature=None omits the parameter entirely (required by claude-opus-4-7+,
     which reject it with a 400). Passing a temperature to such a model raises here
     with an actionable message rather than failing at request time.
+
+    budget=None keeps the historical unbounded behaviour and is what the bench
+    harnesses use — a benchmark run is not racing a subprocess cap and should be
+    allowed to wait out a rate limit. The interactive path (generate.py, and so
+    the plugin) always passes one. See Budget for why (PF-019).
     """
     spec = get_spec(provider)
     model = resolve_model(provider, model)
@@ -471,7 +619,8 @@ def make_generator(provider: str, *, system_prompt: str, model: str | None = Non
     # thinking before emitting a single visible token.
     max_tokens = max(max_tokens, spec.min_max_tokens)
 
-    generate = _ADAPTERS[spec.kind](spec, model, system_prompt, temperature, max_tokens)
+    generate = _ADAPTERS[spec.kind](spec, model, system_prompt, temperature, max_tokens,
+                                    budget)
 
     if not spec.strip_fences:
         return generate

@@ -99,6 +99,18 @@ private:
     static constexpr int kHistoryShown = 5;   // entries offered in the menu
     static constexpr int kHistoryMax   = 20;  // entries retained in the session
 
+    // Backstop for a WEDGED interpreter, not the normal timeout path (PF-019).
+    // generate.py owns a self-enforced wall-clock budget (_DEFAULT_GENERATION_BUDGET_S
+    // = 100s) sized to finish inside this cap and report a typed reason. Before
+    // PF-019 both numbers were 120s, so whichever fired first was a race and the
+    // host won four times running in the 2026-07-24 battery — killing the child
+    // before it could say why it failed.
+    //
+    // Keep the invariant: this must stay comfortably ABOVE generate.py's budget
+    // plus one faust compile plus interpreter startup (~117s). If you lower it,
+    // lower PLUGINFORGE_GENERATION_BUDGET first.
+    static constexpr int kSubprocessTimeoutMs = 180 * 1000;
+
     // Progress-animation state (message thread only).
     bool        isWorking   = false;
     juce::int64 workStartMs = 0;

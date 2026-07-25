@@ -52,25 +52,67 @@ SYSTEM_PROMPT = (Path(__file__).parent / "prompts" / "system_prompt.txt").read_t
 client = providers.anthropic_client()
 
 
-def _call_api(content: str, provider: str, model: str | None = None) -> str:
+# ── Generation budget (PF-019) ───────────────────────────────────────────────
+# The wall-clock ceiling for ONE `--prompt` invocation, covering all attempts.
+#
+# This number's only real constraint is that it must sit COMFORTABLY BELOW the
+# host's subprocess cap (kSubprocessTimeoutMs in host/Source/PromptPanel.cpp).
+# Before PF-019 those two were both 120s, so whichever fired first was a race,
+# and in the 2026-07-24 P6 battery the host won four times running — killing the
+# child before it could emit the ADR-011 JSON that would have said *why*. The
+# host cap is now a backstop for a wedged interpreter, not the normal exit path:
+# generate.py finishes first and reports a typed reason.
+#
+# Margin arithmetic, so the next person changing either number can check it:
+#   worst case here  = GENERATION_BUDGET_S (all LLM work, budget-enforced)
+#                    + one FAUST_VALIDATE_TIMEOUT_S (the last attempt's compile)
+#                    + interpreter startup/import
+#                    = 100 + 15 + ~2  = ~117s
+#   host cap         = 180s
+_DEFAULT_GENERATION_BUDGET_S = 100.0
+FAUST_VALIDATE_TIMEOUT_S = 15.0
+
+
+def generation_budget() -> providers.Budget:
+    """One Budget per generation, sized so max_retries attempts fit inside it."""
+    try:
+        total = float(os.environ.get("PLUGINFORGE_GENERATION_BUDGET",
+                                     _DEFAULT_GENERATION_BUDGET_S))
+    except ValueError:
+        total = _DEFAULT_GENERATION_BUDGET_S
+    # 3 attempts inside the total, with the faust compile of each budgeted out.
+    per_attempt = max(10.0, (total / 3.0) - FAUST_VALIDATE_TIMEOUT_S / 3.0)
+    return providers.Budget(total=total, per_attempt_cap=per_attempt)
+
+
+def _call_api(content: str, provider: str, model: str | None = None,
+              budget: "providers.Budget | None" = None) -> str:
     """Single API dispatch point — delegates to the llm/providers.py registry."""
     generate = providers.make_generator(
-        provider, system_prompt=SYSTEM_PROMPT, model=model, max_tokens=1024
+        provider, system_prompt=SYSTEM_PROMPT, model=model, max_tokens=1024,
+        budget=budget,
     )
     return generate(content)
 
 
 def generate_faust(user_prompt: str, error_context: str = "",
                    provider: str = DEFAULT_PROVIDER,
-                   model: str | None = None) -> str:
+                   model: str | None = None,
+                   budget: "providers.Budget | None" = None) -> str:
     content = user_prompt
     if error_context:
         content += f"\n\nYour previous output had this compiler error — fix it:\n{error_context}"
-    return _call_api(content, provider, model)
+    return _call_api(content, provider, model, budget)
 
 
-def validate_faust(faust_code: str) -> tuple[bool, str]:
-    """Returns (is_valid, error_message)."""
+def validate_faust(faust_code: str,
+                   budget: "providers.Budget | None" = None) -> tuple[bool, str]:
+    """Returns (is_valid, error_message).
+
+    PF-019: with a Budget, the compiler subprocess timeout is clamped to what is
+    left. `faust` on a pathological generated patch is one more way to overrun the
+    host's cap, so it counts against the same clock as the LLM calls.
+    """
     # SUBTLE: encoding and errors are both load-bearing, and neither is a default.
     # An LLM reply can contain non-ASCII (curly quotes, em dashes, a degree sign in
     # a slider label). When it does, `faust` echoes the offending source line to
@@ -85,13 +127,22 @@ def validate_faust(faust_code: str) -> tuple[bool, str]:
                                      delete=False) as f:
         f.write(faust_code)
         tmp = f.name
+    timeout = FAUST_VALIDATE_TIMEOUT_S
+    if budget is not None:
+        timeout = max(2.0, min(timeout, budget.remaining()))
     try:
         result = subprocess.run(
             ["faust", "-lang", "cpp", tmp, "-o", "/dev/null"],
-            capture_output=True, text=True, timeout=15,
+            capture_output=True, text=True, timeout=timeout,
             encoding="utf-8", errors="replace",
         )
         return result.returncode == 0, result.stderr.strip()
+    except subprocess.TimeoutExpired:
+        # A patch the compiler cannot finish is an invalid patch, not a crash.
+        # Report it as a compile error so the retry loop can feed it back.
+        return False, (f"faust compiler did not finish within {timeout:.0f}s — "
+                       f"the generated patch is likely pathological "
+                       f"(unbounded delay, runaway recursion).")
     finally:
         os.unlink(tmp)
 
@@ -101,9 +152,11 @@ def generate_with_retry(user_prompt: str, max_retries: int = 3,
                         model: str | None = None) -> str:
     """Returns validated Faust code string. Raises RuntimeError after exhausting retries."""
     error_ctx = ""
+    budget = generation_budget()
     for attempt in range(1, max_retries + 1):
-        code = generate_faust(user_prompt, error_ctx, provider=provider, model=model)
-        valid, error = validate_faust(code)
+        code = generate_faust(user_prompt, error_ctx, provider=provider, model=model,
+                              budget=budget)
+        valid, error = validate_faust(code, budget)
         if valid:
             print(f"[+] Valid Faust on attempt {attempt}")
             return code
@@ -116,6 +169,19 @@ def generate_json(request: dict) -> dict:
     """
     JSON wire-mode entry point called by the C++ host via subprocess.
     Accepts the locked ADR-011 request schema; returns the response schema.
+
+    ADR-011 response, with one ADDITIVE field as of PF-019:
+
+        {"success": bool, "faust_code": str|None, "attempts": int,
+         "error": str|None, "reason": str}
+
+    `reason` is one of ok | invalid_faust | timeout | rate_limited | error.
+    Additive because every existing consumer reads success/faust_code/error and is
+    unaffected by an extra key; the host uses it to tell "the provider throttled
+    you, wait a moment" apart from "something stalled", which was indistinguishable
+    during the 2026-07-24 battery. Treating this as ungated under COLLABORATION.md
+    §2 trigger-3: it extends the schema without changing any existing field's
+    meaning, and both sides move in this commit.
     """
     prompt = request["prompt"]
     provider = request.get("provider", DEFAULT_PROVIDER)
@@ -123,16 +189,37 @@ def generate_json(request: dict) -> dict:
     # request naming a provider but no model can't inherit another provider's model.
     model = request.get("model")
     max_retries = request.get("max_retries", 3)
+    budget = request.get("budget") or generation_budget()
 
     error_ctx = ""
+    attempt = 0
     for attempt in range(1, max_retries + 1):
-        code = generate_faust(prompt, error_ctx, provider, model)
-        valid, error = validate_faust(code)
+        try:
+            code = generate_faust(prompt, error_ctx, provider, model, budget)
+        except providers.RateLimited as exc:
+            return _failure(attempt, "rate_limited", str(exc))
+        except providers.BudgetExhausted as exc:
+            return _failure(attempt, "timeout", str(exc))
+
+        valid, error = validate_faust(code, budget)
         if valid:
-            return {"success": True, "faust_code": code, "attempts": attempt, "error": None}
+            return {"success": True, "faust_code": code, "attempts": attempt,
+                    "error": None, "reason": "ok"}
         error_ctx = error
 
-    return {"success": False, "faust_code": None, "attempts": max_retries, "error": error_ctx}
+        # Don't start an attempt there is no time to finish — returning the last
+        # compiler error now beats being killed mid-request with nothing to show.
+        if budget.expired() and attempt < max_retries:
+            return _failure(attempt, "timeout",
+                            f"generation budget exhausted after {attempt} attempt(s). "
+                            f"Last compiler error:\n{error_ctx}")
+
+    return _failure(max_retries, "invalid_faust", error_ctx)
+
+
+def _failure(attempts: int, reason: str, error: str) -> dict:
+    return {"success": False, "faust_code": None, "attempts": attempts,
+            "error": error, "reason": reason}
 
 
 def _missing_api_key_response(message: str | None = None) -> dict:
@@ -149,12 +236,19 @@ def _missing_api_key_response(message: str | None = None) -> dict:
         "attempts": 0,
         "error": message or ("ANTHROPIC_API_KEY is not set. Add it to PluginForge/.env or "
                              "the plugin's environment."),
+        "reason": "no_credentials",
     }
 
 
 def _exception_response(exc: BaseException) -> dict:
     """ADR-011 failure shape for an unexpected exception in a subprocess mode."""
-    return {"success": False, "faust_code": None, "attempts": 0, "error": str(exc)}
+    reason = "error"
+    if isinstance(exc, providers.RateLimited):
+        reason = "rate_limited"
+    elif isinstance(exc, providers.BudgetExhausted):
+        reason = "timeout"
+    return {"success": False, "faust_code": None, "attempts": 0,
+            "error": str(exc), "reason": reason}
 
 
 def _run_subprocess_mode(build_request):

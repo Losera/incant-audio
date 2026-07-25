@@ -28,6 +28,27 @@ bool PromptTextEditor::keyPressed(const juce::KeyPress& key)
     return juce::TextEditor::keyPressed(key);
 }
 
+// ── ADR-011 `reason` → status line ──────────────────────────────────────────
+// PF-019. During the 2026-07-24 P6 battery every failure read the same to the
+// user ("LLM error"), so a rate limit that would clear in ten seconds was
+// indistinguishable from a wedged run. The reason field makes them distinct, and
+// each string here says what to DO, not just what happened.
+//
+// An unknown or absent reason falls back to the generic text — a newer host must
+// keep working against an older generate.py.
+static juce::String statusForReason(const juce::String& reason)
+{
+    if (reason == "rate_limited")
+        return "Rate limited by the provider — wait a moment and try again.";
+    if (reason == "timeout")
+        return "Timed out before a valid patch — try a simpler prompt.";
+    if (reason == "invalid_faust")
+        return "The model's Faust did not compile after 3 attempts (see errors below).";
+    if (reason == "no_credentials")
+        return "No API key for the selected provider (see errors below).";
+    return "LLM error (see errors below).";
+}
+
 // ── PromptPanel ─────────────────────────────────────────────────────────────
 PromptPanel::PromptPanel(PluginForgeProcessor& p)
     : processor(p)
@@ -200,21 +221,28 @@ void PromptPanel::submitPrompt()
         // Bound the wait before reading: readAllProcessOutput() alone blocks until
         // EOF, so a hung generate.py (network stall, interactive pdb, ...) would
         // wedge this thread forever with the button stuck disabled. Wait with a
-        // cap, kill on expiry. 120s covers ADR-005's worst case (3 LLM attempts +
-        // faust validation per attempt). SUBTLE: the child could in principle fill
-        // the 64KB pipe buffer and block writing before exiting — but the payload
-        // is one JSON line (small), and even then this degrades to a bounded
-        // timeout+kill, never an unbounded hang.
-        if (! child.waitForProcessToFinish(120 * 1000))
+        // cap, kill on expiry. SUBTLE: the child could in principle fill the 64KB
+        // pipe buffer and block writing before exiting — but the payload is one
+        // JSON line (small), and even then this degrades to a bounded timeout+kill,
+        // never an unbounded hang.
+        if (! child.waitForProcessToFinish(kSubprocessTimeoutMs))
         {
             child.kill();
             juce::MessageManager::callAsync([safeThis]
             {
                 if (safeThis == nullptr) return;
                 safeThis->stopWorking();
-                safeThis->setError("LLM subprocess timed out after 120s and was killed.");
-                safeThis->statusLabel.setText("Error: LLM subprocess timed out after 120s.",
-                                              juce::dontSendNotification);
+                safeThis->setError(
+                    "The generator did not exit within "
+                    + juce::String(kSubprocessTimeoutMs / 1000) + "s and was killed.\n\n"
+                    "This is the backstop, not the normal timeout path — generate.py "
+                    "budgets itself to finish well inside this window and report why. "
+                    "Reaching here means the interpreter itself is wedged: check that "
+                    "PLUGINFORGE_PYTHON points at a working python3, and that "
+                    "llm/generate.py is not waiting on stdin.");
+                safeThis->statusLabel.setText("Error: generator wedged (killed at "
+                                              + juce::String(kSubprocessTimeoutMs / 1000)
+                                              + "s).", juce::dontSendNotification);
                 safeThis->generateButton.setEnabled(true);
             });
             return;
@@ -259,17 +287,22 @@ void PromptPanel::submitPrompt()
         bool success = parsed.getProperty("success", false);
         auto faustCode = parsed.getProperty("faust_code", juce::String()).toString();
         auto errorMsg  = parsed.getProperty("error", juce::String()).toString();
+        // ADR-011 `reason` (added with PF-019): ok | invalid_faust | timeout |
+        // rate_limited | no_credentials | error. Absent on responses from an older
+        // generate.py, which is why the default is empty and statusForReason()
+        // falls back to the generic text rather than asserting.
+        auto reason = parsed.getProperty("reason", juce::String()).toString();
 
         if (! success || faustCode.isEmpty())
         {
-            juce::MessageManager::callAsync([safeThis, errorMsg]
+            juce::MessageManager::callAsync([safeThis, errorMsg, reason]
             {
                 if (safeThis == nullptr) return;
                 safeThis->stopWorking();
                 safeThis->setError(errorMsg.isNotEmpty()
                                        ? errorMsg
                                        : juce::String("Generation failed with no error text."));
-                safeThis->statusLabel.setText("LLM error (see errors below).",
+                safeThis->statusLabel.setText(statusForReason(reason),
                                               juce::dontSendNotification);
                 safeThis->generateButton.setEnabled(true);
             });

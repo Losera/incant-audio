@@ -225,7 +225,7 @@ class TestMakeGenerator:
         # thinking tokens and a truncated 39-token answer.
         captured = {}
 
-        def fake_adapter(spec, model, system_prompt, temperature, max_tokens):
+        def fake_adapter(spec, model, system_prompt, temperature, max_tokens, *_):
             captured["max_tokens"] = max_tokens
             return lambda msg: FAUST
 
@@ -237,7 +237,7 @@ class TestMakeGenerator:
     def test_caller_max_tokens_wins_when_above_the_floor(self):
         captured = {}
 
-        def fake_adapter(spec, model, system_prompt, temperature, max_tokens):
+        def fake_adapter(spec, model, system_prompt, temperature, max_tokens, *_):
             captured["max_tokens"] = max_tokens
             return lambda msg: FAUST
 
@@ -246,7 +246,7 @@ class TestMakeGenerator:
         assert captured["max_tokens"] == 99999
 
     def test_fences_are_stripped_through_the_public_seam(self):
-        def fake_adapter(spec, model, system_prompt, temperature, max_tokens):
+        def fake_adapter(spec, model, system_prompt, temperature, max_tokens, *_):
             return lambda msg: f"```faust\n{FAUST}\n```"
 
         with patch.dict(providers._ADAPTERS, {"openai_compat": fake_adapter}):
