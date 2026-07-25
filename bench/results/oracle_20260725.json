@@ -1,0 +1,625 @@
+[
+ {
+  "prompt": "a simple stereo gain control with a dB slider",
+  "category": "trivial",
+  "analysis": {
+   "rendered": true,
+   "measurement": {
+    "ok": true,
+    "reasons": [],
+    "has_nan_inf": false,
+    "is_silent": false,
+    "peak": 0.47319576144218445,
+    "rms": 0.10018315321518348,
+    "rms_ratio_db": 0.0,
+    "dc_offset": 0.00021568353324124938,
+    "n_frames": 96000,
+    "n_channels": 2
+   },
+   "features": {
+    "band_gain_db": {
+     "50-200": 0.0,
+     "200-800": 0.0,
+     "800-1200": 0.0,
+     "1200-4000": 0.0,
+     "4000-8000": 0.0,
+     "8000-20000": 0.0
+    },
+    "centroid_in_hz": 11968.244636452271,
+    "centroid_out_hz": 11968.244636452271,
+    "centroid_shift_oct": 0.0,
+    "crest_in_db": 13.484922981869481,
+    "crest_out_db": 13.484922981869481
+   }
+  }
+ },
+ {
+  "prompt": "a mute toggle with one boolean parameter",
+  "category": "trivial",
+  "analysis": {
+   "rendered": true,
+   "measurement": {
+    "ok": true,
+    "reasons": [],
+    "has_nan_inf": false,
+    "is_silent": false,
+    "peak": 0.47319576144218445,
+    "rms": 0.10018315321518348,
+    "rms_ratio_db": 0.0,
+    "dc_offset": 0.00021568353324124938,
+    "n_frames": 96000,
+    "n_channels": 2
+   },
+   "features": {
+    "band_gain_db": {
+     "50-200": 0.0,
+     "200-800": 0.0,
+     "800-1200": 0.0,
+     "1200-4000": 0.0,
+     "4000-8000": 0.0,
+     "8000-20000": 0.0
+    },
+    "centroid_in_hz": 11968.244636452271,
+    "centroid_out_hz": 11968.244636452271,
+    "centroid_shift_oct": 0.0,
+    "crest_in_db": 13.484922981869481,
+    "crest_out_db": 13.484922981869481
+   }
+  }
+ },
+ {
+  "prompt": "a mono-to-stereo converter that duplicates the channel",
+  "category": "trivial",
+  "analysis": {
+   "rendered": true,
+   "measurement": {
+    "ok": true,
+    "reasons": [],
+    "has_nan_inf": false,
+    "is_silent": false,
+    "peak": 0.47319576144218445,
+    "rms": 0.10027163735775166,
+    "rms_ratio_db": 0.007668198348238451,
+    "dc_offset": 0.00021568353324124938,
+    "n_frames": 96000,
+    "n_channels": 2
+   },
+   "features": {
+    "band_gain_db": {
+     "50-200": 0.0,
+     "200-800": 0.0,
+     "800-1200": 0.0,
+     "1200-4000": 0.0,
+     "4000-8000": 0.0,
+     "8000-20000": 0.0
+    },
+    "centroid_in_hz": 11968.244636452271,
+    "centroid_out_hz": 11968.244636452271,
+    "centroid_shift_oct": 0.0,
+    "crest_in_db": 13.484922981869481,
+    "crest_out_db": 13.477254783521243
+   }
+  }
+ },
+ {
+  "prompt": "a DC blocker that removes low-frequency offset",
+  "category": "trivial",
+  "analysis": {
+   "rendered": true,
+   "measurement": {
+    "ok": true,
+    "reasons": [],
+    "has_nan_inf": false,
+    "is_silent": false,
+    "peak": 0.4814320504665375,
+    "rms": 0.10030773679159552,
+    "rms_ratio_db": 0.010794698299489773,
+    "dc_offset": 4.824462713486355e-06,
+    "n_frames": 96000,
+    "n_channels": 2
+   },
+   "features": {
+    "band_gain_db": {
+     "50-200": -0.5057894027306189,
+     "200-800": -0.019155400558045467,
+     "800-1200": 0.015074681702846388,
+     "1200-4000": 0.020413481453220913,
+     "4000-8000": 0.02156418665077991,
+     "8000-20000": 0.021719310379306012
+    },
+    "centroid_in_hz": 11968.244636452271,
+    "centroid_out_hz": 11986.730944409997,
+    "centroid_shift_oct": 0.0022266864784963084,
+    "crest_in_db": 13.484922981869481,
+    "crest_out_db": 13.624011351644217
+   }
+  }
+ },
+ {
+  "prompt": "a polarity inverter with a bypass switch",
+  "category": "trivial",
+  "analysis": {
+   "rendered": true,
+   "measurement": {
+    "ok": true,
+    "reasons": [],
+    "has_nan_inf": false,
+    "is_silent": false,
+    "peak": 0.47319576144218445,
+    "rms": 0.07090275473634454,
+    "rms_ratio_db": -3.002631758291574,
+    "dc_offset": 0.00021568353324124938,
+    "n_frames": 96000,
+    "n_channels": 2
+   },
+   "features": {
+    "band_gain_db": {
+     "50-200": 0.0,
+     "200-800": 0.0,
+     "800-1200": 0.0,
+     "1200-4000": 0.0,
+     "4000-8000": 0.0,
+     "8000-20000": 0.0
+    },
+    "centroid_in_hz": 11968.244636452271,
+    "centroid_out_hz": 11968.244636452271,
+    "centroid_shift_oct": 0.0,
+    "crest_in_db": 13.484922981869481,
+    "crest_out_db": 16.487554740161055
+   }
+  }
+ },
+ {
+  "prompt": "a warm analog-style low-pass filter with cutoff and resonance",
+  "category": "filters",
+  "analysis": {
+   "rendered": true,
+   "measurement": {
+    "ok": true,
+    "reasons": [],
+    "has_nan_inf": false,
+    "is_silent": false,
+    "peak": 0.0954400822520256,
+    "rms": 0.021613520144963632,
+    "rms_ratio_db": -13.32138383144512,
+    "dc_offset": 0.00022199835028352218,
+    "n_frames": 96000,
+    "n_channels": 2
+   },
+   "features": {
+    "band_gain_db": {
+     "50-200": -0.003458455218946615,
+     "200-800": -0.40238879487568985,
+     "800-1200": -2.953913027160767,
+     "1200-4000": -12.399171003734557,
+     "4000-8000": -29.999140045222976,
+     "8000-20000": -45.96933472771105
+    },
+    "centroid_in_hz": 11968.244636452271,
+    "centroid_out_hz": 1652.3124136855183,
+    "centroid_shift_oct": -2.8566531723954367,
+    "crest_in_db": 13.484922981869481,
+    "crest_out_db": 12.900105994902695
+   }
+  }
+ },
+ {
+  "prompt": "a high-pass filter with a gentle 12dB per octave slope",
+  "category": "filters",
+  "analysis": {
+   "rendered": true,
+   "measurement": {
+    "ok": true,
+    "reasons": [],
+    "has_nan_inf": false,
+    "is_silent": false,
+    "peak": 0.47729766368865967,
+    "rms": 0.10121807715639501,
+    "rms_ratio_db": 0.08926771940023247,
+    "dc_offset": 7.164963922669853e-06,
+    "n_frames": 96000,
+    "n_channels": 2
+   },
+   "features": {
+    "band_gain_db": {
+     "50-200": -8.253127301543689,
+     "200-800": 0.9790863723052803,
+     "800-1200": 1.5130395237849998,
+     "1200-4000": 0.41298551619806695,
+     "4000-8000": 0.061798089325880885,
+     "8000-20000": 0.008066247614854723
+    },
+    "centroid_in_hz": 11968.244636452271,
+    "centroid_out_hz": 11911.328094903098,
+    "centroid_shift_oct": -0.006877289527461917,
+    "crest_in_db": 13.484922981869481,
+    "crest_out_db": 13.470624516252501
+   }
+  }
+ },
+ {
+  "prompt": "a band-pass filter with adjustable center frequency and Q",
+  "category": "filters",
+  "analysis": {
+   "rendered": true,
+   "measurement": {
+    "ok": true,
+    "reasons": [],
+    "has_nan_inf": false,
+    "is_silent": false,
+    "peak": 0.0981154516339302,
+    "rms": 0.02166298715172949,
+    "rms_ratio_db": -13.301527092745077,
+    "dc_offset": 1.3624819161848951e-06,
+    "n_frames": 96000,
+    "n_channels": 2
+   },
+   "features": {
+    "band_gain_db": {
+     "50-200": -27.72750052813423,
+     "200-800": -3.0760735276430475,
+     "800-1200": -0.07477711345377785,
+     "1200-4000": -8.185020406622401,
+     "4000-8000": -29.415235743684512,
+     "8000-20000": -45.84580019225576
+    },
+    "centroid_in_hz": 11968.244636452271,
+    "centroid_out_hz": 1952.816479786027,
+    "centroid_shift_oct": -2.6155832897177085,
+    "crest_in_db": 13.484922981869481,
+    "crest_out_db": 13.120381303041604
+   }
+  }
+ },
+ {
+  "prompt": "a notch filter for removing 60Hz hum, with a width control",
+  "category": "filters",
+  "analysis": {
+   "rendered": true,
+   "measurement": {
+    "ok": true,
+    "reasons": [],
+    "has_nan_inf": false,
+    "is_silent": false,
+    "peak": 0.47549134492874146,
+    "rms": 0.10016717047508623,
+    "rms_ratio_db": -0.0013858157484954608,
+    "dc_offset": 0.0002128965586966274,
+    "n_frames": 96000,
+    "n_channels": 2
+   },
+   "features": {
+    "band_gain_db": {
+     "50-200": -0.20563276261239935,
+     "200-800": -0.0007906159820067183,
+     "800-1200": -7.169783984857697e-05,
+     "1200-4000": -3.3137755867753145e-05,
+     "4000-8000": -1.5794588486512347e-05,
+     "8000-20000": -1.262372603852662e-06
+    },
+    "centroid_in_hz": 11968.244636452271,
+    "centroid_out_hz": 11970.815384897594,
+    "centroid_shift_oct": 0.00030985394116464916,
+    "crest_in_db": 13.484922981869481,
+    "crest_out_db": 13.528344203393527
+   }
+  }
+ },
+ {
+  "prompt": "a high-shelf filter for adding air to vocals",
+  "category": "filters",
+  "analysis": {
+   "rendered": true,
+   "measurement": {
+    "ok": true,
+    "reasons": [],
+    "has_nan_inf": false,
+    "is_silent": false,
+    "peak": 0.617772102355957,
+    "rms": 0.12791819284099948,
+    "rms_ratio_db": 2.122752370630775,
+    "dc_offset": 0.00021530266969816363,
+    "n_frames": 96000,
+    "n_channels": 2
+   },
+   "features": {
+    "band_gain_db": {
+     "50-200": 0.001178005330167995,
+     "200-800": 0.015599002449044181,
+     "800-1200": 0.055445252551044474,
+     "1200-4000": 0.3562268434679972,
+     "4000-8000": 1.2562024704073107,
+     "8000-20000": 2.5489481989480134
+    },
+    "centroid_in_hz": 11968.244636452271,
+    "centroid_out_hz": 12690.510971898564,
+    "centroid_shift_oct": 0.08453858916098957,
+    "crest_in_db": 13.484922981869481,
+    "crest_out_db": 13.677919540580639
+   }
+  }
+ },
+ {
+  "prompt": "a stereo delay with time, feedback, and dry/wet",
+  "category": "time-based",
+  "analysis": {
+   "rendered": true,
+   "measurement": {
+    "ok": true,
+    "reasons": [],
+    "has_nan_inf": false,
+    "is_silent": false,
+    "peak": 0.471174955368042,
+    "rms": 0.10212188117591278,
+    "rms_ratio_db": 0.16648219048177007,
+    "dc_offset": 0.0002800473534707019,
+    "n_frames": 96000,
+    "n_channels": 2
+   },
+   "features": {
+    "band_gain_db": {
+     "50-200": 0.11463804871666984,
+     "200-800": 0.1636419602389106,
+     "800-1200": 0.12235074064166468,
+     "1200-4000": 0.1331222527233447,
+     "4000-8000": 0.19531656974005343,
+     "8000-20000": 0.1701565673191338
+    },
+    "centroid_in_hz": 11968.244636452271,
+    "centroid_out_hz": 11969.791646521175,
+    "centroid_shift_oct": 0.0001864700789435642,
+    "crest_in_db": 13.484922981869481,
+    "crest_out_db": 13.281267835856301
+   }
+  }
+ },
+ {
+  "prompt": "a subtle chorus effect with rate and depth",
+  "category": "time-based",
+  "analysis": {
+   "rendered": true,
+   "measurement": {
+    "ok": true,
+    "reasons": [],
+    "has_nan_inf": false,
+    "is_silent": false,
+    "peak": 0.4086047112941742,
+    "rms": 0.07564160156309789,
+    "rms_ratio_db": -2.440679623304934,
+    "dc_offset": 0.00021822952623300386,
+    "n_frames": 96000,
+    "n_channels": 2
+   },
+   "features": {
+    "band_gain_db": {
+     "50-200": -0.7613772313106042,
+     "200-800": -2.0217376118304795,
+     "800-1200": -1.894767254180178,
+     "1200-4000": -2.12853401440694,
+     "4000-8000": -2.2952593087794266,
+     "8000-20000": -2.5508504919761554
+    },
+    "centroid_in_hz": 11968.244636452271,
+    "centroid_out_hz": 11770.908440555699,
+    "centroid_shift_oct": -0.023985902793472035,
+    "crest_in_db": 13.484922981869481,
+    "crest_out_db": 14.65085308440693
+   }
+  }
+ },
+ {
+  "prompt": "a simple plate reverb with decay time and damping",
+  "category": "time-based",
+  "analysis": {
+   "rendered": true,
+   "measurement": {
+    "ok": true,
+    "reasons": [],
+    "has_nan_inf": false,
+    "is_silent": false,
+    "peak": 0.3358963131904602,
+    "rms": 0.07084088537205059,
+    "rms_ratio_db": -3.01021432783687,
+    "dc_offset": 0.0001976560310132361,
+    "n_frames": 96000,
+    "n_channels": 2
+   },
+   "features": {
+    "band_gain_db": {
+     "50-200": -2.8680349197701913,
+     "200-800": -2.8722609726805617,
+     "800-1200": -2.917620076498295,
+     "1200-4000": -2.9102489138671483,
+     "4000-8000": -2.9266153727509177,
+     "8000-20000": -3.0457648420255587
+    },
+    "centroid_in_hz": 11968.244636452271,
+    "centroid_out_hz": 11937.475826236865,
+    "centroid_shift_oct": -0.0037137583444342625,
+    "crest_in_db": 13.484922981869481,
+    "crest_out_db": 13.518425133117098
+   }
+  }
+ },
+ {
+  "prompt": "a compressor with threshold, ratio, attack, and release",
+  "category": "dynamics",
+  "analysis": {
+   "rendered": true,
+   "measurement": {
+    "ok": true,
+    "reasons": [],
+    "has_nan_inf": false,
+    "is_silent": false,
+    "peak": 0.3899421691894531,
+    "rms": 0.05221111516479956,
+    "rms_ratio_db": -5.660634549403528,
+    "dc_offset": 9.351858708989033e-05,
+    "n_frames": 96000,
+    "n_channels": 2
+   },
+   "features": {
+    "band_gain_db": {
+     "50-200": -5.652476917680673,
+     "200-800": -5.607135450397273,
+     "800-1200": -5.603367274798679,
+     "1200-4000": -5.662793942701196,
+     "4000-8000": -5.669235442004547,
+     "8000-20000": -5.65681054475132
+    },
+    "centroid_in_hz": 11968.244636452271,
+    "centroid_out_hz": 11967.26222804809,
+    "centroid_shift_oct": -0.00011842788553913147,
+    "crest_in_db": 13.484922981869481,
+    "crest_out_db": 17.46474467939429
+   }
+  }
+ },
+ {
+  "prompt": "a brick-wall limiter for mastering",
+  "category": "dynamics",
+  "analysis": {
+   "rendered": true,
+   "measurement": {
+    "ok": true,
+    "reasons": [],
+    "has_nan_inf": false,
+    "is_silent": false,
+    "peak": 0.45713117718696594,
+    "rms": 0.09678202165405399,
+    "rms_ratio_db": -0.300000140852889,
+    "dc_offset": 0.00020836126166573975,
+    "n_frames": 96000,
+    "n_channels": 2
+   },
+   "features": {
+    "band_gain_db": {
+     "50-200": -0.3000001280579218,
+     "200-800": -0.30000013902499406,
+     "800-1200": -0.3000001522665647,
+     "1200-4000": -0.30000014279225934,
+     "4000-8000": -0.30000013922130886,
+     "8000-20000": -0.30000014154019033
+    },
+    "centroid_in_hz": 11968.244636452271,
+    "centroid_out_hz": 11968.24463756799,
+    "centroid_shift_oct": 1.3449265832989657e-10,
+    "crest_in_db": 13.484922981869481,
+    "crest_out_db": 13.484923045037117
+   }
+  }
+ },
+ {
+  "prompt": "a noise gate with threshold and hold time",
+  "category": "dynamics",
+  "analysis": {
+   "rendered": true,
+   "measurement": {
+    "ok": true,
+    "reasons": [],
+    "has_nan_inf": false,
+    "is_silent": false,
+    "peak": 0.47319507598876953,
+    "rms": 0.1001434742209055,
+    "rms_ratio_db": -0.003440854310443999,
+    "dc_offset": 0.0002201871385988774,
+    "n_frames": 96000,
+    "n_channels": 2
+   },
+   "features": {
+    "band_gain_db": {
+     "50-200": -0.002761762282375438,
+     "200-800": -0.00657088715673528,
+     "800-1200": -0.006562640112965793,
+     "1200-4000": -0.0028243624751130023,
+     "4000-8000": -0.004941032625874546,
+     "8000-20000": -0.0023882864097366325
+    },
+    "centroid_in_hz": 11968.244636452271,
+    "centroid_out_hz": 11968.330119366376,
+    "centroid_shift_oct": 1.0304379596249834e-05,
+    "crest_in_db": 13.484922981869481,
+    "crest_out_db": 13.488351254120845
+   }
+  }
+ },
+ {
+  "prompt": "an upward expander to bring out quiet details",
+  "category": "dynamics",
+  "analysis": {
+   "rendered": true,
+   "measurement": {
+    "ok": true,
+    "reasons": [],
+    "has_nan_inf": false,
+    "is_silent": false,
+    "peak": 0.47319576144218445,
+    "rms": 0.10012347642060417,
+    "rms_ratio_db": -0.005175525822067126,
+    "dc_offset": 0.00022502864614020268,
+    "n_frames": 96000,
+    "n_channels": 2
+   },
+   "features": {
+    "band_gain_db": {
+     "50-200": -0.005887715519644047,
+     "200-800": -0.008293804648497664,
+     "800-1200": -0.008789108274643648,
+     "1200-4000": -0.005172511650704052,
+     "4000-8000": -0.007258954808179481,
+     "8000-20000": -0.004327147865339985
+    },
+    "centroid_in_hz": 11968.244636452271,
+    "centroid_out_hz": 11968.460992152022,
+    "centroid_shift_oct": 2.6080054619849616e-05,
+    "crest_in_db": 13.484922981869481,
+    "crest_out_db": 13.490098507691549
+   }
+  }
+ },
+ {
+  "prompt": "a pure sine wave oscillator with frequency and amplitude",
+  "category": "generative",
+  "analysis": {
+   "rendered": false,
+   "unsupported": true,
+   "error": "zero-input patch (0 in, 1 out) \u2014 generators are outside this harness; see UnsupportedPatch"
+  }
+ },
+ {
+  "prompt": "a sawtooth synth with an ADSR envelope",
+  "category": "generative",
+  "analysis": {
+   "rendered": false,
+   "unsupported": true,
+   "error": "zero-input patch (0 in, 2 out) \u2014 generators are outside this harness; see UnsupportedPatch"
+  }
+ },
+ {
+  "prompt": "a 2-operator FM synth with ratio and modulation index",
+  "category": "generative",
+  "analysis": {
+   "rendered": false,
+   "unsupported": true,
+   "error": "zero-input patch (0 in, 2 out) \u2014 generators are outside this harness; see UnsupportedPatch"
+  }
+ },
+ {
+  "prompt": "a white noise generator with a tone control",
+  "category": "generative",
+  "analysis": {
+   "rendered": false,
+   "unsupported": true,
+   "error": "zero-input patch (0 in, 2 out) \u2014 generators are outside this harness; see UnsupportedPatch"
+  }
+ },
+ {
+  "prompt": "a Karplus-Strong plucked string synthesizer",
+  "category": "generative",
+  "analysis": {
+   "rendered": false,
+   "unsupported": true,
+   "error": "zero-input patch (0 in, 2 out) \u2014 generators are outside this harness; see UnsupportedPatch"
+  }
+ }
+]
