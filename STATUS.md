@@ -20,8 +20,8 @@ Narrative history lives in git.
   Covered by `host/tests/ParamMapTest.cpp` (212 lines). **Not yet verified by ear** — see below.
 - **The parameter path is RT-safe.** *(was Broken #4; folded into `efbb5a5`.)* `pushToFaust`
   writes cached `FAUSTFLOAT*` zone pointers directly — no `std::map` lookups, no `MapUI`, no
-  `fprintf` on the audio thread. `check_rt_safety.py` still does not scope `pushToFaust` (see
-  "Assumed").
+  `fprintf` on the audio thread. `check_rt_safety.py` still does not scope `pushToFaust`
+  (PF-015; see "Assumed").
 - **Compile thread is owned and joined.** *(was Broken #3; resolved by `d10f59e`.)*
   `FaustEngine` runs a persistent worker (`workerLoop`/`shutdown`); `~PluginForgeProcessor`
   calls `faustEngine.shutdown()` first. No detached thread capturing `this` at teardown.
@@ -36,66 +36,122 @@ Narrative history lives in git.
 - **One prompt, one measurement.** `generate.py`, `run_benchmark.py`, `run_efficacy_study.py`
   all load the same prompt file.
 - **Provider registry.** Five providers, three adapters, no added dependencies.
-- **Python test suite.** 239 pass, 10 integration-deselected, ~1.4s (2026-07-21).
+- **Python test suite.** 254 passed (240 baseline + 14 new for the BYO-LLM exporter),
+  independently re-run by S7 2026-07-23. Several commits have landed since (param-grid
+  auto-layout, `onFaustCompileFailure`) without a fresh full-suite count recorded — treat as
+  probably-still-green, not verified-green, until someone reruns it.
 - **State persistence.** *(was Broken #1; landed `c34bbb6`, Backend/S1.)* Versioned
   ValueTree→XML blob (schemaVersion=1: Faust source + prompt + 64 APVTS values + SlotLabels);
   setState restores values then recompiles; unknown/corrupt/foreign blobs ignored.
   `StatePersistenceTest` round-trips through two processors 13/13, ASan/UBSan clean; JUCE headers
   cited (`juce_AudioProcessorValueTreeState.h:375-395`, `juce_AudioProcessor.h:1306-1312`).
-  **NOTE:** the *format* is a §2 trigger-3 contract; S1 reports it was signed off via its
-  plan-mode approval. The overseer cannot independently verify that (separate session), so the
-  human is asked to confirm — see "Waiting on you." Retained metadata is `metaMutex`-guarded,
-  never touched on the audio thread.
+  **NOTE:** the *format* is a §2 trigger-3 contract and is still awaiting human confirmation —
+  the overseer's ruling on FLEET req #12 (2026-07-23) settled a roll-call/gate contradiction:
+  the Gate table is authoritative, S1's "signed off via plan approval" language was corrected,
+  and confirmation is still pending — see "Waiting on you." Retained metadata is
+  `metaMutex`-guarded, never touched on the audio thread.
 - **PluginEditor split into panels.** *(Plugin-UX/S3, Task 0.)* `PromptPanel` / `CodeEditorPanel`
   (stub) / `ParamGridPanel` extracted; shell wires all three; CMake updated; resizable shell
   (`setResizable(true,true)`, limits 480×360–1400×1200); all four editor-linking targets
   (`PluginForgeHost`, `_Standalone`, `_VST3`, both `ParamPoolTsanTest` + `StatePersistenceTest`)
   build+link clean. Committed `471d045`. Shell's `resized()` wires each panel's bounds.
-- **BYO-LLM module export ready.** *(Backend/S1, Phase 0 built & verified.)* `llm/export_prompt.py`
-  (+112) + `tests/test_export_prompt.py` (+134) landed on main `0ba4b51`. Module exports
-  compiled Faust DSP param metadata (name/min/max/step/unit/kind) as JSON; reuses `providers.strip_code_fences` 
-  (lazy import, no fork); verified under scrubbed env (`env -i`). Test suite: 254 passed (240 baseline + 14 new).
-  Worktree Phase 0 ready to merge once module is live (now it is).
+- **The editor now exposes all 64 parameters, not 8.** *(was Broken #1 / PF-005; fixed
+  `2e129cd`, Plugin-UX/S3.)* `ParamGridPanel`'s Wave-1 auto-layout replaces the fixed 8-slider
+  array with a kind-aware, N-aware, scrollable grid (`cols≈sqrt(N)`, 2–6 columns) that caps at
+  `ParamPool::POOL_SIZE` (64) instead of the old `MAX_KNOBS=8`; toggle-kind params get proper
+  widgets instead of rotaries; window height grows dynamically. `MAX_KNOBS` is grep-clean across
+  `host/Source/`; build green (`cmake --build host/build --target PluginForgeHost` →
+  `ninja: no work to do`). **Not yet confirmed by eye/runtime** — no one has visually checked a
+  live patch with >8 params (including a toggle) actually renders correctly. Reopen (PF-005) if
+  it misbehaves.
+- **BYO-LLM Phase 0 + first half of Phase 1 landed.** *(Backend/S1.)* `llm/export_prompt.py`
+  (+112) + `tests/test_export_prompt.py` (+134) on main `0ba4b51`: exports compiled Faust DSP
+  param metadata (name/min/max/step/unit/kind) as JSON, reusing `providers.strip_code_fences`
+  (lazy import, no fork), verified under a scrubbed env (`env -i`). Phase 1 first half:
+  `onFaustCompileFailure(const juce::String&)` landed (`a9c0122`), paired with
+  `onFaustCompileSuccess`; the shell has now migrated its call site to it (`a2db6a5`) — the
+  transitional `onFaustCompileError` alias S1 kept for build continuity can be dropped by S1
+  whenever convenient. S2's error-surface UI (req #8) and S3's mode affordance (req #9) build
+  against this callback next.
 
 ---
+
+## P6 listening battery — FIRST RUN, 2026-07-24 (groq / gpt-oss-120b)
+The first-ever audible validation ran. **4 clean passes, 3 flaky, 7 failures.** Not yet reliable
+enough to audition. Full per-prompt table in the plan of record
+(`~/.claude/plans/hello-claude-i-d-like-virtual-turtle.md`). Four failure themes drive the burst
+below: (1) a 120s timeout cliff on consecutive prompts #11–14 (PF-019); (2) a transient segfault
+under rapid failed generations (PF-006 live repro); (3) invalid-Faust generation for whole prompt
+classes — ping-pong, stereo routing, unbounded delay, artist-reference (PF-024); (4) cross-
+generation state contamination (PF-020). The 2026-07-24 burst attacks reliability + crash first.
 
 ## Broken — ranked
 See `docs/BUGS.md` for the full registry (IDs, severity, discovery dates, closed commits).
 
-**1. The editor exposes only 8 of 64 parameters.** *(PF-005, Plugin-UX/S3)*
-`MAX_KNOBS = 8` (`PluginEditor.h:41`). The value-loss half is already fixed (all 64 slots push
-to Faust), but patches with >8 controls have no on-screen control for the remainder, and
-toggle-kind params render as rotaries. Deterministic auto-layout is specified in
-`docs/ui_design_plan.md` §3; `FaustEngine.h:23-30` already exposes the per-param `Kind` enum.
+**1. Generation timeout cliff — 120s frozen UI under sustained use.** *(PF-019, high, S1, unfixed)*
+P6 #11–14 timed out consecutively. One stalled/`429`'d groq POST (httpx timeout 120s,
+`providers.py:50`) eats the whole retry budget, which equals the C++ subprocess cap
+(`PromptPanel.cpp:208`); groq rate-limit backoff then blows it. #14 (the never-hang robustness
+test) hung. Fix: per-attempt budget, bounded backoff, typed `rate_limited`/`timeout` reason.
 
-**2. Shutdown UAF on the editor's detached generate thread.** *(PF-006, Plugin-UX/S3, unfixed)*
-The editor spawns `generate.py` as a detached child and captures `&proc` without guarding
-against deletion. No gate on the thread join; if the host closes before the subprocess returns,
-the thread writes to a deleted processor. Needs a bounded join + abort flag or a SafePointer wrap.
+**2. Shutdown/rapid-click UAF on the editor's detached generate thread.** *(PF-006, high, S2,
+unfixed — now with a live crash repro)* The generate thread (`PromptPanel.cpp:284,300`)
+`.detach()`es and calls `loadFaustCode` through a raw `&proc`; unbounded detached threads pile up
+with no supersede. Produced a `Segmentation fault (core dumped)` during the 2026-07-24 battery
+(P6 #7). Fix: owned+joined worker + atomic abort + `child.kill()`, mirroring PF-003 (`d10f59e`).
+
+**3. Cross-generation state contamination; no fresh/iterate mode.** *(PF-020, high, S1+S2,
+unfixed)* Old APVTS values leak into new patches by slot index (`ParamPool.cpp:94-96`); values
+reset only when the editor is open (`ParamGridPanel.cpp:31-41`). Fix: `LoadMode {Fresh, Iterate}`
+on `loadFaustCode` — Fresh resets in the processor (S1), UI affordance (S2).
+
+**4. Invalid-Faust generation for whole prompt classes.** *(PF-024, high, S1, unfixed)* Consistent
+failures: ping-pong endless cycle (#2), stereo→mono / unbounded-delay (#6), syntax errors (#9,#10).
+Fix: prompt grounding for stereo routing, bounded delays, ping-pong pattern.
+
+**5. Source-of-record committed before compile success.** *(PF-022, high, S1, unfixed)* A failed
+generate overwrites `currentFaustSource` (`PluginProcessor.cpp:114-118`) and can be persisted,
+breaking restore. Fix: commit source only on success.
+
+**6. Stale error persists across a new Generate.** *(PF-021, medium, S2, unfixed)* `errorBox` is
+never cleared on submit (`PromptPanel.cpp:124,319`), so a prior failure shows as the current
+result. Fix: clear/timestamp on submit.
+
+**7. `FaustEngine::prepare()` doesn't re-init a live DSP on sample-rate change.** *(PF-018,
+medium, S1 Backend, open)* `prepare(sampleRate, blockSize)` (`FaustEngine.cpp:154-158`) stores
+the new `sr`/`block` members but never re-inits an already-live DSP — a host that changes sample
+rate mid-session keeps the DSP running at the old rate (wrong pitch/timing) until the next
+recompile. Pre-existing, found while building state persistence (S1, FLEET req #5). Fix shape:
+re-init via Faust's `instanceInit`/`instanceConstants` (`faust/dsp/dsp.h`) or mark stale and
+drive the existing async recompile path, off the audio thread.
 
 ---
 
 ## Assumed, never checked
 
-- **No generated plugin has ever been listened to.** The denormalization fix (#1/#4 above) is
-  verified by unit test and by construction, **not by ear**. The P6 audible battery
+- **No generated plugin has ever been listened to.** *(PF-008)* The denormalization fix (#1/#4
+  above) is verified by unit test and by construction, **not by ear**. The P6 audible battery
   (`docs/prototype_test_plan.md` Part A, `docs/p6_test_battery.md`) has never run. This is now
   the fastest way to find whatever the old denormalization bug was masking.
-- **Every benchmark number on record is void.** Measured against the deleted
+- **Every benchmark number on record is void.** *(PF-009)* Measured against the deleted
   `bench/prompts/system_faust.txt`, which taught three functions that do not exist.
   `bench/results/.prompt_baseline.json` (0.88) has **not** been overwritten (gated) but describes
-  nothing that exists.
-- **The prompt rewrite is unmeasured.** Verified *correct* (references resolve, examples
-  compile), not verified *better*.
-- **The efficacy pilot generalizes to nothing.** N=50, one model, the old prompt, two of five
-  categories. The full 125-prompt run has never produced valid data.
-- **No cross-model comparison exists.** ADR-008 "Under evaluation" since 2026-04-29.
-- **Semantic fidelity is unmeasured.** Every metric is compile rate; the `--judge` rubric is off
-  by default and has never run.
-- **No real user prompt has ever been recorded.** `generate.py` logs nothing.
-- **`check_rt_safety.py` scopes exactly two functions** and cannot follow a call graph;
-  `ParamPool::pushToFaust` (now on the audio thread) is not covered.
-- **CI has never run green with the new prompt steps.** The `build-host` job runs
+  nothing that exists. S1 has posted the exact re-run command (FLEET req #19); awaiting human
+  authorization.
+- **The prompt rewrite is unmeasured.** *(PF-010)* Verified *correct* (references resolve,
+  examples compile), not verified *better*. Same closing condition as PF-009.
+- **The efficacy pilot generalizes to nothing.** *(PF-011)* N=50, one model, the old prompt, two
+  of five categories. The full 125-prompt run has never produced valid data.
+- **No cross-model comparison exists.** *(PF-012)* ADR-008 "Under evaluation" since 2026-04-29.
+- **Semantic fidelity is unmeasured.** *(PF-013)* Every metric is compile rate; the `--judge`
+  rubric is off by default and has never run.
+- **No real user prompt has ever been recorded.** *(PF-014)* `generate.py` logs nothing.
+- **`check_rt_safety.py` scopes exactly two functions** *(PF-015)* and cannot follow a call
+  graph; `ParamPool::pushToFaust` (now on the audio thread) is not covered. Its docstring
+  (`:9`) also still describes a stray `pushToFaust()` definition removed in PF-017 as a live,
+  separately-tracked bug — stale, folded into the same PF-015 fix (S1's lane; not touched by
+  this overseer pass, which stays out of hooks/code per lane rules).
+- **CI has never run green with the new prompt steps.** *(PF-016)* The `build-host` job runs
   `tools/gen_stdlib_block.py --check` and the prompt tests and carries five pre-existing
   `TODO: VERIFY` items about Ubuntu Faust packaging, none checkable from the Arch dev box.
 
@@ -103,13 +159,19 @@ the thread writes to a deleted processor. Needs a bounded join + abort flag or a
 
 ## Next three things
 
-1. **Build-verify + commit the PluginEditor split** (S3 uncommitted; S4 to build-verify) so the
-   fleet works from a clean recorded baseline. Then S2 fleshes out its panels (already unblocked).
-2. **Run the P6 listening pass** now that params denormalize and plugins persist — 15 minutes
-   with a filter patch and a delay patch. First real evidence a generated plugin sounds like its
-   words. (human, script authored by S4; use `groq`, not Gemini's ~20/day quota)
-3. **Re-establish a benchmark baseline** — the old one is void. Overwriting
-   `.prompt_baseline.json` is a §2 trigger-1 act; needs human authorization. (S4 → overseer → human)
+1. **Land S2's uncommitted PromptPanel Wave-1 rework** (multi-line prompt, session history,
+   progress indicator, scrollable error region) — it folds in the PF-006 UAF fix as one Tier-2
+   change (owned+joined worker, atomic abort, bounded join, mirroring PF-003/`d10f59e`).
+   Build-verify all four editor-linking targets before treating it as landed.
+2. **Run the P6 listening pass** now that params denormalize, all 64 are on-screen, and plugins
+   persist — 15 minutes with a filter patch and a delay patch. First real evidence a generated
+   plugin sounds like its words. (human, script authored by S4; use `groq`, not Gemini's ~20/day
+   quota)
+3. **Authorize the benchmark re-run.** Exact command is now posted (FLEET req #19):
+   `python bench/run_benchmark.py --provider groq` — 25 prompts, first-try compile rate, $0 cost
+   (groq free tier). Writes `bench/results/results.json` only; does **not** touch
+   `.prompt_baseline.json` (that overwrite is a separate, later §2 trigger-1 act). (S1 →
+   overseer → human)
 
 ---
 
@@ -120,17 +182,19 @@ Three human-gated decisions (all in COLLABORATION.md §2 territory):
 1. **Confirm the persisted-state format (§2 trigger-3).** Code is in `c34bbb6` (state persistence
    fully implemented + verified: 13/13 tests, ASan/UBSan clean). The *design* — schemaVersion=1
    ValueTree→XML, Faust source + prompt as attributes, verbatim `<STATE>`, `<SlotLabels>` hint —
-   is §2 trigger-3 (a contract between components). S1 says this was approved via plan-mode; the
-   overseer gate still lists it pending because I cannot independently verify that. **Please confirm:**
-   you knowingly approved this design, or propose amendments. (Cheap to amend now; v1 is the only
-   blob in the wild.)
+   is §2 trigger-3 (a contract between components). The overseer's ruling on FLEET req #12
+   (2026-07-23) reaffirmed the Gate table is authoritative and this is still unconfirmed by a
+   human. **Please confirm:** you knowingly approved this design, or propose amendments. (Cheap
+   to amend now; v1 is the only blob in the wild.)
 
 2. **Run the P6 listening pass (first audible validation ever).** Script is prepped in
    `docs/p6_human_run_script.md`, ready to copy-paste. ~15 minutes + your ears on a free provider
    (groq). No generated plugin has ever been listened to; this is the fastest way to find what the
    old bugs were masking. Run when you have time + ears.
 
-3. **Authorize the benchmark re-run.** S1 will post the exact command (25 effects, all compile-pass,
-   measure first-try rate; use groq ~14.4k/day). Overwriting `bench/results/.prompt_baseline.json`
-   (0.88) is a §2 trigger-1 act (irreversible measurement). Current baseline is void (measured
-   against the deleted old prompt). Say go, and S1 will spend the quota and record the new result.
+3. **Authorize the benchmark re-run.** Command is posted (FLEET req #19):
+   `python bench/run_benchmark.py --provider groq` (25 prompts, first-try rate, $0, groq free
+   tier — far under quota). Overwriting `bench/results/.prompt_baseline.json` (0.88) afterward is
+   a separate §2 trigger-1 act needing its own go-ahead. Current baseline is void (measured
+   against the deleted old prompt). Say go, and S1 will spend the quota and record the new
+   result.

@@ -11,7 +11,7 @@ matches how the fleet actually runs.
 **Survives (it's on disk / in git):**
 - The board and state docs: `docs/FLEET.md`, `STATUS.md`, `docs/BUGS.md`, `docs/.fleet/*`.
 - All source, all commits, all git history, and any `git worktree`s.
-- Research/plan docs: `docs/competitive_research.md`, `docs/byo_llm_plan.md`, etc.
+- Research/plan docs: `docs/competitive_landscape.md`, `docs/byo_llm_plan.md`, etc.
 - Signal files already written (e.g. `docs/.fleet/S2_UNBLOCKED`).
 
 **Does NOT survive — must be recreated:**
@@ -123,7 +123,7 @@ carries the detail, and the roll-call "Current task" cell is the resume pointer.
 > STATUS "Broken". Update your row; report per change.
 
 > **S7 Competitive research** — You are S7 resuming after a reset. Read `COLLABORATION.md`,
-> `STATUS.md`, `docs/FLEET.md`, `docs/competitive_research.md`, `docs/byo_llm_plan.md`. You are
+> `STATUS.md`, `docs/FLEET.md`, `docs/competitive_landscape.md`, `docs/byo_llm_plan.md`. You are
 > read-only on all other lanes' files; you advise via the Advisory feed. Run `git worktree list`
 > — your BYO-LLM Phase-0 work may live in a worktree; reconnect to it. BYO-LLM is human-authorized
 > (request #6); continue only the phases the board shows authorized, and route new phases as

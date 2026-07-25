@@ -5,7 +5,8 @@ Claude sessions in parallel, each an agentic manager of one lane. This file says
 what order things happen in, and where cross-lane requests get logged. Read it at the start of
 every session, alongside `STATUS.md`, `COLLABORATION.md`, and `CLAUDE.md`.
 
-Last updated: 2026-07-23 (overseer).
+Last updated: 2026-07-24 (overseer). **See "Burst 2026-07-24 — Reliability & UX" below — the
+fleet is re-scoped to a 2-lane burst; the 7-lane roster above it is the prior wave's history.**
 
 ---
 
@@ -102,6 +103,47 @@ This is a **natural milestone** — feature-complete, builds clean, tests pass. 
 
 ---
 
+## Burst 2026-07-24 — Reliability & UX (ACTIVE)
+
+The P6 listening pass **ran** (first ever). It surfaced that the pipeline is not yet reliable
+enough to audition: 4 clean passes, 3 flaky, 7 failures — including a **segfault** (PF-006 live
+repro) and a **4-in-a-row 120s timeout cliff** (PF-019). Human directive: fix the **test errors
+first** (reliability + crash), then UX, and add the missing **fresh-vs-iterate** product concept
+to both front and back end. Run as a **2-lane burst** to save tokens; the overseer folds in
+testing/triage. Plan of record: `~/.claude/plans/hello-claude-i-d-like-virtual-turtle.md`.
+
+### Lanes (this burst)
+| Lane | Owns (write) | Must NOT touch |
+|---|---|---|
+| **S1 Backend + Reliability** | `llm/*`, `tools/*`, `bench/*`, `PluginProcessor.{h,cpp}`, `FaustEngine.{h,cpp}`, `ParamPool.{h,cpp}`, `ParamMap.h`, `host/CMakeLists.txt` | `PromptPanel.*`, `ParamGridPanel.*`, `PluginEditor` shell |
+| **S2 UX** | `PromptPanel.{h,cpp}`, `CodeEditorPanel.{h,cpp}`, `ParamGridPanel.{h,cpp}`, `PluginEditor` shell + `resized()` | processor internals, `llm/*` |
+| **Overseer** | `STATUS.md`, `docs/FLEET.md`, `docs/BUGS.md` | feature code |
+
+### Priority order (reliability + crash FIRST)
+- **S1:** P1 kill the timeout cliff (PF-019) · P2 `activeDSP` null guard (PF-023) · P3 fresh/iterate
+  backend + source-on-success fix (PF-020 backend half, PF-022) · P4 prompt grounding for the
+  failing classes (PF-024).
+- **S2:** P1 PF-006 crash fix (owned+joined worker, supersede, atomic abort, `child.kill()`) ·
+  P2 clear stale error on new Generate (PF-021) · P3 fresh-vs-iterate affordance (PF-020 UI half) ·
+  P4 surface S1's typed reason ("rate-limited" vs "timed out") in the progress indicator.
+
+### Cross-lane contract #22 (define first) — `LoadMode`
+`loadFaustCode(const juce::String& code, const juce::String& prompt, LoadMode mode)`,
+`enum class LoadMode { Fresh, Iterate }`. **S1 defines** the enum + signature + backend semantics
+(Fresh resets mapped macros to patch defaults in the processor; Iterate preserves) and posts the
+exact signature here. **S2 adopts** it at the Generate call site and adds the affordance. S1's
+signature lands before S2 wires the UI. Backward-compat: default `mode = Fresh` so any one/two-arg
+call site still builds.
+
+### Roll call — burst 2026-07-24
+| Session | State | Current task | Last check-in |
+|---|---|---|---|
+| S1 Backend + Reliability | **NOT PROMPTED** | On launch: read this burst block; start P1 PF-019 (timeout cliff), then post the `LoadMode` contract. | — |
+| S2 UX | **NOT PROMPTED** | On launch: read this burst block; start P1 PF-006 crash fix, then PF-021 stale-error; adopt `LoadMode` once S1 posts it. | — |
+| Overseer | **ACTIVE** | Filed P6 results + PF-019..024 in BUGS.md; wrote this burst block + the `LoadMode` contract; will consolidate 5-line reports into STATUS.md and re-run the battery after the burst. | 2026-07-24 |
+
+---
+
 ## Gate state (unblock signals)
 | Gate | Owner | Status |
 |---|---|---|
@@ -144,6 +186,7 @@ Append a row when you need something outside your lane. Overseer routes and clos
 | 18 | S1 | **BYO-LLM Phase 0 module is now available on `main` (`0ba4b51`).** `llm/export_prompt.py` landed in the S1 lane (cherry-picked from worktree `agent-a00a68adecb22fd17`, NOT a branch merge — that branch predates P11 + the editor split and would revert them). Verified on main under a scrubbed env (`env -i`, no keys/provider/network): 9575-char payload with the full system prompt + `USER REQUEST:` verbatim + ```faust instruction; `strip_code_fence` lazily resolves `providers.strip_code_fences`. **Resolved the `byo_llm_plan.md` open decision:** fence-helper stays the lazy wrapper (one source of truth, no fork, build path provider-free). **S7: Phase 0 is merged on the S1 side — start Phase 1 (reqs #7/#8/#9) in parallel.** **S4: please land the test half `tests/test_export_prompt.py` (your lane) from the same worktree branch — I did NOT touch it.** | S7 / S4 | done (S1 half) |
 | 19 | S1 | **Benchmark re-run — READY FOR HUMAN AUTHORIZATION (§2 trigger-1).** Exact command: `python bench/run_benchmark.py --provider groq`. Scope: 25 prompts (5 categories × 5 in `bench/prompts/prompts.json`), single-try each (harness measures FIRST-TRY compile, no retry loop), model `openai/gpt-oss-120b`, temp 0, max_tokens 1024. Preflight deps confirmed present on this box: `GROQ_API_KEY` in `.env`, `faust 2.85.5` on PATH. **Cost: $0** — groq free tier; quota spend ≈ **25 requests / ~90k tokens total**, far under groq's daily allowance (vs Gemini ~20/day, which cannot do 25). **Writes `bench/results/results.json` (a results file — overwrites the prior run) and prints the first-try rate; it does NOT touch `bench/results/.prompt_baseline.json`.** Updating the 0.88 baseline is a SEPARATE human-gated step after the numbers land. I have NOT run this — awaiting authorization. NB: `generate.py` is the per-prompt product tool; `run_benchmark.py` is the harness (shares the same prompt + provider path). | overseer → human | **awaiting human authorization** |
 | 20 | S2 | **Shared working tree is NON-BUILDING — S3 uncommitted WIP.** `git status` shows `ParamGridPanel.{cpp,h}` + `PluginEditor.{cpp,h}` modified and a new untracked `host/Source/ParamGridLayout.h`, none committed. `ParamGridPanel.cpp` fails to compile: it still references `MAX_KNOBS`, `paramSliders`, `paramAttachments`, `paramNameLabels`, `numVisibleKnobs` (`ParamGridPanel.cpp:7,9,16,20,53,58,59,79,84,85`) which the *new* `ParamGridPanel.h` deleted (now uses `controls`/`viewport`/`content`). `cmake --build . --target PluginForgeHost` → Error 2. **Impact on S2:** my `PromptPanel.{h,cpp}` compile clean in isolation (`g++ -fsyntax-only`, CMake flags, 0 errors) but I cannot full-link or runtime-test the history dropdown / error-scroll until this builds. **Ask:** commit the ParamGridPanel/PluginEditor rework clean, or `git stash` it, so `main`'s tree links again. Not touching it (S3 lane). | S3 / overseer | **DONE (`2e129cd`).** ParamGridPanel.{h,cpp} fully rewritten (no more MAX_KNOBS/paramSliders — now `controls`/`viewport`/`content`), ParamGridLayout.h added, shell updated, all committed. Verified: Standalone + VST3 + ParamPoolTsanTest + StatePersistenceTest build & link clean against your on-disk PromptPanel WIP. S2: you can full-link/runtime-test now. |
+| 21 | S2 | **Design direction from the human (2026-07-24), routed to your lane.** (a) **Knob-first default:** rotary knobs are preferred over sliders for continuous params. `ParamGridPanel` currently maps Faust `hslider`→horizontal slider (widget-kind table, `ParamGridPanel.h`); the ask is to default continuous controls (hslider/vslider) to **rotary**, keeping toggles for buttons/checkboxes. Your lane + call. (b) **FYI / forward-looking:** the intended product direction is **generating several candidate UIs per patch for the user to pick & iterate** — see `docs/ADR-019-ux-generation-surface-DRAFT.md` (motivating capability). This is only tractable if the layout is a *description* (layout-hint JSON), so when the layout-hint schema is specced, make it renderer-agnostic and variant-friendly (N layouts binding the same param table). No action now; flagging so the schema isn't designed single-layout. | S3 (+ S1 for the layout-hint gen mode) | open — advisory |
 
 Known contracts to route here when they arise:
 - **`loadFaustCode()` gains a `prompt` argument** — S1 defines, shell/S2 adopt.
