@@ -177,6 +177,15 @@ void FaustEngine::process(juce::AudioBuffer<float>& buffer)
     // the compile thread made before setting ready=true (including the new DSP pointer).
     llvm_dsp* dsp = activeDSP.load(std::memory_order_relaxed);
 
+    // PF-023, defense in depth. The invariant (ready==true => activeDSP!=null) does
+    // hold in the current swap protocol, so this branch is unreachable today —
+    // which is exactly why it is cheap. Without it there is ZERO margin if the
+    // ordering in compile() is ever changed, and the failure mode is a segfault on
+    // the audio thread: the worst place in the program to take one. A null DSP
+    // means passthrough, matching the !ready early-return above.
+    if (dsp == nullptr)
+        return;
+
     // In-place: write pointers serve as both input and output.
     // const_cast removes the pointer-level const from float* const* → float**.
     float** io = const_cast<float**>(buffer.getArrayOfWritePointers());

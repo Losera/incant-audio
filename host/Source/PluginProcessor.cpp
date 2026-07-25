@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "ParamMap.h"   // mapZoneToSlot, for LoadMode::Fresh (PF-020)
 
 PluginForgeProcessor::PluginForgeProcessor()
     : AudioProcessor(BusesProperties()
@@ -61,8 +62,11 @@ void PluginForgeProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
         pendingRestoreSource.clear();
         pendingRestorePrompt.clear();
     }
+    // Iterate, NOT Fresh: setStateInformation already wrote the saved macro
+    // values via replaceState(). Resetting them to patch defaults here would
+    // discard exactly what the restore just recovered (PF-020).
     if (source.isNotEmpty())
-        loadFaustCode(source, prompt);
+        loadFaustCode(source, prompt, LoadMode::Iterate);
 }
 
 void PluginForgeProcessor::releaseResources()
@@ -105,30 +109,76 @@ void PluginForgeProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                       std::memory_order_relaxed);
 }
 
-void PluginForgeProcessor::loadFaustCode(const juce::String& faustCode,
-                                         const juce::String& prompt)
+void PluginForgeProcessor::resetMappedSlotsToDefaults(const FaustEngine::ParamList& params)
 {
-    // Retain the source and prompt so a DAW save can serialise them. Set before
-    // the compile is queued: the source is the artifact of record regardless of
-    // whether this particular compile ends up succeeding.
+    // SUBTLE: this runs inside the compile callback, which FaustEngine invokes at
+    // step 5 of its swap protocol — AFTER the audioBusy drain proved no
+    // audio-thread section is in flight, and BEFORE ready=true lets a new one
+    // start. That is the one window in which the slot values can be rewritten
+    // without pushToFaust concurrently reading them, so it is the right place and
+    // the only right place. Same reasoning as outputGuard.reset() below.
+    for (int i = 0; i < ParamPool::POOL_SIZE; ++i)
     {
-        std::lock_guard<std::mutex> lock(metaMutex);
-        currentFaustSource = faustCode;
-        currentPrompt      = prompt;
-    }
+        auto* param = apvts.getParameter(ParamPool::slotId(i));
+        if (param == nullptr)
+            continue;
 
-    faustEngine.compile(faustCode, [this](const FaustEngine::ParamList& params,
-                                          const std::string& error) {
+        // Mapped slots take the patch's declared default, converted through the
+        // SAME ParamMap pair pushToFaust uses in the other direction — a default
+        // normalised by any other formula is the PF-001 bug all over again.
+        // Unmapped slots go to 0 so a value left by a previous patch cannot
+        // reappear if a later patch happens to map that index.
+        const float norm =
+            (static_cast<size_t>(i) < params.size())
+                ? ParamMap::mapZoneToSlot(params[static_cast<size_t>(i)].defaultValue,
+                                          params[static_cast<size_t>(i)])
+                : 0.0f;
+
+        // setValueNotifyingHost so the DAW's automation lane and any open editor
+        // both follow the reset, rather than showing the previous patch's
+        // position over a value that has actually changed underneath.
+        param->setValueNotifyingHost(norm);
+    }
+}
+
+void PluginForgeProcessor::loadFaustCode(const juce::String& faustCode,
+                                         const juce::String& prompt,
+                                         LoadMode mode)
+{
+    // PF-022: currentFaustSource/currentPrompt are NOT set here. They used to be
+    // written unconditionally before the compile was even queued, so a failed
+    // generate overwrote the source-of-record with non-compiling code while
+    // activeDSP, currentLabels and the APVTS values still belonged to the
+    // PREVIOUS successful patch. A DAW save in that window persisted a
+    // broken-source / old-labels / old-values triple, and the restore recompile
+    // then failed with no DSP live. The source of record is now whatever last
+    // COMPILED, which is the only version of it that can actually be restored.
+    //
+    // Captured by value into the callback: juce::String's copy is atomically
+    // ref-counted, so handing it to the compile thread is safe.
+    faustEngine.compile(faustCode, [this, faustCode, prompt, mode]
+                                   (const FaustEngine::ParamList& params,
+                                    const std::string& error) {
         if (error.empty())
         {
             paramPool.remap(params);
 
-            // Capture the slot->label map for persistence. Runs on the compile
-            // thread, same as remap(); metaMutex (never taken on the audio thread)
-            // guards it against a concurrent getStateInformation() on the message
-            // thread. Only the FaustEngine swap protocol touches the audio thread.
+            // PF-020. Fresh must reset in the PROCESSOR, not the editor — doing it
+            // in ParamGridPanel is what made "fresh" conditional on the editor
+            // being open. Ordered after remap() so the ParamInfo the conversion
+            // needs is published, and before the labels/source commit below.
+            if (mode == LoadMode::Fresh)
+                resetMappedSlotsToDefaults(params);
+
+            // Capture the slot->label map for persistence, and commit the source
+            // of record (PF-022) — both only now that the compile has SUCCEEDED.
+            // Runs on the compile thread, same as remap(); metaMutex (never taken
+            // on the audio thread) guards it against a concurrent
+            // getStateInformation() on the message thread.
             {
                 std::lock_guard<std::mutex> lock(metaMutex);
+                currentFaustSource = faustCode;
+                currentPrompt      = prompt;
                 currentLabels.clearQuick();
                 for (const auto& p : params)
                     currentLabels.add(juce::String(p.label));
@@ -277,7 +327,9 @@ void PluginForgeProcessor::setStateInformation(const void* data, int sizeInBytes
     // prepareToPlay, which drains the stash below.
     if (prepared.load(std::memory_order_acquire))
     {
-        loadFaustCode(source, prompt);
+        // Iterate: the values restored by replaceState() above are the point of
+        // the restore, so this recompile must not reset them (PF-020).
+        loadFaustCode(source, prompt, LoadMode::Iterate);
     }
     else
     {

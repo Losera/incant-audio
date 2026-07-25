@@ -43,12 +43,34 @@ public:
     // rejects a blob whose version it does not understand rather than misreading it.
     static constexpr int kStateSchemaVersion = 1;
 
-    // Called from editor when a new Faust string arrives. The optional prompt is
-    // the natural-language request that produced the code; it is retained for
-    // persistence and future "refine" flows. The default keeps the editor's
-    // existing one-arg call compiling while the editor lane adopts the two-arg form
-    // (FLEET.md cross-lane request).
-    void loadFaustCode(const juce::String& faustCode, const juce::String& prompt = {});
+    // How a newly loaded patch treats the macro values already in the APVTS.
+    //
+    // PF-020. Before this existed, there was no fresh-vs-iterate concept anywhere,
+    // and "fresh" was an accident of whether the editor happened to be open:
+    // macro values were reset only by UI-layer seeding (ParamGridPanel), so with
+    // the editor closed the previous patch's values survived and pushToFaust drove
+    // the NEW patch's zones with the OLD values BY SLOT INDEX
+    // (ParamPool.cpp:94-96). A knob labelled "Cutoff" in patch A silently drove
+    // "Feedback" in patch B. The human observed this as generated plugins
+    // "reiterating on each other rather than starting fresh", and it is the
+    // likeliest cause of the flaky P6 results (#4/#5/#7 failed under a
+    // contaminated session and passed clean).
+    enum class LoadMode
+    {
+        Fresh,     // reset every mapped slot to the new patch's declared default
+        Iterate    // keep current slot values (refine, and state restore)
+    };
+
+    // Called from the editor when a new Faust string arrives. The optional prompt
+    // is the natural-language request that produced the code; it is retained for
+    // persistence and future "refine" flows.
+    //
+    // Defaults to Fresh: a newly generated patch is a NEW plugin, and inheriting
+    // the previous patch's knob positions by slot index is the PF-020 defect.
+    // State restore must pass Iterate — it has just written the saved values and
+    // resetting them would discard exactly what it restored.
+    void loadFaustCode(const juce::String& faustCode, const juce::String& prompt = {},
+                       LoadMode mode = LoadMode::Fresh);
 
     // Set by the editor to surface a Faust compile failure (as opposed to an
     // LLM-generation failure, which the editor already handles from its own
@@ -104,6 +126,12 @@ private:
     OutputGuard outputGuard;
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+
+    // PF-020, LoadMode::Fresh. Seeds every mapped slot from the new patch's own
+    // declared default, converting Faust zone units -> 0..1 with the same
+    // ParamMap pair pushToFaust uses in the other direction. Unmapped slots are
+    // zeroed so a stale value cannot reappear if a later patch maps that index.
+    void resetMappedSlotsToDefaults(const FaustEngine::ParamList& params);
 
     // ── Retained generation metadata ────────────────────────────────────────
     // The Faust source, its originating prompt, and the current slot->label map.
