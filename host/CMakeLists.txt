@@ -218,3 +218,58 @@ target_link_libraries(StatePersistenceTest PRIVATE
     juce::juce_recommended_config_flags
     ${LIBFAUST_LIB}
 )
+
+# PromptPanelThreadingTest -- the PF-006 regression harness
+# (host/tests/PromptPanelThreadingTest.cpp). Exercises the owned+joined generate
+# worker: teardown with a subprocess in flight, rapid-fire supersede, and the
+# tight submit-then-destroy race. Uses /bin/sh + a generated shell script as a
+# fake generate.py (via PLUGINFORGE_PYTHON / PLUGINFORGE_LLM_SCRIPT), so it needs
+# no Python, no API key and no network.
+#
+# Same source/link set as StatePersistenceTest: constructing PluginForgeProcessor
+# reaches createEditor(), which pulls in the whole panel set. ASan/UBSan for the
+# same reason this test exists -- a use-after-free is the thing being tested for,
+# and it must fail loudly rather than pass by luck.
+juce_add_console_app(PromptPanelThreadingTest
+    PRODUCT_NAME "Prompt Panel Threading Test"
+)
+
+target_sources(PromptPanelThreadingTest PRIVATE
+    tests/PromptPanelThreadingTest.cpp
+    Source/PluginProcessor.cpp
+    Source/PluginEditor.cpp
+    Source/PromptPanel.cpp
+    Source/CodeEditorPanel.cpp
+    Source/ParamGridPanel.cpp
+    Source/FaustEngine.cpp
+    Source/ParamPool.cpp
+    Source/OutputGuard.cpp
+)
+
+target_compile_features(PromptPanelThreadingTest PRIVATE cxx_std_17)
+
+target_compile_definitions(PromptPanelThreadingTest PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_VST3_CAN_REPLACE_VST2=0
+    # Needed for MessageManager::runDispatchLoopUntil, which is declared inside
+    # `#if JUCE_MODAL_LOOPS_PERMITTED` (juce_MessageManager.h:82-88). The test has
+    # to pump the message loop, because the worker delivers every UI update via
+    # MessageManager::callAsync and those lambdas are part of what is being
+    # tested. Scoped to this target ONLY -- the shipping plugin must never enable
+    # modal loops, which is why the plugin targets above do not.
+    JUCE_MODAL_LOOPS_PERMITTED=1
+)
+
+# -fno-sanitize=vptr: see the StatePersistenceTest block above -- libfaust.so is
+# built -fno-rtti and does not export typeinfo for llvm_dsp.
+target_compile_options(PromptPanelThreadingTest PRIVATE -fsanitize=address,undefined -fno-sanitize=vptr -g -O1)
+target_link_options(PromptPanelThreadingTest PRIVATE -fsanitize=address,undefined -fno-sanitize=vptr)
+
+target_link_libraries(PromptPanelThreadingTest PRIVATE
+    juce::juce_audio_utils
+    juce::juce_dsp
+    juce::juce_gui_extra
+    juce::juce_recommended_config_flags
+    ${LIBFAUST_LIB}
+)

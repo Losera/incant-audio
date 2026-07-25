@@ -1,6 +1,11 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "PluginProcessor.h"
+#include <atomic>
+#include <condition_variable>
+#include <mutex>
+#include <string>
+#include <thread>
 
 // ── PromptTextEditor ────────────────────────────────────────────────────────
 // A multi-line prompt box with two custom key bindings:
@@ -39,16 +44,28 @@ public:
 //     compile error even after a later successful compile, so the user can
 //     still read it.
 //
-// Threading contract (unchanged from the pre-split monolith): the Generate
-// handler spawns a detached std::thread that talks to generate.py, and every UI
-// touch hops back to the message thread via SafePointer<PromptPanel> +
-// MessageManager::callAsync.
+// Threading contract (PF-006, fixed 2026-07-25 — was a detached thread):
 //
-// KNOWN DEFECT LEFT IN PLACE: the detached worker is the PF-006 shutdown UAF
-// (docs/BUGS.md, FLEET req #10/#16). Ownership of that Tier-2 fix is still being
-// routed (S3 has a next-work plan for it, commit 137c2bf); this change is the UI
-// rework only and deliberately does NOT restructure the thread, so the two edits
-// don't collide. The TODO: VERIFY marker at the call site stays until PF-006 lands.
+//   * ONE persistent worker thread, OWNED by this panel and JOINED in the
+//     destructor. Mirrors FaustEngine's compile worker (PF-003, commit d10f59e),
+//     including its single-pending-slot supersede policy.
+//   * A single pending job slot. A new Generate REPLACES an un-started request
+//     and KILLS the in-flight subprocess, rather than stacking another detached
+//     thread on top of it. The old code had no supersede at all: N rapid clicks
+//     meant N detached threads, each able to call loadFaustCode() through a raw
+//     processor reference, which is what produced the "Segmentation fault (core
+//     dumped)" during the 2026-07-24 P6 battery (prompt #7).
+//   * Every UI touch still hops to the message thread via
+//     SafePointer<PromptPanel> + MessageManager::callAsync. That is still
+//     required even with a joined worker: callAsync posted just before the join
+//     runs AFTER ~PromptPanel returns, and SafePointer is what makes that safe.
+//
+// Why the raw PluginForgeProcessor& is now sound. juce_AudioProcessor.cpp:51-57
+// asserts the editor is destroyed before its AudioProcessor
+// (jassert(activeEditor == nullptr) in ~AudioProcessor). This panel is owned by
+// the editor, and the worker cannot outlive this panel because the destructor
+// joins it. So processor outlives the worker by construction — which is exactly
+// what a DETACHED thread could not guarantee, since it outlived both.
 class PromptPanel : public juce::Component,
                     private juce::Timer
 {
@@ -68,6 +85,23 @@ public:
     // of truncating into the status label — see FLEET req (shell-side wire, S3);
     // the panel's own subprocess-error paths already call it.
     void setError(const juce::String& fullText);
+
+    // Message-thread only. Hides and empties the error region. Called on every
+    // submit (PF-021) so a previous failure never reads as the current result.
+    void clearError();
+
+    // Test-only entry point, so the PF-006 threading contract (supersede,
+    // teardown-mid-flight) can be exercised headlessly without synthesising
+    // keyboard/mouse events. Mirrors PluginForgeProcessor::currentSourceForTest().
+    // Sets the prompt box and submits, exactly as the Generate button does.
+    void submitPromptForTest(const juce::String& text);
+
+    // Test-only. True while the worker thread exists — lets a test assert that a
+    // panel which never generated also never spawned a thread.
+    bool hasWorkerForTest() const { return worker.joinable(); }
+
+    // Test-only. Current error-region text, for asserting PF-021's clear-on-submit.
+    juce::String errorTextForTest() const { return errorBox.getText(); }
 
 private:
     void timerCallback() override;
@@ -115,6 +149,49 @@ private:
     bool        isWorking   = false;
     juce::int64 workStartMs = 0;
     float       pulsePhase  = 0.0f;
+
+    // ── Generation worker (PF-006) ──────────────────────────────────────────
+    // Mirrors FaustEngine's compile worker (FaustEngine.h "Compile worker",
+    // commit d10f59e): persistent thread, single pending slot, joined on
+    // teardown. Started lazily on first submit so a panel that never generates
+    // never spawns a thread.
+    void workerLoop();
+    void runGeneration(const juce::String& prompt, juce::uint64 myGeneration);
+    void shutdownWorker();
+
+    std::thread             worker;
+    std::mutex              jobMutex;
+    std::condition_variable jobCv;
+    juce::String            pendingPrompt;
+    juce::uint64            pendingGeneration = 0;   // guarded by jobMutex
+    bool                    hasJob   = false;
+    bool                    stopping = false;   // guarded by jobMutex
+
+    // The subprocess currently in flight. Registered by runGeneration for exactly
+    // as long as the ChildProcess lives on the worker's stack, so submit and
+    // teardown can KILL it instead of waiting out its 180s cap.
+    //
+    // SUBTLE: kill() across threads is safe here, and that is a property of the
+    // implementation, not an assumption — juce_SharedCode_posix.h:1217
+    // killProcess() is `::kill(childPID, SIGKILL)`, const and noexcept, reading
+    // only a pid fixed at start(). It never touches the stream state that
+    // waitForProcessToFinish is concurrently polling.
+    std::mutex          childMutex;
+    juce::ChildProcess* activeChild = nullptr;
+
+    // Bumped on every submit and on teardown. A run whose stamp no longer matches
+    // is superseded and publishes nothing — that is what stops a stale patch
+    // overwriting a newer one.
+    //
+    // SUBTLE: the bump happens INSIDE jobMutex, and the resulting stamp is handed
+    // to the worker through pendingGeneration rather than re-read from here at
+    // pickup. Re-reading was wrong and the PF-006 test caught it: the worker could
+    // wake on hasJob and load `generation` BEFORE submitPrompt's bump landed, so a
+    // run compared its own pre-bump stamp against the post-bump value and
+    // discarded ITSELF. Publishing the job and its stamp under one lock removes
+    // the window. The atomic remains because runGeneration re-reads it to detect
+    // *later* supersedes while it is running.
+    std::atomic<juce::uint64> generation { 0 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PromptPanel)
 };

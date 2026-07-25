@@ -136,9 +136,46 @@ PromptPanel::PromptPanel(PluginForgeProcessor& p)
 
 PromptPanel::~PromptPanel()
 {
+    // ORDER MATTERS. Join the generate worker FIRST (PF-006): it holds a raw
+    // reference to the processor and calls loadFaustCode() through it. Until this
+    // returns, `this` and every member below are still live for the worker.
+    shutdownWorker();
+
     // juce::Timer stops itself on destruction, but be explicit — this panel is
     // owned by the shell and destroyed on the message thread.
     stopTimer();
+}
+
+void PromptPanel::shutdownWorker()
+{
+    {
+        std::lock_guard<std::mutex> lock(jobMutex);
+        if (stopping)
+            return;                     // idempotent
+        stopping = true;
+        hasJob   = false;               // drop anything queued but not started
+    }
+
+    // Bump first, so a run that is mid-flight discards its result rather than
+    // touching the processor on the way out.
+    generation.fetch_add(1, std::memory_order_acq_rel);
+
+    // Don't wait out a 180s subprocess cap on plugin teardown — the DAW is
+    // closing. SIGKILL makes waitForProcessToFinish return promptly.
+    {
+        std::lock_guard<std::mutex> lock(childMutex);
+        if (activeChild != nullptr)
+            activeChild->kill();
+    }
+
+    jobCv.notify_all();
+
+    // SUBTLE: this join runs on the message thread, and the worker posts UI
+    // updates with MessageManager::callAsync — which QUEUES rather than blocks,
+    // so it cannot deadlock against us here. A callSync or a MessageManagerLock
+    // on the worker would deadlock; do not add one.
+    if (worker.joinable())
+        worker.join();
 }
 
 // ── Submit / worker thread ──────────────────────────────────────────────────
@@ -149,6 +186,13 @@ void PromptPanel::submitPrompt()
         return;
 
     pushHistory(text);
+
+    // PF-021: clear the previous run's error BEFORE starting this one. setError()
+    // deliberately retains text across a later success so the user can scroll
+    // back, but nothing ever cleared it on submit — so a prior failure sat on
+    // screen through the next generation, including a successful one, and read as
+    // the current result. The human reported exactly this on 2026-07-24.
+    clearError();
 
     // Prevent double-submit. Re-enabled once the subprocess returns.
     generateButton.setEnabled(false);
@@ -164,14 +208,81 @@ void PromptPanel::submitPrompt()
         return;
     }
 
+    // PF-006: hand the prompt to the owned worker instead of detaching a thread.
+    // A run already in flight is SUPERSEDED — its subprocess is killed and its
+    // result discarded — rather than left to race the new one to loadFaustCode().
+    {
+        std::lock_guard<std::mutex> lock(jobMutex);
+        if (stopping)
+            return;                     // tearing down: drop the request
+
+        pendingPrompt = text;
+        // Stamp and job published under ONE lock — see the SUBTLE note on
+        // `generation` in the header for why re-reading the atomic at pickup was
+        // a race that made a run discard itself.
+        pendingGeneration = generation.fetch_add(1, std::memory_order_acq_rel) + 1;
+        hasJob            = true;
+
+        if (! worker.joinable())        // started lazily, on first use
+            worker = std::thread([this] { workerLoop(); });
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(childMutex);
+        if (activeChild != nullptr)
+            activeChild->kill();
+    }
+
+    jobCv.notify_one();
+}
+
+void PromptPanel::submitPromptForTest(const juce::String& text)
+{
+    promptInput.setText(text, juce::dontSendNotification);
+    submitPrompt();
+}
+
+// ── Generation worker ───────────────────────────────────────────────────────
+void PromptPanel::workerLoop()
+{
+    for (;;)
+    {
+        juce::String prompt;
+        juce::uint64 myGeneration = 0;
+        {
+            std::unique_lock<std::mutex> lock(jobMutex);
+            jobCv.wait(lock, [this] { return hasJob || stopping; });
+            if (stopping)
+                return;
+            prompt       = pendingPrompt;
+            myGeneration = pendingGeneration;
+            hasJob       = false;
+        }
+
+        runGeneration(prompt, myGeneration);
+    }
+}
+
+void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myGeneration)
+{
+    // Superseded, or shutting down: nothing this run produces is wanted any more.
+    // Checked before touching the processor and again before publishing.
+    auto stale = [this, myGeneration]
+    {
+        return generation.load(std::memory_order_acquire) != myGeneration;
+    };
+
     // SUBTLE: SafePointer's underlying WeakReference is NOT atomic on the pointer
     // it guards (verified against juce_WeakReference.h: SharedPointer::owner is a
     // plain pointer, written by clearPointer() / read by get() with no atomic or
     // mutex — only the wrapper's ref-count is atomic). This capture is safe only
     // because safeThis is ever dereferenced (== nullptr, ->) inside callAsync
     // lambdas below, which run on the message thread — the same thread that runs
-    // the panel's destructor (clearPointer()). The background std::thread itself
-    // only copies safeThis (ref-count-atomic-safe); it never dereferences it.
+    // the panel's destructor (clearPointer()). The worker itself only copies
+    // safeThis (ref-count-atomic-safe); it never dereferences it.
+    //
+    // Still required even though the worker is now joined: a callAsync posted
+    // just before the join runs AFTER ~PromptPanel returns.
     juce::Component::SafePointer<PromptPanel> safeThis(this);
     auto scriptPath = generateScript.getFullPathName();
 
@@ -182,20 +293,44 @@ void PromptPanel::submitPrompt()
     auto pythonExe = juce::SystemStats::getEnvironmentVariable(
         "PLUGINFORGE_PYTHON", "python3");
 
-    // TODO: VERIFY: PF-006 (docs/BUGS.md, FLEET req #10) — this &proc capture is
-    // NOT safe as written. The thread is detached and can sit up to 120s in
-    // waitForProcessToFinish; if the processor is destroyed in that window, the
-    // proc.loadFaustCode() call below is a use-after-free. The "processor outlives
-    // the editor" host contract does not cover a detached thread that outlives
-    // BOTH. Fix (routing: FLEET req #16): make this an owned, joinable worker with
-    // an atomic abort + child.kill() on teardown, mirroring FaustEngine's PF-003
-    // worker (commit d10f59e). Deliberately NOT restructured in this UI change so
-    // the threading rework gets its own Tier-2 report; check: PF-006 in docs/BUGS.md.
+    // Sound because this worker is owned and joined by ~PromptPanel, and
+    // juce_AudioProcessor.cpp:51-57 asserts the editor (hence this panel) is
+    // destroyed before the processor. The DETACHED thread this replaced could
+    // outlive both, which is what made the same expression a use-after-free.
     auto& proc = processor;
 
-    std::thread([safeThis, scriptPath, pythonExe, prompt = text.toStdString(), &proc]() mutable
+    const auto prompt = promptText.toStdString();
+
     {
         juce::ChildProcess child;
+
+        // Register for the lifetime of `child` so submit/teardown can kill it.
+        // Deregistered by the RAII guard below BEFORE `child` leaves scope —
+        // a stale activeChild pointer would be a use-after-free of its own.
+        struct ChildRegistration
+        {
+            PromptPanel& panel;
+            ~ChildRegistration()
+            {
+                std::lock_guard<std::mutex> lock(panel.childMutex);
+                panel.activeChild = nullptr;
+            }
+        } childRegistration { *this };
+
+        {
+            std::lock_guard<std::mutex> lock(childMutex);
+            activeChild = &child;
+        }
+
+        // Registering BEFORE start() is deliberate and safe: ChildProcess::kill()
+        // is `activeProcess == nullptr || activeProcess->killProcess()`
+        // (juce_ChildProcess.cpp:39), so killing a not-yet-started child is a
+        // no-op returning true. Registering after start() would leave a window in
+        // which a supersede or a teardown could not reach the process.
+        //
+        // If a supersede/shutdown already fired, don't even start the subprocess.
+        if (stale())
+            return;
 
         // Verified against juce_ChildProcess.h: start(const StringArray&, int) exists
         // with this exact signature — no shell interpretation of the prompt text.
@@ -228,6 +363,13 @@ void PromptPanel::submitPrompt()
         if (! child.waitForProcessToFinish(kSubprocessTimeoutMs))
         {
             child.kill();
+
+            // A supersede or a teardown is the OTHER reason this wait ends early —
+            // both kill the child, which makes waitForProcessToFinish return. That
+            // is not a timeout and must not be reported as one.
+            if (stale())
+                return;
+
             juce::MessageManager::callAsync([safeThis]
             {
                 if (safeThis == nullptr) return;
@@ -247,6 +389,15 @@ void PromptPanel::submitPrompt()
             });
             return;
         }
+
+        // SUBTLE: a killed child makes waitForProcessToFinish return TRUE, not
+        // false — it polls isRunning(), and a SIGKILLed process is not running.
+        // So the supersede/teardown path arrives HERE, on the success branch,
+        // with a truncated or empty pipe. Without this check that would surface
+        // as "generator produced no result", i.e. a superseded run would report a
+        // spurious error over the top of the run that replaced it.
+        if (stale())
+            return;
 
         // Verified: readAllProcessOutput() blocks until EOF; stdout and stderr are
         // merged into one pipe on Linux when both want flags are set. The process
@@ -309,11 +460,19 @@ void PromptPanel::submitPrompt()
             return;
         }
 
-        // proc outlives this thread (see PF-006 marker above). loadFaustCode() posts
-        // the actual JIT compile to FaustEngine's own background thread and returns
-        // immediately — this call does not block or touch the audio thread. Pass the
-        // originating prompt (FLEET req #4, S1) so a DAW-saved session persists what
-        // was asked for, not just the generated code.
+        // THE check PF-006 exists for. Last gate before touching the processor:
+        // if this run has been superseded, or the panel is tearing down, do not
+        // publish. A superseded run reaching here would race the run that
+        // replaced it into loadFaustCode() and could install the OLDER patch.
+        if (stale())
+            return;
+
+        // proc outlives this worker: the worker is joined by ~PromptPanel, and
+        // juce_AudioProcessor.cpp:51-57 asserts the editor is destroyed before the
+        // processor. loadFaustCode() posts the actual JIT compile to FaustEngine's
+        // own background thread and returns immediately — it does not block or
+        // touch the audio thread. Pass the originating prompt (FLEET req #4) so a
+        // DAW-saved session persists what was asked for, not just the code.
         proc.loadFaustCode(faustCode, juce::String(prompt));
 
         // UI components must only be touched on the message thread.
@@ -330,7 +489,7 @@ void PromptPanel::submitPrompt()
             safeThis->statusLabel.setText("JIT compiling: " +
                 faustCode.substring(0, 40) + "...", juce::dontSendNotification);
         });
-    }).detach();
+    }   // `child` (and its registration) go out of scope here
 }
 
 // ── Status / error surfaces ─────────────────────────────────────────────────
@@ -341,11 +500,22 @@ void PromptPanel::setStatus(const juce::String& text)
 
 void PromptPanel::setError(const juce::String& fullText)
 {
-    // Kept verbatim (no truncation) and retained across a later success so the
-    // user can still scroll back through the last failure.
+    // Kept verbatim (no truncation) and retained across a later COMPILE success so
+    // the user can still scroll back through the last failure. It is cleared on
+    // the next SUBMIT — see clearError() and PF-021 for why that distinction is
+    // the whole bug.
     errorBox.setText(fullText, juce::dontSendNotification);
     errorBox.setVisible(true);
     errorBox.moveCaretToTop(false);   // show the first line, not the tail
+}
+
+void PromptPanel::clearError()
+{
+    // PF-021. Retaining an error across a later success is a deliberate feature
+    // (the user may still want to read it); retaining it across a NEW RUN is the
+    // defect, because the stale text then reads as this run's result.
+    errorBox.setText({}, juce::dontSendNotification);
+    errorBox.setVisible(false);
 }
 
 // ── Progress animation ──────────────────────────────────────────────────────
