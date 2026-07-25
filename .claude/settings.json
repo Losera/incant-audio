@@ -1,52 +1,54 @@
 {
-  "PreToolUse": [
-    {
-      "matcher": "Write",
-      "hooks": [
-        {
-          "type": "command",
-          "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/check_rt_safety.py\""
-        },
-        {
-          "type": "command",
-          "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/check_prompt_invariants.py\""
-        }
-      ]
-    },
-    {
-      "matcher": "Edit",
-      "hooks": [
-        {
-          "type": "command",
-          "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/check_rt_safety.py\""
-        },
-        {
-          "type": "command",
-          "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/check_prompt_invariants.py\""
-        }
-      ]
-    },
-    {
-      "matcher": "MultiEdit",
-      "hooks": [
-        {
-          "type": "command",
-          "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/check_rt_safety.py\""
-        },
-        {
-          "type": "command",
-          "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/check_prompt_invariants.py\""
-        }
-      ]
-    },
-    {
-      "matcher": "Bash",
-      "hooks": [
-        {
-          "type": "command",
-          "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/check_bash_denylist.py\""
-        }
-      ]
-    }
-  ]
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/check_rt_safety.py\""
+          },
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/check_prompt_invariants.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/check_rt_safety.py\""
+          },
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/check_prompt_invariants.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/check_rt_safety.py\""
+          },
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/check_prompt_invariants.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/check_bash_denylist.py\""
+          }
+        ]
+      }
+    ]
+  }
 }

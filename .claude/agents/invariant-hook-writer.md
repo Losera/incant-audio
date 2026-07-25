@@ -144,14 +144,33 @@ this new one. Instead:
    `python3 -m json.tool <draft>` via Bash and confirm it succeeds.
 4. Only then `Write` the full validated content directly to `.claude/settings.json`.
 
-Note the top-level shape: hook events (`PreToolUse`, etc.) sit directly at the root
-of this file — there is no `"hooks"` wrapper key here (that wrapper is only used in
-a plugin's own `hooks/hooks.json`, not in a project's `.claude/settings.json`).
-Verify this against the file's current content before writing, don't assume it.
+Note the top-level shape: hook events (`PreToolUse`, etc.) sit **nested under a
+top-level `"hooks"` key**, then a matcher-group array, then the handler array:
 
-Remember: **hooks are loaded at Claude Code session start and cannot be hot-swapped
-mid-session.** After registering a new hook, tell the human a restart is required
-before it takes effect — do not claim it is "live" without one.
+```json
+{ "hooks": { "PreToolUse": [ { "matcher": "Bash",
+    "hooks": [ { "type": "command", "command": "..." } ] } ] } }
+```
+
+CORRECTED 2026-07-25. This paragraph previously asserted the opposite — that event
+names sat at the file root with no `"hooks"` wrapper. That was wrong, and because
+`.claude/settings.json` was written to match it, **none of this project's five hooks
+had ever executed.** Claude Code silently ignores a settings file whose hook block is
+shaped wrongly: no warning, no error, every hook simply dead. The scripts were fine
+the whole time — `check_bash_denylist.py` returned exit 2 on its red case when
+invoked by hand. Nothing ever invoked it.
+
+That is the third time this project mistook a declared control for a running one
+(PAIR mode, the ADR-009 sync hook, this). So the rule is now: **a hook is not
+registered until it has been observed blocking something.** After writing
+`settings.json`, run the new hook's red case as a real tool call and confirm the
+block. `tests/test_control_wiring.py` enforces the shape permanently; it does not
+replace watching the thing fire once.
+
+Verified 2026-07-25: **hooks take effect immediately on write, with no restart.**
+The corrected `settings.json` blocked a real `Bash` call in the same session it was
+written. An earlier version of this file claimed a restart was required — do not
+reintroduce that claim, and do not tell the human to restart before testing.
 
 ## Output
 
