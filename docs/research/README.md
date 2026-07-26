@@ -6,7 +6,7 @@ its own note.
 
 | Note | Verdict |
 |---|---|
-| [truncation-confound-HANDOFF-S1](truncation-confound-HANDOFF-S1.md) | **Action for S1.** `max_tokens=1024` with no truncation detection invalidates the recorded compile rates and burns the retry budget on a loop that cannot succeed |
+| [truncation-confound-HANDOFF-S1](truncation-confound-HANDOFF-S1.md) | **Fixed 2026-07-25 (`07d0997`).** `max_tokens=1024` with no truncation detection invalidated the recorded compile rates and burned the retry budget on a loop that could not succeed. The *pipeline* is fixed; the *confound* stands until the study is re-run |
 | [R1-grammar-constrained-decoding](R1-grammar-constrained-decoding.md) | **No-go.** Covers 36% of failures, needs self-hosting no provider supports, and a static pre-flight check covers 50% for free |
 | [R2-restricted-faust-dialect](R2-restricted-faust-dialect.md) | **Do not fork Faust.** The restricted dialect already exists (59 of 1,511 symbols) — it is just never enforced on output |
 | [R3-perceptual-oracle](R3-perceptual-oracle.md) | **Shipped:** `bench/render_oracle.py`. 17/17 renderable patches produce usable audio. CLAP is the wrong instrument for effects |

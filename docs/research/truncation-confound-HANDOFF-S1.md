@@ -1,5 +1,20 @@
 # HANDOFF → Session 1: the output-truncation confound
 
+> **RESOLVED 2026-07-25.** Kept as the evidence record; the fix it asked for has landed.
+> Provider-side detection (`OutputTruncated`, `finish_reason`/`stop_reason` in all three
+> adapters, `min_max_tokens` on the anthropic spec) plus `tests/test_truncation_detection.py`
+> were written by session 1. `llm/generate.py` catching it — `MAX_OUTPUT_TOKENS = 4096`,
+> the brevity retry instead of feeding back stderr, and the distinct `truncated` reason —
+> plus the scorer denominator fix (`bench/score_efficacy.py::is_transport_error`,
+> `tests/test_transport_error_exclusion.py`) were done in session 2. Commit `07d0997`.
+>
+> **What is fixed:** the pipeline can no longer mistake a cut-off program for bad Faust,
+> and five API billing errors no longer sit in a compile-rate denominator.
+> **What is NOT fixed:** §2.2's confound stands. Nothing has been re-measured, so the
+> tiered study's non-monotonicity is still unresolved between "vague prompts are harder"
+> and "vague prompts produce longer programs that truncate". That needs the re-run designed
+> in [[R5-publishable-run]] §6 — and the corpus de-leaking in §4 first.
+
 **Owner: S1** (touches `llm/`, which is S1's lane — session 2 is read-only there and has
 changed nothing). Written 2026-07-25 by session 2, lane R.
 
