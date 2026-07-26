@@ -38,14 +38,23 @@ jobs:
       - name: Install system dependencies
         # libfaust — package names checked against packages.ubuntu.com (noble,
         # faust 2.70.3+ds, all in universe):
-        #   libsndfile1-dev -> sndfile.h + sndfile.pc. NOT optional and NOT implied
-        #                   by the faust package: `faust2sndfile` ships with faust,
-        #                   but the C++ it generates does `#include <sndfile.h>` and
-        #                   links via pkg-config. Without this the render oracle
-        #                   fails every patch with "Package 'sndfile', required by
-        #                   'virtual:world', not found". Caught by CI run
-        #                   30180544187 on 2026-07-26 — the dev box had libsndfile
-        #                   installed, so this was invisible locally.
+        #   libsndfile1-dev + codecs -> the render oracle's toolchain. NOT optional
+        #                   and NOT implied by the faust package: `faust2sndfile`
+        #                   ships with faust, but the C++ it generates does
+        #                   `#include <sndfile.h>` and links with
+        #                   `pkg-config --static --libs sndfile`. The --STATIC is
+        #                   the part that bites: it emits libsndfile's whole
+        #                   transitive closure, so every codec needs its own -dev
+        #                   package present or ld fails on the first missing one.
+        #                   Measured from `pkg-config --static --libs sndfile`:
+        #                     -lsndfile -lFLAC -lmp3lame -lmpg123 -logg -lopus
+        #                     -lvorbis -lvorbisenc
+        #                   Invisible on Arch, where these arrive as libsndfile
+        #                   dependencies. Cost two CI round trips (runs 30180544187
+        #                   and 30180674842) to surface, the second only because
+        #                   render_oracle was reporting the HEAD of the compiler's
+        #                   output — all warnings — instead of the tail, where
+        #                   "cannot find -lmp3lame" was sitting.
         #   faust        -> /usr/bin/faust AND the unversioned
         #                   /usr/lib/x86_64-linux-gnu/libfaust.so symlink that
         #                   host/CMakeLists.txt's find_library(faust REQUIRED) needs
@@ -66,7 +75,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             ninja-build pkg-config \
             faust faust-common libfaust2t64 \
-            libsndfile1-dev \
+            libsndfile1-dev libmp3lame-dev libmpg123-dev libvorbis-dev \
+            libflac-dev libopus-dev libogg-dev \
             libasound2-dev \
             libfreetype-dev \
             libx11-dev libxext-dev libxrender-dev libxrandr-dev \
