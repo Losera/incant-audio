@@ -77,6 +77,23 @@ DUR = 2.0
 BANDS = [(50, 200), (200, 800), (800, 1200), (1200, 4000), (4000, 8000), (8000, 20000)]
 
 
+def _diagnostic_tail(stderr: str, stdout: str = "", limit: int = 900) -> str:
+    """The LAST part of a toolchain's output, not the first.
+
+    Compilers emit warnings before errors. Reporting `stderr[:400]` showed three
+    screens of -Wformat-truncation noise from Faust's generated main() and hid the
+    line that actually stopped the build — which cost a full CI round trip on
+    2026-07-26 to notice. Take the tail, and fall back to stdout when stderr is
+    empty, because some wrapper scripts report failure there.
+    """
+    text = (stderr or "").strip() or (stdout or "").strip()
+    if not text:
+        return "<no output on stderr or stdout>"
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+    tail = "\n".join(lines[-12:])
+    return tail[-limit:] if len(tail) > limit else tail
+
+
 class RenderError(RuntimeError):
     """faust2sndfile failed to build, or the built binary failed to render."""
 
@@ -187,14 +204,19 @@ def render(dsp_source: str, signal: np.ndarray | None = None,
                                encoding="utf-8", errors="replace", timeout=timeout)
         binary = d / "patch"
         if not binary.exists():
-            raise RenderError(f"build failed: {build.stderr.strip()[:400]}")
+            raise RenderError(
+                f"build failed (exit {build.returncode}, no binary produced; "
+                f"dir: {sorted(p.name for p in d.iterdir())}): "
+                f"{_diagnostic_tail(build.stderr, build.stdout)}")
 
         run = subprocess.run([str(binary), "in.wav", "out.wav"], cwd=d,
                              capture_output=True, text=True,
                              encoding="utf-8", errors="replace", timeout=timeout)
         out = d / "out.wav"
         if not out.exists():
-            raise RenderError(f"render failed: {run.stderr.strip()[:400]}")
+            raise RenderError(
+                f"render failed (exit {run.returncode}, no out.wav): "
+                f"{_diagnostic_tail(run.stderr, run.stdout)}")
 
         with _quiet_wav():
             _, y = wav.read(str(out))
