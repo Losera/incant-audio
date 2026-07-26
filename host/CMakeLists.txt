@@ -273,3 +273,50 @@ target_link_libraries(PromptPanelThreadingTest PRIVATE
     juce::juce_recommended_config_flags
     ${LIBFAUST_LIB}
 )
+
+# OfflineRenderTest -- the OBJECTIVE half of the P6 listening battery
+# (host/tests/OfflineRenderTest.cpp). Renders a corpus of hand-written Faust
+# through the REAL plugin path (JIT, swap protocol, ParamPool denormalisation,
+# OutputGuard) and asserts finite, non-silent, bounded, DC-free output plus the
+# published parameter count. Includes pathological negative controls (NaN, DC,
+# runaway gain) so the safety assertions can be shown to fail, and the PF-018
+# sample-rate-change spec assertion.
+#
+# Same source/link set as StatePersistenceTest. ASan/UBSan: this test exists to
+# catch bad audio, and memory errors under it must be loud.
+juce_add_console_app(OfflineRenderTest
+    PRODUCT_NAME "Offline Render Test"
+)
+
+target_sources(OfflineRenderTest PRIVATE
+    tests/OfflineRenderTest.cpp
+    Source/PluginProcessor.cpp
+    Source/PluginEditor.cpp
+    Source/PromptPanel.cpp
+    Source/CodeEditorPanel.cpp
+    Source/ParamGridPanel.cpp
+    Source/FaustEngine.cpp
+    Source/ParamPool.cpp
+    Source/OutputGuard.cpp
+)
+
+target_compile_features(OfflineRenderTest PRIVATE cxx_std_17)
+
+target_compile_definitions(OfflineRenderTest PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_VST3_CAN_REPLACE_VST2=0
+)
+
+# -fno-sanitize=vptr: see the StatePersistenceTest block -- libfaust.so is built
+# -fno-rtti and does not export typeinfo for llvm_dsp.
+target_compile_options(OfflineRenderTest PRIVATE -fsanitize=address,undefined -fno-sanitize=vptr -g -O1)
+target_link_options(OfflineRenderTest PRIVATE -fsanitize=address,undefined -fno-sanitize=vptr)
+
+target_link_libraries(OfflineRenderTest PRIVATE
+    juce::juce_audio_utils
+    juce::juce_dsp
+    juce::juce_gui_extra
+    juce::juce_recommended_config_flags
+    ${LIBFAUST_LIB}
+)

@@ -120,6 +120,11 @@ public:
     juce::String currentSourceForTest() const;
     juce::String currentPromptForTest() const;
 
+    // Test-only. The rate the LIVE DSP is actually running at, per Faust's own
+    // getSampleRate(); 0 when none is live. PF-018's spec assertion is precisely
+    // "this follows prepareToPlay", and before the fix it did not.
+    int liveDspSampleRateForTest() const { return faustEngine.liveDspSampleRateForTest(); }
+
 private:
     FaustEngine faustEngine;
     ParamPool   paramPool;

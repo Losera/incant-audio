@@ -153,8 +153,70 @@ void FaustEngine::shutdown()
 
 void FaustEngine::prepare(double sampleRate, int blockSize)
 {
+    const bool rateChanged = (sampleRate != sr);
+
     sr    = sampleRate;
     block = blockSize;
+
+    // PF-018. Storing the members was ALL this used to do. If the host changed
+    // sample rate after a patch went live, the DSP kept running at the rate it was
+    // instanceInit'd with — every rate-dependent constant wrong, so a 1 kHz filter
+    // sat at 2 kHz and a 500 ms delay ran 250 ms, silently, until the next
+    // recompile. Hosts do this routinely: switching audio device, changing project
+    // rate, or offline bounce at a different rate.
+    if (! rateChanged)
+        return;
+
+    // Nothing live to re-init. A later compile() will init at the new rate.
+    if (activeDSP.load(std::memory_order_acquire) == nullptr)
+        return;
+
+    // Same drain protocol as compile() steps 1-2, and for the same reason: the
+    // audio thread may be inside process() right now, and instanceConstants
+    // rewrites the very state compute() is reading.
+    //
+    // compileMutex is taken FIRST so this cannot interleave with a compile's own
+    // swap. Neither is ever held on the audio thread, so this cannot block it —
+    // the audio thread only ever touches the ready/audioBusy atomics.
+    std::lock_guard<std::mutex> lock(compileMutex);
+
+    // Re-read under the lock: a compile could have swapped or cleared the pointer
+    // between the check above and here.
+    llvm_dsp* dsp = activeDSP.load(std::memory_order_acquire);
+    if (dsp == nullptr)
+        return;
+
+    const bool wasReady = ready.load(std::memory_order_seq_cst);
+
+    // Step 1: no NEW audio-thread section may start. seq_cst for the same
+    // store->load handshake reason spelled out in compile().
+    ready.store(false, std::memory_order_seq_cst);
+
+    // Step 2: drain in-flight sections. Bounded by one audio callback.
+    while (audioBusy.load(std::memory_order_seq_cst) != 0)
+        std::this_thread::yield();
+
+    // Step 3: re-init. instanceConstants + instanceClear is the documented pair
+    // for a rate change that KEEPS control values (faust/dsp/dsp.h:135-143 —
+    // instanceConstants "init instance constant state"; instanceClear "init
+    // instance state (like delay lines...) but keep the control parameter
+    // values"). Deliberately NOT instanceInit(), which also calls
+    // instanceResetUserInterface() and would throw away the user's knob positions
+    // on a device switch. Delay lines must be cleared: their contents are samples
+    // at the OLD rate, and reading them at the new one is a burst of garbage.
+    dsp->instanceConstants(static_cast<int>(sr));
+    dsp->instanceClear();
+
+    // Step 4: republish. Only restore ready if it was set — a rate change must not
+    // bring a DSP live that the swap protocol had deliberately parked.
+    if (wasReady)
+        ready.store(true, std::memory_order_seq_cst);
+}
+
+int FaustEngine::liveDspSampleRateForTest() const
+{
+    llvm_dsp* dsp = activeDSP.load(std::memory_order_acquire);
+    return dsp != nullptr ? dsp->getSampleRate() : 0;
 }
 
 void FaustEngine::release()

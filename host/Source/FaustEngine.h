@@ -101,6 +101,15 @@ public:
 
     bool isReady() const { return ready.load(std::memory_order_acquire); }
 
+    // Test-only. The rate the LIVE DSP is actually running at (Faust's own
+    // getSampleRate(), faust/dsp/dsp.h:114), or 0 when none is live. PF-018 is
+    // exactly the statement "this tracks prepare()", and before the fix it did
+    // not — so asserting it needs the DSP's opinion, not our stored member.
+    //
+    // NOT audio-thread safe and not meant to be: call it from a test thread with
+    // no compile in flight.
+    int liveDspSampleRateForTest() const;
+
     // Audio-thread guard bracketing every use of the engine from processBlock().
     // The compile thread drains audioBusy to zero (after ready=false) before it
     // mutates activeDSP/activeUI or deletes the old DSP — see compile().
