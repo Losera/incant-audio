@@ -9,6 +9,54 @@ Narrative history lives in git.
 
 ## Works — and how we know
 
+- **The enforcement hooks now actually run, and have been seen blocking.** *(2026-07-25.)*
+  They never had. `.claude/settings.json` declared `PreToolUse` at the file root; Claude Code
+  requires it under a top-level `"hooks"` key and ignores a wrongly-shaped file **silently**.
+  All five hooks were dead while CLAUDE.md, this file and a published service review all
+  described the prompt invariant as "hook-enforced". The scripts were correct throughout —
+  `check_bash_denylist.py` returned exit 2 by hand; nothing invoked it.
+  Proof is behavioural, not declarative: after the fix a real `Bash` call was blocked, twice,
+  in the session that made it (hooks apply immediately — no restart, contrary to what
+  `.claude/agents/invariant-hook-writer.md` used to claim). `tests/test_control_wiring.py`
+  (15 tests) now guards both the shape and the teeth, and found the two retired hooks still
+  sitting on disk. **This was the third instance of one pattern** — after PAIR mode and the
+  ADR-009 sync hook — of mistaking a declared control for a running one.
+- **One entry point for every check.** `tools/check.sh fast | full | audio | quota`, cost-ordered
+  and cumulative. Verified end to end 2026-07-25: `audio` green, including the four-target JUCE
+  build and a clean ThreadSanitizer run. `quota` refuses to spend free-tier requests without
+  `--i-authorize-spend`. `tools/check.sh assumed` prints the size of the list below — the one
+  number this project should steer by, because writing documentation cannot improve it.
+- **Generated DSP is measured as audio, not just as text.** *(Closes the objective half of
+  PF-013.)* `bench/render_oracle.py` renders a compiled patch offline (numpy + scipy only, no
+  network, no quota) and gates NaN/Inf, silence, DC offset, runaway gain. Over the 25-prompt
+  benchmark corpus: **17 of 17 renderable patches produce usable audio.** Calibrated against
+  known physics — `fi.resonlp(1000, .707)` measures −3.0 dB at its 1 kHz corner and −30 dB two
+  octaves up; a band-pass, high-shelf and 60 Hz notch each show their correct signature.
+  **Limit:** zero-input patches (synths — 5 of 25) cannot be rendered; `faust2sndfile` is
+  input-file-driven and writes an empty WAV for them. The oracle reports these as
+  *unsupported*, never as failures, because conflating "cannot measure" with "is broken" is
+  exactly how five billing errors became compile failures (below).
+- **CI has run green with the prompt-grounding steps.** *(Corrects PF-016, which claimed it
+  never had.)* `gh run list`: green on 2026-07-22 (`29883145844`, the very commit that pointed
+  the bench harnesses at the unified prompt) and 2026-07-23 (`30032243641`), both ~4.5 min,
+  both including the `build-host` job. The five `TODO: VERIFY` items about Ubuntu Faust
+  packaging in that workflow are therefore **answered by those runs**, not still open.
+  What is true is that CI is *starved*: `main` ran 17 commits ahead of `origin` before this
+  session pushed.
+- **The P6 listening battery has run.** *(Corrects PF-008, which claimed no generated plugin had
+  ever been listened to — contradicting this file's own P6 section.)* It ran 2026-07-24 with
+  human ears: **4 clean, 3 flaky, 7 failures of 14.** That is a bad result, not a missing one,
+  and it is recorded above. The open question is now a *second* pass after the reliability
+  burst, which is a different claim and is listed under "Waiting on you".
+- **Five API billing errors are no longer counted as Faust compile failures.** In the
+  2026-07-20 pilot the prompt `generative-05` was refused by the provider in all five tiers —
+  no credit on the account, not one token generated — and all five were scored as compile
+  failures. `bench/score_efficacy.py::is_transport_error` now partitions them out and
+  `print_excluded()` reports the drop unconditionally. Re-scoring reproduces the corrected
+  figures: L4 100%, L3 100%, L2 89%, L1 56%, L0 67% (n=9), against the published
+  90/90/80/50/60 (n=10). The refusal fell once per tier, so the *shape* of the headline
+  non-monotonicity survived — which is precisely why nobody noticed the numbers were wrong.
+
 - **Full build, all three targets.** `PluginForgeHost`, `_Standalone`, `_VST3` compile and
   link clean. Confirmed 2026-07-18.
 - **JIT compile and live DSP swap.** ThreadSanitizer over
@@ -129,10 +177,6 @@ drive the existing async recompile path, off the audio thread.
 
 ## Assumed, never checked
 
-- **No generated plugin has ever been listened to.** *(PF-008)* The denormalization fix (#1/#4
-  above) is verified by unit test and by construction, **not by ear**. The P6 audible battery
-  (`docs/prototype_test_plan.md` Part A, `docs/p6_test_battery.md`) has never run. This is now
-  the fastest way to find whatever the old denormalization bug was masking.
 - **Every benchmark number on record is void.** *(PF-009)* Measured against the deleted
   `bench/prompts/system_faust.txt`, which taught three functions that do not exist.
   `bench/results/.prompt_baseline.json` (0.88) has **not** been overwritten (gated) but describes
@@ -143,17 +187,22 @@ drive the existing async recompile path, off the audio thread.
 - **The efficacy pilot generalizes to nothing.** *(PF-011)* N=50, one model, the old prompt, two
   of five categories. The full 125-prompt run has never produced valid data.
 - **No cross-model comparison exists.** *(PF-012)* ADR-008 "Under evaluation" since 2026-04-29.
-- **Semantic fidelity is unmeasured.** *(PF-013)* Every metric is compile rate; the `--judge`
-  rubric is off by default and has never run.
+- **Semantic fidelity is unmeasured.** *(PF-013)* **Narrowed 2026-07-25, not closed.** The
+  *objective* half now exists and runs: `bench/render_oracle.py` renders a compiled patch
+  offline and gates NaN/Inf, silence, DC runaway and runaway gain (see Works). What is still
+  unmeasured is *fidelity to the prompt* — whether the patch does what the words asked. The
+  band features needed for it are already computed, and `bench/prompts/tiered_prompts.json`
+  already carries `target` + `expected_primitives` per effect; nothing turns them into an
+  expected spectral signature yet. The `--judge` rubric remains off by default and has never
+  run. Generators (5 of 25 prompts) cannot be rendered at all — see Works.
 - **No real user prompt has ever been recorded.** *(PF-014)* `generate.py` logs nothing.
 - **`check_rt_safety.py` scopes exactly two functions** *(PF-015)* and cannot follow a call
-  graph; `ParamPool::pushToFaust` (now on the audio thread) is not covered. Its docstring
+  graph; `ParamPool::pushToFaust` (now on the audio thread) is not covered. Note this hook
+  was additionally **never dispatched at all** until 2026-07-25 (see Works), so nothing it
+  claims to have prevented was ever prevented; that part is now fixed, the scope is not. Its docstring
   (`:9`) also still describes a stray `pushToFaust()` definition removed in PF-017 as a live,
   separately-tracked bug — stale, folded into the same PF-015 fix (S1's lane; not touched by
   this overseer pass, which stays out of hooks/code per lane rules).
-- **CI has never run green with the new prompt steps.** *(PF-016)* The `build-host` job runs
-  `tools/gen_stdlib_block.py --check` and the prompt tests and carries five pre-existing
-  `TODO: VERIFY` items about Ubuntu Faust packaging, none checkable from the Arch dev box.
 
 ---
 

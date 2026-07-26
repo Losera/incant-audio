@@ -32,7 +32,7 @@ If you've already decided you don't want to revisit Cmajor, skip to Part 2 Path 
 
 | Document | What it answers |
 |----------|----------------|
-| `docs/codebase_inventory.md` | Every source file, its status, and a function-level critical path trace showing exactly which steps are stubs |
+| `STATUS.md` | What works, what is broken, and what is believed without evidence. Read this first — it is rewritten each session. (Replaces `docs/codebase_inventory.md`, deleted 2026-07-25: generated 2026-05-04, it still described FaustEngine as a stub and `pushToFaust()` as "a complete no-op", and said the plugin "produces silence". All false since May. `git log` has it if the 2026-05 snapshot is ever wanted.) |
 | `docs/benchmark_analysis.md` | Full breakdown of the 50-generation benchmark: per-category scores, every failure classified by type, and a direct recommendation on prompt-engineering fixability |
 | `docs/decisions_reconstructed.md` | All architectural decisions in ADR format, including two that are implied by the code but not yet formally documented (IPC mechanism, single-artifact deployment) |
 | `docs/next_steps.md` | The recovery test task list and both post-decision paths, with each task marked [USER], [CLAUDE], or [PAIR] |
