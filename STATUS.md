@@ -21,6 +21,20 @@ Narrative history lives in git.
   (15 tests) now guards both the shape and the teeth, and found the two retired hooks still
   sitting on disk. **This was the third instance of one pattern** — after PAIR mode and the
   ADR-009 sync hook — of mistaking a declared control for a running one.
+- **The RT-safety hook now covers the whole audio path, with a red case per function.**
+  *(Closes the scope half of PF-015.)* It scoped `FaustEngine::process` and `processBlock`
+  only, while four functions actually run on the audio thread: `ParamPool::pushToFaust`
+  moved there with the PF-004 fix (`efbb5a5`) and was never added, and
+  `OutputGuard::process` has been there since `91a5a89` and was never added either. So the
+  hook's coverage and the real audio path disagreed for weeks while everything in the repo
+  described that path as guarded — the same defect as the hooks not running at all, one
+  level down. `ANCHOR_RE` now matches all four, `WATCHED_FILE_RE` covers `ParamPool.cpp`
+  and `OutputGuard.cpp`, and `tests/test_control_wiring.py` carries a parametrised red case
+  per newly-scoped function.
+  **Known limitation, not a bug:** it still cannot follow a call graph, so a *fifth*
+  function arriving on the audio thread has to be added to that list by hand. The red
+  tests catch a scoped function silently losing its teeth; they cannot catch an unscoped
+  one appearing.
 - **One entry point for every check.** `tools/check.sh fast | full | audio | quota`, cost-ordered
   and cumulative. Verified end to end 2026-07-25: `audio` green, including the four-target JUCE
   build and a clean ThreadSanitizer run. `quota` refuses to spend free-tier requests without
@@ -196,13 +210,6 @@ drive the existing async recompile path, off the audio thread.
   expected spectral signature yet. The `--judge` rubric remains off by default and has never
   run. Generators (5 of 25 prompts) cannot be rendered at all — see Works.
 - **No real user prompt has ever been recorded.** *(PF-014)* `generate.py` logs nothing.
-- **`check_rt_safety.py` scopes exactly two functions** *(PF-015)* and cannot follow a call
-  graph; `ParamPool::pushToFaust` (now on the audio thread) is not covered. Note this hook
-  was additionally **never dispatched at all** until 2026-07-25 (see Works), so nothing it
-  claims to have prevented was ever prevented; that part is now fixed, the scope is not. Its docstring
-  (`:9`) also still describes a stray `pushToFaust()` definition removed in PF-017 as a live,
-  separately-tracked bug — stale, folded into the same PF-015 fix (S1's lane; not touched by
-  this overseer pass, which stays out of hooks/code per lane rules).
 
 ---
 

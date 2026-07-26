@@ -49,6 +49,26 @@ import httpx
 
 DEFAULT_PROVIDER = "anthropic"
 
+# Output budget for one generation. THE single source of truth — llm/generate.py,
+# bench/run_benchmark.py and bench/run_efficacy_study.py all read it from here.
+#
+# It was a bare 1024 written out separately at all three call sites until
+# 2026-07-25. That is roughly 2,200 characters of punctuation-dense Faust, and the
+# efficacy pilot walked straight into it: the longest generations measured 2,199
+# and 2,210 chars, one ending mid-identifier ("chorusR(x) = x * 0.6 + de."). They
+# were recorded as compile failures. docs/research/truncation-confound-HANDOFF-S1.md
+#
+# 4096 is not arbitrary: above the hidden-reasoning-token floor that made
+# gemini-3.6-flash return 39 visible tokens at 1024, and below groq's ~7500 TPM
+# ceiling past which gpt-oss-120b returns 413.
+#
+# ProviderSpec.min_max_tokens raises whatever a caller asks for (see
+# make_generator), so a spec floored at 4096 rescues a caller that asks for less.
+# Do NOT rely on that: the original bug was precisely a spec — anthropic — whose
+# floor was 0 while every recorded benchmark ran through it. Both layers say 4096
+# now, and tests/test_truncation_detection.py asserts they agree.
+MAX_OUTPUT_TOKENS = 4096
+
 # Free-tier request budgets as advertised 2026-07; they move, and every provider
 # below rate-limits by account age/region. Treat as ordering hints, not contracts.
 #

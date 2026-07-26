@@ -107,7 +107,7 @@ def _make_generators(providers_list: list[str]) -> dict:
         def make(sys_p, prov=prov, model=model):
             return providers.make_generator(
                 registry_name(prov), system_prompt=sys_p, model=model,
-                temperature=0.0, max_tokens=1024,
+                temperature=0.0, max_tokens=providers.MAX_OUTPUT_TOKENS,
             )
 
         # The system prompt is fixed per run but arrives per call, so build the

@@ -18,7 +18,12 @@ Confound controls (locked decisions — do not change casually):
     We still do not call llm/generate.py, to keep the retry loop under this
     harness's own control (attempt accounting, per-attempt error capture).
   * Provider/model/params match bench/run_benchmark.py exactly:
-    claude (claude-opus-4-6), temperature=0, max_tokens=1024.
+    claude (claude-opus-4-6), temperature=0, max_tokens=providers.MAX_OUTPUT_TOKENS.
+
+    NOTE ON THE 2026-07-20 PILOT: it ran at max_tokens=1024, which was hardcoded
+    here and truncated the longest generations mid-program. Those were scored as
+    compile failures, so the pilot's per-tier rates are NOT comparable to any run
+    made after 2026-07-25. See docs/research/truncation-confound-HANDOFF-S1.md.
 
 Usage:
     python bench/run_efficacy_study.py                    # full run, all tiers/effects
@@ -130,13 +135,13 @@ def build_user_message(prompt: str, error_context: str = "") -> str:
 
 def make_generator(provider: str = "claude", model: str | None = None):
     """Callable(user_message) -> code string. Matches run_benchmark._make_generators:
-    temperature=0, max_tokens=1024, pinned model per provider."""
+    temperature=0, max_tokens=providers.MAX_OUTPUT_TOKENS, pinned model per provider."""
     return providers.make_generator(
         registry_name(provider),
         system_prompt=SYSTEM_PROMPT,
         model=model or run_benchmark.model_for(provider),
         temperature=0.0,
-        max_tokens=1024,
+        max_tokens=providers.MAX_OUTPUT_TOKENS,
     )
 
 

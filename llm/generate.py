@@ -85,20 +85,10 @@ def generation_budget() -> providers.Budget:
     return providers.Budget(total=total, per_attempt_cap=per_attempt)
 
 
-# Output budget for a single generation.
-#
-# Was a bare 1024 at every call site until 2026-07-25. That is roughly 2,200
-# characters of punctuation-dense Faust, and the efficacy pilot walked straight
-# into it: the longest generations measured 2,199 and 2,210 chars, one ending
-# mid-identifier ("chorusR(x) = x * 0.6 + de."). Those were recorded as compile
-# failures. See docs/research/truncation-confound-HANDOFF-S1.md.
-#
-# 4096 is not arbitrary — it is the floor the provider specs already clamp to
-# (ProviderSpec.min_max_tokens on anthropic/gemini/groq), chosen to sit above the
-# hidden-reasoning-token floor and below groq's ~7500 TPM ceiling, past which
-# gpt-oss-120b returns 413. Naming it here stops the caller and the specs from
-# disagreeing silently.
-MAX_OUTPUT_TOKENS = 4096
+# Re-exported so existing callers and tests can keep saying generate.MAX_OUTPUT_TOKENS.
+# It lives in providers.py because the bench harnesses need it too and must not have
+# to import this module (which resolves a provider and reads the prompt at import).
+MAX_OUTPUT_TOKENS = providers.MAX_OUTPUT_TOKENS
 
 # Sent instead of compiler stderr when the previous attempt was cut off. A
 # truncated program never reached `faust`, so there is no compile error to feed

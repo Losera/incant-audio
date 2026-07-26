@@ -121,3 +121,51 @@ class TestTheHistoricalCase:
                     f"{r['tier']}/{r['effect_id']} was excluded but has generated code — "
                     "the exclusion rule is eating real compile outcomes."
                 )
+
+
+class TestNoCallSiteHardcodesTheBudget:
+    """The original bug was three call sites each writing `max_tokens=1024` by hand.
+
+    ProviderSpec.min_max_tokens rescues a caller that asks for too little, but relying
+    on that is what failed: the anthropic spec's floor was 0 while every recorded
+    benchmark ran through it. Both layers must agree, and no caller may hardcode.
+    """
+
+    CALL_SITES = ["llm/generate.py", "bench/run_benchmark.py", "bench/run_efficacy_study.py"]
+
+    @pytest.mark.parametrize("rel", CALL_SITES)
+    def test_no_literal_max_tokens(self, rel):
+        """Parsed, not grepped.
+
+        A regex over the source text flags prose too — these files legitimately
+        DISCUSS the old 1024 in docstrings, and a check that cannot tell an
+        argument from a sentence is the same proxy mistake as the ADR-009 sync
+        hook, which "verified one sentence and one regex" and guaranteed nothing.
+        The AST sees only real keyword arguments.
+        """
+        import ast
+        tree = ast.parse((ROOT / rel).read_text())
+        hits = [
+            f"line {kw.value.lineno}: max_tokens={kw.value.value}"
+            for node in ast.walk(tree) if isinstance(node, ast.Call)
+            for kw in node.keywords
+            if kw.arg == "max_tokens" and isinstance(kw.value, ast.Constant)
+            and isinstance(kw.value.value, int)
+        ]
+        assert not hits, (
+            f"{rel} passes a literal max_tokens ({'; '.join(hits)}). Use "
+            "providers.MAX_OUTPUT_TOKENS so the caller and the provider floors "
+            "cannot drift apart again."
+        )
+
+    def test_every_provider_floor_matches_the_shared_constant(self):
+        sys.path.insert(0, str(ROOT / "llm"))
+        import providers
+        low = {n: s.min_max_tokens for n, s in providers.PROVIDERS.items()
+               if s.min_max_tokens < providers.MAX_OUTPUT_TOKENS}
+        assert not low, (
+            f"Provider spec(s) floor below MAX_OUTPUT_TOKENS "
+            f"({providers.MAX_OUTPUT_TOKENS}): {low}. A spec with a lower floor can run "
+            "truncated the moment a caller asks for less — which is exactly how the "
+            "anthropic spec produced every recorded number at 1024."
+        )
