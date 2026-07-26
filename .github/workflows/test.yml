@@ -80,7 +80,8 @@ jobs:
             libasound2-dev \
             libfreetype-dev \
             libx11-dev libxext-dev libxrender-dev libxrandr-dev \
-            libxinerama-dev libxcursor-dev libxcomposite-dev
+            libxinerama-dev libxcursor-dev libxcomposite-dev \
+            xvfb
 
       # Prompt grounding. This job is the only one with the Faust stdlib and
       # compiler installed, so it is where the anti-fabrication checks can
@@ -148,6 +149,48 @@ jobs:
       # regression in any one of the four fails the job by name.
       - name: Build host targets + TSan test
         run: cmake --build build-ci --target PluginForgeHost PluginForgeHost_Standalone PluginForgeHost_VST3 ParamPoolTsanTest
+
+      # The two behavioural harnesses added 2026-07-25. Both are ASan/UBSan.
+      #
+      # OfflineRenderTest is the objective half of the P6 listening battery: it
+      # renders a corpus through the real JIT + swap protocol + ParamPool +
+      # OutputGuard path and asserts finite, non-silent, bounded, DC-free output,
+      # plus the PF-018 sample-rate-change spec. It needs NO display — verified
+      # locally with DISPLAY and WAYLAND_DISPLAY unset, exit 0.
+      #
+      # PromptPanelThreadingTest is the PF-006 regression: owned+joined generate
+      # worker, supersede, teardown mid-flight. It constructs juce::Components and
+      # pumps the message loop, so unlike the above it DOES need a display —
+      # verified the hard way: run headless it hangs indefinitely rather than
+      # failing, which is why it runs under xvfb below AND under `timeout`.
+      - name: Build behavioural test harnesses
+        run: cmake --build build-ci --target OfflineRenderTest PromptPanelThreadingTest
+
+      # The audio path's own gate. No network, no API key, no quota: the corpus is
+      # hand-written Faust, so this measures the AUDIO path, never generation
+      # quality. Five pathological negative controls assert OutputGuard actually
+      # latches the right trip, so the safety assertions can be shown to fail.
+      - name: Run OfflineRenderTest (objective P6 battery)
+        run: |
+          BIN="$(find build-ci/OfflineRenderTest_artefacts -type f -name OfflineRenderTest | head -n 1)"
+          if [ -z "$BIN" ]; then
+            echo "OfflineRenderTest binary not found" >&2
+            exit 1
+          fi
+          timeout 300 "$BIN"
+
+      # xvfb-run -a picks a free display number rather than a fixed :99, so two
+      # concurrent jobs on the same runner cannot collide. `timeout` is not
+      # belt-and-braces here: without a display this binary HANGS, and a hang in
+      # CI burns the job's whole wall-clock budget instead of failing.
+      - name: Run PromptPanelThreadingTest (PF-006 regression, under xvfb)
+        run: |
+          BIN="$(find build-ci/PromptPanelThreadingTest_artefacts -type f -name PromptPanelThreadingTest | head -n 1)"
+          if [ -z "$BIN" ]; then
+            echo "PromptPanelThreadingTest binary not found" >&2
+            exit 1
+          fi
+          timeout 300 xvfb-run -a "$BIN"
 
       # Decision (P3 "if TSan runtime in Actions is questionable"): RUN it, not
       # build-only. Rationale: the harness is cheap (~20 tiny JIT compiles +

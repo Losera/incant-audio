@@ -169,6 +169,33 @@ class TestHooksStillHaveTeeth:
                            "content": "Use ef.totally_fake_function for chorus.\n"},
         }) == 2
 
+    # PF-015. The hook scoped FaustEngine::process and processBlock only, while the
+    # audio thread actually runs four functions. `pushToFaust` MOVED onto the audio
+    # thread with the PF-004 fix (efbb5a5) and was never added; OutputGuard::process
+    # has been there since 91a5a89 and was never added either. So for weeks the
+    # hook's coverage and the real audio path disagreed, and everything else in the
+    # repo described that path as "hook-guarded".
+    #
+    # One red case per newly-scoped function. These are the assertions that would
+    # have caught the gap.
+    @pytest.mark.parametrize("source_file,code", [
+        ("host/Source/ParamPool.cpp",
+         "void ParamPool::pushToFaust(FaustEngine& e) {\n"
+         "  float* p = new float[4];\n}\n"),
+        ("host/Source/OutputGuard.cpp",
+         "void OutputGuard::process(juce::AudioBuffer<float>& b) {\n"
+         "  std::lock_guard<std::mutex> lock(m);\n}\n"),
+    ])
+    def test_rt_safety_covers_everything_reachable_from_process_block(self, source_file, code):
+        assert _run_hook("check_rt_safety.py", {
+            "tool_name": "Write", "cwd": CWD,
+            "tool_input": {"file_path": str(ROOT / source_file), "content": code},
+        }) == 2, (
+            f"{source_file} runs on the audio thread (reachable from processBlock) "
+            "but the RT-safety hook did not block an allocation/lock in it. See "
+            "PF-015 and the scoped-function list in check_rt_safety.py's docstring."
+        )
+
 
 class TestHooksDoNotOverreach:
     """A gate that blocks ordinary work gets switched off, which is the same as dead."""
@@ -188,6 +215,24 @@ class TestHooksDoNotOverreach:
         """The denylist must permit the explicit-path form it tells you to use instead."""
         assert _run_hook("check_bash_denylist.py", {
             "tool_name": "Bash", "tool_input": {"command": "git add docs/one.md docs/two.md"},
+        }) == 0
+
+    @pytest.mark.parametrize("source_file", [
+        "host/Source/FaustEngine.cpp", "host/Source/PluginProcessor.cpp",
+        "host/Source/ParamPool.cpp", "host/Source/OutputGuard.cpp",
+    ])
+    def test_the_real_audio_path_passes_its_own_hook(self, source_file):
+        """If the committed audio path cannot satisfy the hook guarding it, the hook
+        is unusable — and widening its scope (PF-015) is exactly when that breaks.
+
+        This also pins the ANCHOR_RE's exclusions: ParamPool::remap and
+        FaustEngine::runCompile legitimately allocate and lock on background
+        threads, in the same files, a few lines away.
+        """
+        path = ROOT / source_file
+        assert _run_hook("check_rt_safety.py", {
+            "tool_name": "Write", "cwd": CWD,
+            "tool_input": {"file_path": str(path), "content": path.read_text()},
         }) == 0
 
     def test_the_real_system_prompt_passes_its_own_invariant(self):

@@ -1,16 +1,31 @@
 #!/usr/bin/env python3
 """PreToolUse hook (Write/Edit/MultiEdit): blocks edits that introduce
-non-real-time-safe constructs inside the two known audio-thread entry points --
-FaustEngine::process() and PluginForgeProcessor::processBlock() -- per the RT-safety
-rules in docs/audio_thread_example.md and docs/handoff_audiothread_task.md.
+non-real-time-safe constructs inside any function reachable from the audio
+thread, per the RT-safety rules in docs/audio_thread_example.md.
+
+SCOPED FUNCTIONS -- the transitive closure of PluginForgeProcessor::processBlock,
+enumerated by hand because a regex/brace-counter cannot build a call graph:
+
+    PluginForgeProcessor::processBlock   the audio-thread entry point
+      -> FaustEngine::enterAudio/exitAudio  (header-inline, atomics only)
+      -> ParamPool::pushToFaust             writes Faust zones every block
+      -> FaustEngine::process               calls dsp->compute()
+      -> OutputGuard::process               NaN/DC/limit before the speakers
+
+PF-015: only the first and third of those used to be scoped. `pushToFaust` moved
+ONTO the audio thread with the PF-004 fix (efbb5a5) and was never added, so for
+several weeks the hook's coverage and the actual audio path disagreed -- and the
+hook's own docstring said so while everything else described the path as
+"hook-guarded". OutputGuard::process has been on the audio thread since it was
+written (91a5a89) and was likewise never scoped.
 
 Scoping is anchored on the fully-qualified function signature, not a bare
-"process(" token search, because host/Source/FaustEngine.cpp already contains an
-unrelated stray `ParamPool::pushToFaust()` definition in the same file (a known,
-separately-tracked bug). From the matched opening brace, a manual brace-depth
+"process(" token search. From the matched opening brace a manual brace-depth
 count extracts exactly that function's body -- this is what correctly EXCLUDES
-FaustEngine::compile()'s body (same file, a few lines away), which legitimately
-uses new/delete/std::mutex on its own detached background thread.
+neighbours in the same files that legitimately allocate or lock on background
+threads: FaustEngine::compile/runCompile (new/delete/std::mutex on the compile
+worker), ParamPool::remap (reserve/push_back on the compile thread), and
+OutputGuard::prepare/reset.
 
 For Write, tool_input.content is the full new file -- scanned directly. For
 Edit/MultiEdit, tool_input only carries old_string/new_string (or an edits list),
@@ -19,12 +34,20 @@ reconstructs the post-edit content itself before scanning it. If the expected
 old_string isn't found in the on-disk content (stale read, race, mismatch), this
 fails closed (exit 2) rather than silently allowing the edit through unscanned.
 
-KNOWN LIMITATION (documented, not solved here): only these two named functions
-are scoped. A helper function they call into is invisible to this hook -- real
-RT-thread-reachability requires a call graph, which a regex/brace-counter cannot
-provide. The `// SUBTLE:` comment convention plus human review remains the
-fallback for that gap; see COLLABORATION.md §1 and the architecture-planning
-skill's hookable-vs-not classification.
+WHAT THIS STILL DOES NOT CATCH -- say the quiet part, per COLLABORATION.md §7:
+
+  * A NEW function called from an already-scoped one. The closure above is
+    maintained by hand; adding `myHelper()` to processBlock does not add
+    myHelper's body to this hook's scope. Real reachability needs a call graph.
+    Whoever adds such a call must add the function here in the same commit.
+  * Anything a scoped function reaches through a library (juce::, std::,
+    libfaust). `dsp->compute()` is not scanned and cannot be.
+  * Non-obvious allocation: a std::vector growing, a juce::String being copied,
+    a std::function being assigned. The BANNED list is textual and catches the
+    named constructs, not every way to touch the heap.
+  * Priority inversion, unbounded loops, syscalls behind an inlined wrapper.
+
+The `// SUBTLE:` convention plus review remains the fallback for that gap.
 """
 import json
 import re
@@ -32,11 +55,20 @@ import sys
 from pathlib import Path
 
 WATCHED_FILE_RE = re.compile(
-    r"(^|/)host/Source/(FaustEngine\.(cpp|h)|PluginProcessor\.(cpp|h))$"
+    r"(^|/)host/Source/"
+    r"(FaustEngine|PluginProcessor|ParamPool|OutputGuard)\.(cpp|h)$"
 )
 
+# One alternative per entry in the closure documented above. `FaustEngine::process`
+# is spelled with a trailing \b so it cannot also match `processBlock`, and
+# `\w+::processBlock` keeps working for whatever the processor class is called.
 ANCHOR_RE = re.compile(
-    r"(FaustEngine::process|\w+::processBlock)\s*\([^{]*?\)\s*\{"
+    r"("
+    r"FaustEngine::process\b"
+    r"|\w+::processBlock"
+    r"|ParamPool::pushToFaust"
+    r"|OutputGuard::process\b"
+    r")\s*\([^{]*?\)\s*\{"
 )
 
 BANNED = [
