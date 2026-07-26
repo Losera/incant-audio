@@ -36,6 +36,26 @@ soundfile, no network, no provider quota. It shells out to `faust2sndfile`, alre
 the required Faust install. A run costs zero API requests, which matters because free-tier
 quota is the binding constraint on everything else.
 
+**Toolchain caveat, learned the hard way in CI (2026-07-26).** "Part of the Faust install"
+is true of the *script* and not of what it links. `faust2sndfile` builds the generated C++
+with `pkg-config --static --libs sndfile`, and `--static` emits libsndfile's entire
+transitive closure:
+
+```
+-lsndfile -lFLAC -lmp3lame -lmpg123 -logg -lopus -lvorbis -lvorbisenc
+```
+
+Every one needs its `-dev` package present or `ld` stops at the first missing library. On
+Arch these arrive as libsndfile dependencies, so the whole issue is invisible on the dev
+box; on a clean Ubuntu runner it took two failed CI runs. Both are now installed in
+`.github/workflows/test.yml`. The second round trip was avoidable and was caused by
+`render_oracle` reporting the *head* of the compiler's output — all warnings — instead of
+the tail, where `cannot find -lmp3lame` was sitting; `_diagnostic_tail()` fixes that.
+
+The transferable point for anyone deploying this oracle elsewhere: **the audio gate has a
+system-package dependency the rest of the Python suite does not**, and its absence looks
+like "every patch fails to build" rather than "a library is missing."
+
 ```
 python bench/render_oracle.py patch.dsp          # human-readable
 python bench/render_oracle.py patch.dsp --json   # machine-readable, exit code is the gate
