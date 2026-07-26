@@ -85,12 +85,40 @@ def generation_budget() -> providers.Budget:
     return providers.Budget(total=total, per_attempt_cap=per_attempt)
 
 
+# Output budget for a single generation.
+#
+# Was a bare 1024 at every call site until 2026-07-25. That is roughly 2,200
+# characters of punctuation-dense Faust, and the efficacy pilot walked straight
+# into it: the longest generations measured 2,199 and 2,210 chars, one ending
+# mid-identifier ("chorusR(x) = x * 0.6 + de."). Those were recorded as compile
+# failures. See docs/research/truncation-confound-HANDOFF-S1.md.
+#
+# 4096 is not arbitrary — it is the floor the provider specs already clamp to
+# (ProviderSpec.min_max_tokens on anthropic/gemini/groq), chosen to sit above the
+# hidden-reasoning-token floor and below groq's ~7500 TPM ceiling, past which
+# gpt-oss-120b returns 413. Naming it here stops the caller and the specs from
+# disagreeing silently.
+MAX_OUTPUT_TOKENS = 4096
+
+# Sent instead of compiler stderr when the previous attempt was cut off. A
+# truncated program never reached `faust`, so there is no compile error to feed
+# back — and feeding one anyway is precisely the bug this replaces: the model was
+# told it made a syntax error it had not made, so it rewrote a program of the same
+# length, which truncated again.
+_TRUNCATION_HINT = (
+    "\n\nYour previous answer was CUT OFF at the output limit before it finished — "
+    "it was not wrong, it was too long. Write a SHORTER program this time: no "
+    "comments, fewer helper definitions, and prefer a stdlib function over "
+    "reimplementing one. Emit only the Faust source."
+)
+
+
 def _call_api(content: str, provider: str, model: str | None = None,
               budget: "providers.Budget | None" = None) -> str:
     """Single API dispatch point — delegates to the llm/providers.py registry."""
     generate = providers.make_generator(
-        provider, system_prompt=SYSTEM_PROMPT, model=model, max_tokens=1024,
-        budget=budget,
+        provider, system_prompt=SYSTEM_PROMPT, model=model,
+        max_tokens=MAX_OUTPUT_TOKENS, budget=budget,
     )
     return generate(content)
 
@@ -98,9 +126,19 @@ def _call_api(content: str, provider: str, model: str | None = None,
 def generate_faust(user_prompt: str, error_context: str = "",
                    provider: str = DEFAULT_PROVIDER,
                    model: str | None = None,
-                   budget: "providers.Budget | None" = None) -> str:
+                   budget: "providers.Budget | None" = None,
+                   truncated: bool = False) -> str:
+    """One generation attempt.
+
+    `truncated` and `error_context` are mutually exclusive repair signals, and the
+    caller must not send both: code that was cut off mid-token never reached the
+    compiler, so any stderr in hand belongs to an earlier attempt and would
+    misdirect the model.
+    """
     content = user_prompt
-    if error_context:
+    if truncated:
+        content += _TRUNCATION_HINT
+    elif error_context:
         content += f"\n\nYour previous output had this compiler error — fix it:\n{error_context}"
     return _call_api(content, provider, model, budget)
 
@@ -152,10 +190,17 @@ def generate_with_retry(user_prompt: str, max_retries: int = 3,
                         model: str | None = None) -> str:
     """Returns validated Faust code string. Raises RuntimeError after exhausting retries."""
     error_ctx = ""
+    truncated = False
     budget = generation_budget()
     for attempt in range(1, max_retries + 1):
-        code = generate_faust(user_prompt, error_ctx, provider=provider, model=model,
-                              budget=budget)
+        try:
+            code = generate_faust(user_prompt, error_ctx, provider=provider, model=model,
+                                  budget=budget, truncated=truncated)
+        except providers.OutputTruncated as exc:
+            print(f"[!] Attempt {attempt} was cut off at the output limit: {exc}\n")
+            truncated, error_ctx = True, ""
+            continue
+        truncated = False
         valid, error = validate_faust(code, budget)
         if valid:
             print(f"[+] Valid Faust on attempt {attempt}")
@@ -175,7 +220,13 @@ def generate_json(request: dict) -> dict:
         {"success": bool, "faust_code": str|None, "attempts": int,
          "error": str|None, "reason": str}
 
-    `reason` is one of ok | invalid_faust | timeout | rate_limited | error.
+    `reason` is one of ok | invalid_faust | truncated | timeout | rate_limited | error.
+
+    `truncated` means the model ran out of output budget mid-program on every
+    attempt. It is deliberately distinct from invalid_faust: the code never reached
+    the compiler, the model did nothing wrong, and the user-facing advice is
+    "ask for something simpler", not "the generator produced bad Faust". Conflating
+    the two is what made four consecutive P6 prompts look like generation failures.
     Additive because every existing consumer reads success/faust_code/error and is
     unaffected by an extra key; the host uses it to tell "the provider throttled
     you, wait a moment" apart from "something stalled", which was indistinguishable
@@ -192,15 +243,28 @@ def generate_json(request: dict) -> dict:
     budget = request.get("budget") or generation_budget()
 
     error_ctx = ""
+    truncated = False
     attempt = 0
     for attempt in range(1, max_retries + 1):
         try:
-            code = generate_faust(prompt, error_ctx, provider, model, budget)
+            code = generate_faust(prompt, error_ctx, provider, model, budget,
+                                  truncated=truncated)
         except providers.RateLimited as exc:
             return _failure(attempt, "rate_limited", str(exc))
         except providers.BudgetExhausted as exc:
             return _failure(attempt, "timeout", str(exc))
+        except providers.OutputTruncated as exc:
+            # Recoverable, and specifically NOT a compile failure — the code never
+            # reached the compiler. Retry asking for a shorter program rather than
+            # feeding back stderr that belongs to nothing.
+            truncated, error_ctx = True, ""
+            if attempt == max_retries:
+                return _failure(attempt, "truncated", str(exc))
+            if budget.expired():
+                return _failure(attempt, "timeout", str(exc))
+            continue
 
+        truncated = False
         valid, error = validate_faust(code, budget)
         if valid:
             return {"success": True, "faust_code": code, "attempts": attempt,

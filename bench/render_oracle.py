@@ -52,10 +52,22 @@ from pathlib import Path
 import numpy as np
 import scipy.io.wavfile as wav
 
-# faust2sndfile writes a LIST/INFO chunk scipy does not recognise. The data chunk
-# reads fine; the warning is pure noise in CI output.
 import warnings
-warnings.filterwarnings("ignore", category=wav.WavFileWarning)
+from contextlib import contextmanager
+
+
+@contextmanager
+def _quiet_wav():
+    """faust2sndfile writes a LIST/INFO chunk scipy does not recognise. The data
+    chunk reads fine, so the warning is pure noise.
+
+    Scoped to the call rather than set at import: pytest installs its own warning
+    filters and resets module-level ones, so an import-time filterwarnings() call
+    silently stops working the moment these renders run under the test suite.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", wav.WavFileWarning)
+        yield
 
 SR = 48000
 DUR = 2.0
@@ -184,7 +196,8 @@ def render(dsp_source: str, signal: np.ndarray | None = None,
         if not out.exists():
             raise RenderError(f"render failed: {run.stderr.strip()[:400]}")
 
-        _, y = wav.read(str(out))
+        with _quiet_wav():
+            _, y = wav.read(str(out))
 
     x = signal.astype(np.float64)
     y = np.atleast_2d(y.astype(np.float64))

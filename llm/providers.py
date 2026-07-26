@@ -83,6 +83,32 @@ class RateLimited(RuntimeError):
     """
 
 
+class OutputTruncated(RuntimeError):
+    """The model hit its output cap mid-program. Maps to reason="truncated".
+
+    WHY THIS EXISTS. Nothing in this pipeline used to read finish_reason /
+    stop_reason — grep confirmed not one adapter inspected it — and the truncated
+    body was deliberately passed through (strip_code_fences even advertised
+    "a truncated response still yields its code"). So a cut-off program reached
+    `faust`, which reported `syntax error, unexpected $end` — bison's $end IS the
+    EOF token, i.e. "the parser ran out of input" — and generate.py fed that raw
+    stderr back with "Your previous output had this compiler error - fix it". The
+    model, told it made a syntax error it did not make, wrote another program of
+    the same length, which truncated again. Three attempts, three guaranteed
+    failures, the full request budget spent.
+
+    Evidence (bench/results/efficacy/pilot_20260720.json, reproduced 2026-07-25):
+    failed generations average 1447 chars, successful ones 581; the longest sit at
+    ~2200 chars, exactly where a 1024-token cap on punctuation-dense Faust bites.
+    The anthropic spec — which produced every recorded benchmark and efficacy
+    number — had min_max_tokens=0, so those runs executed at a raw 1024 cap.
+
+    Credit: identified by the parallel research session, docs/research/
+    truncation-confound-HANDOFF-S1.md. Every claim in it was re-verified here
+    before this code was written.
+    """
+
+
 @dataclass
 class Budget:
     """Wall-clock budget shared by every HTTP attempt inside ONE generation.
@@ -215,6 +241,10 @@ PROVIDERS: dict[str, ProviderSpec] = {
         env_var="OPENROUTER_API_KEY",
         base_url="https://openrouter.ai/api/v1",
         signup_url="https://openrouter.ai/keys",
+        # Floored with the rest: a spec without one silently runs at whatever the
+        # caller asks for, and the bench harnesses still ask for 1024. That is
+        # exactly how the anthropic spec ran the whole efficacy study truncated.
+        min_max_tokens=4096,
         notes="Many ':free' models behind one key, but only ~50 free-model requests "
               "per day until the account has spent $10. Good for a smoke test.",
     ),
@@ -225,6 +255,10 @@ PROVIDERS: dict[str, ProviderSpec] = {
         env_var=None,
         base_url="http://localhost:11434/v1",
         signup_url="https://ollama.com",
+        # Local and unmetered, so the floor costs nothing and keeps the invariant
+        # "no provider can silently generate below the shared output budget"
+        # uniform rather than a per-provider judgement call.
+        min_max_tokens=4096,
         notes="Fully local: no key, no quota, works offline, can never be billing "
               "blocked. Needs `sudo pacman -S ollama` + `ollama pull <model>`.",
     ),
@@ -239,6 +273,10 @@ PROVIDERS: dict[str, ProviderSpec] = {
         strip_fences=False,
         free=False,
         signup_url="https://console.anthropic.com",
+        # Was 0, i.e. a raw 1024-token cap on every call, while gemini and groq
+        # both floor at 4096. Every recorded benchmark and efficacy number came
+        # from this provider and therefore ran truncated -- see OutputTruncated.
+        min_max_tokens=4096,
         notes="PAID. Requires PLUGINFORGE_ALLOW_PAID=1.",
         no_temperature_models=("claude-opus-4-7", "claude-opus-4-8"),
     ),
@@ -309,7 +347,11 @@ def strip_code_fences(text: str) -> str:
     forbid this, but they are HUMAN-OWNED product IP (COLLABORATION.md §1), so the
     cleanup belongs here rather than in a prompt edit.
 
-    Tolerates a missing closing fence — a truncated response still yields its code.
+    Tolerates a missing closing fence. NOTE that this is no longer the truncation
+    story it used to be: a response cut off at the output cap is now detected in
+    the adapter and raised as OutputTruncated before it ever reaches here. This
+    tolerance covers a model that simply forgot the closing fence, not one that
+    ran out of budget mid-program.
     """
     stripped = text.strip()
     if "```" not in stripped:
@@ -357,6 +399,11 @@ def _make_anthropic(spec, model, system_prompt, temperature, max_tokens, budget=
         if temperature is not None:
             kwargs["temperature"] = temperature
         response = client.messages.create(**kwargs)
+        # anthropic signals the output cap as stop_reason == "max_tokens"
+        # (messages API). Raise rather than return a half-written program.
+        if getattr(response, "stop_reason", None) == "max_tokens":
+            raise OutputTruncated(
+                f"{model} hit its {max_tokens}-token output cap mid-program")
         return response.content[0].text.strip()
 
     return _call_with_retry(generate, budget)
@@ -381,6 +428,12 @@ def _make_gemini(spec, model, system_prompt, temperature, max_tokens, budget=Non
             contents=user_message,
             config=gai_types.GenerateContentConfig(**config_kwargs),
         )
+        # google-genai reports the cap as candidates[0].finish_reason MAX_TOKENS.
+        # The enum stringifies with a class prefix, so match on the name.
+        for candidate in (getattr(response, "candidates", None) or []):
+            if "MAX_TOKENS" in str(getattr(candidate, "finish_reason", "")):
+                raise OutputTruncated(
+                    f"{model} hit its {max_tokens}-token output cap mid-program")
         return (response.text or "").strip()
 
     return _call_with_retry(generate, budget)
@@ -405,7 +458,13 @@ def _make_openai_compat(spec, model, system_prompt, temperature, max_tokens, bud
             payload["temperature"] = temperature
         data = _post_with_backoff(url, headers, payload, budget)
         try:
-            return (data["choices"][0]["message"]["content"] or "").strip()
+            choice = data["choices"][0]
+            # OpenAI-compatible servers (groq/openrouter/ollama) all report the
+            # output cap as finish_reason == "length".
+            if choice.get("finish_reason") == "length":
+                raise OutputTruncated(
+                    f"{model} hit its {max_tokens}-token output cap mid-program")
+            return (choice["message"]["content"] or "").strip()
         except (KeyError, IndexError, TypeError) as exc:
             raise RuntimeError(
                 f"{spec.name}: unexpected response shape: {json.dumps(data)[:300]}"

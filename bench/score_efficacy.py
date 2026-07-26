@@ -71,6 +71,56 @@ ERROR_CLASS_RULES = [
 
 INCOMPLETE_MIN_LEN = 20  # shorter than this (after stripping) counts as INCOMPLETE
 
+# Failures where NO generation happened: the request was refused or never reached
+# the model. These are not compile outcomes and must not sit in a compile-rate
+# denominator.
+#
+# WHY. The 2026-07-20 pilot recorded `generative-05` as a first-try compile failure
+# in all five tiers. It was not: the Anthropic account had no credit and the
+# request was rejected before a token was generated. Every published tier figure in
+# docs/prompt_efficacy_study.md §7.1 is therefore a compile rate containing one
+# non-compile event, with a denominator one too large. Discovered 2026-07-25 while
+# checking whether the study's headline result survives scrutiny; see
+# docs/research/truncation-confound-HANDOFF-S1.md §2.1.
+#
+# `truncated` belongs here too, for a different reason: a cut-off program never
+# reached the compiler either, so scoring it as invalid Faust blames the model for
+# an output-budget defect. The pipeline now reports it as its own reason
+# (llm/generate.py), and it is excluded rather than counted against generation.
+TRANSPORT_ERROR_KEYWORDS = [
+    "credit balance",          # anthropic: insufficient funds
+    "invalid_request_error",
+    "authentication",
+    "api key",
+    "permission",
+    "quota",
+    "rate_limit",
+    "rate limited",
+    "connection",
+    "timed out",
+    "timeout",
+    "badrequesterror",
+    "was cut off at the output limit",   # OutputTruncated
+]
+
+
+def is_transport_error(record: dict) -> bool:
+    """True when the record represents a request that never produced a program.
+
+    Deliberately checks only the FIRST error: a record whose first attempt was
+    refused for billing but which later generated real code is still a transport
+    casualty for first-try purposes.
+    """
+    errors = record.get("errors") or []
+    if not errors:
+        return False
+    first = (errors[0] or "").lower()
+    # Real compiler output always names the compiler's own failure; if `faust`
+    # spoke at all, this was a generation, not a transport failure.
+    if "error :" in first or "syntax error" in first:
+        return False
+    return any(kw in first for kw in TRANSPORT_ERROR_KEYWORDS)
+
 
 def classify_error(code: str, error: str) -> str:
     """Classify one failed FIRST attempt into the benchmark_analysis.md taxonomy.
@@ -148,11 +198,19 @@ def compute_efficacy_scores(records: list, dataset: dict) -> dict:
     unclassified_fragments = {t: [] for t in tiers}
     semantic_pass = {t: [0, 0] for t in tiers}
 
+    excluded = {t: 0 for t in tiers}
+
     for r in records:
         tier = r["tier"]
         cat = r["category"]
         if tier not in tier_category or cat not in tier_category[tier]:
             continue  # defensive: dataset/results mismatch
+
+        # A request that never produced a program is not a compile outcome. Counting
+        # it as one is what put five billing errors into the pilot's compile rate.
+        if not r["first_try_compiles"] and is_transport_error(r):
+            excluded[tier] += 1
+            continue
 
         compiled_ok = r["first_try_compiles"] or r["retry_success"]
 
@@ -200,15 +258,41 @@ def compute_efficacy_scores(records: list, dataset: dict) -> dict:
         "error_classes": error_classes,
         "unclassified_fragments": unclassified_fragments,
         "semantic_pass": semantic_pass,
+        "excluded_transport": excluded,
         "tiers": tiers,
         "categories": categories,
     }
 
 
+def print_excluded(scores: dict) -> None:
+    """Report what was dropped from the denominators, and why.
+
+    Printed unconditionally, including when the count is zero: a silent exclusion
+    is how you get a second generation of numbers nobody can reproduce.
+    """
+    excluded = scores.get("excluded_transport", {})
+    total = sum(excluded.values())
+    print(f"\n{'═' * 60}")
+    print("EXCLUDED FROM COMPILE RATES (no program was generated)")
+    print(f"{'═' * 60}")
+    if not total:
+        print("  none — every record represents a real generation attempt")
+        return
+    print(f"  {total} record(s) dropped: request refused or cut off before a")
+    print("  program existed, so they are not compile outcomes.")
+    for tier, n in excluded.items():
+        if n:
+            print(f"    {tier}: {n}")
+    print("  Denominators below are correspondingly smaller. See is_transport_error().")
+
+
 # ── Printing ───────────────────────────────────────────────────────────────────
 
 def _pct(p: int, n: int) -> str:
-    return f"{p}/{n} ({int(p / n * 100) if n else 0:3d}%)"
+    # round, not int(): truncation systematically under-reported every inexact
+    # rate by up to a point (8/9 printed as 88%, not 89%). Harmless in a console
+    # dump, not harmless in a figure someone quotes.
+    return f"{p}/{n} ({round(p / n * 100) if n else 0:3d}%)"
 
 
 def print_tier_category_matrices(scores: dict) -> None:
@@ -433,6 +517,7 @@ def main(argv=None) -> int:
     print("  PluginForge Prompt-Efficacy Study — Report")
     print(f"{'═' * 60}")
 
+    print_excluded(scores)
     print_tier_category_matrices(scores)
     print_tier_aggregate(scores)
     print_error_classes(scores)
