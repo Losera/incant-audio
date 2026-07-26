@@ -44,6 +44,11 @@ static juce::String statusForReason(const juce::String& reason)
         return "Timed out before a valid patch — try a simpler prompt.";
     if (reason == "invalid_faust")
         return "The model's Faust did not compile after 3 attempts (see errors below).";
+    // Deliberately NOT folded into invalid_faust: a truncated program never
+    // reached the compiler, the model did nothing wrong, and the useful advice is
+    // "ask for something simpler" rather than "the generator produced bad Faust".
+    if (reason == "truncated")
+        return "The plugin was too large to finish — try asking for something simpler.";
     if (reason == "no_credentials")
         return "No API key for the selected provider (see errors below).";
     return "LLM error (see errors below).";
