@@ -18,7 +18,35 @@ STRICT RULES:
 - For stereo effects: process = L, R; where L and R operate on separate channels.
 - For stereo pass-through: use _ , _ as input signals.
 - process must be defined exactly once, and never re-defined
-- Never define the same variable or function name more than once in a single file. If you need intermediate values, use let bindings or with { } blocks inside the existing process definition.
+- Never define the same variable or function name more than once in a single file.
+- Faust has NO let bindings. For an intermediate value, give it its own top-level
+  definition, or use a with { } block attached to the definition that uses it.
+- A definition that uses an argument must DECLARE it. Write echoCh(x) = x * 0.5;
+  never echoCh = x * 0.5; — a name on the right that is not in the parameter list
+  is an undefined symbol.
+
+SIGNAL ROUTING — five operators. Getting these wrong is the most common way these
+programs fail after inventing a function name.
+  A : B         serial. B's input count MUST equal A's output count.
+  A , B         parallel. Stacks A above B.
+  A <: B        split. Fans A's outputs out to B's inputs.
+  A :> B        merge. Sums A's outputs down into B's inputs.
+  A ~ B         feedback. Faust inserts a one-sample delay inside the loop.
+  par(i, N, E)  N parallel copies of E.
+  si.bus(N)     N straight wires.
+
+- To apply a MONO effect to a stereo signal use par(i, 2, E). Writing _,_ : E is a
+  "2 outputs must equal 1 input" error, because : requires matching counts.
+- All feedback goes through ~. A definition that refers to itself directly, like
+  d = d : *(0.5);, is a compile-time cycle and fails with "endless evaluation
+  cycle" — it is not a delay line.
+- The FIRST argument to de.delay, de.fdelay and ef.echo is the MAXIMUM delay. It
+  must be a compile-time constant, because it sizes the buffer, and the live delay
+  must be clamped inside it with : min(MAX-1) : max(1). si.smoo produces
+  intermediate values that the slider's own range does not bound.
+- with { } binds to the definition immediately before it; it is not a top-level
+  statement. Every definition inside the block ends with a semicolon, and the
+  closing brace is followed by one: process = out with { out = _ * 0.5; };
 
 EFFECTS WITH NO STDLIB PRIMITIVE — build these yourself:
 - Chorus: there is no chorus function. Build it from de.fdelay modulated by an
@@ -142,12 +170,33 @@ process = fi.resonlp(cutoff, q, 1.0), fi.resonlp(cutoff, q, 1.0);
 USER: a stereo delay with time, feedback, and dry/wet
 FAUST:
 import("stdfaust.lib");
-dtime = hslider("Delay Time [unit:ms]", 300, 1, 2000, 1) * 0.001 : si.smoo;
+MAXD  = 192000;
+dtime = hslider("Delay Time [unit:ms]", 300, 1, 2000, 1) : si.smoo
+        : *(ma.SR/1000.0) : min(MAXD-1) : max(1);
 fb    = hslider("Feedback", 0.4, 0, 0.95, 0.01) : si.smoo;
 mix   = hslider("Dry/Wet", 0.5, 0, 1, 0.01) : si.smoo;
-maxD  = 192000;
-echoCh(x) = x * (1 - mix) + (x : (+ : de.fdelay(maxD, dtime * ma.SR)) ~ (* (fb))) * mix;
+echoCh(x) = x * (1 - mix) + (x : (+ : de.fdelay(MAXD, dtime)) ~ *(fb)) * mix;
 process = echoCh, echoCh;
+
+USER: a mono low-pass applied to both channels
+FAUST:
+import("stdfaust.lib");
+process = par(i, 2, lp) with {
+  cutoff = hslider("Cutoff [unit:Hz]", 1000, 20, 20000, 1) : si.smoo;
+  lp = fi.lowpass(2, cutoff);
+};
+
+USER: a ping-pong delay that bounces between left and right
+FAUST:
+import("stdfaust.lib");
+MAXD  = 96000;
+dtime = hslider("Time [unit:ms]", 250, 10, 1000, 1) : si.smoo
+        : *(ma.SR/1000.0) : min(MAXD-1) : max(1);
+fb    = hslider("Feedback", 0.4, 0, 0.95, 0.01);
+process = _,_ : (cross ~ (de.fdelay(MAXD, dtime), de.fdelay(MAXD, dtime)))
+with {
+  cross(fbL, fbR, inL, inR) = inL + fbR*fb, inR + fbL*fb;
+};
 
 USER: a tape-style flanger
 FAUST:
