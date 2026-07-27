@@ -54,6 +54,7 @@ OK = "ok"
 TRANSPORT = "transport"          # never reached the compiler; not a generation outcome
 TRUNCATED = "truncated"          # cut off at the output limit; an output-budget defect
 HALLUCINATED_SYMBOL = "hallucinated_symbol"
+UNBOUND_VARIABLE = "unbound_variable"
 ROUTING_ARITY = "routing_arity"
 DELAY_RANGE = "delay_range"
 RECURSION_CYCLE = "recursion_cycle"
@@ -66,7 +67,8 @@ UNCLASSIFIED = "unclassified"
 # Fix hints are part of the taxonomy, not decoration: a class whose fix nobody can state
 # is a class that will never be acted on.
 FIX_HINT = {
-    HALLUCINATED_SYMBOL: "prompt invented a function — stdlib block or namespace rule",
+    HALLUCINATED_SYMBOL: "invented/mis-namespaced stdlib function — namespace rule",
+    UNBOUND_VARIABLE: "used a name it never bound — function-parameter rule",
     ROUTING_ARITY: "split/merge (<: :>) arity — routing-algebra section",
     DELAY_RANGE: "delay max must be a compile-time constant — bounded-delay rule",
     RECURSION_CYCLE: "~ loop with no delay in the feedback path — recursion example",
@@ -82,10 +84,22 @@ FIX_HINT = {
 _RULES: list[tuple[str, re.Pattern]] = [
     # Arity FIRST: "2 outputs must equal 1 input" would otherwise be caught by nothing
     # specific and fall through to unclassified, and it is one of PF-024's four.
+    # Two wordings, both real. BUGS.md paraphrases the P6 failure as "2 outputs must
+    # equal 1 input"; Faust 2.85.5 actually emits "The number of outputs [2] of A must
+    # be equal to the number of inputs [1] of ...". Both are matched — the paraphrase
+    # because it is what the registry recorded, the real one because it is what the
+    # compiler says.
     (ROUTING_ARITY, re.compile(
         r"outputs?\s+must\s+equal|inputs?\s+must\s+equal"
-        r"|number of (outputs|inputs)|i/?o mismatch", re.I)),
-    (DELAY_RANGE, re.compile(r"invalid delay parameter range|invalid delay", re.I)),
+        r"|number of (outputs|inputs)|sequential composition|i/?o mismatch", re.I)),
+    # Likewise two wordings. The P6 run recorded "invalid delay parameter range:
+    # interval(0,2.1e9,0)". Reproducing an unbounded delay on 2.85.5 gives instead
+    # "possible negative values of : int(min(Delay(...)))  used in delay expression".
+    # Same defect — a non-constant or unclamped delay argument — so same class. Missing
+    # the second form would have silently filed it as `unclassified`.
+    (DELAY_RANGE, re.compile(
+        r"invalid delay parameter range|invalid delay"
+        r"|used in delay expression|negative values of\s*:\s*int\(min\(Delay", re.I)),
     (RECURSION_CYCLE, re.compile(r"endless evaluation cycle|evaluation cycle", re.I)),
     (DUPLICATE_SYMBOL, re.compile(r"multiple definitions of symbol|redefinition", re.I)),
     (HALLUCINATED_SYMBOL, re.compile(
@@ -101,6 +115,42 @@ _RULES: list[tuple[str, re.Pattern]] = [
 _TOKEN_RE = re.compile(r"unexpected\s+([A-Z_]{2,}|[a-z_]+)", re.I)
 
 _MIN_PROGRAM_LEN = 20  # matches score_efficacy.INCOMPLETE_MIN_LEN
+
+_UNDEF_SYM_RE = re.compile(r"undefined symbol\s*:\s*([A-Za-z_]\w*)")
+
+
+def _split_undefined_symbol(error: str, code: str) -> str:
+    """`undefined symbol : X` covers two different defects with two different fixes.
+
+    Faust says the same thing whether the model called a stdlib function that does not
+    exist, or used a name it never bound. Both were in the corpus, and merging them
+    would point at the wrong fix half the time:
+
+      ef.flanger_mono(...)          -> there is no flanger_mono in ef. (it is pf.)
+                                       fix: the namespace rule
+      delayCh = x * (1-mix) + ...   -> `x` is never bound; the model copied the
+                                       prompt's own echoCh(x) example and dropped the
+                                       parameter list
+                                       fix: show that a function taking an argument
+                                       must declare it
+
+    The distinguisher is whether the failing symbol is called through a namespace in the
+    generated program. `ns.name` means the model reached for the standard library;
+    a bare name it never defined means it lost track of its own scope.
+    """
+    m = _UNDEF_SYM_RE.search(error)
+    if not m or not (code or "").strip():
+        # The split is a property of the PROGRAM, not the error message. Without the
+        # program there is nothing to inspect, so fall back to the historical class
+        # rather than inventing a distinction the evidence does not support.
+        return HALLUCINATED_SYMBOL
+    sym = m.group(1)
+    if re.search(rf"\b[A-Za-z_]\w*\.{re.escape(sym)}\b", code or ""):
+        return HALLUCINATED_SYMBOL
+    # Defined nowhere in the program, and not reached through a namespace.
+    if re.search(rf"^\s*{re.escape(sym)}\s*[=(]", code or "", re.M):
+        return HALLUCINATED_SYMBOL      # it IS defined; something subtler is wrong
+    return UNBOUND_VARIABLE
 
 
 class Failure:
@@ -149,6 +199,8 @@ def classify(error: str, code: str = "", record: dict | None = None) -> Failure:
                 m = _TOKEN_RE.search(err)
                 if m:
                     detail = m.group(1).upper()
+            elif klass == HALLUCINATED_SYMBOL:
+                klass = _split_undefined_symbol(err, code)
             return Failure(klass, detail)
 
     stripped = (code or "").strip()

@@ -26,11 +26,25 @@ REAL_PINGPONG = ("ERROR : after 400 evaluation steps, the compiler has detected 
 REAL_FLANGER = "/tmp/tmpautus4m4.dsp:8 : ERROR : undefined symbol : flanger_mono"
 REAL_SIDECHAIN = "/tmp/tmpo4mjv_jm.dsp:17 : ERROR : syntax error, unexpected ARROW"
 
-# From the 2026-07-24 P6 battery (docs/BUGS.md, PF-024).
+# From the 2026-07-24 P6 battery (docs/BUGS.md, PF-024). NOTE: these two are the
+# registry's PARAPHRASE of the failure, not the compiler's own words.
 REAL_STEREO_MONO = "ERROR : 2 outputs must equal 1 input"
 REAL_UNBOUNDED_DELAY = "ERROR : invalid delay parameter range: interval(0,2.1e9,0)"
 REAL_LOVELESS = "ERROR : syntax error, unexpected IDENT"
 REAL_RE201 = "ERROR : syntax error, unexpected WITH"
+
+# Verbatim Faust 2.85.5 output, captured 2026-07-27 by compiling the failing forms in
+# .claude/skills/faust-idioms/SKILL.md. These differ from the paraphrases above, and
+# that difference is the point: classifying only the paraphrase would file real runs
+# as `unclassified`.
+FAUST_ARITY = (
+    "ERROR : sequential composition A:lowpass(2)(800)\n"
+    "The number of outputs [2] of A must be equal to the number of inputs [1] "
+    "of lowpass(2)(800)")
+FAUST_DELAY = (
+    "ERROR : possible negative values of : int(min(Delay(proj0(letrec(W0 = ...)))))\n"
+    "        used in delay expression : IN[0]\n"
+    "        interval(-2.14748e+09,2.14748e+09,0)")
 
 
 class TestTheFourPF024Classes:
@@ -51,7 +65,21 @@ class TestTheFourPF024Classes:
         assert cf.classify(REAL_UNBOUNDED_DELAY).klass == cf.DELAY_RANGE
 
     def test_invented_function_is_a_hallucinated_symbol(self):
-        assert cf.classify(REAL_FLANGER).klass == cf.HALLUCINATED_SYMBOL
+        # Verbatim from the archived corpus: the model wrote ef.flanger_mono, and
+        # flanger_mono lives in pf., not ef.
+        code = ('flangerMono = _ <: _ * (1 - mix), '
+                '(ef.flanger_mono(dmax, cmax, depth, feedback, rate) * mix) :> _;')
+        assert cf.classify(REAL_FLANGER, code).klass == cf.HALLUCINATED_SYMBOL
+
+    def test_the_compilers_own_arity_wording_also_classifies(self):
+        """The registry paraphrases; the compiler does not. Both must land."""
+        assert cf.classify(FAUST_ARITY).klass == cf.ROUTING_ARITY
+
+    def test_the_compilers_own_delay_wording_also_classifies(self):
+        """An unbounded delay on 2.85.5 says "possible negative values ... used in
+        delay expression", not "invalid delay parameter range". Same defect, and
+        missing this form filed it as `unclassified` until 2026-07-27."""
+        assert cf.classify(FAUST_DELAY).klass == cf.DELAY_RANGE
 
     def test_the_four_do_not_collapse_into_one_bucket(self):
         classes = {
@@ -61,6 +89,41 @@ class TestTheFourPF024Classes:
             cf.classify(REAL_FLANGER).klass,
         }
         assert len(classes) == 4, f"classes collapsed: {classes}"
+
+
+class TestUndefinedSymbolSplitsIntoTwoDefects:
+    """Faust says `undefined symbol : X` for two unrelated mistakes.
+
+    Both are in the corpus. Merging them points at the wrong fix half the time, so the
+    classifier splits on whether the symbol was reached through a namespace.
+    """
+
+    # Verbatim from the 2026-07-27 groq baseline: the model copied the prompt's own
+    # echoCh(x) few-shot and dropped the parameter list, leaving `x` unbound.
+    UNBOUND_CODE = (
+        'import("stdfaust.lib");\n'
+        'mix = hslider("Dry/Wet", 0.5, 0, 1, 0.01) : si.smoo;\n'
+        'delayCh = x * (1 - mix) + (x : (+ : de.fdelay(maxD, dtime * ma.SR)) ~ (* (fb))) * mix;\n'
+        'process = delayCh, delayCh;\n')
+    UNBOUND_ERR = "maths.lib:1575 : ERROR : undefined symbol : x"
+
+    NAMESPACED_CODE = 'x = ef.flanger_mono(dmax, cmax, depth, feedback, rate);'
+
+    def test_bare_unbound_name_is_not_a_hallucinated_stdlib_call(self):
+        assert cf.classify(self.UNBOUND_ERR, self.UNBOUND_CODE).klass == cf.UNBOUND_VARIABLE
+
+    def test_namespaced_call_is_a_hallucinated_symbol(self):
+        assert cf.classify(REAL_FLANGER, self.NAMESPACED_CODE).klass == cf.HALLUCINATED_SYMBOL
+
+    def test_the_two_are_distinguishable(self):
+        a = cf.classify(self.UNBOUND_ERR, self.UNBOUND_CODE).klass
+        b = cf.classify(REAL_FLANGER, self.NAMESPACED_CODE).klass
+        assert a != b
+
+    def test_a_symbol_the_program_does_define_is_not_called_unbound(self):
+        """If the name IS defined, something subtler is wrong — don't blame scope."""
+        code = 'foo = 0.5;\nprocess = _ * foo;'
+        assert cf.classify("ERROR : undefined symbol : foo", code).klass == cf.HALLUCINATED_SYMBOL
 
 
 class TestSyntaxKeepsItsToken:
@@ -184,6 +247,7 @@ class TestNothingSilentlyBecomesUnclassified:
     @pytest.mark.parametrize("error", [
         REAL_PINGPONG, REAL_FLANGER, REAL_SIDECHAIN, REAL_STEREO_MONO,
         REAL_UNBOUNDED_DELAY, REAL_LOVELESS, REAL_RE201,
+        FAUST_ARITY, FAUST_DELAY,
     ])
     def test_every_real_error_is_classified(self, error):
         assert cf.classify(error).klass != cf.UNCLASSIFIED
@@ -196,7 +260,7 @@ class TestNothingSilentlyBecomesUnclassified:
     def test_every_class_has_a_fix_hint(self):
         """A class nobody can act on should not exist."""
         for name in [cf.HALLUCINATED_SYMBOL, cf.ROUTING_ARITY, cf.DELAY_RANGE,
-                     cf.RECURSION_CYCLE, cf.DUPLICATE_SYMBOL, cf.SYNTAX,
+                     cf.RECURSION_CYCLE, cf.DUPLICATE_SYMBOL, cf.SYNTAX, cf.UNBOUND_VARIABLE,
                      cf.TYPE_MISMATCH, cf.INCOMPLETE, cf.TRUNCATED,
                      cf.TRANSPORT, cf.UNCLASSIFIED]:
             assert cf.FIX_HINT.get(name), f"{name} has no fix hint"
