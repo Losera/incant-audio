@@ -268,6 +268,109 @@ option, as a new ADR.
 
 *To add a new decision: copy the ADR template below, increment the number, and fill in the fields.*
 
+## ADR-009 — Verdict (2026-07-19): the rule worked, the prediction did not
+
+| | |
+|---|---|
+| **Status** | Accepted — verdict appended 2026-07-25 |
+| **Date** | 2026-07-19 (measured), ratified 2026-07-25 |
+
+**Context**
+ADR-009 added a duplicate-`process` constraint rule to the system prompt and predicted
+"≥96% first-try compile on Faust", with an open action item to confirm by re-run. The
+re-run happened on 2026-07-19 and the ADR was never updated, so it read as pending
+rather than falsified for six days.
+
+**Decision**
+Record the measurement. Full 25-prompt re-run: **22/25 = 88%**, not ≥96%.
+`bench/results/.prompt_baseline.json` moved 0.84 → 0.88.
+
+**Reasons**
+- The *rule* did its job: no duplicate-symbol regressions in the re-run.
+- The *prediction* about the resulting compile rate was wrong. Two of three failures
+  (ping-pong SEMANTIC, flanger HALLUCINATION) were exact repeats of the 2026-05 run —
+  i.e. failure modes the rule was never going to address.
+- Conflating "the rule worked" with "the number was hit" is what let the open action
+  item sit unclosed.
+
+**Consequences**
+- ADR-009 references `llm/prompts/system_faust.txt` (`:20`, `:37`), a file that **no
+  longer exists** — the prompt was unified into `llm/prompts/system_prompt.txt` on
+  2026-07-21 and that path was deleted. Read those lines as the unified prompt.
+- The 88% figure is itself now void twice over: measured against the since-deleted
+  prompt, and (2026-07-25) measured with an undetected output-truncation confound.
+  Detail: `docs/prompt_efficacy_study.md` §6.
+
+---
+
+## ADR-012 — Provider abstraction with a free-only constraint
+
+| | |
+|---|---|
+| **Status** | Accepted |
+| **Date** | 2026-07-21, ratified 2026-07-25 |
+
+**Context**
+Every LLM call went to Anthropic, constructed inline at three separate call sites. When
+the Anthropic credit ran out, the entire project stopped: the 125-prompt efficacy run was
+rejected pre-generation, producing zero data. A single hard-coded provider was a
+single point of failure for all measurement.
+
+**Decision**
+One provider registry, `llm/providers.py`, is the only place any component gets an LLM
+callable. Five providers, three adapters. `anthropic` is marked `free=False` and is
+refused unless `PLUGINFORGE_ALLOW_PAID=1`; every runnable entry point calls
+`assert_free()`.
+
+**Reasons**
+- Adding a provider becomes a registry entry, not a fourth copy of a client constructor.
+- Free-only by default makes an unattended run incapable of spending money.
+- Selection through `PLUGINFORGE_PROVIDER` in `.env` reaches the plugin via
+  `juce::ChildProcess` inheritance — no C++ change, no rebuild.
+
+**Consequences**
+- Restored end-to-end generation on a free provider with no rebuild (`3ebe249`).
+- The registry became the natural home for two things that cannot live in the prompt:
+  markdown-fence stripping, and `min_max_tokens` (reasoning models bill hidden thinking
+  against the output cap).
+- Cross-provider numbers are not comparable to Anthropic-era ones. ADR-008's
+  "under evaluation" cross-model comparison is now cheap to run and still unrun (PF-012).
+
+---
+
+## ADR-019 — UX-generation surface: native widgets now, WebView deferred
+
+| | |
+|---|---|
+| **Status** | Accepted |
+| **Date** | 2026-07-24, ratified 2026-07-25 |
+
+**Context**
+Competing prompt-to-plugin tools increasingly build plugin UI as HTML/JS in a webview.
+PluginForge's UI is 100% native JUCE widgets, and webview is deliberately compiled out —
+`JUCE_WEB_BROWSER=0` / `JUCE_USE_CURL=0` on every target. That was load-bearing, not
+incidental: those defaults of 1 were what broke the build until 2026-07-18.
+
+**Decision**
+Keep the native-declarative surface. Do not adopt a webview UI now.
+
+**Reasons**
+- Re-enabling `JUCE_WEB_BROWSER` reintroduces the gtk3/webkit2gtk dependency that
+  blocked the build, on a platform (Arch) shipping webkit2gtk-4.1 where JUCE looks for 4.0.
+- The auto-layout param grid already covers the fixed-64-slot case; the ecosystem survey
+  found zero of 19 fixed-param plugins using a bare generic editor.
+- It is a dependency and distribution change (§2 trigger 4) with no user-visible win yet.
+
+**Consequences**
+- Generated UI stays limited to what the param-grid layout can express.
+- Revisit trigger, stated so this is falsifiable: if generated patches routinely need a
+  control the grid cannot express, or if a shipped competitor's browser-first iteration
+  loop measurably beats ours, reopen.
+- **This is the one entry here that decides direction rather than recording a decision
+  already taken.** It authorizes no work — it declines work — so reversing it is free.
+
+---
+
 <details>
 <summary>ADR template</summary>
 

@@ -1,7 +1,9 @@
 # PluginForge — Bug Registry
 
-**Owned by S5 (Bug tracking). The durable, IDed source of truth for defects.**
-Seeded 2026-07-23. Read alongside `STATUS.md`, `docs/FLEET.md`, `COLLABORATION.md`, `CLAUDE.md`.
+**The durable, IDed source of truth for defects.**
+Seeded 2026-07-23; reconciled against HEAD 2026-07-27. Read alongside `STATUS.md`,
+`COLLABORATION.md`, `CLAUDE.md`. (The S5-lane ownership model and `docs/FLEET.md` are retired —
+this file is now maintained by whoever is working.)
 
 ## Why this file exists
 Before this, defects lived only as prose in `STATUS.md`'s "Broken — ranked" and "Assumed,
@@ -12,10 +14,13 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 ## How it relates to STATUS.md
 - **BUGS.md is the durable, IDed source.** Every defect gets a permanent `PF-NNN` here and stays
   (as `fixed`/`wontfix`), it is never deleted.
-- **STATUS.md "Broken — ranked" is the live top-N view.** The overseer maintains it and should
-  reference IDs (e.g. "Broken #1 → PF-002"). S5 does **not** edit STATUS.md — sync happens by
-  proposing Broken-section changes to the overseer (FLEET.md reporting protocol).
+- **STATUS.md "Broken — ranked" is the live top-N view** and should reference IDs (e.g.
+  "Broken #1 → PF-002"). The two are synced by hand, and **they have drifted twice**: on
+  2026-07-27 ten entries here said `open` while their fixes were live in the tree. When they
+  disagree, believe neither — read the code at HEAD and fix both.
 - IDs are assigned in discovery order and never reused.
+- **A row flips to `fixed` only after someone reads the cited code at HEAD.** A commit message
+  claiming a fix is not evidence; that assumption is what produced the drift above.
 
 ## Conventions
 - **Severity:** `critical` (product doesn't work / data loss) · `high` · `medium` · `low`.
@@ -36,29 +41,35 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-003 | Shutdown use-after-free on the detached compile thread | high | fixed | S1 Backend | `FaustEngine.cpp` | 2026-07-21 | `d10f59e` |
 | PF-004 | Param path not RT-safe — `fprintf`/`std::map` lookups reachable on audio thread | high | fixed | S1 Backend | `ParamPool.cpp:75` | 2026-07-21 | `efbb5a5` |
 | PF-005 | Editor exposes only 8 of 64 params; toggles render as rotaries | medium | fixed | S3 Plugin UX | `ParamGridPanel.cpp:25` | 2026-07-21 | `2e129cd` (2026-07-23) |
-| PF-006 | Shutdown UAF on the editor's detached *generate* thread (raw `&proc`) | high | open | S2 Prompting UX | `PromptPanel.cpp:284,300` | 2026-07-21 | — |
+| PF-006 | Shutdown UAF on the editor's detached *generate* thread (raw `&proc`) | high | fixed | S2 Prompting UX | `PromptPanel.cpp:182,231` | 2026-07-21 | `18e862e` (2026-07-25) |
 | PF-007 | Benchmark measured a prompt that diverged from production | high | fixed | S1 Backend | `bench/prompts/system_faust.txt` (deleted) | 2026-07-21 | prompt-unify (2026-07-21) |
-| PF-008 | No generated plugin has ever been listened to (P6 audible battery unrun) | high | open | S4 Testing | `docs/p6_test_battery.md` | 2026-07-23 | — |
+| PF-008 | No generated plugin has ever been listened to (P6 audible battery unrun) | high | fixed | S4 Testing | `docs/p6_test_battery.md` | 2026-07-23 | ran 2026-07-24 (4 clean / 3 flaky / 7 fail) |
 | PF-009 | Every benchmark number on record is void (measured on the deleted prompt) | medium | open | S4 Testing | `bench/results/.prompt_baseline.json` | 2026-07-23 | — |
 | PF-010 | Prompt rewrite is unmeasured — verified *correct*, not *better* | medium | open | S4 Testing | `llm/prompts/system_prompt.txt` | 2026-07-23 | — |
 | PF-011 | Efficacy pilot generalizes to nothing (N=50, 1 model, 2/5 categories) | medium | open | S4 Testing | `bench/run_efficacy_study.py` | 2026-07-23 | — |
 | PF-012 | No cross-model comparison exists (ADR-008 "Under evaluation") | low | open | S4 Testing | `docs/architectural_decisions/` (ADR-008) | 2026-07-23 | — |
 | PF-013 | Semantic fidelity unmeasured — `--judge` rubric off by default, never run | medium | open | S4 Testing | `bench/score_efficacy.py` | 2026-07-23 | — |
 | PF-014 | No real user prompt has ever been recorded (`generate.py` logs nothing) | low | open | S1 Backend | `llm/generate.py` | 2026-07-23 | — |
-| PF-015 | `check_rt_safety.py` scopes only 2 functions; `pushToFaust` (now RT) uncovered | medium | open | S1 Backend | `.claude/hooks/check_rt_safety.py:22` | 2026-07-23 | — |
-| PF-016 | CI has never run green with the new prompt steps (5 unchecked Ubuntu-Faust TODOs) | medium | open | S4 Testing | `.github/workflows/test.yml` | 2026-07-23 | — |
+| PF-015 | `check_rt_safety.py` scopes only 2 functions; `pushToFaust` (now RT) uncovered | medium | fixed | S1 Backend | `.claude/hooks/check_rt_safety.py:57,65` | 2026-07-23 | `fed704e` (2026-07-26) |
+| PF-016 | CI has never run green with the new prompt steps (5 unchecked Ubuntu-Faust TODOs) | medium | fixed | S4 Testing | `.github/workflows/test.yml` | 2026-07-23 | green `30181544354` (2026-07-26) |
 | PF-017 | Stray `ParamPool::pushToFaust()` definition in `FaustEngine.cpp` | medium | fixed | S1 Backend | `FaustEngine.cpp` (removed) | 2026-07-16 | pre-history (see detail) |
-| PF-018 | `FaustEngine::prepare()` does not re-init a live DSP on sample-rate change | medium | open | S1 Backend | `FaustEngine.cpp:154` | 2026-07-23 | — |
-| PF-019 | Generation timeout cliff — 120s frozen UI under sustained groq use; one stalled/429'd POST eats the whole retry budget | high | open | S1 Backend | `llm/providers.py:50`, `llm/generate.py:99,125` | 2026-07-24 | — |
-| PF-020 | Cross-generation state contamination — no fresh/iterate mode; old APVTS values leak into new patches by slot index; headless never seeds defaults | high | open | S1 Backend / S2 UX | `ParamPool.cpp:94`, `PluginProcessor.cpp:114`, `ParamGridPanel.cpp:31` | 2026-07-24 | — |
-| PF-021 | Stale error persists in PromptPanel across a new Generate (never cleared on submit) | medium | open | S2 Prompting UX | `PromptPanel.cpp:309,124,319` | 2026-07-24 | — |
-| PF-022 | `currentFaustSource`/`currentPrompt` committed before compile success — a failed generate poisons the source-of-record and any later save/restore | high | open | S1 Backend | `PluginProcessor.cpp:114-118` | 2026-07-24 | — |
-| PF-023 | `FaustEngine::process()` has no `activeDSP` null guard (latent audio-thread segfault; defense-in-depth) | medium | open | S1 Backend | `FaustEngine.cpp:178-183` | 2026-07-24 | — |
+| PF-018 | `FaustEngine::prepare()` does not re-init a live DSP on sample-rate change | medium | fixed | S1 Backend | `FaustEngine.cpp:154` | 2026-07-23 | `be83d1e` (2026-07-26) |
+| PF-019 | Generation timeout cliff — 120s frozen UI under sustained groq use; one stalled/429'd POST eats the whole retry budget | high | fixed | S1 Backend | `providers.py:143-160,508`, `generate.py:76-85` | 2026-07-24 | `4bea5f3` (2026-07-25) |
+| PF-020 | Cross-generation state contamination — no fresh/iterate mode; old APVTS values leak into new patches by slot index; headless never seeds defaults | high | fixed | S1 Backend / S2 UX | `PluginProcessor.h:58-73`, `PluginProcessor.cpp:166-170` | 2026-07-24 | `4a84c1c` (2026-07-25) |
+| PF-021 | Stale error persists in PromptPanel across a new Generate (never cleared on submit) | medium | fixed | S2 Prompting UX | `PromptPanel.cpp:195-200` | 2026-07-24 | `18e862e` (2026-07-25) |
+| PF-022 | `currentFaustSource`/`currentPrompt` committed before compile success — a failed generate poisons the source-of-record and any later save/restore | high | fixed | S1 Backend | `PluginProcessor.cpp:148,180-181` | 2026-07-24 | `4a84c1c` (2026-07-25) |
+| PF-023 | `FaustEngine::process()` has no `activeDSP` null guard (latent audio-thread segfault; defense-in-depth) | medium | fixed | S1 Backend | `FaustEngine.cpp` `process()` | 2026-07-24 | `4a84c1c` (2026-07-25) |
 | PF-024 | Generation produces invalid Faust for stereo routing / unbounded delays / ping-pong / artist-reference prompts (P6 #2,#6,#9,#10) | high | open | S1 Backend | `llm/prompts/system_prompt.txt` | 2026-07-24 | — |
 
 ---
 
-## Routing & fix plan (2026-07-23)
+## Routing & fix plan (2026-07-23) — HISTORICAL
+
+> **Superseded 2026-07-27.** This section routes bugs to FLEET.md lanes (S1…S6) and a
+> cross-lane request log. That apparatus was retired; `docs/FLEET.md` no longer exists. Every
+> code defect it routes below is now **fixed** — see the registry. It is kept because the
+> reasoning about *who owns what* still explains several design choices, but do not use it as a
+> work queue. The live queue is the registry table plus STATUS.md.
 
 **Purpose.** Get every open defect in front of the lane that owns the code, with a concrete fix
 shape and a coordination path, so no bug sits unseen between sessions. S5 records and routes; S5
@@ -124,10 +135,22 @@ hooks-adjacent tooling.
 
 ---
 
-## Open — detail
+## Detail
+
+Entries stay here in discovery order once written, and carry their own status line. A bug that
+closes gets its status flipped and a **CLOSED** paragraph appended saying what was verified at
+HEAD — the investigation prose is the most valuable thing in this file, and moving it to an
+archive on close has twice meant it was quietly dropped instead.
+
+**Reconciled 2026-07-27.** Ten entries below were marked `open` while their fixes were live in
+the tree — PF-006, PF-008, PF-015, PF-016, PF-018, PF-019, PF-020, PF-021, PF-022, PF-023. Each
+was re-verified by reading the cited code at HEAD, not by trusting a commit message. This is the
+same declared-vs-actual drift CLAUDE.md records three prior instances of, inverted: the registry
+declared broken what was already fixed. Cheaper than the other direction, but it still misroutes
+work, and it is why the day that found it started here.
 
 ### PF-006 — Shutdown use-after-free on the editor's detached *generate* thread.
-**high · open · owner S2 Prompting UX · was arch-review §2.2 (P1), second half**
+**high · FIXED `18e862e` (2026-07-25) · owner S2 Prompting UX · was arch-review §2.2 (P1), second half**
 PF-003 fixed the FaustEngine *compile* thread (`d10f59e`). The **editor's generate thread** is a
 separate, still-open instance of the same bug: a `std::thread` is `.detach()`ed and calls
 `proc.loadFaustCode(...)` through a **raw `&proc` reference**. `SafePointer` correctly guards the
@@ -154,13 +177,29 @@ join on teardown, testing the join+abort and stating what shutdown timing was no
 closes on that commit. Cross-lane req #4 (`loadFaustCode(prompt)`) is **done** (`471d045`), so the
 former call-site collision is gone.
 
+**CLOSED `18e862e`, verified at HEAD 2026-07-27.** There is no `.detach()` left in
+`PromptPanel.cpp`. One persistent worker, owned by the panel and joined in the destructor
+(`:182-183`), started lazily on first use (`:231-232`); an in-flight run is **superseded** rather
+than stacked, and its subprocess killed (`:173`, `:238`). The header states the threading
+contract as a comment block (`PromptPanel.h:47-68`) and exposes `submitPromptForTest` /
+a worker-exists predicate specifically so a test can assert it. Covered by
+`host/tests/PromptPanelThreadingTest.cpp` (263 lines, added in the same commit). The
+`// TODO: VERIFY: PF-006` marker is gone.
+
 ### PF-008 — No generated plugin has ever been listened to.
-**high · open · S4 Testing · STATUS "Assumed, never checked"**
+**high · DISCHARGED 2026-07-24 · S4 Testing**
 The PF-001 denormalization fix is verified by unit test and by construction, **not by ear**. The
 P6 audible battery (`docs/prototype_test_plan.md` Part A, `docs/p6_test_battery.md`) has never
 run. This is the fastest way to find whatever the old denormalization bug was masking; the review
 predicted "it will fail on the first patch" before PF-001. Needs the human's ears (use `groq`,
 not Gemini's ~20/day quota).
+
+**DISCHARGED 2026-07-24.** The battery ran with human ears on groq/gpt-oss-120b: **4 clean, 3
+flaky, 7 failures of 14.** The review's prediction was right — it did fail, repeatedly. That is a
+*bad result*, not a missing one, and the distinction matters: this entry asked whether anyone had
+ever listened, and someone has. The reliability problem the run exposed is **PF-024**, and the
+crash it exposed was **PF-006** (both tracked separately). A second pass after the prompt work is
+worth doing but is a new question, not this one.
 
 ### PF-009 — Every benchmark number on record is void.
 **medium · open · S4 Testing · STATUS "Assumed, never checked"**
@@ -198,7 +237,7 @@ Faust builds, not that it does what the words asked.
 a generation cache. (Privacy/opt-in is a design question, not just a code change.)
 
 ### PF-015 — `check_rt_safety.py` cannot follow a call graph.
-**medium · open · S1 Backend · STATUS "Assumed" + COLLABORATION.md §7**
+**medium · FIXED `fed704e` (2026-07-26) · S1 Backend · COLLABORATION.md §7**
 The hook scopes exactly two named functions (`FaustEngine::process`, `processBlock`) by brace
 counting and cannot follow a call graph (its own documented KNOWN LIMITATION,
 `check_rt_safety.py:22`). `ParamPool::pushToFaust` — now on the audio thread and reachable from
@@ -208,14 +247,34 @@ minimum the hook should also scope `pushToFaust` and anything else reachable fro
 `ParamPool::pushToFaust()` in `FaustEngine.cpp` as a live "separately-tracked bug" — that stray
 def is PF-017 and was removed; the docstring reference is now stale.
 
+**CLOSED `fed704e`, verified at HEAD 2026-07-27.** `ANCHOR_RE` (`:65-70`) now matches all four
+functions that actually run on the audio thread — `FaustEngine::process`, `processBlock`,
+`ParamPool::pushToFaust`, `OutputGuard::process` — and `WATCHED_FILE_RE` (`:57-59`) covers
+`ParamPool.cpp` and `OutputGuard.cpp` alongside the original two files. The stale PF-017
+docstring reference is gone; `:11-28` now documents the real audio path. `tests/test_control_wiring.py`
+carries a parametrised **red case per newly-scoped function**, so a function silently losing its
+teeth fails the suite.
+**Known limitation, deliberately retained:** it still cannot follow a call graph. A *fifth*
+function arriving on the audio thread must be added to that list by hand — the red tests catch a
+scoped function losing coverage, not an unscoped one appearing. That residual is why
+COLLABORATION.md §7 item 1 stays open as a design concern even though this bug is closed.
+
 ### PF-016 — CI has never run green with the new prompt steps.
-**medium · open · S4 Testing · STATUS "Assumed, never checked"**
+**medium · FIXED (2026-07-26) · S4 Testing**
 The `build-host` job runs `tools/gen_stdlib_block.py --check` and the prompt tests, and carries
 five pre-existing `TODO: VERIFY` items about Ubuntu Faust packaging — none checkable from the
 Arch dev box. Green on CI has never been observed with these steps in place.
 
+**CLOSED, verified 2026-07-27 via `gh run list`.** Run `30181544354` (2026-07-26, 11m52s) is
+green on `main` at HEAD and includes the `build-host` job *and* the newly-added audio gate. Three
+consecutive runs failed first (`30180544187`, `30180604270`, `30180674842`) while the libsndfile
+static-link closure was worked out — so this is a green observed *after* a red, which is the only
+kind worth recording. The five Ubuntu-Faust `TODO: VERIFY` items are answered by those runs.
+**What remains true and is not this bug:** CI is *starved* — `main` has repeatedly run many
+commits ahead of `origin`.
+
 ### PF-018 — `FaustEngine::prepare()` does not re-init a live DSP on sample-rate change.
-**medium · open · S1 Backend · filed 2026-07-23 per S1 cross-lane req #5**
+**medium · FIXED `be83d1e` (2026-07-26) · S1 Backend · filed 2026-07-23 per S1 cross-lane req #5**
 `FaustEngine::prepare(double sampleRate, int blockSize)` (`FaustEngine.cpp:154-158`) assigns
 `sr = sampleRate; block = blockSize;` and returns — it never re-inits an already-live DSP. If the
 host changes sample rate *after* a patch is live, the DSP keeps running at the rate it was
@@ -227,8 +286,18 @@ avoids *creating* a wrong-SR DSP but does not fix a rate *change* on a live one.
 async recompile path — off the audio thread, respecting the swap protocol. Tier 2: cite the Faust
 init API by file:line and add a test. Routed to S1.
 
+**CLOSED `be83d1e`, verified at HEAD 2026-07-27.** `prepare()` now computes `rateChanged` before
+storing the members and, when the rate changed *and* a DSP is live, drives a real re-init through
+the swap protocol: take `compileMutex` first (so it cannot interleave with a compile's own swap),
+re-read `activeDSP` under the lock, `ready.store(false)`, drain `audioBusy` to zero, then
+`instanceConstants` + `instanceClear` — the documented pair for a rate change that *keeps*
+control values (`faust/dsp/dsp.h:135-143`). Neither mutex is ever held on the audio thread, so
+this cannot block it. Two early-outs keep the common path free: unchanged rate returns
+immediately, and a null `activeDSP` returns because a later `compile()` will init at the new rate
+anyway.
+
 ### PF-019 — Generation timeout cliff (120s frozen UI under sustained use).
-**high · open · S1 Backend · found in the 2026-07-24 P6 battery**
+**high · FIXED `4bea5f3` (2026-07-25) · S1 Backend · found in the 2026-07-24 P6 battery**
 P6 prompts **#11–#14 failed in a consecutive run**, each with "LLM subprocess timed out after
 120s and was killed" (`PromptPanel.cpp:215`). Root cause is a budget collision: `generate.py`
 makes up to 3 full-regeneration LLM calls (`generate.py:99,125`), each able to fan into ≤5
@@ -243,8 +312,27 @@ budget so 3 attempts fit inside 120s (lower `_HTTP_TIMEOUT` and/or pass a per-at
 cap cumulative backoff; return a *typed* `rate_limited` vs `timeout` reason in the ADR-011 JSON;
 add light default pacing. Cite file:line, add a test, state what wasn't verified.
 
+**CLOSED `4bea5f3`, verified at HEAD 2026-07-27.** All four elements of the fix shape shipped:
+- **Per-attempt budget.** `providers.Budget` (`providers.py:143-160`) carries a total and a
+  `per_attempt_cap`; `generate.py:generation_budget()` (`:76-85`) sizes one Budget per generation
+  so `max_retries` attempts *plus* each attempt's faust compile fit inside the C++ subprocess cap.
+  `_HTTP_TIMEOUT` (120s) is now only the fallback used when no Budget is supplied (`:188`).
+- **Bounded backoff.** A backoff sleep that would overrun the deadline is **refused** and raises
+  rather than silently eating the budget (`:154`).
+- **Typed reasons.** `run()` returns one of `ok | invalid_faust | truncated | timeout |
+  rate_limited | error` (`generate.py:213`), with `rate_limited` and `timeout` raised distinctly
+  (`:243`, `:245`, `:254`, `:301-303`).
+- **Default pacing.** `Budget.min_interval` defaults to 1.0s and `_pace()` honours it whenever a
+  Budget is present — i.e. always on the product path — while an explicit `PLUGINFORGE_MIN_INTERVAL`
+  still wins so the bench harnesses are unaffected (`providers.py:508-537`). The pacing sleep is
+  itself clamped to the remaining budget, so pacing can never be what blows the deadline.
+Covered by `tests/test_generation_budget.py`.
+**Not verified:** the original symptom was consecutive prompts #11–14 timing out under sustained
+groq use. No one has re-run four consecutive live generations to confirm the cliff is gone — the
+tests pin the budget arithmetic, not the field behaviour. Worth folding into the next P6 pass.
+
 ### PF-020 — Cross-generation state contamination; no fresh/iterate mode.
-**high · open · S1 Backend (state) + S2 UX (affordance) · found 2026-07-24**
+**high · FIXED `4a84c1c` (2026-07-25) · S1 Backend (state) + S2 UX (affordance) · found 2026-07-24**
 The human observed generated plugins "reiterating on each other rather than starting fresh," and
 flaky P6 results (#4/#5/#7 failed/crashed under a contaminated session, passed clean). Root
 cause: **no fresh-vs-iterate concept exists anywhere.** APVTS macro values are reset *only* by
@@ -257,8 +345,21 @@ whether the editor is open, not a chosen mode. **Fix shape:** add `LoadMode {Fre
 **Iterate** preserves. S2 adds the UI affordance (New plugin vs Refine). Cross-lane contract —
 see FLEET.md 2026-07-24.
 
+**CLOSED `4a84c1c`, verified at HEAD 2026-07-27.** `LoadMode { Fresh, Iterate }` exists
+(`PluginProcessor.h:58-61`) and `loadFaustCode` takes it, **defaulting to `Fresh`**
+(`:73`) — a newly generated patch is a new plugin, so inheriting the last one's values is the
+wrong default, and that choice is now explicit rather than an accident of whether the editor
+happens to be open. The reset runs **in the processor** (`PluginProcessor.cpp:166-170`), which is
+the whole point: the old UI-layer seeding did nothing headless. Both state-restore call sites
+correctly pass `Iterate` (`:69`, `:332`) because `replaceState()` has just written the saved
+values and resetting them would defeat the restore. Covered by additions to
+`host/tests/StatePersistenceTest.cpp` (+143 lines in the same commit).
+**Residual, not a defect:** the S2 half — a *UI affordance* distinguishing "New plugin" from
+"Refine" — is not built. The mode is correct by default and reachable from code; the user just
+cannot choose it from the editor yet. That belongs to the deferred UI work, not here.
+
 ### PF-021 — Stale error persists across a new Generate.
-**medium · open · S2 Prompting UX · reported by the human 2026-07-24**
+**medium · FIXED `18e862e` (2026-07-25) · S2 Prompting UX · reported by the human 2026-07-24**
 `setError()` (`PromptPanel.cpp:309-316`) writes `errorBox` and its own comment notes the error is
 "retained across a later success." Neither `submitPrompt()` (`:124-144`) nor `startWorking()`
 (`:319-326`) ever clears `errorBox` on a new run, so a previous failure's text stays on screen
@@ -266,8 +367,15 @@ through the next generation — including a successful one — and reads as the 
 shape:** clear/hide `errorBox` on submit, or prefix each error with its attempt/timestamp so it
 is never mistaken for the live run. Human explicitly asked for this.
 
+**CLOSED `18e862e`, verified at HEAD 2026-07-27.** `submitPrompt()` calls `clearError()` at
+`PromptPanel.cpp:200`, *before* starting the run, with a comment naming PF-021 and the reason
+(`:195-199`). A dedicated `clearError()` (declared `PromptPanel.h:89`) hides and empties the
+region. The distinction the fix preserves is the right one: an error survives a later *success*
+within the same run, but never survives the next **submit** — so it can no longer be read as the
+current result.
+
 ### PF-022 — Source-of-record committed before compile success.
-**high · open · S1 Backend · found 2026-07-24**
+**high · FIXED `4a84c1c` (2026-07-25) · S1 Backend · found 2026-07-24**
 `loadFaustCode` sets `currentFaustSource`/`currentPrompt` **unconditionally at
 `PluginProcessor.cpp:114-118`, before the compile is even queued.** A failed compile therefore
 overwrites the retained source-of-record with non-compiling code while `activeDSP`,
@@ -277,13 +385,26 @@ triple; on reload the restore-recompile fails and no DSP goes live. **Fix shape:
 `currentFaustSource`/`currentPrompt` only on compile **success**. Interacts with state
 persistence (`getStateInformation` `:206-236`).
 
+**CLOSED `4a84c1c`, verified at HEAD 2026-07-27.** `loadFaustCode` no longer touches
+`currentFaustSource`/`currentPrompt`; an explicit comment at `PluginProcessor.cpp:148` records
+that they are deliberately *not* set there and why. They are assigned only inside the compile
+**success** branch (`:180-181`). A failed generate therefore leaves the previous good source, its
+labels, and its values consistent with each other, so a DAW save in that window persists a triple
+that still restores.
+
 ### PF-023 — `process()` has no `activeDSP` null guard.
-**medium · open · S1 Backend · found 2026-07-24 (defense-in-depth)**
+**medium · FIXED `4a84c1c` (2026-07-25) · S1 Backend · found 2026-07-24 (defense-in-depth)**
 `FaustEngine::process()` (`FaustEngine.cpp:178-183`) loads `activeDSP` and calls
 `dsp->compute(...)` relying *solely* on the `ready` flag to guarantee non-null. The invariant
 (`ready==true ⟹ activeDSP!=null`) holds in current code, so this is latent, not a live crash —
 but there is zero defense if the swap ordering is ever broken, and the audio thread would
 segfault. **Fix shape:** null-check `activeDSP` in `process()` and passthrough if null.
+
+**CLOSED `4a84c1c`, verified at HEAD 2026-07-27.** `process()` now null-checks the loaded pointer
+and returns (passthrough) if null, matching the `!ready` early-return above it. The in-code
+comment is explicit that the branch is *unreachable today* — which is precisely the argument for
+it being cheap: without it there is zero margin if the swap ordering in `compile()` is ever
+changed, and the failure mode would be a segfault on the audio thread.
 
 ### PF-024 — Generation produces invalid Faust for whole prompt classes.
 **high · open · S1 Backend · found in the 2026-07-24 P6 battery**
@@ -296,6 +417,43 @@ few-shots / rules to `llm/prompts/system_prompt.txt` for stereo-in→stereo-out 
 delay lengths, and a correct ping-pong pattern; keep every `ns.func` resolving (hook-enforced).
 Re-run the benchmark or declare the baseline stale (does not by itself overwrite
 `.prompt_baseline.json` — that stays §2 trigger-1 gated).
+
+**2026-07-27 — root cause found, and it is one gap, not four.** These read as four unrelated
+failures. They are mostly one: **the prompt barely teaches Faust's routing algebra, and the one
+place it does teach a language construct, it teaches a construct that does not exist.**
+
+1. **`let` is not a Faust construct.** `llm/prompts/system_prompt.txt:21` instructs the model:
+   *"use let bindings or with { } blocks."* Faust has `with`, `letrec` and `environment`. It has
+   no `let`. Verified against the installed compiler (2.85.5):
+
+   ```
+   process = let g = 0.5; in _ * g, _ * g;
+     → ERROR : syntax error, unexpected IDENT
+   ```
+
+   That is **exactly** the signature recorded above for #9 (Loveless). The prompt is teaching the
+   failure. This is a hallucination *inside* the artifact built to prevent hallucination:
+   `tools/gen_stdlib_block.py --verify-prompt` checks that every `ns.func` resolves and cannot
+   see a bad **language construct** in prose. See the follow-up note below.
+2. **`with { }` is recommended but never demonstrated.** Same line recommends it; none of the
+   five few-shot examples contain a `with` block. Being told to use a construct one is never
+   shown is a plausible route to #10's `syntax error, unexpected WITH`.
+3. **The routing operators are essentially absent.** `<:` (split) and `:>` (merge) appear
+   **nowhere** in the 173-line prompt. `~` (recursion) appears exactly once, buried inside the
+   delay example's body at `:149`, never named or explained. #6's `2 outputs must equal 1 input`
+   is a split/merge arity error and the sidechain compressor's `unexpected ARROW` (2026-07-19
+   corpus) is the same gap.
+4. **Ping-pong is described in prose and still fails.** `:26-27` tells the model to cross the
+   feedback between two `de.fdelay` lines. `endless evaluation cycle` is what you get from a `~`
+   loop with no delay *in* the loop — a recursion-topology error that prose cannot convey and an
+   example can.
+5. **Nothing states that a delay's first argument is a compile-time constant maximum.** Cause of
+   `invalid delay parameter range: interval(0,2.1e9,0)`.
+
+**Follow-up worth its own decision (not this bug):** `--verify-prompt` validates `ns.func`
+references only. A control that extracts every construct the prompt *recommends* and compiles it
+would have caught `let` the day it was written. That is a new enforcement mechanism — route it
+through `/architecture-planning`.
 
 ---
 

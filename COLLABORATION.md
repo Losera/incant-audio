@@ -176,8 +176,11 @@ Rewriting rather than appending is deliberate: an append-only log accumulates un
 reads it, and stale entries are indistinguishable from current ones. Narrative history
 lives in git.
 
-**`docs/collaboration_log.md` is retired.** It is kept for its record of decisions made
-between 2026-05 and 2026-07-21, and is not written to again. §9 explains why.
+**`docs/collaboration_log.md` is retired and, as of 2026-07-27, deleted.** It recorded
+decisions made between 2026-05 and 2026-07-21 and was not written to after that. It was kept
+on disk for a while after retirement, which is exactly how a stale document gets read as a
+current one — so it now lives only in git (`git log -- docs/collaboration_log.md`). §9 explains
+why the protocol it served was retired.
 
 ---
 

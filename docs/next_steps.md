@@ -20,9 +20,9 @@ CLAUDE.md "Current status".**
 - **Baseline schema v2** — `bench/results/.prompt_baseline.json` is keyed per provider;
   Claude's 0.88 is frozen verbatim as historical record, not overwritten.
 - **231 tests pass** (145 pre-existing, unmodified — that was the refactor's gate).
-- Drafted for you: `docs/ADR-012-free-provider-layer-DRAFT.md` (ADR-012, the
-  `prompt_efficacy_study.md` §4 amendment, and a note that ADR-008 is now answerable
-  or supersedable).
+- **Landed 2026-07-27:** ADR-012 is now a real entry in `docs/decisions.md`; the draft is
+  deleted. (It also notes the `prompt_efficacy_study.md` §4 amendment and that ADR-008 is
+  now answerable or supersedable.)
 - **What's now unblocked:** P6 (the audible end-to-end test — needs your ears), P9 (run
   it on `groq`, whose ~14,400/day free tier suits 375 calls far better than Gemini's
   5/minute), and ADR-008's Gemini side.
@@ -58,10 +58,10 @@ Executable task text for items marked P9–P17 lives in the root README's prompt
   `docs/prompt_efficacy_study.md` §3 lists as a *locked confound control*. Options: run
   P9 on opus-4-6 for continuity with the 88% baseline, or drop determinism and re-baseline
   on 4-8. Not a mechanical edit — see the model-era note in §3 of the study doc.
-- **ADR-009 verdict + path correction drafted** — `docs/ADR-009-verdict-DRAFT.md`. The ADR
-  still reads as though ≥96% is pending confirmation, and it cites
-  `llm/prompts/system_faust.txt`, which does not exist. HUMAN-OWNED: review, paste, delete
-  the draft.
+- **ADR-009 verdict + path correction — LANDED 2026-07-27** in `docs/decisions.md`. The
+  re-run measured **88%, not the predicted ≥96%**, and the ADR's citations to
+  `llm/prompts/system_faust.txt` are annotated (that file was deleted at prompt unification;
+  read them as the unified `llm/prompts/system_prompt.txt`). Draft deleted.
 - **Anthropic account is out of credit balance.** The P9 full 125-prompt efficacy
   run (2026-07-20) failed 125/125 with `BadRequestError: Your credit balance is too
   low to access the Anthropic API` — every request was rejected before generation
@@ -97,7 +97,9 @@ requests were rejected pre-generation. Re-run once billing is resolved, then a
 judge pass (~$3–5 total) to test the 3 remaining categories and confirm/deny H1–H4.
 
 **3. P10 — JUCE/Faust ecosystem survey** — **DONE 2026-07-20.** 21 repos surveyed
-(3 parallel research agents), merged into docs/juce_plugin_survey.md. Headline:
+(3 parallel research agents). The survey doc was deleted 2026-07-27 once its conclusions
+were absorbed here and in `ui_design_plan.md`; `git log -- docs/juce_plugin_survey.md`
+has the full text. Headline:
 zero of 19 fixed-param entries used bare GenericAudioProcessorEditor, even at
 1-2 params — supports the planned auto-layout as the UI floor. Also surfaced a
 4th UI paradigm (declarative/GUI-Magic) not yet in ui_design_plan.md's taxonomy,

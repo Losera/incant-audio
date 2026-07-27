@@ -39,8 +39,8 @@ This repo is built human-with-Claude, under an explicit protocol. The moving par
 | `.claude/hooks/` | Three PreToolUse guards: RT-safety in audio-thread code, write-protection on HUMAN-OWNED files (`llm/prompts/*`, `docs/decisions.md`), bash denylist |
 | `.claude/agents/invariant-hook-writer.md` | Subagent that turns a stated project invariant into a tested, registered hook — or reports it isn't mechanically hookable |
 | `.claude/skills/architecture-planning/` | `/architecture-planning` — router for any new architectural decision (hook? ADR? subagent? loop?) |
-| `.claude/skills/attention-report/` | `/attention-report` — severity-ranked "what needs the human" audit; start every session with it |
-| `docs/collaboration_log.md` | Append-only record of every non-trivial task: mode used, outcome, mode-signal |
+| `.claude/skills/orient/` | `/orient` — session-start digest: live repo state plus the open half of STATUS.md. Start every session with it |
+| `docs/BUGS.md` | The durable, IDed defect registry (`PF-NNN`). STATUS.md's "Broken" is the top-N view of it |
 | `docs/decisions.md` + `docs/architectural_decisions/` | ADRs. HUMAN-OWNED: Claude drafts, the human commits |
 
 Subdirectory READMEs (`host/README.md`, `llm/README.md`, `bench/README.md`) orient you inside
@@ -54,7 +54,7 @@ it must run under; Claude states the mode before starting (COLLABORATION.md §2)
 **P0 — every session, first thing** *(read-only)*
 
 ```
-/attention-report
+/orient
 ```
 
 **P1 — ratify ADR-011: the IPC mechanism** — ✅ **DONE 2026-07-19** (drafted by Claude,
@@ -141,7 +141,8 @@ tier×category results and hypothesis verdicts (H1–H4) to the doc's §7.2 and 
 per COLLABORATION.md §6. Do not modify any prompt file.
 ```
 
-**P10 — settled 2026-07-20:** 21 repos surveyed, see `docs/juce_plugin_survey.md`.
+**P10 — settled 2026-07-20:** 21 repos surveyed (survey deleted 2026-07-27 once its
+conclusions were absorbed; `git log -- docs/juce_plugin_survey.md` has it).
 Headline: zero of 19 fixed-param entries used bare GenericAudioProcessorEditor.
 The survey spec in `docs/ui_design_plan.md` §4 is marked executed; there is no
 live prompt to run here anymore.
@@ -180,8 +181,8 @@ call, and P16 is blocked until it exists.**
 
 **P14 — doc & ADR reconciliation** — ✅ **DONE 2026-07-21** for the DELEGATE half
 (`ui_design_plan.md` §4/§2, `next_steps.md`, the efficacy-study model-era note). The
-ADR half is drafted for you in `docs/ADR-009-verdict-DRAFT.md` — ADR-009 still reads
-as though its ≥96% prediction is pending, and it cites a file that doesn't exist.
+ADR half **landed 2026-07-27**: the verdict is now ADR-009's own entry in
+`docs/decisions.md` (the re-run measured 88%, not the predicted ≥96%).
 
 **P15 — settle the model pin, then re-run P9** *(PAIR — methodology call)*
 
