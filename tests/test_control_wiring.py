@@ -134,6 +134,91 @@ class TestRegisteredScriptsExist:
         )
 
 
+# ------------------------------------------------------------------ extension rot
+#
+# The FOURTH instance of the pattern in this file's docstring, found 2026-07-27:
+# `.claude/skills/attention-report/SKILL.md` instructed every run to read
+# CLAUDE.md's "Current status" section (deleted 2026-07-25) and
+# docs/collaboration_log.md (retired in COLLABORATION.md §5, then deleted). Neither
+# existed. Nothing said so — the skill just gathered less and reported confidently,
+# which is worse than erroring, because a short report reads like good news. It also
+# tagged every finding with a DELEGATE/PAIR/HUMAN-OWNED mode six days after §9
+# retired that taxonomy.
+#
+# Hooks had `test_every_referenced_script_is_on_disk`. Skills, rules and agents had
+# no equivalent, so their references rotted silently for weeks. This is that check.
+#
+# NOT COVERED: whether a referenced file still *says* what the extension assumes. A
+# path can exist and its contents be wrong; only reading it catches that.
+
+EXTENSION_DIRS = [ROOT / ".claude" / "skills", ROOT / ".claude" / "agents",
+                  ROOT / ".claude" / "rules"]
+
+# Repo-relative paths in backticks: `docs/foo.md`, `tools/bar.sh`, `host/Source/X.cpp`.
+_PATH_RE = __import__("re").compile(
+    r"`((?:docs|tools|llm|bench|host|tests|examples|\.claude)/[A-Za-z0-9_./*{}-]+)`"
+)
+
+# Retired by COLLABORATION.md revision 2 (2026-07-21). Historical citations are fine;
+# these are the phrasings that read as live instructions.
+RETIRED_MODE_RE = __import__("re").compile(
+    r"\b(?:is|are|was|remains?|classified|treat(?:ed)? as)\s+(?:a\s+)?"
+    r"(DELEGATE|PAIR|HUMAN-OWNED)\b"
+)
+
+
+# A missing path is only a defect if the extension tells someone to OPEN it. Two
+# kinds of reference legitimately name a file that is not there: a historical note
+# ("retired and deleted on ...") and an output the extension itself creates. Both
+# are recognised by wording on the same line, so a genuine dead read cannot hide
+# behind them by accident.
+_EXEMPT_RE = __import__("re").compile(
+    r"\b(?:deleted|retired|superseded|removed|no longer exists|used to|"
+    r"create with|if absent|will be created|cautionary)\b",
+    __import__("re").I,
+)
+
+
+def _extension_files():
+    for d in EXTENSION_DIRS:
+        if d.exists():
+            yield from sorted(d.rglob("*.md"))
+
+
+class TestExtensionsDoNotReferenceDeletedFiles:
+    """Skills, agents and rules must not instruct a reader to open something gone."""
+
+    def test_referenced_repo_paths_exist(self):
+        broken = []
+        for f in _extension_files():
+            for line in f.read_text().splitlines():
+                if _EXEMPT_RE.search(line):
+                    continue  # historical note, or a file this extension creates
+                for ref in set(_PATH_RE.findall(line)):
+                    if any(ch in ref for ch in "*{"):
+                        continue  # a glob pattern, not a file reference
+                    if not (ROOT / ref).exists():
+                        broken.append(f"{f.relative_to(ROOT)} -> {ref}")
+        assert not broken, (
+            "Extension(s) reference repo paths that do not exist:\n  "
+            + "\n  ".join(sorted(broken))
+            + "\nThis is how attention-report rotted: it kept reading deleted files and "
+              "reported the shortfall as nothing to report."
+        )
+
+    def test_no_live_retired_mode_instructions(self):
+        stale = []
+        for f in _extension_files():
+            for m in RETIRED_MODE_RE.finditer(f.read_text()):
+                stale.append(f"{f.relative_to(ROOT)}: ...{m.group(0)}...")
+        assert not stale, (
+            "Extension(s) still instruct using the DELEGATE/PAIR/HUMAN-OWNED protocol "
+            "retired by COLLABORATION.md §9 on 2026-07-21:\n  " + "\n  ".join(sorted(stale))
+            + "\nGate on §2 (consequence) and §3 (evidence tier) instead. Citing the old "
+              "modes as history is fine; instructing with them is not."
+        )
+
+
 # --------------------------------------------------------------------------- teeth
 
 CWD = str(ROOT)

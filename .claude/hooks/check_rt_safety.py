@@ -193,8 +193,8 @@ def main() -> int:
                 print(
                     f"BLOCKED (RT-safety): this edit introduces `{token}` inside "
                     f"`{func_name}`, which runs on the real-time audio thread (see "
-                    "docs/audio_thread_example.md and the HUMAN-OWNED list in "
-                    "COLLABORATION.md §1). RT code must never allocate/free heap "
+                    "docs/audio_thread_example.md; audio-path changes are Tier 2 "
+                    "under COLLABORATION.md §3). RT code must never allocate/free heap "
                     "memory, lock a mutex, or do I/O/logging. If you believe this "
                     "function was mis-scoped by this regex-based check (a known "
                     "limitation -- see .claude/hooks/check_rt_safety.py), stop and "

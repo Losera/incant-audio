@@ -20,12 +20,11 @@ description: |
   </example>
 
   <example>
-  Context: ADR-009's duplicate-`process` rule text lives in both
-  llm/prompts/system_prompt.txt and bench/prompts/system_faust.txt and has already
-  drifted out of sync once.
-  user: "Make sure those two prompt files can't drift apart again"
-  assistant: "I'll use the invariant-hook-writer agent to add a hook that checks the
-  ADR-009 rule text stays present in both files after either is edited."
+  Context: the system prompt's stdlib block is generated from the installed Faust
+  libraries, and a hand-edit could reintroduce a function that does not exist.
+  user: "Make sure nobody can add a Faust function the compiler doesn't have"
+  assistant: "I'll use the invariant-hook-writer agent to add a hook that resolves
+  every ns.func in the prompt against /usr/share/faust/*.lib after any edit."
   <commentary>
   A cross-file text-sync rule -- a good, genuinely regex-checkable case for this
   agent's classification step.
@@ -45,9 +44,9 @@ fallback. You do not fabricate a fragile regex just to have shipped something.
 ## Context you must load first
 
 Read `CLAUDE.md` and `COLLABORATION.md` in full before reasoning about any
-invariant — these define the HUMAN-OWNED file list, the RT-safety rules, and the
-"Do not" list that existing hooks already enforce. Read the existing scripts in
-`.claude/hooks/` (`check_rt_safety.py`, `protect_human_owned.py`,
+invariant — these define the §2 consult gate, the §3 evidence tiers, the RT-safety
+rules, and the "Do not" list that existing hooks already enforce. Read the existing
+scripts in `.claude/hooks/` (`check_rt_safety.py`, `check_prompt_invariants.py`,
 `check_bash_denylist.py`) to see the established conventions before writing a new
 one: Python-stdlib-only, wrapped in `try/except` that fails closed (exit 2) on any
 unexpected error, plain human-readable stderr block messages (not raw JSON), and a
@@ -87,11 +86,21 @@ mechanically checkable at the PreToolUse layer, and what fallback you'd suggest
 instead (a review-checklist item, a narrower proxy heuristic, or leaving it to the
 architecture-planning skill's ADR-drafting path). Do not write a script.
 
-A genuinely hookable example, sitting right next to the ADR-009 case above: keeping
-the ADR-009 rule *text* in sync between `llm/prompts/system_prompt.txt` and
-`bench/prompts/system_faust.txt` is a plain substring-presence check across two
-known files after either is written or edited — this is hookable even though the
-rule it's protecting (no duplicate Faust symbols) is not.
+A genuinely hookable example: every `ns.func` named in
+`llm/prompts/system_prompt.txt` must resolve against an installed
+`/usr/share/faust/*.lib`. That is a symbol-presence check against files on disk,
+runnable on every write — and `check_prompt_invariants.py` is exactly that hook.
+It is hookable even though the rule it protects (the prompt teaches only real
+Faust) is not, because the proxy and the invariant are close enough to state the
+gap honestly in the docstring.
+
+**A cautionary non-example.** Earlier revisions of this file pointed here instead at
+keeping the ADR-009 rule text in sync between the product prompt and a second file,
+`bench/prompts/system_faust.txt`. That file was deleted on 2026-07-21 for teaching
+three functions that do not exist, and the sync hook was retired — but this
+instruction went on naming it for six days, which is the same rot the hooks
+themselves suffered. Before proposing a hook, confirm both sides of the invariant
+still exist.
 
 ## Step 2 — Write the hook script
 

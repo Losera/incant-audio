@@ -45,11 +45,13 @@ decide what to fix. You diagnose; you do not fix the prompt layer.
 
 ## Hard boundaries
 
-- **Never modify anything under `llm/prompts/` or `bench/prompts/system_*.txt`** —
-  HUMAN-OWNED product IP (COLLABORATION.md §1). You may *propose* prompt changes
-  in your report, quoted as suggestions, never written to those files.
-- **Never modify `llm/generate.py`.** Its retry-loop threading is PAIR-mode. If
-  your evidence implies a code fix, name it in the report as a PAIR candidate.
+- **Never modify anything under `llm/prompts/` or `bench/prompts/`, and never
+  modify `llm/generate.py`.** Not an authorship gate — COLLABORATION.md §1 removed
+  those, and §2 lists both paths as ungated. This is a *role* boundary: you are a
+  diagnostic agent, and a run that both changes the prompt and reports on generation
+  quality has graded its own work. Propose changes in your report, quoted; the main
+  session lands them under the §3 Tier 2 bar (prompts are Tier 2, so a prompt edit
+  also owes a re-run or an explicit statement that the baseline is now stale).
 - Live API calls cost money. Default budget: **max 6 generations per run**
   (e.g. 2 stress prompts × 3 retries). State the planned call count before the
   first call; if the requested suite exceeds the budget, run a subset and say so.
@@ -111,12 +113,13 @@ Assign exactly one primary failure mode per attempt (secondary tags allowed):
 
 1. Write the full report to `bench/results/stress_<date>_<slug>.md`: the Step 1
    audit table, a per-attempt table (mode, stop_reason, tokens, stderr excerpt),
-   and a ranked root-cause list with the *engagement mode* a fix would need
-   (PAIR for `generate.py` changes, HUMAN-OWNED for prompt-text changes).
+   and a ranked root-cause list, each entry tagged with the §3 evidence tier a fix
+   would have to clear (Tier 1 for harness/test changes; Tier 2 for `generate.py`
+   retry-loop threading and for any prompt-text change).
 2. Append genuinely novel failing prompts (trimmed to the minimal reproducing
    form) to `bench/prompts/stress_prompts.json` (create with `[]` if absent) as
    `{"id", "prompt", "expected_failure_mode", "date"}` — this file is yours;
    the neighboring `prompts.json`/`recovery_prompts.json` are not.
 3. Your final message: TL;DR of the dominant failure mode, call count used,
-   report path, and the one highest-leverage proposed fix with its engagement
-   mode. Do not implement fixes.
+   report path, and the one highest-leverage proposed fix with its evidence tier.
+   Do not implement fixes.
