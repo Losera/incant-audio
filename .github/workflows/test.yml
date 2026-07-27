@@ -170,6 +170,24 @@ jobs:
       # hand-written Faust, so this measures the AUDIO path, never generation
       # quality. Five pathological negative controls assert OutputGuard actually
       # latches the right trip, so the safety assertions can be shown to fail.
+      # DIAGNOSTICS ADDED 2026-07-27 for an intermittent SIGILL (exit 132) that kills
+      # this step on the `tremolo` case — the first patch in the corpus that uses an
+      # oscillator, so the first to exercise Faust's table path.
+      #
+      # What is known, so the next person does not re-derive it:
+      #   * Locally: 8/8 clean runs, same source, same ASan/UBSan flags.
+      #   * On CI: build-host passed on 4bcb3e1, f8d1011, ae5d213, f403754, then
+      #     failed on 3a49714 and e6d5353 — neither of which touches C++ at all.
+      #   * NOT the apt package: both a passing and a failing run installed the
+      #     identical faust 2.70.3+ds-1.1build2.
+      #   * NOT the JUCE Timer assertion in the log — that fires locally too, 19x,
+      #     on runs that pass.
+      # Local Faust is 2.85.5 against CI's 2.70.3, so the leading hypothesis is that
+      # the older JIT emits an instruction this runner's CPU lacks. That is a guess.
+      # The block below replaces guessing with a backtrace and the CPU's own flags.
+      #
+      # This does NOT weaken the gate: the original exit code is preserved and still
+      # fails the job. It only makes the failure self-describing.
       - name: Run OfflineRenderTest (objective P6 battery)
         run: |
           BIN="$(find build-ci/OfflineRenderTest_artefacts -type f -name OfflineRenderTest | head -n 1)"
@@ -177,7 +195,38 @@ jobs:
             echo "OfflineRenderTest binary not found" >&2
             exit 1
           fi
+
+          echo "::group::render harness environment"
+          faust --version 2>&1 | head -2 || true
+          dpkg-query -W -f='${Package} ${Version}\n' faust faust-common 2>/dev/null || true
+          lscpu | grep -E '^(Model name|Vendor ID|Flags)' | cut -c1-500 || true
+          echo "::endgroup::"
+
+          export UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1
+          export ASAN_OPTIONS=abort_on_error=1
+
+          set +e
           timeout 300 "$BIN"
+          rc=$?
+          set -e
+
+          if [ "$rc" -ne 0 ]; then
+            echo "::group::post-mortem for exit $rc"
+            echo "128+4=132 is SIGILL. If the faulting frame is inside JIT-compiled"
+            echo "code with no symbol, that is libfaust's LLVM emitting an instruction"
+            echo "this CPU does not implement — compare the Flags line above."
+            sudo apt-get install -y -qq gdb >/dev/null 2>&1 || true
+            if command -v gdb >/dev/null; then
+              # The corpus is deterministic per case, so the re-run reaches the same
+              # patch. `bt` is the payload; the rest narrows JIT vs harness.
+              gdb -batch -ex run -ex 'bt 40' -ex 'info registers rip' \
+                  -ex 'info symbol $rip' -ex 'x/4i $rip' --args "$BIN" 2>&1 | tail -70
+            else
+              echo "gdb unavailable; no backtrace captured"
+            fi
+            echo "::endgroup::"
+          fi
+          exit $rc
 
       # xvfb-run -a picks a free display number rather than a fixed :99, so two
       # concurrent jobs on the same runner cannot collide. `timeout` is not
