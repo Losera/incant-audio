@@ -1,0 +1,252 @@
+[
+  {
+    "provider": "claude",
+    "category": "trivial",
+    "prompt": "a simple stereo gain control with a dB slider",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\ngain = hslider(\"Gain [unit:dB]\", 0, -60, 12, 0.1) : ba.db2linear;\nprocess = _ * gain, _ * gain;",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-19T18:34:47.789573+00:00"
+  },
+  {
+    "provider": "claude",
+    "category": "trivial",
+    "prompt": "a mute toggle with one boolean parameter",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nmute = 1 - hslider(\"Mute [style:knob]\", 0, 0, 1, 1);\nprocess = _ * mute, _ * mute;",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-19T18:34:50.017310+00:00"
+  },
+  {
+    "provider": "claude",
+    "category": "trivial",
+    "prompt": "a mono-to-stereo converter that duplicates the channel",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nprocess = _ <: _, _;",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-19T18:34:53.268821+00:00"
+  },
+  {
+    "provider": "claude",
+    "category": "trivial",
+    "prompt": "a DC blocker that removes low-frequency offset",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nprocess = fi.dcblocker, fi.dcblocker;",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-19T18:34:55.986529+00:00"
+  },
+  {
+    "provider": "claude",
+    "category": "trivial",
+    "prompt": "a polarity inverter with a bypass switch",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nbypass = checkbox(\"Bypass\");\nprocess = select2(bypass, -1 * _, _), select2(bypass, -1 * _, _);",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-19T18:35:00.724181+00:00"
+  },
+  {
+    "provider": "claude",
+    "category": "filters",
+    "prompt": "a warm analog-style low-pass filter with cutoff and resonance",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\ncutoff = hslider(\"Cutoff [unit:Hz]\", 1000, 20, 20000, 1);\nq = hslider(\"Q\", 0.707, 0.1, 10, 0.01);\nprocess = fi.resonlp(cutoff, q, 1.0), fi.resonlp(cutoff, q, 1.0);",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-19T18:35:03.616833+00:00"
+  },
+  {
+    "provider": "claude",
+    "category": "filters",
+    "prompt": "a high-pass filter with a gentle 12dB per octave slope",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\ncutoff = hslider(\"Cutoff [unit:Hz]\", 500, 20, 20000, 1);\nq = hslider(\"Q\", 0.707, 0.1, 5, 0.01);\nprocess = fi.resonhp(cutoff, q, 1.0), fi.resonhp(cutoff, q, 1.0);",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-19T18:35:06.435118+00:00"
+  },
+  {
+    "provider": "claude",
+    "category": "filters",
+    "prompt": "a band-pass filter with adjustable center frequency and Q",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\ncenter = hslider(\"Center Frequency [unit:Hz]\", 1000, 20, 20000, 1);\nq = hslider(\"Q\", 1, 0.1, 20, 0.01);\nbw = center / q;\nprocess = fi.bandpass(2, center - bw/2, center + bw/2), fi.bandpass(2, center - bw/2, center + bw/2);",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-19T18:35:09.373314+00:00"
+  },
+  {
+    "provider": "claude",
+    "category": "filters",
+    "prompt": "a notch filter for removing 60Hz hum, with a width control",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nfreq = hslider(\"Notch Frequency [unit:Hz]\", 60, 30, 120, 0.1);\nwidth = hslider(\"Notch Width [unit:Hz]\", 5, 0.5, 50, 0.1);\nprocess = fi.notchw(width, freq), fi.notchw(width, freq);",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-19T18:35:13.721964+00:00"
+  },
+  {
+    "provider": "claude",
+    "category": "filters",
+    "prompt": "a high-shelf filter for adding air to vocals",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nfreq = hslider(\"Shelf Freq [unit:Hz]\", 8000, 2000, 16000, 1);\ngain = hslider(\"Air Gain [unit:dB]\", 3, -12, 12, 0.1);\nprocess = fi.highshelf(1, gain, freq), fi.highshelf(1, gain, freq);",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-19T18:35:16.740858+00:00"
+  },
+  {
+    "provider": "claude",
+    "category": "time-based",
+    "prompt": "a stereo delay with time, feedback, and dry/wet",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\ndtime    = hslider(\"Delay Time [unit:ms]\", 300, 1, 2000, 1) / 1000.0;\nfeedback = hslider(\"Feedback\", 0.4, 0, 0.95, 0.01);\nmix      = hslider(\"Dry/Wet\", 0.5, 0, 1, 0.01);\ndelayL   = +~ (de.delay(ma.SR, int(dtime * ma.SR)) * feedback);\ndelayR   = +~ (de.delay(ma.SR, int(dtime * ma.SR)) * feedback);\nwetL(x)  = delayL(x) * mix + x * (1 - mix);\nwetR(x)  = delayR(x) * mix + x * (1 - mix);\nprocess  = wetL, wetR;",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-19T18:35:19.664844+00:00"
+  },
+  {
+    "provider": "claude",
+    "category": "time-based",
+    "prompt": "a ping-pong delay that bounces between left and right",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\n\ndtime = hslider(\"Delay Time [unit:ms]\", 400, 10, 2000, 1) : /(1000.0) : *(ma.SR) : int;\nfeedback = hslider(\"Feedback\", 0.5, 0, 0.95, 0.01);\nmix = hslider(\"Dry/Wet\", 0.5, 0, 1, 0.01);\n\nmaxdel = 192000;\n\npingpong(l, r) = dl, dr\nwith {\n    dl = l + dr' * feedback : de.delay(maxdel, dtime);\n    dr = r + dl' * feedback : de.delay(maxdel, dtime);\n};\n\nprocess = route(2, 4, (1,1), (1,3), (2,2), (2,4)) : (pingpong, si.bus(2)) : mix_out\nwith {\n    mix_out(wl, wr, dl, dr) = dl * (1 - mix) + wl * mix, dr * (1 - mix) + wr * mix;\n};",
+    "first_try_compiles": false,
+    "error": "ERROR : after 400 evaluation steps, the compiler has detected an endless evaluation cycle of 16 steps",
+    "timestamp": "2026-07-19T18:35:24.949936+00:00"
+  },
+  {
+    "provider": "claude",
+    "category": "time-based",
+    "prompt": "a subtle chorus effect with rate and depth",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nrate = hslider(\"Rate [unit:Hz]\", 1.5, 0.1, 10, 0.01);\ndepth = hslider(\"Depth [unit:ms]\", 2, 0.1, 10, 0.1);\nmix = hslider(\"Dry/Wet\", 0.3, 0, 1, 0.01);\ndmax = 1024;\ndelay_ms = depth * ma.SR / 1000.0;\nchorus_mono(x) = x * (1 - mix) + mix * de.fdelay(dmax, delay_ms / 2 * (1 + os.osc(rate)), x);\nprocess = chorus_mono, chorus_mono;",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-19T18:35:31.628692+00:00"
+  },
+  {
+    "provider": "claude",
+    "category": "time-based",
+    "prompt": "a tape-style flanger with feedback",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nrate = hslider(\"Rate [unit:Hz]\", 0.3, 0.01, 5, 0.01);\ndepth = hslider(\"Depth\", 0.7, 0, 1, 0.01);\nfeedback = hslider(\"Feedback\", 0.6, -0.95, 0.95, 0.01);\nmix = hslider(\"Dry/Wet\", 0.5, 0, 1, 0.01);\ndmax = 2048;\ncmax = 512;\nflangerMono = _ <: _ * (1 - mix), (ef.flanger_mono(dmax, cmax, depth, feedback, rate) * mix) :> _;\nprocess = flangerMono, flangerMono;",
+    "first_try_compiles": false,
+    "error": "/tmp/tmpautus4m4.dsp:8 : ERROR : undefined symbol : flanger_mono",
+    "timestamp": "2026-07-19T18:35:36.502930+00:00"
+  },
+  {
+    "provider": "claude",
+    "category": "time-based",
+    "prompt": "a simple plate reverb with decay time and damping",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\ndecay = hslider(\"Decay [unit:s]\", 2.0, 0.1, 10.0, 0.1);\ndamping = hslider(\"Damping\", 0.5, 0, 1, 0.01);\nmix = hslider(\"Dry/Wet\", 0.3, 0, 1, 0.01);\nfb = min(0.99, 1.0 - (1.0 / (decay * ma.SR + 1.0)));\ndamp_filter = fi.resonlp(2000 + (1 - damping) * 18000, 0.707, 1.0);\nap(dt) = fi.allpass_comb(8192, dt, fb);\ndl(dt, x) = de.delay(8192, dt, x) * fb : damp_filter;\nplate(x) = x : ap(113) : ap(227) : ap(353) : ap(491)\n         <: (dl(1687, _) + dl(1801, _) + dl(2311, _) + dl(2713, _)) :> /(4);\nreverb(x) = x * (1 - mix) + plate(x) * mix;\nprocess = reverb, reverb;",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-19T18:35:41.505598+00:00"
+  },
+  {
+    "provider": "claude",
+    "category": "dynamics",
+    "prompt": "a compressor with threshold, ratio, attack, and release",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nthreshold = hslider(\"Threshold [unit:dB]\", -20, -60, 0, 0.1);\nratio = hslider(\"Ratio\", 4, 1, 20, 0.1);\nattack = hslider(\"Attack [unit:ms]\", 10, 0.1, 100, 0.1) / 1000.0;\nrelease = hslider(\"Release [unit:ms]\", 100, 1, 1000, 1) / 1000.0;\nprocess = co.compressor_stereo(ratio, threshold, attack, release);",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-19T18:35:52.546749+00:00"
+  },
+  {
+    "provider": "claude",
+    "category": "dynamics",
+    "prompt": "a brick-wall limiter for mastering",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\n\nceiling = hslider(\"Ceiling [unit:dB]\", -0.3, -12, 0, 0.1);\nattack = hslider(\"Attack [unit:ms]\", 0.1, 0.01, 10, 0.01);\nrelease = hslider(\"Release [unit:ms]\", 100, 10, 1000, 1);\n\nceiling_lin = ba.db2linear(ceiling);\n\nlimiter = co.compressor_stereo(1000, ba.linear2db(ceiling_lin), attack / 1000, release / 1000) : *(ceiling_lin), *(ceiling_lin);\n\nprocess = limiter;",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-19T18:35:56.137747+00:00"
+  },
+  {
+    "provider": "claude",
+    "category": "dynamics",
+    "prompt": "a noise gate with threshold and hold time",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nthreshold = hslider(\"Threshold [unit:dB]\", -40, -96, 0, 0.1);\nhold_time = hslider(\"Hold Time [unit:ms]\", 50, 1, 1000, 1);\nattack = hslider(\"Attack [unit:ms]\", 1, 0.1, 50, 0.1);\nrelease = hslider(\"Release [unit:ms]\", 100, 1, 2000, 1);\ngate_mono = ef.gate_mono(threshold, attack / 1000.0, hold_time / 1000.0, release / 1000.0);\nprocess = gate_mono, gate_mono;",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-19T18:36:00.672597+00:00"
+  },
+  {
+    "provider": "claude",
+    "category": "dynamics",
+    "prompt": "an upward expander to bring out quiet details",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\n\nthreshold = hslider(\"Threshold [unit:dB]\", -40, -80, 0, 0.1);\nratio = hslider(\"Ratio\", 2.0, 1.0, 8.0, 0.1);\nattack = hslider(\"Attack [unit:ms]\", 10, 0.1, 100, 0.1) / 1000.0;\nrelease = hslider(\"Release [unit:ms]\", 100, 1, 1000, 1) / 1000.0;\nmakeup = hslider(\"Makeup Gain [unit:dB]\", 0, -12, 24, 0.1) : ba.db2linear;\n\nenv_follower(x) = abs(x) : si.smooth(ba.tau2pole(att_rel))\nwith {\n    att_rel = select2(abs(x) > abs(x)', attack, release);\n};\n\nexpand(x) = x * gain_lin * makeup\nwith {\n    env = env_follower(x);\n    env_db = ba.linear2db(max(env, ma.EPSILON));\n    below = threshold - env_db;\n    gain_db = select2(env_db < threshold, 0, below * (1 - ratio));\n    gain_lin = ba.db2linear(gain_db);\n};\n\nprocess = expand, expand;",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-19T18:36:04.882674+00:00"
+  },
+  {
+    "provider": "claude",
+    "category": "dynamics",
+    "prompt": "a sidechain-capable compressor",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\n\nratio = hslider(\"Ratio\", 4, 1, 20, 0.1);\nthreshold = hslider(\"Threshold [unit:dB]\", -20, -60, 0, 0.1);\nattack = hslider(\"Attack [unit:ms]\", 10, 0.1, 100, 0.1) / 1000.0;\nrelease = hslider(\"Release [unit:ms]\", 100, 1, 1000, 1) / 1000.0;\nmakeup = hslider(\"Makeup Gain [unit:dB]\", 0, -12, 24, 0.1) : ba.db2linear;\nmix = hslider(\"Dry/Wet\", 1, 0, 1, 0.01);\n\n// Inputs: Left, Right, Sidechain Left, Sidechain Right\n// The sidechain signal is used for level detection\n\nenv_follower(att, rel, x) = x * x : si.smooth(ba.tau2pole(sel))\nwith {\n    sel = x * x : (_,prev) : select2((_ > _)) \n    with { prev = _'; }\n    => (_ => att, rel); // not valid, let's simplify\n} ;\n\n// Use an.amp_follower for envelope detection on the sidechain\nsc_env(x) = an.amp_follower_ar(attack, release, x);\n\n// Compute gain reduction from sidechain envelope\ngain_computer(env) = ba.linear2db(max(env, ma.EPSILON)) : (_ < threshold) , \n    (threshold + (_ - threshold) / ratio) : select2 \nwith {\n    // If level > threshold, compress; otherwise pass through\n};\n\n// Simpler approach: manual compressor using sidechain detection\ncompress(audio, sc) = audio * gain * makeup\nwith {\n    // Envelope from sidechain\n    env = abs(sc) : an.amp_follower_ar(attack, release);\n    env_db = ba.linear2db(max(env, 1e-6));\n    // Gain computation\n    over = env_db - threshold : max(0);\n    gain_reduction = over * (1 - 1/ratio);\n    gain = ba.db2linear(-gain_reduction);\n};\n\ndry_wet(d, w) = d * (1 - mix) + w * mix;\n\n// 4 inputs: audioL, audioR, sidechainL, sidechainR\nprocess = (_, _, _, _) : (proc_left, proc_right)\nwith {\n    proc_left(aL, aR, scL, scR) = dry_wet(aL, compress(aL, scL)), dry_wet(aR, compress(aR, scR));\n};",
+    "first_try_compiles": false,
+    "error": "/tmp/tmpo4mjv_jm.dsp:17 : ERROR : syntax error, unexpected ARROW",
+    "timestamp": "2026-07-19T18:36:12.549742+00:00"
+  },
+  {
+    "provider": "claude",
+    "category": "generative",
+    "prompt": "a pure sine wave oscillator with frequency and amplitude",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nfreq = hslider(\"Frequency [unit:Hz]\", 440, 20, 20000, 0.1);\namp = hslider(\"Amplitude\", 0.5, 0, 1, 0.01);\nprocess = os.osc(freq) * amp;",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-19T18:36:29.426275+00:00"
+  },
+  {
+    "provider": "claude",
+    "category": "generative",
+    "prompt": "a sawtooth synth with an ADSR envelope",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nfreq = hslider(\"Frequency [unit:Hz]\", 440, 20, 20000, 0.01);\ngain = hslider(\"Gain [unit:dB]\", -12, -60, 0, 0.1) : ba.db2linear;\ngate = button(\"Gate\");\nattack = hslider(\"Attack [unit:s]\", 0.01, 0.001, 5, 0.001);\ndecay = hslider(\"Decay [unit:s]\", 0.1, 0.001, 5, 0.001);\nsustain = hslider(\"Sustain\", 0.7, 0, 1, 0.01);\nrelease = hslider(\"Release [unit:s]\", 0.3, 0.001, 5, 0.001);\nenvelope = en.adsr(attack, decay, sustain, release, gate);\nprocess = os.sawtooth(freq) * envelope * gain <: _, _;",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-19T18:36:31.913168+00:00"
+  },
+  {
+    "provider": "claude",
+    "category": "generative",
+    "prompt": "a 2-operator FM synth with ratio and modulation index",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nfreq = hslider(\"Frequency [unit:Hz]\", 440, 20, 2000, 0.1);\nratio = hslider(\"Ratio\", 2, 0.1, 16, 0.01);\nmodIndex = hslider(\"Mod Index\", 1, 0, 20, 0.01);\ngain = hslider(\"Gain [unit:dB]\", -12, -60, 0, 0.1) : ba.db2linear;\ngate = button(\"Gate\");\nmodFreq = freq * ratio;\nmodAmp = modIndex * modFreq;\nmodulator = os.osc(modFreq) * modAmp;\ncarrier = os.osc(freq + modulator) * gain * gate;\nprocess = carrier, carrier;",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-19T18:36:36.301547+00:00"
+  },
+  {
+    "provider": "claude",
+    "category": "generative",
+    "prompt": "a white noise generator with a tone control",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nlevel = hslider(\"Level [unit:dB]\", -12, -60, 0, 0.1) : ba.db2linear;\ntone = hslider(\"Tone [unit:Hz]\", 5000, 200, 20000, 1);\nq = hslider(\"Q\", 0.707, 0.1, 5, 0.01);\nprocess = no.noise * level <: fi.resonlp(tone, q, 1.0), fi.resonlp(tone, q, 1.0);",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-19T18:36:41.263956+00:00"
+  },
+  {
+    "provider": "claude",
+    "category": "generative",
+    "prompt": "a Karplus-Strong plucked string synthesizer",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\n\nfreq = hslider(\"Frequency [unit:Hz]\", 220, 50, 2000, 0.1);\ndamping = hslider(\"Damping\", 0.99, 0.9, 1.0, 0.001);\ntrigger = button(\"Pluck\");\n\n// Karplus-Strong: excite a delay line with noise burst, feedback through averaging filter\nexcitation = no.noise * trigger;\ndelayLength = ma.SR / freq;\n\n// Simple one-zero averaging lowpass filter for the feedback loop\navgFilter(x) = (x + x') * 0.5 * damping;\n\nks = excitation : +~ (de.fdelay(4096, delayLength - 1) : avgFilter);\n\nprocess = ks <: _, _;",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-19T18:36:44.284339+00:00"
+  }
+]
