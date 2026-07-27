@@ -18,17 +18,22 @@ decision. Do not rely on memory of their contents from earlier in the session �
 both files can change, and COLLABORATION.md's own preamble already requires
 reloading both at the start of any non-trivial session.
 
-## Step 2 — Classify the engagement mode for this decision itself
+## Step 2 — Classify the consequence, not the file
 
-State the mode (DELEGATE / PAIR / HUMAN-OWNED) with one sentence of reasoning, per
-COLLABORATION.md §2. There is a hard constraint here, not a judgment call: per
-COLLABORATION.md §1's own listed examples, **any new ADR entry** and **any
-architectural decision that forecloses an ADR option already open** are
-HUMAN-OWNED. That means this skill drafts proposed text; it does not author the
-decision or write it to `docs/decisions.md`. Do not talk yourself out of this —
-`.claude/hooks/protect_human_owned.py` also mechanically blocks a direct
-Write/Edit to that file, so treat that as confirmation of the constraint, not the
-only reason to respect it.
+State which of COLLABORATION.md §2's four consult-first triggers this decision hits,
+with one sentence of reasoning:
+
+1. irreversible or outward-facing · 2. architectural direction ·
+3. a contract between components · 4. build, dependency, or distribution
+
+Trigger 2 is the one that usually fires here: writing a new ADR, reversing an
+accepted one, or foreclosing an option an open ADR is still holding open. **The
+drafting is not gated — the decision is.** So this skill drafts proposed ADR text
+and proposes it; the human agrees; then it is committed.
+
+If nothing fires, say so in one sentence and proceed. Do not stall a session on a
+classification question — COLLABORATION.md §2's closing paragraph is explicit that
+an ambiguous call should be made, done, and reported.
 
 ## Step 3 — Walk this checklist in order
 
@@ -72,9 +77,9 @@ early-exit, cost-aware — as the template rather than inventing a new mechanism
 **(e) Does this need a CLAUDE.md or COLLABORATION.md update?**
 Apply the table in COLLABORATION.md §8: durable facts/status/file-map/"Do not"
 items go in CLAUDE.md; process/modes/protocol go in COLLABORATION.md. A CLAUDE.md
-status-line update is ordinarily DELEGATE-safe; COLLABORATION.md's own rules are
-edited directly by the human per its §7 ("the human edits COLLABORATION.md
-directly... follow the new rule immediately").
+status-line update is ordinarily ungated Tier 1. COLLABORATION.md's own rules are
+§10 territory: the protocol has no inertia, but a rule Claude thinks is wrong gets
+argued with in the report rather than silently routed around.
 
 **(f) Does this need a memory entry instead?**
 If it's a cross-session heuristic that's useful but not yet stable or general
@@ -83,12 +88,16 @@ writing it into CLAUDE.md/COLLABORATION.md prematurely. If something already in
 memory has since proven stable, say so — it should be promoted into a checked-in
 doc and the memory entry retired, not left duplicating a now-authoritative source.
 
-## Step 4 — Log it
+## Step 4 — Report it
 
-Require a `docs/collaboration_log.md` entry at the end, in the file's existing
-strict format (`### YYYY-MM-DD — Task` / `**Mode:**` / `**Task:**` /
-`**Would do differently:**` / `**Mode signal:**`), tagging which of (a)–(f) fired
-and why. Do not invent a different entry format.
+End with the COLLABORATION.md §4 change report — CHANGED / WHY / VERIFIED / RISK /
+YOUR MOVE — naming which checklist items (a)–(f) fired and why. `RISK` is the
+load-bearing line.
+
+There is no separate log to append to. `docs/collaboration_log.md` was retired in
+COLLABORATION.md §5 and deleted on 2026-07-25; its `Mode signal` field is the
+cautionary example of a self-graded rubric that never returned a failure (§9).
+Narrative history lives in git.
 
 ## Hard prohibitions (restated, not optional)
 
