@@ -51,6 +51,39 @@ PROCESS_ONCE_RE = re.compile(r"process[^\n]*exactly once")
 BEGIN_MARKER = "# BEGIN GENERATED STDLIB REFERENCE"
 END_MARKER = "# END GENERATED STDLIB REFERENCE"
 
+# Constructs from other languages that Faust does not have. On 2026-07-27 the prompt
+# was found instructing "use let bindings or with { } blocks" — Faust has `with`,
+# `letrec` and `environment`, and no `let`. That single word produced the
+# `syntax error, unexpected IDENT` recorded for P6 #9: the prompt was teaching the
+# failure it was blamed for, for weeks.
+#
+# --verify-prompt could not see it, and neither could a compile check, because the
+# claim was PROSE. It contained no code span to extract. Hence a rule that reads
+# English rather than Faust.
+#
+# Deliberately excluded: if, for, while, class, then, else, function, case, int,
+# float, import, select. Either Faust has them or they are ordinary English that
+# appears throughout the prompt ("If the effect you need...", "For stereo effects...").
+# A check that fires on the sentence explaining the rule is worse than no check.
+FOREIGN_CONSTRUCTS = {
+    "let": "Faust has `with { }`, `letrec` and `environment`. There is no `let`.",
+    "lambda": r"Faust writes anonymous functions as \(x).(expr), not `lambda`.",
+    "def": "Faust defines with `name = expr;`. There is no `def`.",
+    "elif": "Faust has no conditional statement at all; use `select2`/`select3`.",
+    "var": "Faust has no mutable variables. State goes through `~` or `rwtable`.",
+    "return": "A Faust definition IS its value. There is no `return`.",
+    "null": "Faust has no null. An absent signal is silence, `0`.",
+    "foreach": "Faust iterates with `par`, `seq`, `sum`, `prod`.",
+}
+# A sentence that DENIES the construct is the fix, not the defect:
+# "Faust has NO let bindings" must pass while "use let bindings" must not.
+NEGATION_RE = re.compile(
+    r"\b(?:no|not|never|non|without|lacks?|lacking|avoid|instead\s+of|"
+    r"unsupported|does\s+not|doesn't|isn't|is\s+not|has\s+no)\b",
+    re.I,
+)
+SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+
 WATCHED_TOOLS = {"Write", "Edit", "MultiEdit"}
 
 
@@ -93,6 +126,36 @@ def get_effective_content(tool_name: str, tool_input: dict, abs_path: Path) -> s
         content = content.replace(old, new, count) if count > 0 else content.replace(old, new)
 
     return content
+
+
+def foreign_construct_problems(content: str) -> list[str]:
+    """Sentences that RECOMMEND a construct Faust does not have.
+
+    Scans everything except the generated stdlib block, which is machine-written
+    from the installed library and cannot contain prose. Line wrapping is collapsed
+    first, because the rules are bullets that wrap mid-sentence and a per-line scan
+    would split "Faust has NO let / bindings" across the negation.
+
+    NOT COVERED, and it matters: this recognises a fixed list of constructs from
+    other languages. A construct Faust lacks that is NOT on the list, or a real
+    Faust function described with the wrong arity, passes clean. The list is the
+    proxy; the invariant is "the prompt teaches only real Faust", and the gap
+    between them is why tests/test_prompt_stdlib.py compiles the claims as well.
+    """
+    prose = content
+    if BEGIN_MARKER in prose and END_MARKER in prose:
+        head, _, rest = prose.partition(BEGIN_MARKER)
+        prose = head + rest.partition(END_MARKER)[2]
+
+    flat = re.sub(r"\s+", " ", prose)
+    problems = []
+    for sentence in SENTENCE_SPLIT_RE.split(flat):
+        if NEGATION_RE.search(sentence):
+            continue
+        for kw, why in FOREIGN_CONSTRUCTS.items():
+            if re.search(rf"\b{re.escape(kw)}\b", sentence):
+                problems.append(f"`{kw}` — {why}\n      in: \"{sentence.strip()[:110]}\"")
+    return problems
 
 
 def block(message: str) -> int:
@@ -147,6 +210,18 @@ def main() -> int:
             f"({BEGIN_MARKER!r} / {END_MARKER!r}). The block is generated from the "
             "installed Faust library by tools/gen_stdlib_block.py; without the "
             "markers it cannot be regenerated and will silently rot."
+        )
+
+    foreign = foreign_construct_problems(content)
+    if foreign:
+        return block(
+            "this edit would teach a construct that Faust DOES NOT HAVE:\n  "
+            + "\n  ".join(foreign)
+            + "\n\nThis is the 2026-07-27 defect (PF-024). The prompt said \"use let "
+              "bindings or with { } blocks\"; Faust has no `let`, and that produced the "
+              "`syntax error, unexpected IDENT` the battery recorded for P6 #9. "
+              "If you are DENYING the construct rather than recommending it, say so in "
+              "the same sentence — \"Faust has NO let bindings\" passes this check."
         )
 
     # Anti-fabrication check. Requires the installed library; skip if absent.

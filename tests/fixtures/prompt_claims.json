@@ -1,0 +1,75 @@
+{
+  "_why": [
+    "Every Faust claim the system prompt makes in PROSE, paired with what the",
+    "installed compiler actually does. tests/test_prompt_claims.py enforces both",
+    "directions: each entry here must still appear in the prompt, and each claim the",
+    "extractors find in the prompt must appear here. Neither file can drift alone.",
+    "",
+    "This exists because on 2026-07-27 the prompt was found teaching `let`, a",
+    "construct Faust has never had, for weeks. --verify-prompt resolves ns.func",
+    "references and saw nothing wrong, because the claim was prose. Compiling the",
+    "few-shots saw nothing either, because the claim was not in a few-shot.",
+    "",
+    "verdict: compiles | fails | template",
+    "  compiles  `program` must compile clean.",
+    "  fails     `program` must NOT compile, and stderr must contain `expect_error`.",
+    "  template  contains metavariables (A, B, E, N, MAX, ...) or an ellipsis, so it",
+    "            cannot be compiled literally. Recorded so completeness stays honest",
+    "            rather than quietly skipping what it cannot check."
+  ],
+
+  "definitions": [
+    {
+      "snippet": "echoCh(x) = x * 0.5;",
+      "verdict": "compiles",
+      "program": "import(\"stdfaust.lib\");\nechoCh(x) = x * 0.5;\nprocess = echoCh;",
+      "note": "The prompt's positive example for declaring an argument."
+    },
+    {
+      "snippet": "echoCh = x * 0.5;",
+      "verdict": "fails",
+      "program": "import(\"stdfaust.lib\");\nechoCh = x * 0.5;\nprocess = echoCh;",
+      "expect_error": "undefined symbol : x",
+      "note": "The prompt's counter-example: `never echoCh = x * 0.5;`. Today's stereo-delay failure was exactly this — the model copied the echoCh few-shot and dropped the parameter list."
+    },
+    {
+      "snippet": "d = d : *(0.5);",
+      "verdict": "fails",
+      "program": "import(\"stdfaust.lib\");\nd = d : *(0.5);\nprocess = d;",
+      "expect_error": "endless evaluation cycle",
+      "note": "P6 #2, ping-pong. A self-reference outside a delay is a compile-time cycle, not a delay line."
+    },
+    {
+      "snippet": "process = out with { out = _ * 0.5; };",
+      "verdict": "compiles",
+      "program": "import(\"stdfaust.lib\");\nprocess = out with { out = _ * 0.5; };",
+      "note": "The prompt's with{} form, given verbatim. Was recommended but never demonstrated until f3453c4; P6 #10 was `unexpected WITH`."
+    },
+    {
+      "snippet": "process = ...;",
+      "verdict": "template",
+      "note": "Literal ellipsis in `Always define: process = ...;`."
+    },
+    {
+      "snippet": "process = L, R;",
+      "verdict": "template",
+      "note": "L and R are metavariables named as such in the same sentence."
+    }
+  ],
+
+  "error_claims": [
+    {
+      "prompt_claim": "endless evaluation cycle",
+      "program": "import(\"stdfaust.lib\");\nd = d : *(0.5);\nprocess = d;",
+      "expect_error": "endless evaluation cycle",
+      "verbatim": true
+    },
+    {
+      "prompt_claim": "2 outputs must equal 1 input",
+      "program": "import(\"stdfaust.lib\");\nprocess = _,_ : fi.lowpass(2,800);",
+      "expect_error": "must be equal to the number of inputs",
+      "verbatim": false,
+      "note": "PARAPHRASE, not compiler output. Faust emits: 'The number of outputs [2] of A must be equal to the number of inputs [1] of lowpass(2)(800)'. The quoted form appears nowhere in stderr. Recorded rather than silently corrected because the prompt is Tier 2 and generate.py feeds real stderr back on retry, so the two wordings should probably converge. docs/BUGS.md uses the same paraphrase."
+    }
+  ]
+}
