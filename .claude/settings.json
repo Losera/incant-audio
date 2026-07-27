@@ -1,4 +1,9 @@
 {
+  "autoMemoryEnabled": false,
+  "skillOverrides": {
+    "omarchy": "off",
+    "Omarchy": "off"
+  },
   "hooks": {
     "PreToolUse": [
       {
