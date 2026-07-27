@@ -16,13 +16,34 @@ Pipeline: Natural language prompt → LLM → Faust DSL → LLVM JIT → VST3/AU
 - libfaust + LLVM — JIT compiler embedded in host plugin
 - Python — LLM prompt layer; provider-agnostic via llm/providers.py (free-only by
   default: gemini / groq / openrouter / local ollama; anthropic is paid and gated
-  behind PLUGINFORGE_ALLOW_PAID=1). Draft rationale: docs/ADR-012-free-provider-layer-DRAFT.md
+  behind PLUGINFORGE_ALLOW_PAID=1). Rationale: ADR-012 in `docs/decisions.md`.
 - CMake + Ninja — build system
-- Arch Linux (primary dev target)
+
+## The machine this is built on
+Verified 2026-07-27. These are the versions the JIT, the oracle and the prompt's stdlib
+block are all pinned to in practice — when a version here moves, expect the generated
+Faust and the measured audio to move with it.
+
+- **Arch Linux**, kernel 7.0.10-arch1-1 (Omarchy). Primary and only dev target.
+- **Faust 2.85.5**, stdlib at `/usr/share/faust/` (53 `.lib` files). This is the
+  ground truth `tools/gen_stdlib_block.py` generates the prompt's stdlib block from, and
+  what `check_prompt_invariants.py` resolves every `ns.func` against.
+- **LLVM 22.1.6** — backs the libfaust JIT inside the host plugin.
+- **JUCE** vendored at `host/JUCE`. CMake 4.3.3, Ninja 1.13.2, Python 3.14.5,
+  libsndfile 1.2.2 (the render oracle's static-link closure).
+- **Wayland session under Hyprland.** The Standalone runs here, so UI capture is
+  compositor-specific: `tools/screenshot_ui.sh` drives `hyprctl` + `grim` and cannot be
+  replaced with an X11 tool. There is no `$DISPLAY`-based fallback.
 
 ## Where it currently stands
-**`STATUS.md`. Read it first, every session.** It is rewritten each session and is the
-only status record.
+**Run `/orient` first, every session.** It is the session-start read, authorized
+2026-07-27 to replace "read STATUS.md in full." It injects live repo state plus the open
+half of STATUS.md — Broken, Assumed, Next three, Waiting on you — at about a fifth of the
+tokens, and computes the rest rather than recalling it. `STATUS.md` is still the only
+status record and is still rewritten each session; the digest just stops you paying for
+its "Works — and how we know" evidence archive (57% of the file) on every read. Read the
+file directly when you need that evidence, or whenever the digest prints
+**DIGEST INCOMPLETE**.
 
 The per-file narrative that used to live here was deleted on 2026-07-25, completing a
 migration this file had already announced. It had become actively wrong — it still said
