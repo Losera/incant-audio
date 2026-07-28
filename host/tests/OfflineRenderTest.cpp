@@ -357,6 +357,20 @@ constexpr int    kBlocks     = 200;   // ~2.1s at 48k — long enough for LFOs/d
 
 int main()
 {
+    // SUBTLE: this must outlive every PluginForgeProcessor below. The APVTS ctor calls
+    // startTimerHz(10) (juce_AudioProcessorValueTreeState.cpp:265 -> juce_Timer.cpp:352),
+    // and Timer::startTimer asserts a MessageManager exists (juce_Timer.cpp:336). Without
+    // this line the assertion fires once per processor and the run leaks TimerThread,
+    // AsyncUpdater, Thread and 3x WaitableEvent at exit.
+    //
+    // It was cosmetic until adab1fc added a gdb post-mortem to the CI step. jassertfalse
+    // breaks ONLY under a debugger (juce_PlatformDefs.h -- `if (juce_isRunningUnderDebugger())
+    // JUCE_BREAK_IN_DEBUGGER`), so the bare run printed the assertion and continued, while
+    // the gdb re-run trapped on the FIRST one and never reached the real fault. That is why
+    // four red CI runs were read as a Timer bug: the post-mortem meant to make the SIGILL
+    // "describe itself" was describing something else entirely. See PF-026/PF-027.
+    juce::ScopedJuceInitialiser_GUI juceInit;
+
     std::printf("OfflineRenderTest — objective half of the P6 battery\n");
     std::printf("  %d well-behaved patches, %d pathological controls\n",
                 (int) kWellBehaved.size(), (int) kPathological.size());
@@ -411,18 +425,11 @@ int main()
         // Parameter mapping: what the patch declares is what the pool published.
         if (patch.expectedParams >= 0)
         {
-            juce::MemoryBlock blob;
-            p.getStateInformation(blob);
-            auto xml = juce::AudioProcessor::getXmlFromBinary(blob.getData(),
-                                                              (int) blob.getSize());
-            int labelled = 0;
-            if (xml != nullptr)
-            {
-                auto root = juce::ValueTree::fromXml(*xml);
-                auto labels = root.getChildWithName("SlotLabels");
-                labelled = labels.getNumChildren();
-            }
-            mappedParams = labelled;
+            // Read the slot->label map directly. This used to serialise a blob and
+            // count <SlotLabels> children, but that node was dropped from the
+            // persisted format on 2026-07-27 (nothing read it) — so the mapping is
+            // now observed where it actually lives, in the processor.
+            mappedParams = p.currentLabelsForTest().size();
             check(mappedParams == patch.expectedParams,
                   juce::String("parameter count matches the patch (expected ")
                       + juce::String(patch.expectedParams) + ", mapped "

@@ -228,30 +228,33 @@ void PluginForgeProcessor::loadFaustCode(const juce::String& faustCode,
 //                     faustSource="import(&quot;stdfaust.lib&quot;);&#10;process = _;"
 //                     prompt="a warm lowpass">
 //     <STATE> ... verbatim apvts.copyState(): 64 macro_* PARAM children ... </STATE>
-//     <SlotLabels>
-//       <Slot index="0" label="Cutoff"/> ...
-//     </SlotLabels>
 //   </PluginForgeState>
 //
 // - faustSource / prompt are root attributes; JUCE escapes newlines and quotes in
 //   XML attribute values, so multi-line source survives without CDATA.
 // - <STATE> is the APVTS's own tree appended verbatim, so the 64 slot values ride
 //   JUCE's standard mechanism.
-// - <SlotLabels> is a HINT for the editor to label knobs before the async restore
-//   recompile finishes; remap() regenerates the authoritative map on recompile, so
-//   on any disagreement the recompile wins.
 // - The DSP is never serialised. The Faust source is the artifact of record and
 //   setState recompiles it.
+//
+// DROPPED 2026-07-27 — <SlotLabels>. v1 used to carry a slot->label hint node,
+// documented as letting the editor label knobs before the async restore recompile
+// finished. Nothing ever read it: setStateInformation below restores STATE,
+// faustSource and prompt and never looked the node up, so the hint was written on
+// every save and consumed by no one. Removed while v1 is still the only blob in
+// the wild, rather than carried as a contract we would have to honour later.
+// remap() on the restore recompile is, and always was, the only label source.
+//
+// Old blobs that still contain the node restore correctly and need no migration:
+// setStateInformation looks its children up BY NAME (getChildWithName), so an
+// unrecognised extra child is simply never read. That is why this is an amendment
+// to v1 and not a schemaVersion bump.
 // ─────────────────────────────────────────────────────────────────────────────
 
-static const juce::Identifier kStateRootTag  ("PluginForgeState");
-static const juce::Identifier kSlotLabelsTag  ("SlotLabels");
-static const juce::Identifier kSlotTag        ("Slot");
+static const juce::Identifier kStateRootTag    ("PluginForgeState");
 static const juce::Identifier kSchemaVersionId ("schemaVersion");
 static const juce::Identifier kFaustSourceId   ("faustSource");
 static const juce::Identifier kPromptId        ("prompt");
-static const juce::Identifier kIndexId         ("index");
-static const juce::Identifier kLabelId         ("label");
 
 void PluginForgeProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
@@ -262,16 +265,6 @@ void PluginForgeProcessor::getStateInformation(juce::MemoryBlock& destData)
         std::lock_guard<std::mutex> lock(metaMutex);
         root.setProperty(kFaustSourceId, currentFaustSource, nullptr);
         root.setProperty(kPromptId,      currentPrompt,      nullptr);
-
-        juce::ValueTree labels(kSlotLabelsTag);
-        for (int i = 0; i < currentLabels.size(); ++i)
-        {
-            juce::ValueTree slot(kSlotTag);
-            slot.setProperty(kIndexId, i, nullptr);
-            slot.setProperty(kLabelId, currentLabels[i], nullptr);
-            labels.appendChild(slot, nullptr);
-        }
-        root.appendChild(labels, nullptr);
     }
 
     // copyState() flushes pending parameter updates and returns a thread-safe copy
@@ -349,6 +342,12 @@ juce::String PluginForgeProcessor::currentPromptForTest() const
 {
     std::lock_guard<std::mutex> lock(metaMutex);
     return currentPrompt;
+}
+
+juce::StringArray PluginForgeProcessor::currentLabelsForTest() const
+{
+    std::lock_guard<std::mutex> lock(metaMutex);
+    return currentLabels;   // by value, under the lock: the compile thread rewrites this
 }
 
 juce::AudioProcessorEditor* PluginForgeProcessor::createEditor()

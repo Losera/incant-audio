@@ -120,6 +120,13 @@ public:
     juce::String currentSourceForTest() const;
     juce::String currentPromptForTest() const;
 
+    // Test-only. The live slot->label map. This used to be observable only by
+    // serialising a blob and counting <SlotLabels> children; that node was
+    // dropped from the persisted format (see getStateInformation), so the tests
+    // that care about the mapping read it here instead — from the in-memory
+    // record, which is where it always actually lived.
+    juce::StringArray currentLabelsForTest() const;
+
     // Test-only. The rate the LIVE DSP is actually running at, per Faust's own
     // getSampleRate(); 0 when none is live. PF-018's spec assertion is precisely
     // "this follows prepareToPlay", and before the fix it did not.

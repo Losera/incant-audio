@@ -8,7 +8,7 @@
 //
 // Scope: this asserts the *serialisation contract*, not the restore recompile.
 // Label CONTENT is not asserted (it is produced by the async compile and is timing
-// dependent); only that the <SlotLabels> node is emitted. A trivial passthrough is
+// dependent); the blob is asserted to carry no label node at all. A trivial passthrough is
 // used as the source so the test does not depend on any particular stdlib function.
 //
 // Build/run:
@@ -20,6 +20,7 @@
 #include <cmath>
 #include <condition_variable>
 #include <cstdio>
+#include <cstdlib>
 #include <mutex>
 
 // libfaust leaks its parser buffers on every compile (FAUST_scan_buffer, inside
@@ -144,7 +145,20 @@ int main()
                       == PluginForgeProcessor::kStateSchemaVersion,
                   "schemaVersion matches current");
             check(root.getChildWithName("STATE").isValid(), "STATE child present");
-            check(root.getChildWithName("SlotLabels").isValid(), "SlotLabels node emitted");
+            check(! root.getChildWithName("SlotLabels").isValid(),
+                  "no SlotLabels node — dropped from v1 2026-07-27");
+            check(root.getNumChildren() == 1,
+                  "STATE is the blob's only child");
+
+            // The §2 trigger-3 contract is a FORMAT, so it has to be reviewable as
+            // one. Set PLUGINFORGE_DUMP_STATE=<path> to write the literal emitted
+            // document for a human to read against the doc comment above
+            // getStateInformation(). Opt-in: the normal test run writes nothing.
+            if (const char* dumpPath = std::getenv("PLUGINFORGE_DUMP_STATE"))
+            {
+                juce::File(juce::String(dumpPath)).replaceWithText(xml->toString());
+                std::printf("  [dump] persisted-state XML written to %s\n", dumpPath);
+            }
         }
     }
 
@@ -250,6 +264,58 @@ int main()
                   "Fresh patch compiled (unmapped-slot case)");
             checkNear(getSlot(p, 7), 0.0f,
                       "Fresh zeroed a slot the new patch does not map");
+        }
+    }
+
+    // ── The slot->label map lives in memory, NOT in the blob ─────────────────
+    // <SlotLabels> was dropped from v1 on 2026-07-27: it was written on every save
+    // and read by nothing. The mapping itself is not gone — it is still built by
+    // the compile callback — so this asserts both halves of that split, with a
+    // param-bearing patch rather than the `process = _;` used above (which
+    // declares no params and so could not tell an empty map from a missing one).
+    //
+    // Label ORDER is libfaust's UI-traversal order, not a contract this project
+    // states, so the label SET is pinned rather than a specific index→label pair.
+    {
+        std::printf("\nslot->label map: in memory, absent from the blob\n");
+
+        const juce::String twoParams =
+            "import(\"stdfaust.lib\");\n"
+            "process = _ * hslider(\"Gain\", 0.5, 0.0, 1.0, 0.01)\n"
+            "            * hslider(\"Depth\", 0.25, 0.0, 1.0, 0.01);";
+
+        PluginForgeProcessor p;
+        check(loadAndAwaitCompile(p, twoParams, "two named params",
+                                  PluginForgeProcessor::LoadMode::Fresh),
+              "param-bearing patch compiled");
+
+        auto labels = p.currentLabelsForTest();
+        check(labels.size() == 2, "the compile published one label per declared param");
+        labels.sort(false);
+        check(labels.joinIntoString(",") == "Depth,Gain",
+              "the declared param labels reach the in-memory map");
+
+        // ...and none of that leaks into the persisted format. This is the check
+        // that fails if anyone re-adds the node.
+        juce::MemoryBlock labelled;
+        p.getStateInformation(labelled);
+        auto xml = juce::AudioProcessor::getXmlFromBinary(labelled.getData(),
+                                                          static_cast<int>(labelled.getSize()));
+        check(xml != nullptr, "labelled blob parses back to XML");
+        if (xml != nullptr)
+        {
+            auto root = juce::ValueTree::fromXml(*xml);
+            check(! root.getChildWithName("SlotLabels").isValid(),
+                  "a patch WITH params still serialises no SlotLabels node");
+            check(root.getNumChildren() == 1, "STATE remains the blob's only child");
+
+            // Deliberately NOT "the blob does not contain 'Gain'" — it does, and
+            // must: faustSource carries hslider("Gain",...) verbatim, which is the
+            // artifact of record. What must be absent is the label MARKUP, so that
+            // is what is matched.
+            const juce::String doc = xml->toString();
+            check(! doc.contains("<Slot") && ! doc.contains("label="),
+                  "no Slot element or label attribute anywhere in the blob");
         }
     }
 
