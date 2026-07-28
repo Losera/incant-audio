@@ -37,9 +37,11 @@ Faust and the measured audio to move with it.
 
 ## Where it currently stands
 **Run `/orient` first, every session.** It is the session-start read, authorized
-2026-07-27 to replace "read STATUS.md in full." It injects live repo state plus the open
-half of STATUS.md — Broken, Assumed, Next three, Waiting on you — at about a fifth of the
-tokens, and computes the rest rather than recalling it. `STATUS.md` is still the only
+2026-07-27 to replace "read STATUS.md in full." It injects live repo state, **the CI status
+of the current branch** (added 2026-07-28 — red, green-on-an-older-commit and unreachable
+all print a banner; silence is the one forbidden output), plus the open half of STATUS.md —
+Broken, Assumed, Next three, Waiting on you — at about a fifth of the tokens, and computes
+the rest rather than recalling it. `STATUS.md` is still the only
 status record and is still rewritten each session; the digest just stops you paying for
 its "Works — and how we know" evidence archive (57% of the file) on every read. Read the
 file directly when you need that evidence, or whenever the digest prints
@@ -63,9 +65,25 @@ tools/check.sh quota    opt-in   deliberate      the 25-prompt benchmark (spends
 tools/check.sh assumed           anytime         how many claims are still unverified
 ```
 
+**Done means pushed and green, not committed.** *(2026-07-28.)* On 2026-07-28 CI had been
+red for four consecutive pushes with a SIGILL in `OfflineRenderTest` (PF-027) — a harness
+**the ladder below has never built or run**, unlike CI (PF-029). The ladder is necessary and
+is not sufficient, and a green `check.sh` is a statement about a smaller set of tests than
+CI runs. `/orient` now opens with the CI line so the gap is visible at session start.
+
 **The one number is `assumed`.** Every piece of work should move at least one claim out of
 STATUS.md's "Assumed, never checked" list. It cannot be improved by writing documentation,
-which is the entire reason it is the metric.
+which is the entire reason it is the metric. Since 2026-07-28 one of STATUS.md's three
+"Next three things" is **reserved** for an item that moves this number
+(tagged `*(evidence)*`, enforced by `tests/test_control_wiring.py`) — all 18 closed defects
+were code defects, while all six evidence defects sat open, because a list ranked by urgency
+never schedules work whose defining property is that it is not urgent.
+
+**One judgment has no instrument: whether a generated plugin sounds like what was asked
+for.** The render oracle proves a patch is not broken — no NaN, no silence, no DC, no
+runaway gain — and cannot tell you the filter is musical. That is the human's job, it is not
+delegable to a hook or a model, and `YOUR MOVE` lines should be written on the assumption
+that a listening pass outranks a diff read. See COLLABORATION.md §1.
 
 **A control counts only once it has been seen failing.** On 2026-07-25 all five enforcement
 hooks were found never to have run — `.claude/settings.json` had `PreToolUse` at the file

@@ -21,14 +21,41 @@
 #   exits 1. A digest that quietly shrinks when STATUS.md is restructured would
 #   be worse than no digest, because a short report reads like good news.
 #
+# THE CI SECTION (added 2026-07-28)
+#   Every control in this project watched the code; none watched whether the
+#   remote gate had reported. On 2026-07-28 CI had been red on four consecutive
+#   pushes — since 2026-07-26 — while STATUS.md's Broken list held one item that
+#   was not that, and this digest said nothing at all. Local `check.sh full`
+#   passes on the same tests because a dev session supplies what a headless
+#   runner does not, so the ladder said green and only the unread half said red.
+#
+#   That is the same failure class as the dead hooks and the 17-commits-behind
+#   CI, one level up: not a control that was wrong, a control that reported to
+#   nobody. So this section never prints nothing. Red prints a banner, green-on-
+#   an-older-commit prints a banner, and "could not tell" prints a banner naming
+#   why and what to run by hand.
+#
 # WHAT IT DOES NOT DO
 #   It does not verify a single claim in STATUS.md. Everything under "Broken" and
 #   "Assumed" is what the last writer asserted, not what is true today. The
 #   staleness banner is the only cross-check, and it compares dates, not facts.
 #
+#   It does not re-run CI, and it trusts `gh` about what CI concluded. A green
+#   run means the runner was happy with that commit, not that HEAD is good — read
+#   the `commit` line, which says how far behind HEAD the tested commit is.
+#
+#   An unknown CI status does NOT exit non-zero. A non-zero exit here means
+#   "STATUS.md no longer has the shape this script reads, go read it directly",
+#   and overloading it with "you aren't logged into gh" would make the real
+#   signal ignorable on any machine without the CLI. Unknown is loud, not fatal.
+#
 # USAGE
 #   tools/status_digest.sh          # the digest
 #   Consumed by .claude/skills/orient/SKILL.md via !`...` injection.
+#
+#   PLUGINFORGE_CI_RUNS_JSON  — test seam. When set, it is used verbatim in place
+#   of invoking `gh run list`, so tests/test_control_wiring.py can drive the red,
+#   stale-green and malformed cases without a network. Production never sets it.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -47,6 +74,150 @@ if [[ "$DIRTY" != "0" ]]; then
 fi
 echo '```'
 echo
+
+# ------------------------------------------------------------------------- CI
+# Deliberately a separate interpreter from the STATUS.md block below: a failure
+# to reach GitHub must not be able to swallow the sections that come after it,
+# and neither block's exit code should depend on the other's inputs.
+python3 - <<'PY'
+import json, os, shutil, subprocess, sys
+
+GOOD = {"success", "skipped", "neutral"}
+FIELDS = "databaseId,status,conclusion,headSha,createdAt,workflowName,event,url"
+
+
+def git(*args: str) -> str:
+    try:
+        p = subprocess.run(["git", *args], capture_output=True, text=True, timeout=10)
+    except Exception:
+        return ""
+    return p.stdout.strip() if p.returncode == 0 else ""
+
+
+BRANCH = git("rev-parse", "--abbrev-ref", "HEAD") or "?"
+HEAD = git("rev-parse", "HEAD")
+
+
+def unknown(why: str, how: str) -> None:
+    """The one thing this section must never do is stay quiet. Say why, and how to check."""
+    print(f"### CI — UNKNOWN on `{BRANCH}`")
+    print()
+    print("> **CI STATUS UNKNOWN.** Nothing else in this digest looks at the remote gate,")
+    print("> so treat the build as unverified this session rather than as passing.")
+    print(f"> Reason: {why}.")
+    print(f"> Check by hand: {how}")
+    print()
+
+
+def load_runs() -> list[dict] | None:
+    seam = os.environ.get("PLUGINFORGE_CI_RUNS_JSON")
+    manual = f"`gh run list --branch {BRANCH}`"
+    if seam is not None:
+        raw = seam
+    elif shutil.which("gh") is None:
+        unknown("`gh` is not on PATH", "open the repository's Actions tab in a browser")
+        return None
+    else:
+        try:
+            p = subprocess.run(
+                ["gh", "run", "list", "--branch", BRANCH, "--limit", "15", "--json", FIELDS],
+                capture_output=True, text=True, timeout=20,
+            )
+        except subprocess.TimeoutExpired:
+            unknown("`gh run list` did not answer within 20s", manual)
+            return None
+        except Exception as exc:
+            unknown(f"`gh run list` could not be invoked ({type(exc).__name__})", manual)
+            return None
+        if p.returncode != 0:
+            first = next((ln for ln in p.stderr.splitlines() if ln.strip()), "no stderr")
+            unknown(f"`gh run list` exited {p.returncode}: {first.strip()[:110]}", manual)
+            return None
+        raw = p.stdout
+
+    try:
+        runs = json.loads(raw)
+        if not isinstance(runs, list):
+            raise ValueError(f"expected a list of runs, got {type(runs).__name__}")
+    except Exception as exc:
+        unknown(f"could not parse the run list ({exc})", manual)
+        return None
+    if not runs:
+        unknown(f"no workflow runs found for branch `{BRANCH}`", manual)
+        return None
+    return runs
+
+
+def commit_line(sha: str) -> tuple[str, int | None]:
+    """Describe the tested commit relative to HEAD. Returns (text, commits_behind)."""
+    short = (sha or "?")[:7]
+    if sha and HEAD and sha == HEAD:
+        return f"{short} = HEAD", 0
+    if sha:
+        n = git("rev-list", "--count", f"{sha}..HEAD")
+        if n.isdigit():
+            return f"{short} — HEAD is {n} commit(s) ahead of it", int(n)
+    return f"{short} — not present locally, distance from HEAD unknown", None
+
+
+runs = load_runs()
+if runs is None:
+    sys.exit(0)
+
+latest = next((r for r in runs if r.get("status") == "completed"), None)
+in_flight = [r for r in runs if r.get("status") != "completed"]
+
+# Consecutive non-success, newest first. In-flight runs are skipped, not counted:
+# a queued run is not yet evidence of anything.
+streak = 0
+for r in runs:
+    if r.get("status") != "completed":
+        continue
+    if (r.get("conclusion") or "") in GOOD:
+        break
+    streak += 1
+
+workflow = (latest or runs[0]).get("workflowName") or "workflow"
+print(f"### CI — {workflow} on `{BRANCH}`")
+print("```")
+
+if latest is None:
+    print(f"status    IN PROGRESS — {len(in_flight)} run(s) queued, none completed yet")
+    print("```")
+    print()
+    print(f"> **CI has not concluded on `{BRANCH}` yet.** The most recent push is still")
+    print("> being tested, so no run in this window is evidence either way.")
+    print()
+    sys.exit(0)
+
+conclusion = (latest.get("conclusion") or "unknown").upper()
+when = (latest.get("createdAt") or "?").replace("T", " ").replace("Z", "Z")
+text, behind = commit_line(latest.get("headSha") or "")
+
+print(f"status    {conclusion}" + (f" — {streak} consecutive" if streak > 1 else ""))
+print(f"run       {latest.get('databaseId', '?')}  {when}")
+print(f"commit    {text}")
+if in_flight:
+    print(f"also      {len(in_flight)} run(s) still in progress")
+print("```")
+print()
+
+if (latest.get("conclusion") or "") not in GOOD:
+    nth = f"The last {streak} runs on" if streak > 1 else "The last run on"
+    where = "at HEAD" if behind == 0 else "on an earlier commit"
+    print(f"> **CI IS RED.** {nth} `{BRANCH}` concluded *{conclusion.lower()}*, most recently")
+    print(f"> {where}. A green `tools/check.sh` does not contradict this: the ladder runs a")
+    print("> SMALLER set than CI does (PF-029). Read the failure before trusting the Broken")
+    print("> list below to be complete:")
+    print(f"> `gh run view {latest.get('databaseId', '?')} --log-failed`")
+    print()
+elif behind is None or behind > 0:
+    n = "an unknown number of" if behind is None else str(behind)
+    print(f"> **CI is green on a commit that is not HEAD.** {n} commit(s) have landed since")
+    print("> the last tested one, and nothing has run against them. Green here is evidence")
+    print("> about that commit, not about the tree you are working in.")
+    print()
+PY
 
 python3 - <<'PY'
 import datetime, pathlib, re, subprocess, sys

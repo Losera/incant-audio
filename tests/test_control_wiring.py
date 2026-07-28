@@ -36,6 +36,8 @@ Nothing in-process can prove that — it is verified by watching a hook block a 
 call. Done 2026-07-25; see docs/research/ and the git history for this commit.
 """
 import json
+import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -326,3 +328,397 @@ class TestHooksDoNotOverreach:
             "tool_name": "Write", "cwd": CWD,
             "tool_input": {"file_path": PROMPT, "content": Path(PROMPT).read_text()},
         }) == 0
+
+
+# ------------------------------------------------------- benchmark concurrency (PF-025)
+
+
+class TestBenchmarkConcurrencyGuard:
+    """PF-025. Two benchmark runs at once is a data-loss bug, and it has fired twice.
+
+    2026-07-21: two --dry-run invocations overwrote a committed 25-record run.
+    2026-07-27: two full groq runs executed concurrently, launched minutes apart by two
+    agents that could not see each other. Both were headed for the same results.json,
+    and they shared one free-tier token budget -- the second took HTTP 429 (TPM limit
+    8000) on its first prompt after five retries, which classify_failures files as
+    `transport`. A measurement corrupted by the collision, not by the model.
+
+    The guard is asymmetric on purpose, and so are these tests: the REFUSE path is
+    exercised end-to-end through the CLI (it costs nothing -- the lock is checked
+    before any generation), while the ALLOW path is asserted at function level,
+    because proving it by running the harness would spend 25 prompts of quota.
+    """
+
+    @staticmethod
+    def _bench():
+        sys.path.insert(0, str(ROOT / "bench"))
+        import run_benchmark
+        return run_benchmark
+
+    @pytest.fixture
+    def free_lock(self):
+        """Yield only if no real benchmark holds the lock; always leave it as found."""
+        rb = self._bench()
+        if rb.LOCK_FILE.exists():
+            pytest.skip(f"a real benchmark run holds {rb.LOCK_FILE}")
+        yield rb
+        rb.LOCK_FILE.unlink(missing_ok=True)
+
+    def test_second_concurrent_run_refuses_with_exit_2(self, free_lock):
+        """The red case. A live holder must stop the second run before it generates."""
+        rb = free_lock
+        rb.acquire_lock()  # this process is the live holder
+        proc = subprocess.run(
+            [sys.executable, str(ROOT / "bench" / "run_benchmark.py"), "--provider", "groq"],
+            capture_output=True, text=True, timeout=120, cwd=str(ROOT),
+        )
+        assert proc.returncode == 2, (
+            "A second concurrent benchmark run was NOT refused. Two runs share one "
+            "results.json and one provider rate limit — see PF-025.\n"
+            f"stdout: {proc.stdout[-400:]}\nstderr: {proc.stderr[-400:]}"
+        )
+        assert str(os.getpid()) in proc.stderr, (
+            "The refusal must name the holding pid — an unactionable lock message is "
+            "how a guard gets deleted by the first person it blocks."
+        )
+
+    def test_stale_lock_is_reclaimed_not_latched(self, free_lock):
+        """A guard that stays latched after a crash gets switched off, i.e. is dead."""
+        rb = free_lock
+        dead_pid = 2 ** 22  # far above /proc/sys/kernel/pid_max; cannot be running
+        assert not rb._pid_alive(dead_pid)
+        rb.LOCK_FILE.write_text(json.dumps({"pid": dead_pid, "started": "whenever"}))
+        rb.acquire_lock()
+        assert json.loads(rb.LOCK_FILE.read_text())["pid"] == os.getpid()
+
+    def test_lock_is_free_when_no_run_is_active(self, free_lock):
+        """The overreach counterpart: an ordinary run must not be blocked."""
+        rb = free_lock
+        rb.acquire_lock()
+        rb.release_lock()
+        assert not rb.LOCK_FILE.exists()
+        rb.acquire_lock()  # a second sequential run acquires cleanly
+
+    def test_corrupt_lock_does_not_wedge_the_harness(self, free_lock):
+        """An unparseable lock is reclaimed, not treated as a permanent holder."""
+        rb = free_lock
+        rb.LOCK_FILE.write_text("{ this is not json")
+        rb.acquire_lock()
+        assert json.loads(rb.LOCK_FILE.read_text())["pid"] == os.getpid()
+
+    def test_every_real_run_writes_a_dated_archive(self):
+        """results.json alone is not an archive — the next run overwrites it.
+
+        Asserted against the source rather than by running the harness: this is the
+        line that made today's `cp results.json results_..._baseline.json` step
+        unnecessary, and it must not quietly regress to a single output file.
+        """
+        src = (ROOT / "bench" / "run_benchmark.py").read_text()
+        assert 'f"results_{stamp}_{tag}.json"' in src, (
+            "run_benchmark.py no longer writes a per-run dated archive. Without it, "
+            "two sequential runs silently overwrite each other's evidence (PF-025)."
+        )
+
+
+# ------------------------------------------------------------- CI reporting (digest)
+
+
+DIGEST = ROOT / "tools" / "status_digest.sh"
+ORIENT = ROOT / ".claude" / "skills" / "orient" / "SKILL.md"
+
+
+def _head_sha() -> str:
+    return subprocess.run(
+        ["git", "rev-parse", "HEAD"], capture_output=True, text=True, cwd=str(ROOT), timeout=10
+    ).stdout.strip()
+
+
+def _older_sha(n: int = 3) -> str:
+    out = subprocess.run(
+        ["git", "rev-parse", f"HEAD~{n}"], capture_output=True, text=True, cwd=str(ROOT), timeout=10
+    )
+    if out.returncode != 0:
+        pytest.skip(f"repository has fewer than {n + 1} commits")
+    return out.stdout.strip()
+
+
+def _ci_run(sha: str, conclusion: str = "failure", status: str = "completed", rid: int = 1) -> dict:
+    return {
+        "databaseId": rid, "status": status, "conclusion": conclusion, "headSha": sha,
+        "createdAt": "2026-07-28T10:00:00Z", "workflowName": "Tests", "event": "push",
+        "url": f"https://example.invalid/runs/{rid}",
+    }
+
+
+def _digest(ci_json: str) -> subprocess.CompletedProcess:
+    """Run the digest with the CI seam set, so no test ever touches the network."""
+    env = {**os.environ, "PLUGINFORGE_CI_RUNS_JSON": ci_json}
+    return subprocess.run(
+        ["bash", str(DIGEST)], capture_output=True, text=True, timeout=120, cwd=str(ROOT), env=env,
+    )
+
+
+class TestDigestReportsCI:
+    """The digest must never open without saying something about the remote gate.
+
+    Found 2026-07-28. CI had been red on four consecutive pushes since 2026-07-26 --
+    `host/tests/OfflineRenderTest.cpp:372` constructs the processor, whose APVTS ctor
+    calls startTimerHz and trips the JUCE assertion at juce_Timer.cpp:336 on a headless
+    runner, exit 132. Local `check.sh full` ran the same tests and passed, because a dev
+    session supplies what the runner does not. So the read half of the loop said green,
+    the unread half said red, and STATUS.md's Broken list held one item that was neither.
+
+    That is this project's signature defect one level up: not a control that was wrong,
+    a control that reported to nobody. Same family as the five hooks that never fired and
+    the CI that was green 17 commits behind.
+
+    The invariant under test is NOT "CI is green" -- the digest has no opinion about
+    that. It is that **every reachable state prints a section**: red prints a banner,
+    green-on-an-older-commit prints a banner, and unreachable prints a banner naming why.
+    Silence is the only forbidden output, because a short digest reads like good news --
+    the exact inference that made the deleted `attention-report` skill useless.
+
+    NOT COVERED: that `gh` reports GitHub truthfully, and that /orient is actually run at
+    session start. The first is trusted; the second is a human habit, not a mechanism.
+    """
+
+    # ------------------------------------------------------------------ teeth
+
+    def test_red_ci_is_announced(self):
+        """The red case. A failing run at HEAD must produce an unmissable banner."""
+        out = _digest(json.dumps([_ci_run(_head_sha(), "failure")])).stdout
+        assert "CI IS RED" in out, (
+            "The digest did not announce a failing CI run. This is the defect the "
+            "section exists for: four red pushes were invisible to every artifact in "
+            f"the loop on 2026-07-28.\n---\n{out[:800]}"
+        )
+        assert "--log-failed" in out, (
+            "The red banner must name the command that shows the failure. A banner with "
+            "no next step is how a warning becomes wallpaper."
+        )
+
+    def test_consecutive_failures_are_counted(self):
+        """One red run is a flake; four in a row is a broken branch. Say which."""
+        sha = _head_sha()
+        runs = [_ci_run(sha, "failure", rid=i) for i in range(4)]
+        out = _digest(json.dumps(runs)).stdout
+        assert "4 consecutive" in out, f"Streak length was not reported.\n---\n{out[:800]}"
+
+    def test_green_on_an_older_commit_is_not_reported_as_a_pass(self):
+        """`CI green but 17 commits behind` is a defect this project has already had.
+
+        A success on a commit that is not HEAD is evidence about that commit only.
+        """
+        out = _digest(json.dumps([_ci_run(_older_sha(3), "success")])).stdout
+        assert "green on a commit that is not HEAD" in out, (
+            "A stale-green run was reported without the caveat that HEAD is untested.\n"
+            f"---\n{out[:800]}"
+        )
+        assert "3 commit(s)" in out, "The banner must quantify how far behind the tested commit is."
+
+    @pytest.mark.parametrize(
+        "seam, why",
+        [
+            ("{ this is not json", "malformed payload"),
+            ("[]", "no runs for this branch"),
+            ('{"runs": []}', "unexpected JSON shape"),
+        ],
+    )
+    def test_unreachable_ci_is_loud_not_silent(self, seam, why):
+        """Silence on a missing input is the defect that deleted `attention-report`."""
+        out = _digest(seam).stdout
+        assert "CI STATUS UNKNOWN" in out, (
+            f"The digest went quiet when CI status could not be determined ({why}). "
+            f"Unknown must never be indistinguishable from passing.\n---\n{out[:800]}"
+        )
+
+    @pytest.mark.parametrize(
+        "seam",
+        [
+            "{ this is not json",
+            "[]",
+            json.dumps([_ci_run("0" * 40, "failure")]),
+            json.dumps([_ci_run("0" * 40, "success")]),
+            json.dumps([_ci_run("0" * 40, None, status="in_progress")]),
+        ],
+    )
+    def test_a_ci_section_is_always_present(self, seam):
+        """The load-bearing invariant: no reachable state produces no CI section."""
+        out = _digest(seam).stdout
+        assert "### CI" in out, (
+            f"No CI section was printed at all for seam {seam[:60]!r}. Every other "
+            "assertion in this class is secondary to this one."
+        )
+
+    # ------------------------------------------------------------- no overreach
+
+    def test_green_at_head_raises_no_alarm(self):
+        """A gate that cries wolf on the good case gets deleted by the first reader."""
+        out = _digest(json.dumps([_ci_run(_head_sha(), "success")])).stdout
+        assert "### CI" in out and "SUCCESS" in out
+        assert "CI IS RED" not in out, "The digest alarmed on a passing run at HEAD."
+        assert "UNKNOWN" not in out, "A clean pass was reported as indeterminate."
+        assert "not HEAD" not in out, "A run at HEAD was reported as behind HEAD."
+
+    def test_ci_trouble_does_not_swallow_the_rest_of_the_digest(self):
+        """The CI block runs in its own interpreter for exactly this reason."""
+        out = _digest("{ this is not json").stdout
+        assert "Assumed, never checked" in out, (
+            "An unreadable CI status suppressed the STATUS.md sections below it. The "
+            "digest's primary job must survive its newest section failing."
+        )
+
+    def test_unknown_ci_does_not_claim_the_digest_is_incomplete(self):
+        """Exit codes mean one thing here: STATUS.md no longer has the shape we read.
+
+        Overloading them with `you are not logged into gh` would make the real signal
+        ignorable on any machine without the CLI.
+        """
+        out = _digest("[]").stdout
+        assert "DIGEST INCOMPLETE" not in out, (
+            "An unknown CI status was escalated to DIGEST INCOMPLETE, which instructs "
+            "the reader to go read STATUS.md directly — a different and wrong remedy."
+        )
+
+    # ----------------------------------------------------------- delivery path
+
+    def test_orient_actually_runs_the_digest(self):
+        """A CI line nobody reads is the bug, not the fix.
+
+        `/orient` is the only consumer. If the skill stops injecting the script, the
+        section still works and still reaches no one.
+        """
+        assert ORIENT.exists(), "the orient skill is gone; the digest has no reader"
+        body = ORIENT.read_text()
+        assert "status_digest.sh" in body, (
+            "The orient skill no longer invokes tools/status_digest.sh. Whatever the "
+            "digest prints now reaches nobody at session start."
+        )
+        assert "!`" in body, (
+            "The orient skill references the digest but no longer injects its output "
+            "with !`...`, so the CI status is described rather than computed."
+        )
+
+
+# ------------------------------------------------ prose about mechanisms (COLLABORATION)
+
+
+COLLAB = ROOT / "COLLABORATION.md"
+STATUS = ROOT / "STATUS.md"
+
+
+class TestHookTableMatchesReality:
+    """COLLABORATION.md §7 tabulates what is enforcing. It must not be able to lie.
+
+    Found 2026-07-28. The table listed `check_adr009_prompt_sync.py` and
+    `protect_human_owned.py` -- retired in cf1d8e8, neither on disk -- and omitted
+    `check_prompt_invariants.py`, which was registered in settings.json and running. Two
+    of three live rows wrong, in the one section whose job is telling a reader what is
+    actually enforced, six days after that section was last revised.
+
+    This project's signature defect is a claim that outlives the thing it described. The
+    prompt already lives under the right rule -- it cannot name a Faust function that does
+    not resolve. This test applies that rule to prose about mechanisms: §7 names exactly
+    the hooks settings.json registers, and every hook it calls retired is really gone.
+
+    NOT COVERED: whether each row's *description* is accurate. A hook can be listed
+    correctly and described wrongly; only reading the docstring catches that.
+    """
+
+    @staticmethod
+    def _section_seven() -> str:
+        body = COLLAB.read_text()
+        m = re.search(r"^##\s*7\.\s.*?$(.*?)(?=^##\s\d)", body, re.S | re.M)
+        assert m, "COLLABORATION.md no longer has a `## 7.` section to check"
+        return m.group(1)
+
+    @staticmethod
+    def _table_scripts(section: str) -> set[str]:
+        """Only the table's first column -- prose elsewhere in §7 names retired hooks."""
+        found = set()
+        for line in section.splitlines():
+            if not line.lstrip().startswith("|"):
+                continue
+            first_cell = line.split("|")[1] if line.count("|") >= 2 else ""
+            found.update(re.findall(r"`([\w.]+\.py)`", first_cell))
+        return found
+
+    def test_table_names_exactly_the_registered_hooks(self):
+        tabled = self._table_scripts(self._section_seven())
+        registered = {
+            name for cmd in _registered_commands()
+            for name in re.findall(r"([\w.]+\.py)", cmd)
+        }
+        assert tabled == registered, (
+            "COLLABORATION.md §7's hook table and .claude/settings.json disagree.\n"
+            f"  in the table, not registered: {sorted(tabled - registered) or 'none'}\n"
+            f"  registered, not in the table: {sorted(registered - tabled) or 'none'}\n"
+            "A reader trusts §7 to say what is enforcing. On 2026-07-28 it was wrong "
+            "about two of three rows."
+        )
+
+    def test_hooks_called_retired_are_actually_gone(self):
+        """The other half: a hook named as retired must not still be on disk."""
+        section = self._section_seven()
+        m = re.search(r"\*\*Retired.*?\*\*(.*?)(?=\n###|\Z)", section, re.S)
+        assert m, "§7 no longer records which hooks were retired and why"
+        for script in re.findall(r"`([\w.]+\.py)`", m.group(1)):
+            assert not (HOOKS_DIR / script).exists(), (
+                f"§7 calls {script} retired, but it is still in .claude/hooks/. Either "
+                "it is live and belongs in the table, or it should be deleted."
+            )
+
+    def test_every_hook_on_disk_appears_in_the_table(self):
+        """Closes the loop: no hook can exist, run, and go undocumented."""
+        on_disk = {p.name for p in HOOKS_DIR.glob("*.py")}
+        tabled = self._table_scripts(self._section_seven())
+        assert not (on_disk - tabled), (
+            f"Hook script(s) {sorted(on_disk - tabled)} exist but are absent from "
+            "COLLABORATION.md §7's table."
+        )
+
+
+class TestStatusReservesAnEvidenceSlot:
+    """`Next three things` must keep one slot that only a measurement can fill.
+
+    Found 2026-07-28. All 18 closed defects were code defects, most closed within one to
+    three days. All six *evidence* defects -- PF-009 through PF-014, filed 2026-07-23 --
+    were still open five days later, and those six ARE the "Assumed, never checked" list.
+    The project's one metric was made entirely of the work that never won a slot, because
+    a list ranked by urgency will never schedule work whose defining property is that it
+    is not urgent.
+
+    So one of the three carries the literal tag `*(evidence)*` (COLLABORATION.md §5).
+
+    NOT COVERED: that the tagged item is genuinely an evidence item rather than a code
+    task wearing the tag. Nothing mechanical can tell the difference -- this test makes
+    the slot exist, not honest.
+    """
+
+    @staticmethod
+    def _next_three() -> str:
+        m = re.search(
+            r"^##+\s*Next three.*?$(.*?)(?=^##\s|\Z)", STATUS.read_text(), re.S | re.M
+        )
+        assert m, "STATUS.md has no `## Next three things` section"
+        return m.group(1)
+
+    def test_there_are_exactly_three(self):
+        # Top-level items only: no leading whitespace, so a numbered sub-list inside an
+        # item is not counted. The tag may precede the bold title, so do not require `**`.
+        body = self._next_three()
+        items = re.findall(r"^(\d+)\.\s+\S", body, re.M)
+        assert len(items) == 3, (
+            f"`Next three things` lists {len(items)} items, not three. It is not a "
+            "backlog (COLLABORATION.md §5)."
+        )
+
+    def test_one_slot_is_reserved_for_evidence(self):
+        body = self._next_three()
+        tagged = [ln for ln in body.splitlines() if "*(evidence)*" in ln]
+        assert tagged, (
+            "None of the `Next three things` carries the `*(evidence)*` tag. One of the "
+            "three is reserved for work that moves a claim out of 'Assumed, never "
+            "checked' — the metric closed 0 of 6 such items in the five days before this "
+            "rule existed (COLLABORATION.md §5)."
+        )

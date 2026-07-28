@@ -31,17 +31,46 @@ Two rules override everything below:
 > accepted one, a new dependency, a new contract between components — is a conversation
 > (§2).
 
+### The human's irreplaceable contribution is listening
+
+*Added 2026-07-28.* Nearly everything in this loop can be mechanized, and most of it now
+has been: hooks catch the RT-safety and prompt-grounding violations, `tools/check.sh` runs
+the ladder, the render oracle catches NaN, silence, DC offset and runaway gain, and the
+digest reports CI. **One judgment has no instrument: whether a generated plugin sounds like
+what was asked for.** The oracle can prove a patch is not broken; it cannot tell you the
+filter is musical, that the delay sits right in the mix, or that the fuzz is the fuzz the
+prompt described.
+
+That is the human's actual job here, and it is not approving diffs. Approval is the
+cheapest thing the human contributes and the easiest to automate away — which §9 is the
+long story of. Taste is the expensive thing. When the schedule forces a choice between a
+read-through and a listening pass, the listening pass wins, and `YOUR MOVE` lines should be
+written on that assumption.
+
 ---
 
 ## 2. The consult gate
 
 Ask before acting when a change hits any of these four. Otherwise: act, then report.
 
-**1. Irreversible or outward-facing.**
+**1. An irreversible write, named by the artifact it destroys.**
 Force-push, history rewrite, deleting data or results, publishing anything, sending
-anything to a third party, spending real money. Also: overwriting a benchmark baseline or
-a results file — those are measurements, and a measurement you cannot reproduce is data
-loss.
+anything to a third party, spending real money. And specifically: **overwriting
+`bench/results/.prompt_baseline.json`**, or any committed results file — a measurement you
+cannot reproduce is data loss.
+
+> **Gate the write, never the run.** *(Revised 2026-07-28.)* This trigger names artifacts,
+> not activities, because it was previously read as covering the benchmark itself.
+> `bench/run_benchmark.py --provider groq` costs $0, is repeatable, and destroys nothing —
+> `tools/check.sh quota` already draws that line, refusing to touch the baseline while
+> running the benchmark freely. The protocol did not, and six evidence defects (PF-009
+> through PF-014) sat unmeasured for four days behind a gate that existed to protect one
+> file none of them wrote to.
+>
+> Generalized: **a consult gate belongs on the destructive step, never on the step that
+> produces information.** If an act only creates knowledge, it is ungated no matter how
+> expensive it looks. When an act both measures and overwrites, split it — run, report the
+> number, then ask before storing it.
 
 **2. Architectural direction.**
 Writing a new ADR, reversing or superseding an accepted one, or making a change that
@@ -137,6 +166,22 @@ YOUR MOVE  Listen to one filter patch, or defer until log scaling is decided.
 `RISK` is the load-bearing field. A report whose RISK line is empty or reads "none" on a
 Tier 2 change is a report that has not been thought about.
 
+### What "landed" means
+
+*Added 2026-07-28.* **Pushed and green — not committed.**
+
+A commit is a local act. Between commit and green CI sit failures the local ladder cannot
+report — sometimes because the environment differs, and sometimes, as here, because **the
+ladder never ran the test at all**. This project's four-day red streak was a SIGILL in
+`OfflineRenderTest`, a harness `tools/check.sh` has never built or executed; only CI does
+(PF-027, PF-029). The first two attempts to diagnose it both misread a gdb post-mortem that
+had trapped on an unrelated benign assertion.
+
+So: a change is not landed, and its report is not final, until it is pushed and CI has
+concluded green on it. If CI is red for a reason the session did not cause, say so in the
+report rather than treating the change as clean. `/orient` now opens with the CI line, so
+"I didn't know" has stopped being available.
+
 **`YOUR MOVE` must be honest about cost.** "Read this 40-line diff" and "listen to a
 patch" and "nothing" are all valid. Manufacturing review work to seem collaborative wastes
 the human's attention, which is the scarcest resource in this project.
@@ -166,11 +211,23 @@ stale baselines, untested paths, numbers measured under conditions that have
 since changed. Items move out of here only when someone produces evidence.
 
 ## Next three things
-Exactly three. Not a backlog.
+Exactly three. Not a backlog. **One of the three is reserved for evidence** and
+carries the literal tag `*(evidence)*` — an item that moves a claim out of
+"Assumed, never checked". Two slots compete on urgency; the third cannot.
 
 ## Waiting on you
 Only items genuinely blocked on the human. Empty is a good answer.
 ```
+
+**The reserved evidence slot** *(added 2026-07-28, enforced by
+`tests/test_control_wiring.py`)*. Every one of this project's 18 closed defects is a code
+defect, most closed within one to three days of being filed. Every one of its six
+*evidence* defects — PF-009 through PF-014, all filed 2026-07-23 — was still open five days
+later, and those six are precisely the "Assumed, never checked" list. The project's one
+metric was made entirely of the work that never won a slot, because a list ranked by
+urgency will never schedule work whose defining property is that it is not urgent.
+
+Two slots for what broke. One slot only a measurement can fill.
 
 Rewriting rather than appending is deliberate: an append-only log accumulates until nobody
 reads it, and stale entries are indistinguishable from current ones. Narrative history
@@ -205,26 +262,51 @@ were both resolved on 2026-07-19 precisely because they were visible.
 Removing authorship gates means the mechanical checks matter more, not less. A hook does
 not get tired, does not rubber-stamp, and does not grade its own work.
 
-Registered in `.claude/settings.json`, all fail-closed:
+Registered in `.claude/settings.json`, all fail-closed. **This table is mechanically
+checked** against `settings.json` by `tests/test_control_wiring.py` — see the rule below
+it. Edit one, and the test tells you to edit the other.
 
 | Hook | Enforces |
 |---|---|
-| `check_rt_safety.py` | No allocation, locking, or I/O inside `FaustEngine::process` / `processBlock`. Function-scoped by brace counting. |
-| `check_adr009_prompt_sync.py` | The ADR-009 rule text stays present and identical across both prompt files. |
-| `check_bash_denylist.py` | Blocks the CLAUDE.md "Do not" commands. |
-| `protect_human_owned.py` | **Retired by this revision** — it blocked `llm/prompts/*` and `docs/decisions.md` on authorship grounds, which §1 no longer does. |
+| `check_rt_safety.py` | No allocation, locking, or I/O inside the hand-enumerated closure of `processBlock` — `enterAudio`/`exitAudio`, `ParamPool::pushToFaust`, `FaustEngine::process`, `OutputGuard::process`. Body extracted by brace counting from the qualified signature, so neighbours that legitimately allocate off-thread are excluded. Fails closed on a stale read. |
+| `check_prompt_invariants.py` | Four decidable properties of `llm/prompts/system_prompt.txt`: the ADR-009 duplicate-symbol sentence is present, the "process … exactly once" clause is present, the generated-stdlib-block markers are intact, and **every `ns.func` resolves against the installed `/usr/share/faust/*.lib`**. Skips (exit 0) when Faust is absent. |
+| `check_bash_denylist.py` | Blocks the CLAUDE.md "Do not" commands, including staging across the whole tree. |
 
-**Two hooks must be strengthened as a direct consequence of this revision** (tracked in
-`STATUS.md`):
+**Retired, and deliberately not on disk:** `check_adr009_prompt_sync.py` (it verified one
+sentence while the two prompt files diverged substantially around it; the second prompt file
+was later deleted outright) and `protect_human_owned.py` (it gated `llm/prompts/*` and
+`docs/decisions.md` on authorship, which §1 no longer does). Both went in `cf1d8e8`. They
+are named here only so a reader of the git history knows they were removed on purpose.
 
-1. `check_rt_safety.py` now guards code Claude writes routinely rather than code Claude was
-   forbidden to write. Its known limitation — it scopes to two named functions and cannot
-   follow a call graph — is now load-bearing. At minimum it should also scope
-   `ParamPool::pushToFaust` and anything else reachable from `processBlock`.
-2. `check_adr009_prompt_sync.py` verifies one sentence, but the two prompt files have
-   **already diverged substantially** in ways it cannot see (see the 2026-07-21
-   architecture review §2.4). Now that Claude can edit both, it should enforce either full
-   equality or an explicit, declared divergence.
+### A document that describes a mechanism is checked against it
+
+*Added 2026-07-28, because this section was the counter-example.*
+
+Until that date the table above still listed `check_adr009_prompt_sync.py` and
+`protect_human_owned.py` — retired six days earlier, neither on disk — and omitted
+`check_prompt_invariants.py`, which was registered and running. Two of three live rows
+wrong, in the one section whose job is telling a reader what is actually enforced. That is
+this project's signature defect — a claim outliving the thing it described — reproduced
+inside the document that diagnoses it.
+
+The prompt already lives under the right rule: it cannot name a Faust function that does
+not resolve. Prose about mechanisms gets the same rule. **Every process document is either
+(a) mechanically checked against the mechanism it describes, or (b) dated and read-only.**
+A document that is neither will be wrong before anyone notices, and rot rate scales with
+page count — see §8.
+
+**One hook still needs strengthening** (tracked in `STATUS.md`): `check_rt_safety.py`'s
+scoped set is the transitive closure of `processBlock` *enumerated by hand*, because a
+brace counter cannot build a call graph. Adding `myHelper()` to an already-scoped function
+does not add `myHelper` to the scope. That gap is exactly how PF-015 happened —
+`pushToFaust` moved onto the audio thread with `efbb5a5` and went unscoped for weeks. The
+hook's docstring says all of this; keep it saying so.
+
+Note also what these hooks are *not*: `check_prompt_invariants.py` proves the names in the
+prompt exist, never that a few-shot compiles or that a claim about Faust is true. Those run
+in `tools/check.sh full` (`test_prompt_stdlib.py`, `test_prompt_claims.py`), not at edit
+time. A check on a proxy creates confidence proportional to the invariant, not to the
+proxy.
 
 **When a hook is added, its docstring states what it does NOT catch.** The prompt-sync hook
 is the cautionary case: it did exactly what it documented, while the team believed it
@@ -246,9 +328,19 @@ invariant, not to the proxy — say the quiet part in the docstring.
 | **`.claude/agents/`, `.claude/skills/`** | Repeatable procedures with narrow scope. Point back at these docs. | Duplicated project knowledge. |
 | **Claude's persistent memory** | Cross-session heuristics not yet stable enough to check in. | Anything durable — promote it here or to CLAUDE.md and delete the memory. |
 
-CLAUDE.md's per-file status narrative should migrate to `STATUS.md` — it is the single
-largest source of staleness in the repo today, and it is exactly the "current state"
-category that now has a home.
+**Every row above is either checked or frozen** (§7). As of 2026-07-28 the repository holds
+7,299 lines of Markdown under `docs/` against 4,339 lines of product code in
+`host/Source` + `llm`, `docs/` is the highest-churn directory in the tree, and 56% of all
+commits touch nothing but documentation or `.claude/`. That volume is not automatically
+waste — this project's method is partly its product, and the bug registry, the ADR log and
+the assumed-claims register are why defects stay findable. But rot rate scales with page
+count, and §7 had already gone wrong within six days. So the cap is on *function*, not
+length: a document that describes a mechanism must be mechanically checked against it, and
+a document that records a point in time must carry a date and then stop changing. Anything
+that is neither should be deleted rather than maintained.
+
+CLAUDE.md's per-file status narrative migrated to `STATUS.md` on 2026-07-25 for exactly
+this reason, and the narrative itself was deleted rather than kept in a stale state.
 
 ---
 

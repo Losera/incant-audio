@@ -44,12 +44,12 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-006 | Shutdown UAF on the editor's detached *generate* thread (raw `&proc`) | high | fixed | S2 Prompting UX | `PromptPanel.cpp:182,231` | 2026-07-21 | `18e862e` (2026-07-25) |
 | PF-007 | Benchmark measured a prompt that diverged from production | high | fixed | S1 Backend | `bench/prompts/system_faust.txt` (deleted) | 2026-07-21 | prompt-unify (2026-07-21) |
 | PF-008 | No generated plugin has ever been listened to (P6 audible battery unrun) | high | fixed | S4 Testing | `docs/p6_test_battery.md` | 2026-07-23 | ran 2026-07-24 (4 clean / 3 flaky / 7 fail) |
-| PF-009 | Every benchmark number on record is void (measured on the deleted prompt) | medium | open | S4 Testing | `bench/results/.prompt_baseline.json` | 2026-07-23 | — |
-| PF-010 | Prompt rewrite is unmeasured — verified *correct*, not *better* | medium | open | S4 Testing | `llm/prompts/system_prompt.txt` | 2026-07-23 | — |
+| PF-009 | Every benchmark number on record is void (measured on the deleted prompt) | medium | fixed | S4 Testing | `bench/results/results_20260728_groq.json` | 2026-07-23 | 22/25 measured 2026-07-28 |
+| PF-010 | Prompt rewrite is unmeasured — verified *correct*, not *better* | medium | fixed | S4 Testing | `llm/prompts/system_prompt.txt` | 2026-07-23 | before/after measured 2026-07-28 |
 | PF-011 | Efficacy pilot generalizes to nothing (N=50, 1 model, 2/5 categories) | medium | open | S4 Testing | `bench/run_efficacy_study.py` | 2026-07-23 | — |
-| PF-012 | No cross-model comparison exists (ADR-008 "Under evaluation") | low | open | S4 Testing | `docs/architectural_decisions/` (ADR-008) | 2026-07-23 | — |
+| PF-012 | No cross-model comparison exists (ADR-008 "Under evaluation") | low | open | S4 Testing | `docs/architectural_decisions/` (ADR-008) | 2026-07-23 | partial 2026-07-28, run throttled |
 | PF-013 | Semantic fidelity unmeasured — `--judge` rubric off by default, never run | medium | open | S4 Testing | `bench/score_efficacy.py` | 2026-07-23 | — |
-| PF-014 | No real user prompt has ever been recorded (`generate.py` logs nothing) | low | open | S1 Backend | `llm/generate.py` | 2026-07-23 | — |
+| PF-014 | No real user prompt has ever been recorded (`generate.py` logs nothing) | low | fixed | S1 Backend | `llm/generate.py` `log_user_prompt` | 2026-07-23 | pending commit |
 | PF-015 | `check_rt_safety.py` scopes only 2 functions; `pushToFaust` (now RT) uncovered | medium | fixed | S1 Backend | `.claude/hooks/check_rt_safety.py:57,65` | 2026-07-23 | `fed704e` (2026-07-26) |
 | PF-016 | CI has never run green with the new prompt steps (5 unchecked Ubuntu-Faust TODOs) | medium | fixed | S4 Testing | `.github/workflows/test.yml` | 2026-07-23 | green `30181544354` (2026-07-26) |
 | PF-017 | Stray `ParamPool::pushToFaust()` definition in `FaustEngine.cpp` | medium | fixed | S1 Backend | `FaustEngine.cpp` (removed) | 2026-07-16 | pre-history (see detail) |
@@ -60,6 +60,14 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-022 | `currentFaustSource`/`currentPrompt` committed before compile success — a failed generate poisons the source-of-record and any later save/restore | high | fixed | S1 Backend | `PluginProcessor.cpp:148,180-181` | 2026-07-24 | `4a84c1c` (2026-07-25) |
 | PF-023 | `FaustEngine::process()` has no `activeDSP` null guard (latent audio-thread segfault; defense-in-depth) | medium | fixed | S1 Backend | `FaustEngine.cpp` `process()` | 2026-07-24 | `4a84c1c` (2026-07-25) |
 | PF-024 | Generation produces invalid Faust for stereo routing / unbounded delays / ping-pong / artist-reference prompts (P6 #2,#6,#9,#10) | high | open | S1 Backend | `llm/prompts/system_prompt.txt` | 2026-07-24 | — |
+| PF-025 | Benchmark harness has no concurrency guard and overwrites `results.json` unconditionally — two runs destroy each other's evidence and share one rate limit | high | fixed | S4 Testing | `bench/run_benchmark.py:32-115,296-322` | 2026-07-27 | pending commit |
+| PF-026 | CI red on four consecutive pushes and no artifact in the loop reported it — the digest, the Broken list and `check.sh` were all silent | high | fixed | S4 Testing | `tools/status_digest.sh` | 2026-07-28 | pending commit |
+| PF-027 | `OfflineRenderTest` dies with SIGILL (exit 132) on the CI runner at the 4th patch — cause still unknown; the gdb post-mortem was reporting the wrong frame | high | open | S4 Testing | `.github/workflows/test.yml:191-225`, tremolo patch | 2026-07-28 | — |
+| PF-028 | COLLABORATION.md §7's hook table named two hooks retired six days earlier and omitted the one that was running | medium | fixed | S4 Testing | `COLLABORATION.md` §7 | 2026-07-28 | pending commit |
+| PF-029 | `tools/check.sh` never builds or runs `OfflineRenderTest` or `PromptPanelThreadingTest` — CI is the only thing that does | high | open | S4 Testing | `tools/check.sh:96-97` vs `.github/workflows/test.yml:167` | 2026-07-28 | — |
+| PF-030 | `run_efficacy_study.py` takes no PF-025 lock — it can run concurrently with `run_benchmark.py` and share one free-tier rate limit | medium | open | S4 Testing | `bench/run_efficacy_study.py` (no `acquire_lock`) | 2026-07-28 | — |
+| PF-031 | The 25-prompt benchmark's noise floor is unmeasured — it has never been run twice on an unchanged prompt, so no delta can be called significant | medium | open | S4 Testing | `bench/run_benchmark.py` | 2026-07-28 | — |
+| PF-032 | 2 of 22 compiling patches render SILENT — a warm lowpass at rms 2.5e-08 and a noise gate at 0.0; the compile rate overstates working output | high | open | S1 Backend | `bench/results/results.json`, `bench/render_oracle.py` | 2026-07-28 | — |
 
 ---
 
@@ -88,9 +96,9 @@ home; ownership is being settled between S3 (req #10) and S2 (req #16). See the 
 **S1 Backend Core** — owns `PluginProcessor.*`, `FaustEngine.*`, `ParamPool.*`, `llm/*`, `tools/*`,
 hooks-adjacent tooling.
 - **PF-002** (state persistence) — **FIXED `c34bbb6`**, moved to Closed archive. Committed + tested
-  (StatePersistenceTest 13/13, ASan/UBSan clean). One residual *process* item, not a defect: the
-  §2 trigger-3 format still awaits human confirmation (S1 reports plan-mode sign-off). Reopen only
-  if the human rejects the format.
+  (StatePersistenceTest 33/33, ASan/UBSan clean). The residual §2 trigger-3 format gate is
+  **discharged**: confirmed by the human 2026-07-27, with `<SlotLabels>` dropped from v1 as
+  part of that confirmation. See the Closed archive entry for the amendment.
 - **PF-018** (live-DSP sample-rate re-init) — S1 fix. `prepare()` must re-init the live DSP (or
   mark it stale and trigger the async recompile path) when `sampleRate`/`blockSize` change while a
   DSP is live, not only store the members. Pre-existing, out of the P11 scope S1 flagged. Tier 2
@@ -484,16 +492,29 @@ saved project restored 64 macro slots to defaults with no DSP and no way to reco
 patch (the Faust source existed nowhere but the JIT'd factory and the user's memory). Data loss for
 a plugin whose whole value is a generated artifact. Fixed by `c34bbb6` ("Implement state
 persistence (P11)"): `PluginProcessor.cpp:197/229` now serialize a versioned `ValueTree→XML` blob
-(schemaVersion=1: Faust source + originating prompt + 64 APVTS values + slot-label map); setState
+(schemaVersion=1: Faust source + originating prompt + 64 APVTS values); setState
 restores values then triggers an async recompile; unknown/corrupt/foreign blobs are ignored.
 Retained metadata is `metaMutex`-guarded, never touched on the audio thread. Covered by
-`host/tests/StatePersistenceTest.cpp` (round-trips through two processors 13/13, ASan/UBSan clean);
+`host/tests/StatePersistenceTest.cpp` (round-trips through two processors 33/33, ASan/UBSan clean);
 JUCE headers cited (`juce_AudioProcessorValueTreeState.h:375-395`, `juce_AudioProcessor.h:1306-1312`).
-**Residual (not a defect — a process gate):** the persisted-state **format is a §2 trigger-3
-contract**. S1 reports it was signed off via plan-mode approval; the overseer could not
-independently see that, so **human confirmation is still pending** (STATUS "Waiting on you"). The
-blob is versioned/forward-defensive, so amending v1 while it is the only blob in the wild is cheap.
-Closed on the committed, tested code; reopen only if the human rejects the format.
+**Residual — DISCHARGED 2026-07-27.** The persisted-state **format is a §2 trigger-3
+contract**, and the earlier claim of a plan-mode sign-off was never independently visible. It
+has now been confirmed by the human directly, against the literal emitted document rather
+than the doc comment describing it — which is what surfaced the amendment below.
+
+**Amendment to v1 (2026-07-27): `<SlotLabels>` dropped.** v1 carried a slot→label hint node
+documented as letting the editor label knobs during the async restore recompile. **Nothing
+ever read it** — `setStateInformation` restores `<STATE>`, `faustSource` and `prompt` and
+never looked the node up — so it was written on every save and consumed by no one. Removed
+while v1 was still the only blob in the wild. Consequences:
+- No schemaVersion bump, and no migration: children are resolved by name
+  (`getChildWithName`), so an old blob's unrecognised `<SlotLabels>` is simply never read.
+- The slot→label map is unaffected in memory; it was never sourced from the blob. Tests that
+  need it read `PluginForgeProcessor::currentLabelsForTest()`, added for the purpose —
+  `OfflineRenderTest.cpp` had been counting `<SlotLabels>` children as its only observable
+  for "mapped param count matches the patch", and was repointed at the accessor.
+- `StatePersistenceTest` now asserts the node's **absence** (five assertions, red-cased by
+  re-adding the emitter and watching all five fail), so it cannot quietly return.
 
 ### PF-001 — Parameter values are never denormalized. *(fixed `efbb5a5`, 2026-07-21)*
 **critical · was arch-review §2.1 (P0), STATUS old Broken #1/#4**
@@ -543,3 +564,374 @@ was removed 2026-07-16 and the file compiles clean; confirmed absent by grep 202
 the current git history (base commit `23d16dc`), so there is no closing SHA in this repo — closed
 by documented removal. **Residual:** `check_rt_safety.py:9` still describes it as a live
 "separately-tracked bug" — stale docstring, tracked as a fold-in under **PF-015**.
+
+### PF-025 — Benchmark harness had no concurrency guard, and overwrote `results.json` unconditionally. *(fixed 2026-07-27)*
+**high · S4 Testing · `bench/run_benchmark.py`**
+
+Two occurrences of one defect, six days apart:
+
+1. **2026-07-21.** Two `--dry-run` invocations silently overwrote the committed 25-record Claude
+   run the ADR-009 verdict rests on. Recovered from git. The fix was narrow — it separated
+   dry-run output into `results_dryrun.json` and left the general case open. The comment
+   recording it is still at the write site.
+2. **2026-07-27.** Two full 25-prompt groq runs executed *concurrently*, launched six minutes
+   apart by two agents that could not see each other (one from a session whose context had since
+   been cleared, so no record of it survived into the second). Both were headed for the same
+   `results.json`, so one run's evidence was going to vanish with no error and no trace of which
+   half was lost. They also shared one free-tier token budget: the second run took
+   `HTTP 429 — rate limit ... tokens per minute (TPM): Limit 8000, Used 4460, Requested 4019`
+   on its **first** prompt after five retries. `classify_failures` files that as `transport` —
+   a measurement corrupted by the collision rather than by the model, which is the worst kind,
+   because it looks like data.
+
+Caught before any loss: the duplicate was killed and `results.json` verified byte-identical to
+the archived baseline.
+
+**Fix, two-part because the incident had two failure modes.** (a) An `O_EXCL` lock at
+`bench/results/.run.lock` carrying the holder's pid — a second concurrent run exits **2** with
+the holder named. Deliberately *not* an `flock`: an flock releases the instant a killed
+process's fd closes, which is correct for mutual exclusion and useless for the "who holds this?"
+message that makes the failure actionable. A stale lock (holder gone) is reclaimed with a
+warning, because a guard that stays latched after a crash gets deleted by the first person it
+blocks. (b) Every real run now writes `results_<date>_<provider>.json` *and* copies to
+`results.json`, so even sequential runs cannot overwrite each other's evidence, and the archive
+no longer depends on someone remembering to `cp` before the next run.
+
+**Seen failing before being believed** (CLAUDE.md's rule). The red case in
+`tests/test_control_wiring.py::TestBenchmarkConcurrencyGuard` was run against the pre-fix
+harness at `e6d5353` with the lock held: it ignored the lock entirely and began generating,
+i.e. the test fails on the old code and passes on the new. The refusal path is exercised
+end-to-end through the CLI (free — the lock is checked before any generation); the allow path is
+asserted at function level, because proving it by running the harness would spend 25 prompts of
+quota.
+
+**Not covered.** Nothing stops two agents from colliding on any *other* shared resource in this
+repo — the same hazard produced concurrent commits to this working tree during the same session.
+That is an architecture question, not a benchmark one.
+
+---
+
+### PF-026 — CI was red on four consecutive pushes and nothing in the loop said so. *(fixed 2026-07-28)*
+
+**Found** 2026-07-28, during a workflow audit — not by any control. The last green run on
+`main` was `30181544354` (2026-07-26). Every push after it failed: `30295123178`,
+`30296235090`, `30297455014`, `30299041776`. Meanwhile STATUS.md's *Works* section said
+**"CI is green. `ae5d213` passed 2026-07-26"**, its Broken list held one item that was not
+this, and `/orient` printed nothing about CI at all.
+
+**Why every existing control missed it.** They all watch the code; none watched whether the
+remote gate had reported. And the local ladder could not have caught it: `tools/check.sh`
+builds four targets and runs one (`check.sh:96-97`), while CI additionally builds and runs
+`OfflineRenderTest` and `PromptPanelThreadingTest` (`test.yml:167,191`). The failing test is
+one the ladder has never executed — filed separately as PF-029. So the read half of the loop
+said green about a smaller set of tests, the unread half said red, and the two never met.
+
+This is the project's signature defect one level up — not a control that was wrong, a
+control that reported to nobody. Same family as the five hooks that never fired
+(`a5e0275`), the ADR-009 sync hook that verified a proxy, and the CI that was once green 17
+commits behind. `tools/check.sh`'s own header names the class: *"believing a control runs
+when it does not."*
+
+**Fix.** A CI section in `tools/status_digest.sh`, printed immediately after repo state, so
+`/orient` cannot open without it. It reports the newest completed run on the current
+branch, its conclusion, its consecutive-failure streak, and **how far behind HEAD the
+tested commit is** — a green run on an older commit is evidence about that commit only.
+Three states, three banners: red, green-but-behind, and unreachable. The one forbidden
+output is silence, because a short digest reads like good news — the inference that made
+the deleted `attention-report` skill useless for weeks.
+
+An unknown CI status is loud but **not fatal**: exit codes here mean "STATUS.md no longer
+has the shape this script reads," and overloading them with "you aren't logged into `gh`"
+would make the real signal ignorable on any machine without the CLI.
+
+**Seen failing before being believed** (CLAUDE.md's rule). `TestDigestReportsCI` in
+`tests/test_control_wiring.py` — 15 tests over the red, streak, stale-green, in-flight,
+malformed, empty and unreachable cases, plus overreach counterparts asserting a clean pass
+at HEAD raises no alarm. Mutation-tested 2026-07-28: with the red banner disabled, i.e. the
+pre-fix behaviour, `test_red_ci_is_announced` fails and the other 14 still pass. A test seam
+(`PLUGINFORGE_CI_RUNS_JSON`) drives every case offline; production never sets it.
+
+**Not covered.** That `gh` reports GitHub truthfully, and that a human actually runs
+`/orient` at session start. The first is trusted; the second is a habit, not a mechanism.
+
+---
+
+### PF-027 — `OfflineRenderTest` dies with SIGILL on the CI runner. *(open, found 2026-07-28)*
+
+The defect PF-026 was hiding — and it is **not** what the first draft of this entry said it
+was. Correcting that misreading is most of the value here.
+
+**What actually happens.** The bare run reaches the fourth patch and dies:
+
+```
+  bounded delay  (P6 #2/#10 — delay, with a BOUNDED line)   [10 OK]
+  tremolo  (P6 #8 — 'it should breathe')
+timeout: the monitored command dumped core
+line 17:  4339 Illegal instruction     timeout 300 "$BIN"
+```
+
+Exit 132 = 128+4 = **SIGILL**. The first three patches pass all ten checks. Runner CPU is an
+`AMD EPYC 9V74`; the workflow already prints `lscpu` flags for exactly this hypothesis —
+libfaust's LLVM JIT emitting an instruction the runner does not implement. **Unconfirmed.**
+The faulting frame has never been seen, because:
+
+**Why it was misdiagnosed, twice.** `adab1fc` added a gdb post-mortem whose stated purpose
+was "make the render harness's SIGILL describe itself instead of being guessed at." It
+describes the wrong thing. `jassertfalse` breaks **only under a debugger** —
+`if (juce_isRunningUnderDebugger()) JUCE_BREAK_IN_DEBUGGER`. So the bare run printed 19
+benign JUCE assertions and continued, while the gdb re-run trapped on the *first* one, on
+the *first* patch, and reported a `juce::Timer::startTimer` backtrace it never got past. Both
+this registry's first draft and the 2026-07-28 workflow audit read that backtrace as the
+cause. It is the post-mortem's own breakpoint.
+
+**Partial fix landed:** `juce::ScopedJuceInitialiser_GUI` at the top of
+`OfflineRenderTest::main()`. The APVTS ctor calls `startTimerHz(10)`
+(`juce_AudioProcessorValueTreeState.cpp:265` → `juce_Timer.cpp:352`) and
+`Timer::startTimer` asserts a MessageManager exists (`juce_Timer.cpp:336`); a test that
+constructs a full processor should have one. Locally this takes the run from **19 assertions
+and 4 leak reports to 0 and 0**, exit 0, PASS either way. Its real value is that the next
+gdb post-mortem has nothing benign to trap on and should finally reach the SIGILL.
+
+**Still open, and explicitly not fixed by the above.** SIGILL is a CI-only failure — the
+same binary passes locally on this machine (Arch, LLVM 22.1.6) at every patch including
+tremolo. Nothing here has been proven about the runner. The next red run's post-mortem is
+the evidence to wait for.
+
+**Not covered.** Whether the tremolo patch is special or merely fourth. Whether the fault is
+in JIT-compiled code at all. Both need the backtrace that does not exist yet.
+
+### PF-028 — §7's hook table described hooks that did not exist. *(fixed 2026-07-28)*
+
+COLLABORATION.md §7 tabulates what is mechanically enforced. It listed
+`check_adr009_prompt_sync.py` and `protect_human_owned.py` — both retired in `cf1d8e8`,
+neither on disk — and omitted `check_prompt_invariants.py`, which is registered in
+`.claude/settings.json` on Write/Edit/MultiEdit and running. Two of three live rows wrong,
+in the one section whose job is telling a reader what is actually enforced, six days after
+that section was last revised.
+
+The registry has the mirror-image case on record: `1fc1092` found ten entries marked `open`
+whose fixes were live. Declared-vs-actual runs in both directions, and neither direction is
+detectable by reading the document that is wrong.
+
+**Fix.** The table is corrected, and `TestHookTableMatchesReality` now asserts it names
+exactly what `settings.json` registers, that every hook on disk appears in it, and that
+every hook the prose calls retired is really gone. §7 gained the general rule this is an
+instance of: **a document that describes a mechanism is either mechanically checked against
+it, or dated and read-only.** The prompt has lived under that rule since `cf1d8e8` — it
+cannot name a Faust function that does not resolve. Prose about mechanisms now does too.
+
+**Not covered.** Whether each row's *description* is accurate. A hook can be listed
+correctly and described wrongly; only reading the docstring catches that. Writing this fix
+produced an instance immediately — the first draft of the corrected table credited
+`check_prompt_invariants.py` with verifying the prompt's prose claims against the compiler,
+which is `tests/test_prompt_claims.py`'s job in `check.sh full`, not the hook's.
+
+---
+
+### PF-029 — the local ladder does not run the tests CI runs. *(open, found 2026-07-28)*
+
+`tools/check.sh full` builds `PluginForgeHost`, `PluginForgeHost_Standalone`,
+`PluginForgeHost_VST3` and `ParamPoolTsanTest` (`check.sh:96-97`) and runs exactly one of
+them, the TSan target. CI builds those **plus `OfflineRenderTest` and
+`PromptPanelThreadingTest`** and runs both (`test.yml:167,191`).
+
+So two C++ test harnesses — one of them the objective half of the P6 battery, the other the
+263-line threading contract for the generate worker — are executed only in CI. That is how
+PF-027 survived four pushes with nobody able to reproduce it locally: not an environment
+difference, an execution gap. `check.sh`'s header says it "invents no new verification, it
+only wires up what is here"; these two were never wired.
+
+The obvious fix is to add both targets to `level_full`, which costs local build time on a
+level already budgeted at ~2 min. Not done in the session that found it: it lengthens the
+gate everyone runs, and PF-027 means one of the two harnesses would be red on arrival if the
+SIGILL turns out to reproduce anywhere but the runner.
+
+---
+
+### PF-009 / PF-010 — the prompt is measured again, and the fix has a directional result. *(fixed 2026-07-28)*
+
+**PF-009 closes on a number that describes something that exists.** `bench/run_benchmark.py
+--provider groq`, 25 prompts, $0, run 2026-07-28: **22/25 = 88% first-try compile**, archived
+at `bench/results/results_20260728_groq.json`. Every prior number measured either the
+deleted `bench/prompts/system_faust.txt` or a provider the project can no longer pay for.
+
+**PF-010 closes on a genuine before/after, on one provider and one model.** The ordering is
+what makes it a measurement rather than a coincidence:
+
+| | commit | prompt | rate |
+|---|---|---|---|
+| before | run archived by `e3019c0`, 07-27 **14:50** | pre-`f3453c4` | **20/25 = 80%** |
+| after | this run, 07-28 | post-`f3453c4` | **22/25 = 88%** |
+
+`f3453c4` ("PF-024: teach the routing algebra, and stop teaching a construct Faust lacks")
+landed 07-27 **14:52** — two minutes after the baseline was committed, so the two runs
+straddle it and nothing else touched `llm/prompts/system_prompt.txt` in between
+(`git log -1 -- llm/prompts/system_prompt.txt`).
+
+**Report the classes, not the aggregate** — STATUS.md's own rule, and here it is the whole
+finding. `bench/classify_failures.py --compare`:
+
+```
+compile rate  80% → 88%   (20/25 → 22/25)
+  routing_arity      2 → 0   fixed 2
+  unbound_variable   1 → 0   fixed 1
+  recursion_cycle    2 → 1   fixed 1
+  syntax:EXTRA       0 → 1   WORSE +1
+  syntax:FLOAT       0 → 1   WORSE +1
+```
+
+`routing_arity` and `unbound_variable` are **exactly** what `f3453c4` targeted: it taught
+`<:`/`:>`/`~` and deleted the instruction to use `let`, which Faust does not have. Both went
+to zero. That is a directional prediction made before the measurement and confirmed by it,
+which is worth considerably more than the aggregate.
+
+**What this does NOT establish, and it matters.** +2 of 25 is roughly 1.1 standard errors of
+a binomial at p≈0.85 (SE ≈ 7 points). **The aggregate move is inside the noise.** Two new
+failure classes appeared in slots that were empty before, and single-instance classes cannot
+distinguish a fixed defect from a resample. Nobody has ever run this benchmark twice on an
+unchanged prompt, so **the noise floor of the 25-prompt harness is unmeasured** — filed as
+PF-031. Until it exists, no prompt change smaller than roughly ±3 prompts can be called an
+improvement on aggregate, and the per-class deltas carry the argument.
+
+**Not covered.** One provider, one model, one run per arm. Semantic fidelity is not measured
+by a compile rate at all (PF-013) — a patch that compiles can still be the wrong effect.
+
+---
+
+### PF-014 — real user prompts are recorded. *(fixed 2026-07-28)*
+
+`log_user_prompt()` in `llm/generate.py`, called from `_run_subprocess_mode` on **both** the
+normal and the exception path — a prompt that blew up is the most interesting kind to have.
+One JSONL record per generation: timestamp, prompt, provider, model, success, reason,
+attempts, the generated Faust, and the error.
+
+**Isolation is the property that makes the log worth anything.** It is written only from the
+subprocess entry points (`--json` / `--prompt`) that the C++ host invokes. The bench
+harnesses call `generate_faust`/`generate_with_retry` directly and shell out only to `faust`
+itself, so a benchmark run cannot inject 25 synthetic prompts into the record of real ones.
+`tests/test_prompt_log.py::TestOnlyRealUserPromptsAreLogged` asserts both directions against
+the source, rather than by running the benchmark — proving it live would cost 25 prompts of
+quota, which is PF-025's lesson.
+
+**Fail-open, deliberately inverted from this project's hooks.** A hook exists to stop the
+work; this exists to observe it, so a full disk or an unwritable path costs a log line and
+never the user's generation. The red case drives a genuinely unwritable directory
+(`chmod 0o500`) and asserts the warning lands on **stderr** — stdout carries exactly one
+ADR-011 JSON line and a log warning must never join it.
+
+Default `logs/prompts.jsonl`, gitignored: what a person typed is observation data, not repo
+content. `PLUGINFORGE_PROMPT_LOG` sets a path or takes `0/off/false/no` to disable. 19 tests.
+
+**Not covered.** Nothing yet *reads* the log. Deriving benchmark prompts from real ones is a
+deliberate manual step — an auto-generated corpus that feeds itself would be self-referential
+in exactly the way PF-011 warns about. And a missing credential does not log: the precheck
+returns before any generation is attempted, so there is no outcome to record.
+
+---
+
+### PF-031 — nobody knows how noisy the benchmark is. *(open, found 2026-07-28)*
+
+The 25-prompt harness has been run many times and **never twice on an unchanged prompt**.
+So its run-to-run spread is unknown, and every historical claim of the form "the rate moved
+from X to Y" has been made against an instrument of unmeasured precision.
+
+The arithmetic is unforgiving at this n. At p≈0.85 the binomial standard error over 25
+trials is ≈7 percentage points — nearly two prompts. Today's 80%→88% is ~1.1 SE. The 2026-07-19
+note in `.prompt_baseline.json` reads "0.88, up from the 0.84 recorded 2026-07-16" — one
+prompt of difference, reported as movement. Per-class deltas are worse off: a class holding
+one or two instances cannot tell a fixed defect from a resample.
+
+**The fix is cheap and nobody has spent it:** run the benchmark 3–5 times back to back with
+the prompt untouched and record the spread. On groq that is 75–125 generations at $0, bounded
+only by the free-tier pacing. Until it exists, the honest reporting rule is the one this
+session used — lead with the per-class table, and treat any aggregate move under about three
+prompts as unresolved.
+
+**Why it was not done in the session that found it:** the same session was already spending
+its quota window on PF-009/PF-010 (25), PF-012 (25) and PF-011 (125). Sequencing, not
+disagreement — the runs share one rate limit and PF-030 means they cannot safely overlap.
+
+---
+
+### PF-012 — a cross-model comparison was attempted and got 80% of the way. *(still open, 2026-07-28)*
+
+**Method.** The same 25-prompt corpus, the same prompt file, the same harness, one variable:
+`PLUGINFORGE_MODEL=llama-3.3-70b-versatile` against the pinned default
+`openai/gpt-oss-120b`. Both free, both groq, $0.
+
+**Result over the 20 prompts both models completed:**
+
+| model | first-try compile |
+|---|---|
+| `openai/gpt-oss-120b` (default) | **18/20 = 90%** |
+| `llama-3.3-70b-versatile` | **17/20 = 85%** |
+
+**The rates are the least interesting part.** Three prompts disagreed, and they disagree in
+*both directions*:
+
+```
+prompt 02  "a mute toggle with one boolean parameter"      gpt-oss ✓   llama ✗
+prompt 05  "a polarity inverter with a bypass switch"      gpt-oss ✓   llama ✗
+prompt 12  "a ping-pong delay that bounces L/R"            gpt-oss ✗   llama ✓
+```
+
+llama fails two *trivial* prompts the default handles, and solves the ping-pong delay that
+is the default's signature PF-024 failure. **The models do not differ by a scalar; they
+differ by failure profile.** A comparison reported as "90% vs 85%" would have hidden the
+only fact worth having — and it is direct evidence for the reporting rule this project
+already adopted for its own failure classes.
+
+**Why it is still open.** The llama arm was **truncated at prompt 21 of 25** and killed after
+it spent 15 minutes on a single generation. Diagnosis: not a defect — groq throttles that
+model harder, and each generation gets a fresh budget, so the harness legitimately honors a
+long `Retry-After` per prompt. The backoff itself is correctly clamped
+(`providers.py:658`, `budget.can_sleep(delay)` raises rather than oversleeping), which is
+PF-019's fix doing its job. So five prompts are unmeasured, including four of the five
+`generative` category where the default's remaining failure lives.
+
+**What closing it needs:** re-run the llama arm alone, off-peak or with a wider
+`PLUGINFORGE_GENERATION_BUDGET`, and compare the complete 25. Roughly 25 generations at $0.
+
+**Not covered.** Two models on one provider is not the provider comparison ADR-008 framed —
+that still needs a second free key (gemini or openrouter), which is not configured on this
+machine. Whether "cross-model" in ADR-008 means cross-provider is a question for whoever
+resolves that ADR, and it is the reason this row stays open rather than being reworded.
+
+---
+
+### PF-032 — compiling is not working: two patches render silent. *(open, found 2026-07-28)*
+
+The render oracle over the fresh 2026-07-28 groq corpus:
+
+```
+16 passed, 2 failed, 4 unsupported (0-input generators)
+  FAIL a warm analog-style low-pass filter with cutoff and res -- output is silent (rms 2.48e-08)
+  FAIL a noise gate with threshold and hold time              -- output is silent (rms 0.00e+00)
+```
+
+**Both patches are inside the 22/25 = 88% headline.** They compiled on the first try and
+count as successes. They produce no audio. So the metric this project has steered by for
+months measures *the compiler accepting the program*, and the gap between that and "the
+plugin does something" is at least two prompts wide on a 25-prompt corpus.
+
+Of renderable patches the real rate is **16/18**, not 22/22.
+
+**The two are not equally damning.**
+
+- **The low-pass filter at rms 2.48e-08 is a defect.** A filter fed a ~0.28-RMS signal must
+  pass something. Eight orders of magnitude down is a filter whose cutoff has been driven to
+  DC or whose coefficients are degenerate — the PF-001 family of symptom, though PF-001
+  itself is fixed and the denormalisation path is tested.
+- **The noise gate at exactly 0.0 may be correct behaviour.** A gate whose threshold sits
+  above the test signal's level *should* mute. That would make it a false positive of the
+  oracle rather than a generation defect — the oracle asserts "not silent" without knowing
+  the patch is supposed to be conditional. Unresolved; it needs the generated source read
+  and the threshold compared against the harness's signal level.
+
+**Why this was invisible until today.** The oracle's "17 of 17 renderable patches produce
+usable audio" was true — of the **2026-07-19 corpus, all provider `claude`, generated by the
+since-deleted prompt**. STATUS.md flagged that caveat on 2026-07-27 without anyone re-running
+the gate against current output. The first run over a current corpus found this immediately.
+
+**Not covered.** Whether either patch is *musically* right, which no oracle can answer — only
+the P6 listening pass. Silence is the one wrong answer a machine can detect.

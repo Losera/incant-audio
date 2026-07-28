@@ -1,4 +1,4 @@
-# PluginForge — Status  (2026-07-27)
+# PluginForge — Status  (2026-07-28)
 
 Rewritten each session per COLLABORATION.md §5. Single writer, no merge conflicts.
 Narrative history lives in git.
@@ -8,24 +8,54 @@ and no cross-lane request log. Lane names (S1–S7) survive only inside `docs/BU
 record of who did what. Read this file and `docs/BUGS.md`; there is nothing else to sync.
 
 **Start a session with `/orient`**, not by reading this file top to bottom. It injects live
-repo state plus the four sections below that are still open, and prints a staleness banner
-if this file falls behind HEAD.
+repo state, **the CI line**, this file's open sections, and a staleness banner if it falls
+behind HEAD.
 
 ---
 
 ## Works — and how we know
 
-**The Broken list went from seven entries to one.** That is the headline of the last two
-days and it was not a burst of fixes — the fixes had already landed and the registry
-hadn't noticed. `1fc1092` (2026-07-27) re-verified ten entries against the code at HEAD:
-PF-006, PF-008, PF-015, PF-016, PF-018, PF-019, PF-020, PF-021, PF-022 and PF-023 all said
-`open` while every fix was live in the tree. **This is the declared-vs-actual pattern
-running backwards** — the registry declared broken what was fixed. Cheaper than the usual
-direction, since nobody shipped a dead control, but it still misrouted a day of work.
+**This session's finding is that the loop had a blind spot where it reports.** A workflow
+audit — not any control — found CI red on four consecutive pushes since 2026-07-26 while
+the previous rewrite of this file asserted *"CI is green. `ae5d213` passed 2026-07-26."*
+That sentence has been deleted. PF-026 records the mechanism failure, PF-027 the underlying
+build defect, PF-028 the same pattern in COLLABORATION.md §7.
 
 Each closure below was verified by reading the cited code at HEAD, not by trusting a commit
 message.
 
+- **The digest reports CI, and cannot go quiet about it.** *(PF-026, 2026-07-28,
+  uncommitted.)* `tools/status_digest.sh` prints a CI section immediately after repo state:
+  newest completed run on the branch, its conclusion, consecutive-failure streak, and **how
+  far behind HEAD the tested commit is** — a green run on an older commit is evidence about
+  that commit only. Three states, three banners: red, green-but-behind, unreachable. Silence
+  is the one forbidden output. **Mutation-tested 2026-07-28:** with the red banner disabled
+  (the pre-fix behaviour) `test_red_ci_is_announced` fails and the other 14 still pass.
+  15 tests in `TestDigestReportsCI`, all offline via the `PLUGINFORGE_CI_RUNS_JSON` seam.
+- **Prose about mechanisms is mechanically checked.** *(PF-028, 2026-07-28, uncommitted.)*
+  COLLABORATION.md §7's hook table listed two hooks retired in `cf1d8e8` and omitted
+  `check_prompt_invariants.py`, which was running. `TestHookTableMatchesReality` now asserts
+  the table names exactly what `settings.json` registers, that every hook on disk appears in
+  it, and that every hook the prose calls retired is really gone. §7 states the general rule:
+  a document describing a mechanism is either checked against it or dated and read-only.
+- **`Next three things` reserves a slot for evidence.** *(2026-07-28, uncommitted.)* One of
+  the three carries `*(evidence)*` and `TestStatusReservesAnEvidenceSlot` enforces it.
+  Rationale in COLLABORATION.md §5: all 18 closed defects are code defects, most closed in
+  one to three days; all six *evidence* defects were open five days later, and those six
+  **are** the Assumed list. Two slots compete on urgency; the third cannot.
+- **The prompt is measured again, and PF-024's partial fix has a directional result.**
+  *(PF-009 + PF-010, 2026-07-28.)* 25 prompts, groq/`gpt-oss-120b`, $0: **22/25 = 88%**,
+  archived at `bench/results/results_20260728_groq.json`. Against the 07-27 run archived by
+  `e3019c0` (**20/25 = 80%**), which straddles `f3453c4` — the two runs bracket the only
+  prompt change in between. Per class, which is the load-bearing view:
+  `routing_arity` **2→0**, `unbound_variable` **1→0** — exactly what `f3453c4` targeted —
+  while `syntax:EXTRA` and `syntax:FLOAT` each went 0→1. **The aggregate move is inside the
+  noise** (+2 of 25 ≈ 1.1 SE); the per-class result is the evidence. Noise floor itself is
+  unmeasured — PF-031.
+- **Real user prompts are recorded.** *(PF-014, 2026-07-28.)* `log_user_prompt()` writes one
+  JSONL record per generation from `_run_subprocess_mode` — the C++ host's path only, on both
+  the success and the exception branch. Bench harnesses cannot contaminate it; fail-open so a
+  logging failure never costs a generation. Gitignored. 19 tests in `tests/test_prompt_log.py`.
 - **The editor's generate thread is owned and joined.** *(PF-006, `18e862e`.)* No `.detach()`
   remains in `PromptPanel.cpp`. One persistent worker, joined in the destructor (`:182-183`),
   started lazily (`:231-232`); an in-flight run is **superseded**, not stacked, and its
@@ -44,11 +74,8 @@ message.
   only in the success branch (`PluginProcessor.cpp:180-181`), with a comment at `:148`
   recording that the omission is deliberate. A failed generate leaves the last good source.
 - **Stale errors clear on submit.** *(PF-021, `18e862e`.)* `submitPrompt()` calls
-  `clearError()` at `PromptPanel.cpp:200`, before the run starts. An error survives a later
-  success within the same run but never survives the next submit.
-- **`prepare()` re-inits a live DSP on sample-rate change.** *(PF-018, `be83d1e`.)* It
-  computes `rateChanged` before storing members and drives a real re-init when the rate
-  moved and a DSP is live.
+  `clearError()` at `PromptPanel.cpp:200`, before the run starts.
+- **`prepare()` re-inits a live DSP on sample-rate change.** *(PF-018, `be83d1e`.)*
 - **`FaustEngine::process()` has an `activeDSP` null guard.** *(PF-023, `4a84c1c`.)*
 - **The enforcement hooks run, and have been seen blocking.** *(2026-07-25, `a5e0275`.)*
   They never had: `.claude/settings.json` declared `PreToolUse` at the file root instead of
@@ -58,51 +85,44 @@ message.
 - **The RT-safety hook covers the whole audio path.** *(PF-015, `fed704e`.)* `ANCHOR_RE`
   matches all four functions that actually run there — `processBlock`, `FaustEngine::process`,
   `ParamPool::pushToFaust`, `OutputGuard::process` — with a parametrised red case each.
-  **Known limitation:** it cannot follow a call graph, so a *fifth* function arriving on the
-  audio thread must be added by hand. `.claude/rules/tier2-evidence.md` states this where
-  someone editing that code will see it.
+  **Known limitation:** the closure is enumerated by hand, so a *fifth* function arriving on
+  the audio thread is not covered until someone adds it.
 - **Project extensions can no longer reference deleted files.** *(2026-07-27, uncommitted.)*
   `attention-report` was deleted: it read CLAUDE.md's "Current status" section (removed
-  2026-07-25) and `docs/collaboration_log.md` (retired, deleted), reported the shortfall as
-  nothing to report, and tagged findings with the DELEGATE/PAIR/HUMAN-OWNED taxonomy §9
-  retired on 2026-07-21. Both agents carried the same retired names, and
-  `invariant-hook-writer` proposed a hook for `bench/prompts/system_faust.txt`, deleted six
-  days earlier. `tests/test_control_wiring.py` now has two tests for this class, both
-  red-cased; the suite is 23 tests.
-- **Session start is a computed digest, not a full read.** *(2026-07-27, uncommitted.)*
-  `/orient` injects `tools/status_digest.sh` output at load time: repo state, this file's
-  open sections, and a staleness banner comparing its date to HEAD. 629 words against this
-  file's ~2,000. It **fails loud** — a heading it cannot find prints `MISSING` and exits 1,
-  because a digest that silently shrinks reads like good news.
-- **Generated DSP is measured as audio.** *(closes the objective half of PF-013.)*
-  `bench/render_oracle.py` renders a compiled patch offline (numpy + scipy, no network, no
-  quota) and gates NaN/Inf, silence, DC offset, runaway gain. **17 of 17 renderable patches
-  produce usable audio.** Calibrated against physics: `fi.resonlp(1000,.707)` measures
-  −3.0 dB at its corner and −30 dB two octaves up. **Limit:** zero-input patches (synths,
-  5 of 25) cannot be rendered — reported as *unsupported*, never as failures.
-  **Read the 17-of-17 carefully (noted 2026-07-27).** The gate renders every compiling patch in
-  `bench/results/results.json`, and that file is **25 records, all provider `claude`, all
-  timestamped 2026-07-19** — generated by the since-deleted prompt. So the number is a true
-  statement about the *render oracle* and says **nothing** about what the current prompt
-  produces on a free provider. The gate is real; what it gates is not what the sentence
-  implies. Today's baseline run replaces that corpus, after which it begins to mean what it
-  claims.
+  2026-07-25) and `docs/collaboration_log.md` (retired, deleted), and reported the shortfall
+  as nothing to report.
+- **Generated DSP is measured as audio, over a CURRENT corpus.** `bench/render_oracle.py`
+  renders a compiled patch offline (numpy + scipy, no network, no quota) and gates NaN/Inf,
+  silence, DC offset, runaway gain. Calibrated against physics: `fi.resonlp(1000,.707)`
+  measures −3.0 dB at its corner and −30 dB two octaves up.
+  **Re-run 2026-07-28 against the fresh groq corpus — and it found something:
+  16 passed, 2 FAILED, 4 unsupported.** The two failures compiled cleanly and render
+  *silent* (PF-032), so the 88% compile rate overstates working output; of renderable
+  patches the real rate is 16/18. The previous "17 of 17" was a true statement about the
+  2026-07-19 `claude` corpus generated by the deleted prompt, and nobody had re-run the gate
+  against current output until today.
 - **One entry point for every check.** `tools/check.sh fast | full | audio | quota`,
   cost-ordered and cumulative. `quota` refuses to spend free-tier requests without
   `--i-authorize-spend`. `tools/check.sh assumed` prints the one number.
-- **CI is green.** `ae5d213` passed 2026-07-26, including `build-host`. The five
-  `TODO: VERIFY` items about Ubuntu Faust packaging are answered by those runs (PF-016).
-- **Python suite: 338 passed, 12 deselected**, re-run 2026-07-27 (was 254 at the last
-  rewrite).
+- **Python suite: 428 passed, 12 deselected**, run 2026-07-28 via
+  `python -m pytest tests/ -m "not integration" -q`. The previous rewrite recorded "338
+  passed, 12 deselected" for 2026-07-27; the gap exceeds this session's 39 new tests
+  (15 CI digest + 5 hook-table/evidence-slot + 19 prompt log) and has not been accounted
+  for, so treat the older figure as unreliable rather than reading the delta as one
+  session's work.
 - **State persistence.** *(PF-002, `c34bbb6`.)* Versioned ValueTree→XML blob
-  (schemaVersion=1); `StatePersistenceTest` round-trips 13/13, ASan/UBSan clean. **The
-  format itself is still awaiting human confirmation** — see "Waiting on you."
+  (schemaVersion=1); `StatePersistenceTest` round-trips 33/33, ASan/UBSan clean. **The
+  format is confirmed** (human, 2026-07-27). `<SlotLabels>` was dropped from v1 — written on
+  every save and read by nothing. Old blobs containing the node still restore.
 - **Parameters denormalize into real units** (PF-001, `ParamMap.h`, `ParamMapTest.cpp`);
   **the parameter path is RT-safe** (PF-004); **the compile thread is owned and joined**
   (PF-003, `d10f59e`); **OutputGuard** catches NaN/DC/runaway before the speakers;
   **all 64 params reach the editor** (PF-005, `2e129cd`); **JIT swap is TSan-clean**.
 - **System prompt grounded in the real stdlib.** Every `ns.func` resolves against installed
   `/usr/share/faust/*.lib`; all five few-shot examples compile. Hook-enforced.
+- **The benchmark harness cannot destroy its own evidence.** *(PF-025, uncommitted.)*
+  `O_EXCL` lock naming the holding pid; every run writes a dated archive as well as
+  `results.json`.
 
 ---
 
@@ -113,8 +133,7 @@ whether anyone had ever listened, and someone has, so it is discharged.
 
 Everything that run exposed except the generation quality itself has since been fixed: the
 timeout cliff (PF-019), the segfault (PF-006), and state contamination (PF-020) are all
-closed and verified. **What remains is PF-024.** A second pass is now worth running, but it
-is a new question, not the discharged one.
+closed and verified. **What remains is PF-024.**
 
 ---
 
@@ -123,18 +142,16 @@ is a new question, not the discharged one.
 Registry with IDs, severity and discovery dates: `docs/BUGS.md`.
 
 **1. Generation produces invalid Faust for whole prompt classes.** *(PF-024, high, open,
-`llm/prompts/system_prompt.txt`, found 2026-07-24.)* The only real open defect in the
-project. Four recorded signatures from the P6 battery: **#2 ping-pong** →
-`endless evaluation cycle`; **#6 cold/glassy** → `2 outputs must equal 1 input` or
-`invalid delay parameter range`; **#9** → `syntax error, unexpected IDENT`; **#10 RE-201** →
-`syntax error, unexpected WITH`. `bench/results/results.json` adds
-`undefined symbol : flanger_mono`.
+`llm/prompts/system_prompt.txt`, found 2026-07-24.)* Four recorded signatures from the P6
+battery: **#2 ping-pong** → `endless evaluation cycle`; **#6 cold/glassy** →
+`2 outputs must equal 1 input` or `invalid delay parameter range`; **#9** →
+`syntax error, unexpected IDENT`; **#10 RE-201** → `syntax error, unexpected WITH`.
+`bench/results/results.json` adds `undefined symbol : flanger_mono`.
 
-Verified corrections for four of the five classes now exist in
+Verified corrections for four of the five classes exist in
 `.claude/skills/faust-idioms/SKILL.md`, each compiled against Faust 2.85.5 on 2026-07-27 —
-but **none of them has been folded into the prompt**, so this entry is open on the evidence
-that matters. Fix is Tier 2: it owes a re-run or an explicit statement that the baseline is
-stale.
+but **none has been folded into the prompt**, so this entry is open on the evidence that
+matters. Fix is Tier 2: it owes a re-run or an explicit statement that the baseline is stale.
 
 **These read as five unrelated failures. They are largely one gap** (found 2026-07-27): the
 prompt barely teaches Faust's routing algebra, and the one language construct it *does* teach
@@ -144,84 +161,79 @@ does not exist.
   `process = let g = 0.5; in _ * g, _ * g;` → `syntax error, unexpected IDENT` — the exact
   signature recorded for #9. **The prompt is teaching the failure.**
 - The same line recommends `with { }`, which is real, but **none of the five few-shot examples
-  contains one**. Being told to use a construct one is never shown is a plausible route to
-  #10's `unexpected WITH`.
-- `<:` (split) and `:>` (merge) appear **nowhere** in the 173-line prompt; `~` (recursion)
-  appears exactly once, buried inside the delay example's body at `:149`, never named or
-  explained. `2 outputs must equal 1 input` and `unexpected ARROW` are both that gap.
+  contains one**.
+- `<:` (split) and `:>` (merge) appear **nowhere** in the prompt; `~` (recursion) appears
+  exactly once, buried inside the delay example's body at `:149`, never named or explained.
 - Ping-pong is described in prose at `:26-27` and still fails: `endless evaluation cycle` is a
   recursion-topology error, which prose cannot convey and an example can.
-- Nothing states that a delay's first argument is a compile-time-constant *maximum* —
-  `invalid delay parameter range: interval(0,2.1e9,0)`.
+- Nothing states that a delay's first argument is a compile-time-constant *maximum*.
 
-**Why the grounding hook did not catch this.** `tools/gen_stdlib_block.py --verify-prompt`
-validates that every `ns.func` reference resolves. It cannot see a hallucinated **language
-construct** in prose, so `let` was never in scope. That is a real coverage gap in a control the
-project describes as making prompt hallucination impossible — a control that compiled every
-construct the prompt recommends would have caught it the day it was written. Worth its own
-`/architecture-planning` pass; it is a new enforcement mechanism, not a code change.
+**2. `OfflineRenderTest` aborts on a headless runner.** *(PF-027, high, open,
+`host/tests/OfflineRenderTest.cpp:372`, found 2026-07-28.)* `main()` constructs
+`PluginForgeProcessor`, whose APVTS ctor calls `startTimerHz(10)`
+(`juce_AudioProcessorValueTreeState.cpp:265` → `juce_Timer.cpp:352` → `:336`). With no
+MessageManager on the runner it hits the JUCE assertion and the job dies with **exit 132**.
+This has failed every push since 2026-07-26: `30295123178`, `30296235090`, `30297455014`,
+`30299041776`.
+
+**It does not reproduce locally**, which is why it survived four pushes — a dev session has
+what the runner lacks, so `tools/check.sh full` passes on the identical test. Not yet
+diagnosed past the backtrace: whether the fix is a scoped `MessageManager` in the test's
+`main`, a headless guard, or splitting the render harness off the processor is open. Note
+`host/tests/OfflineRenderTest.cpp` has uncommitted working-tree changes; the working copy may
+already differ from what CI ran.
 
 ---
 
 ## Assumed, never checked
 
-Six claims, unchanged from the last rewrite. All six are measurement debt (PF-009–PF-014),
-and five of them close on one authorized command.
+**Three claims, down from six.** PF-009, PF-010 and PF-014 closed 2026-07-28 on measurement
+and code, not on documentation. The three that remain all need generation runs the free tier
+throttled today.
 
-- **Every benchmark number on record is void.** *(PF-009)* Measured against the deleted
-  `bench/prompts/system_faust.txt`, which taught three functions that do not exist.
-  `bench/results/.prompt_baseline.json` (0.88) describes nothing that exists.
-- **The prompt rewrite is unmeasured.** *(PF-010)* Verified *correct* — references resolve,
-  examples compile — not verified *better*.
-- **The efficacy pilot generalizes to nothing.** *(PF-011)* N=50, one model, the old prompt,
-  two of five categories.
-- **No cross-model comparison exists.** *(PF-012)* ADR-008 "Under evaluation" since 2026-04-29.
-- **Semantic fidelity is unmeasured.** *(PF-013)* Narrowed, not closed. The objective half
-  runs (render oracle, above). Fidelity *to the prompt* does not: `tiered_prompts.json`
-  already carries `target` + `expected_primitives`, and nothing turns them into an expected
-  spectral signature. The `--judge` rubric has never run.
-- **No real user prompt has ever been recorded.** *(PF-014)* `generate.py` logs nothing.
-
----
+- **The efficacy pilot generalizes to nothing.** *(PF-011)* The pilot is 50 records covering
+  `filters` + `generative` only — 2 of 5 categories — all on the **paid** `claude` provider,
+  dated 2026-07-20, i.e. the deleted prompt. The full grid is 25 effects × 5 tiers = **125
+  generations**, free on groq. Not run today: the same rate limit that truncated PF-012, and
+  PF-030 means it cannot safely overlap another harness.
+- **No cross-model comparison exists.** *(PF-012)* **Partially answered.** Over the 20
+  prompts both models completed: `gpt-oss-120b` 18/20, `llama-3.3-70b` 17/20 — and three
+  disagreements running in *both* directions, so the models differ by failure profile, not by
+  a scalar. The llama arm was truncated at 21/25 by throttling. Detail in `docs/BUGS.md`.
+- **Semantic fidelity is unmeasured.** *(PF-013)* The objective half runs (render oracle).
+  Fidelity *to the prompt* still does not: `--judge` has never executed, and judging the
+  existing pilot would grade the deleted prompt. It needs a fresh efficacy run to judge, so
+  it is downstream of PF-011.
 
 ## Next three things
 
-1. **Fix PF-024 by grounding the prompt in the four verified patterns.** The compiled
-   failing/working pairs are in `.claude/skills/faust-idioms/SKILL.md`; the work is folding
-   them into `llm/prompts/system_prompt.txt` as rules or few-shots, keeping every `ns.func`
-   resolving. Tier 2 — cite file:line, re-run `tools/check.sh audio`, and either re-run the
-   benchmark or declare the baseline stale.
-2. **Commit and push this session's extension work.** `1fc1092` is unpushed and roughly a
-   dozen paths are uncommitted (`/orient`, `/change-report`, `/faust-idioms`, the Tier-2
-   rule, `tools/status_digest.sh`, the two new control-wiring tests, settings, CLAUDE.md).
-   CI has not seen any of it.
-3. **Run the benchmark twice — authorized 2026-07-27.** `python bench/run_benchmark.py
-   --provider groq`, 25 prompts, $0. Once *before* the PF-024 fix and once after, so the
-   prompt change is measured rather than asserted. Archive `results.json` first
-   (`run_benchmark.py:216` overwrites it unconditionally, and the 2026-07-19 file is the only
-   record of the pre-unification prompt). Closes PF-009 and PF-010. Report **per failure
-   class**, not as one aggregate — "88%" hid three unrelated failure modes for months.
-
----
+1. **Find the real cause of the CI SIGILL (PF-027).** Still red. The Timer assertion that
+   four separate readings blamed was the gdb post-mortem's own breakpoint; the bare run dies
+   at the *tremolo* patch, and the first three pass. `ScopedJuceInitialiser_GUI` has landed,
+   which removes 19 benign assertions and should let the next post-mortem reach the actual
+   faulting frame. Push and read it.
+2. **Close PF-024's remaining three classes.** Today's run puts the two classes `f3453c4`
+   targeted at zero (`routing_arity` 2→0, `unbound_variable` 1→0). What remains:
+   `syntax:FLOAT` (ping-pong), `syntax:EXTRA` (sidechain compressor), `recursion_cycle`
+   (Karplus-Strong). `.claude/skills/faust-idioms/SKILL.md` has a compiled pattern for the
+   recursion case.
+3. *(evidence)* **Run the full efficacy grid, then judge it.** 125 generations on groq, $0,
+   closing PF-011; then `score_efficacy.py --judge` with a second groq model as grader,
+   closing PF-013. Sequential, not parallel — PF-030. Do it in a fresh rate-limit window.
 
 ## Waiting on you
 
-Two items, and one of them is smaller than it was. The P6 listening pass that sat here for
-weeks is discharged — it ran. The benchmark re-run was authorized 2026-07-27; only the
-baseline *overwrite* is still gated.
+**Two items**, and the second is the one that matters.
 
-1. **Confirm the persisted-state format (§2 trigger-3).** Code is in `c34bbb6`, fully
-   implemented and verified (13/13, ASan/UBSan clean). The *design* — schemaVersion=1
-   ValueTree→XML, Faust source + prompt as attributes, verbatim `<STATE>`, `<SlotLabels>`
-   hint — is a contract between components, so it needs your knowing approval, not a
-   plan-mode sign-off (`docs/BUGS.md:492-494`). Cheap to amend now; v1 is the only blob in
-   the wild.
-2. **Overwriting `bench/results/.prompt_baseline.json`** once today's numbers exist. The
-   benchmark re-run itself was **authorized 2026-07-27** (twice: a baseline, then a delta run
-   after the PF-024 fix), so PF-009/PF-010 are no longer waiting on you. Replacing the stored
-   0.88 is the **separate** §2 trigger-1 act, and it still is. I will ask again with the new
-   figures in hand.
+1. **Overwriting `bench/results/.prompt_baseline.json`** once the new numbers exist. The
+   run itself is no longer gated — §2 trigger 1 now names the artifact, not the activity —
+   but replacing the stored 0.88 destroys the only record of the pre-unification prompt. I
+   will ask again with the figures in hand.
 
-*Optional, not blocking:* a second P6 listening pass. Every reliability defect the first run
-exposed is now closed, so a second pass would measure generation quality rather than crashes
-— but it is worth more after PF-024 is fixed than before.
+2. **A second P6 listening pass.** Promoted out of *"optional, not blocking"*, where it sat
+   while every reliability defect it exposed got fixed around it. Per COLLABORATION.md §1,
+   this is the one judgment in the project with no instrument: the render oracle proves a
+   patch is not broken — no NaN, no silence, no DC, no runaway gain — and cannot tell you the
+   filter is musical or that the fuzz is the fuzz the prompt described. Hooks, the ladder,
+   the oracle and now the CI line cover everything else. **This is the part that is
+   structurally yours**, and it is worth more after PF-024 is fixed than before.

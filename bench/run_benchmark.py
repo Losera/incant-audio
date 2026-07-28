@@ -28,6 +28,89 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 BENCH_DIR    = Path(__file__).parent
 RESULTS_DIR  = BENCH_DIR / "results"
 PROMPTS_FILE = BENCH_DIR / "prompts" / "prompts.json"
+LOCK_FILE    = RESULTS_DIR / ".run.lock"
+
+
+# ── Concurrency guard (PF-025) ────────────────────────────────────────────────
+# TWO RUNS AT ONCE IS A DATA-LOSS BUG, AND IT HAS FIRED TWICE.
+#
+# 2026-07-21: two --dry-run invocations overwrote a committed 25-record run. The fix
+# then was narrow -- it separated dry-run output only (see the comment at the write
+# site below) -- so the general case stayed open.
+#
+# 2026-07-27: two full 25-prompt groq runs executed concurrently, launched minutes
+# apart by two agents that could not see each other. Both were headed for the same
+# results.json, so one run's evidence was going to vanish silently. Worse, they shared
+# one free-tier token budget: the second run took
+#     HTTP 429 -- rate limit ... tokens per minute (TPM): Limit 8000, Used 4460,
+#     Requested 4019
+# on its FIRST prompt after five retries, which classify_failures files as `transport`
+# -- a measurement corrupted by the collision rather than by the model.
+#
+# So the guard is two-part, because the incident had two failure modes:
+#   1. an exclusive lock, so a second concurrent run refuses to start at all; and
+#   2. a per-run output file, so even sequential runs cannot overwrite each other.
+#
+# The lock is advisory-by-convention, not an OS file lock: O_EXCL creation plus a
+# recorded pid. That choice is deliberate -- an flock would be released the instant a
+# killed process's fd closed, which is right for mutual exclusion but useless for the
+# "who is holding this?" message that makes the failure actionable.
+
+class BenchmarkLockHeld(RuntimeError):
+    """Another benchmark run holds the lock."""
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # exists, owned by someone else
+    return True
+
+
+def acquire_lock() -> Path:
+    """Create the lock, or raise BenchmarkLockHeld naming the live holder.
+
+    A stale lock (holder gone -- crash, SIGKILL, reboot) is reclaimed with a warning
+    rather than refused. A guard that stays latched after a crash gets deleted by the
+    first person it blocks, and then it is not a guard at all.
+    """
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps({
+        "pid": os.getpid(),
+        "started": datetime.now(timezone.utc).isoformat(),
+        "argv": " ".join(sys.argv),
+    })
+    try:
+        fd = os.open(LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+    except FileExistsError:
+        try:
+            held = json.loads(LOCK_FILE.read_text())
+            pid = int(held.get("pid", -1))
+        except (ValueError, OSError):
+            pid, held = -1, {}
+        if pid > 0 and _pid_alive(pid):
+            raise BenchmarkLockHeld(
+                f"benchmark already running (pid {pid}, started "
+                f"{held.get('started', 'unknown')}).\n"
+                f"  command: {held.get('argv', 'unknown')}\n"
+                f"  Two concurrent runs share one rate limit and one results.json --\n"
+                f"  see PF-025. Wait for it, or kill {pid} if it is a stray.\n"
+                f"  Lock: {LOCK_FILE}"
+            ) from None
+        print(f"WARNING: reclaiming stale lock from pid {pid} (no longer running).",
+              file=sys.stderr)
+        LOCK_FILE.unlink(missing_ok=True)
+        fd = os.open(LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+    with os.fdopen(fd, "w") as fh:
+        fh.write(payload)
+    return LOCK_FILE
+
+
+def release_lock() -> None:
+    LOCK_FILE.unlink(missing_ok=True)
 
 # "claude" is this harness's historical name for llm/providers.py's "anthropic"
 # entry — every results.json and the committed baseline use it, so it stays.
@@ -213,8 +296,30 @@ def run(providers_list: list[str], dry_run: bool = False, prompts_file: Path = P
     # two setup dry-runs silently overwrote the committed 25-record Claude run that
     # the ADR-009 verdict rests on (recovered from git). A 1-record smoke test has no
     # business replacing a full suite's evidence.
-    out_file = RESULTS_DIR / ("results_dryrun.json" if dry_run else "results.json")
-    out_file.write_text(json.dumps(results, indent=2))
+    #
+    # PF-025 generalises that: EVERY real run now writes its own dated, provider-named
+    # file first, and results.json is a copy of the most recent. The archive is what a
+    # later comparison cites, so it must not depend on someone remembering to `cp` the
+    # file before the next run starts. results.json stays put because check.sh,
+    # check_prompt_regression.py and score_results.py all read it by that name.
+    payload = json.dumps(results, indent=2)
+    if dry_run:
+        out_file = RESULTS_DIR / "results_dryrun.json"
+        out_file.write_text(payload)
+    else:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+        tag = "_".join(providers_list)
+        archive = RESULTS_DIR / f"results_{stamp}_{tag}.json"
+        # A same-day re-run is a legitimate thing to do (that is exactly what today's
+        # baseline/delta pair was), so disambiguate rather than clobber.
+        seq = 2
+        while archive.exists():
+            archive = RESULTS_DIR / f"results_{stamp}_{tag}_{seq}.json"
+            seq += 1
+        archive.write_text(payload)
+        out_file = RESULTS_DIR / "results.json"
+        out_file.write_text(payload)
+        print(f"\nArchived to: {archive}")
 
     # Summary table
     print(f"\n{'─'*40}")
@@ -263,4 +368,17 @@ if __name__ == "__main__":
         print(f"Preflight check FAILED:\n  ✗ {exc}")
         sys.exit(1)
     prompts_file = Path(args.prompts) if args.prompts else PROMPTS_FILE
-    run(providers_list=selected, dry_run=args.dry_run, prompts_file=prompts_file)
+
+    # PF-025. Exit 2 (not 1) so a caller can tell "someone else is running" apart from
+    # "preflight failed" without parsing text. preflight_check() runs inside run(), so
+    # the lock is necessarily held across it; the finally releases it either way,
+    # including on preflight's sys.exit (SystemExit still unwinds through finally).
+    try:
+        acquire_lock()
+    except BenchmarkLockHeld as exc:
+        print(f"Refusing to start:\n  ✗ {exc}", file=sys.stderr)
+        sys.exit(2)
+    try:
+        run(providers_list=selected, dry_run=args.dry_run, prompts_file=prompts_file)
+    finally:
+        release_lock()
