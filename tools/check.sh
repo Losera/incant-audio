@@ -92,9 +92,15 @@ level_full() {
     run "configure host" \
         cmake -S host -B host/build -G Ninja -DCMAKE_BUILD_TYPE=Debug \
               -DJUCE_PATH="${JUCE_PATH:-$HOME/JUCE}"
-    run "build all four targets" \
+    # PF-029. This list used to stop at ParamPoolTsanTest, so the two behavioural
+    # harnesses were built and run by CI and by NOTHING ELSE. That gap is what let
+    # four consecutive pushes read as green locally while CI died at exit 132 in
+    # OfflineRenderTest: the ladder was making a true statement about a smaller set
+    # of tests than the remote gate runs, and the two never met (PF-026).
+    run "build the host and every test harness" \
         cmake --build host/build --target PluginForgeHost PluginForgeHost_Standalone \
-              PluginForgeHost_VST3 ParamPoolTsanTest
+              PluginForgeHost_VST3 ParamPoolTsanTest OfflineRenderTest \
+              PromptPanelThreadingTest
     local tsan
     tsan="$(find host/build/ParamPoolTsanTest_artefacts -type f -name ParamPoolTsanTest 2>/dev/null | head -n1)"
     if [[ -n "$tsan" ]]; then
@@ -105,6 +111,38 @@ level_full() {
           env TSAN_OPTIONS=halt_on_error=1 timeout 300 "$tsan"
     else
       skip "ThreadSanitizer" "ParamPoolTsanTest binary not built"
+    fi
+
+    # ── The two harnesses CI runs and this ladder did not (PF-029) ────────────
+    # Both are ASan/UBSan. Both run under `timeout` because a hang here costs the
+    # session's patience the way it costs CI its wall-clock budget.
+    local render
+    render="$(find host/build/OfflineRenderTest_artefacts -type f -name OfflineRenderTest 2>/dev/null | head -n1)"
+    if [[ -n "$render" ]]; then
+      # The objective half of the P6 battery: a hand-written corpus through the
+      # real JIT + swap protocol + ParamPool + OutputGuard. Needs no display.
+      # Same sanitizer options CI uses, so a divergence between the two is about
+      # the machine and not about how they were invoked.
+      run "OfflineRenderTest (objective P6 battery)" \
+          env UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 ASAN_OPTIONS=abort_on_error=1 \
+              timeout 300 "$render"
+    else
+      skip "OfflineRenderTest" "binary not built"
+    fi
+
+    local promptpanel
+    promptpanel="$(find host/build/PromptPanelThreadingTest_artefacts -type f -name PromptPanelThreadingTest 2>/dev/null | head -n1)"
+    if [[ -z "$promptpanel" ]]; then
+      skip "PromptPanelThreadingTest" "binary not built"
+    elif [[ -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]]; then
+      # Not squeamishness: this binary constructs juce::Components and pumps the
+      # message loop, and with no display it HANGS rather than failing. CI wraps it
+      # in xvfb-run for exactly this reason (.github/workflows/test.yml). A skip
+      # that names the cause beats a 300s timeout that reads like a fault.
+      skip "PromptPanelThreadingTest" "no DISPLAY/WAYLAND_DISPLAY — needs a display or xvfb-run"
+    else
+      run "PromptPanelThreadingTest (PF-006 regression)" \
+          timeout 300 "$promptpanel"
     fi
   else
     skip "host build" "cmake or JUCE_PATH missing"

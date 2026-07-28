@@ -722,3 +722,88 @@ class TestStatusReservesAnEvidenceSlot:
             "checked' — the metric closed 0 of 6 such items in the five days before this "
             "rule existed (COLLABORATION.md §5)."
         )
+
+
+# ---------------------------------------------------------------------------
+CHECK_SH = ROOT / "tools" / "check.sh"
+WORKFLOW = ROOT / ".github" / "workflows" / "test.yml"
+
+
+class TestLadderRunsWhatCIRuns:
+    """`check.sh full` must not be green about a smaller set of tests than CI runs.
+
+    PF-029, found 2026-07-28. `tools/check.sh` built four targets and ran one. CI
+    additionally built and ran OfflineRenderTest and PromptPanelThreadingTest. So the
+    ladder and the remote gate were measuring different things, and the ladder was the
+    half anyone actually looked at: four consecutive pushes read as green locally while
+    CI died at exit 132 inside a harness the ladder had never executed. The read half
+    of the loop said green, the unread half said red, and the two never met (PF-026).
+
+    This is the project's signature defect -- CLAUDE.md names the class in check.sh's
+    own header, "believing a control runs when it does not." The specific instance here
+    is subtler than a dead hook: every check was real and every check passed. The lie
+    was in the scope.
+
+    So the invariant is a RELATION, not a list: whatever behavioural harness CI decides
+    to run, the ladder runs it too. Hard-coding two names here would go stale the first
+    time someone adds a third harness to the workflow and not to the ladder -- which is
+    exactly the drift being guarded against.
+
+    NOT COVERED: that the harnesses PASS. That is their own job, and OfflineRenderTest
+    is currently expected to fail on the CI runner and pass locally (PF-027). This
+    asserts only that the ladder is not structurally blind to them.
+    """
+
+    @staticmethod
+    def _ci_harnesses() -> set[str]:
+        """Targets CI builds in its 'Build behavioural test harnesses' step."""
+        m = re.search(
+            r"name:\s*Build behavioural test harnesses\s*\n\s*run:\s*(.+)", WORKFLOW.read_text()
+        )
+        assert m, (
+            ".github/workflows/test.yml no longer has a 'Build behavioural test "
+            "harnesses' step. If it was renamed, repoint this test; if the harnesses "
+            "were dropped from CI, PF-029 needs rethinking, not deleting."
+        )
+        after_target = m.group(1).split("--target", 1)
+        assert len(after_target) == 2, "the harness build step has no --target list"
+        return {t for t in after_target[1].split() if t.endswith("Test")}
+
+    def test_ci_actually_builds_some_harnesses(self):
+        # Guards the guard: if the regex above ever matches an empty list, every
+        # assertion below passes vacuously and this test class becomes decoration.
+        assert self._ci_harnesses(), "parsed zero harness targets out of the workflow"
+
+    def test_full_builds_every_harness_ci_builds(self):
+        body = CHECK_SH.read_text()
+        missing = sorted(t for t in self._ci_harnesses() if t not in body)
+        assert not missing, (
+            f"CI builds {missing} and tools/check.sh does not mention them. The ladder "
+            "would be green about a smaller set of tests than the remote gate runs -- "
+            "PF-029, which is how four red pushes read as green locally."
+        )
+
+    def test_full_also_runs_them_not_just_builds_them(self):
+        # Building a harness and never running it is the same defect one step in:
+        # a compile is not a test. Each harness must appear in a `run`/`skip` label
+        # too, not only in the --target list.
+        body = CHECK_SH.read_text()
+        target_line = re.search(r"--target[^\n]*(?:\\\n[^\n]*)*", body)
+        assert target_line, "tools/check.sh has no --target line"
+        targets_only = target_line.group(0)
+        for harness in sorted(self._ci_harnesses()):
+            elsewhere = body.replace(targets_only, "")
+            assert harness in elsewhere, (
+                f"{harness} is built by tools/check.sh but never invoked -- it appears "
+                "only in the --target list. A compile is not a test."
+            )
+
+    def test_a_display_dependent_harness_is_skipped_not_hung(self):
+        # PromptPanelThreadingTest constructs juce::Components and pumps the message
+        # loop; with no display it HANGS rather than failing, which is why CI wraps it
+        # in xvfb-run. A ladder that hangs for 300s teaches people to skip the level.
+        body = CHECK_SH.read_text()
+        assert "WAYLAND_DISPLAY" in body and "DISPLAY" in body, (
+            "tools/check.sh does not check for a display before running the harness "
+            "that needs one. Run headless it hangs instead of failing."
+        )
