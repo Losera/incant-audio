@@ -9,6 +9,7 @@ Run modes:
   python generate.py --prompt "..."         — arg mode, outputs JSON to stdout;
                                              used by the C++ host via juce::ChildProcess
 """
+import datetime
 import json
 import os
 import subprocess
@@ -305,6 +306,63 @@ def _exception_response(exc: BaseException) -> dict:
             "error": str(exc), "reason": reason}
 
 
+def _prompt_log_path() -> Path | None:
+    """Where real user prompts get recorded, or None when logging is off.
+
+    `PLUGINFORGE_PROMPT_LOG` unset -> the default path. Set to a path -> that path.
+    Set to 0/off/false/no/"" -> disabled.
+    """
+    raw = os.environ.get("PLUGINFORGE_PROMPT_LOG")
+    if raw is None:
+        return Path(__file__).parent.parent / "logs" / "prompts.jsonl"
+    if raw.strip().lower() in {"", "0", "off", "false", "no"}:
+        return None
+    return Path(raw).expanduser()
+
+
+def log_user_prompt(request: dict, response: dict) -> None:
+    """Append one JSONL record per real user generation. PF-014.
+
+    WHY: until 2026-07-28 nothing in this project had ever recorded what a person
+    actually typed. Every one of the 25 benchmark prompts was invented by us, so the
+    corpus measured our imagination of the product rather than its use, and no
+    failure class could be weighted by how often it really occurs.
+
+    WHERE: called only from _run_subprocess_mode, which is the sole path the C++ host
+    invokes (--json / --prompt). The bench harnesses call generate_faust /
+    generate_with_retry directly and never reach here, so benchmark prompts cannot
+    contaminate the record of real ones.
+
+    FAIL-OPEN, deliberately, unlike this project's hooks. A hook exists to stop the
+    work; this exists to observe it. A full disk or a read-only path must cost the
+    user a log line, never their generation — so every error is swallowed to stderr.
+    """
+    path = _prompt_log_path()
+    if path is None:
+        return
+    try:
+        record = {
+            "ts": datetime.datetime.now(datetime.timezone.utc)
+                          .isoformat(timespec="seconds").replace("+00:00", "Z"),
+            "prompt": request.get("prompt", ""),
+            "provider": request.get("provider", DEFAULT_PROVIDER),
+            "model": request.get("model") or DEFAULT_MODEL,
+            "success": bool(response.get("success")),
+            "reason": response.get("reason", "error"),
+            "attempts": response.get("attempts", 0),
+            "faust_code": response.get("faust_code"),
+            "error": response.get("error"),
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # One open/append/close per generation: generations are seconds apart and
+        # arrive one process at a time, so a single O_APPEND write is atomic enough
+        # and leaves no handle to lose on a crash.
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except Exception as exc:  # noqa: BLE001 — see FAIL-OPEN above
+        print(f"[prompt-log] not recorded: {exc}", file=sys.stderr)
+
+
 def _run_subprocess_mode(build_request):
     """
     Shared body for the --json and --prompt ADR-011 subprocess entry points.
@@ -326,12 +384,20 @@ def _run_subprocess_mode(build_request):
         legacy_text = DEFAULT_PROVIDER == "anthropic"
         print(json.dumps(_missing_api_key_response(None if legacy_text else credential_error)))
         return
+    request = None
     try:
-        response = generate_json(build_request())
+        request = build_request()
+        response = generate_json(request)
+        log_user_prompt(request, response)          # PF-014
         print(json.dumps(response))
     except Exception as exc:  # noqa: BLE001 - convert to ADR-011 JSON, never a stdout traceback
         traceback.print_exc(file=sys.stderr)
-        print(json.dumps(_exception_response(exc)))
+        response = _exception_response(exc)
+        # A prompt that blew up is the most interesting kind to have recorded. Only
+        # skipped when build_request() itself failed, i.e. there is no prompt to log.
+        if request is not None:
+            log_user_prompt(request, response)
+        print(json.dumps(response))
 
 
 if __name__ == "__main__":

@@ -47,8 +47,17 @@ scheduled_tasks.lock
 # Throwaway --dry-run output. Real runs write results.json, which is tracked
 # evidence; a 1-record smoke test must never stand in for it.
 bench/results/results_dryrun.json
+
+# PF-025 concurrency lock — process-local state, never committed. A checked-in lock
+# would refuse every run on a fresh clone until someone deleted it by hand.
+bench/results/.run.lock
 .env.*
 !.env.example
 
 # agent-session git worktrees (separate checkouts, not repo content)
 .claude/worktrees/
+
+# PF-014 real-user prompt log. Local observation data, not repo content: it records
+# what a person actually typed at this machine. Never committed — the benchmark
+# corpus is derived from it by hand, deliberately.
+/logs/
