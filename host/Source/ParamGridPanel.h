@@ -55,6 +55,14 @@ public:
     };
 
     int          controlCountForTest() const { return static_cast<int>(controls.size()); }
+    // Bumped once per refreshParamKnobs. A test cannot reliably wait for "the
+    // grid caught up" by watching the control COUNT, because loading a 1-param
+    // patch over a 1-param patch never changes it — the wait then resolves on the
+    // compile thread's source assignment, before the callAsync hop that rebuilds
+    // the widgets, and the test reads the PREVIOUS patch's labels. That raced
+    // green on a dev box and failed on a CI runner. This counter is the
+    // unambiguous signal.
+    int          refreshCountForTest() const { return refreshCount; }
     WidgetKind   controlKindForTest(int index) const;
     juce::String controlLabelForTest(int index) const;
     // The widget's OWN value, not the APVTS slot's — so a test can catch an
@@ -88,6 +96,9 @@ private:
     juce::Component      content;
     juce::Viewport       viewport;
     std::vector<Control> controls;
+
+    // Message-thread only, like everything else here. See refreshCountForTest().
+    int refreshCount = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ParamGridPanel)
 };

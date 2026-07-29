@@ -226,27 +226,41 @@ juce::String manyParamPatch(int n)
 // compile to finish. The distinction matters: the compile callback fires on the
 // compile thread and hops to the message thread, so a test that waited on the
 // compile alone would race the grid rebuild it is about to assert on.
-// SUBTLE, and it cost a full run of false passes: waiting only on the control
-// count is not a wait at all when the count is ALREADY the expected value.
-// Loading a 1-param patch over a 1-param patch, or a 0-param patch into an empty
-// grid, satisfied the predicate before the compile had even been queued — so
-// scenarios 6 and 7 "passed" the load and then asserted against the PREVIOUS
-// patch's state. The source of record is the discriminator: currentFaustSource
-// is assigned only in the compile SUCCESS branch (PluginProcessor.cpp:180-181),
-// so it changing means this specific compile finished. The grid count is checked
-// second, because the callAsync hop to the editor lands after that assignment.
+// Waits for the EDITOR to have caught up, which is a harder thing to observe
+// than it looks, and this function got it wrong twice.
+//
+// Attempt 1 watched only the control count. That is not a wait at all when the
+// count is ALREADY the expected value: loading a 1-param patch over a 1-param
+// patch satisfied it before the compile was even queued, so the scenario then
+// asserted against the PREVIOUS patch's state and "passed".
+//
+// Attempt 2 added the source of record. Better, but still wrong, and CI is what
+// caught it. currentFaustSource is assigned on the COMPILE thread
+// (PluginProcessor.cpp:180-181); the grid is rebuilt later, on the message
+// thread, via callAsync. So a patch with an unchanged control count could match
+// on source and still be showing the old labels. That raced green on this dev
+// box and failed on a slower runner — the same dev-box-versus-runner shape as
+// PF-027, in a test written the same day PF-027 was closed.
+//
+// The refresh counter is unambiguous: it is bumped once per refreshParamKnobs,
+// on the message thread, after the widgets exist. Waiting for it to ADVANCE
+// cannot be satisfied by any prior state.
 bool loadAndSettle(Session& s, const juce::String& source, int expectedControls,
                    PluginForgeProcessor::LoadMode mode
                        = PluginForgeProcessor::LoadMode::Fresh)
 {
+    const int before = s.editor.gridRefreshCountForTest();
     s.processor.loadFaustCode(source, "editor session test", mode);
     const bool ok = pumpUntil([&] {
         return s.processor.currentSourceForTest() == source
+            && s.editor.gridRefreshCountForTest() > before
             && s.editor.gridControlCountForTest() == expectedControls;
     });
     if (! ok)
-        std::printf("      (load did not settle: source %s, %d controls, wanted %d)\n",
+        std::printf("      (load did not settle: source %s, refresh %d->%d, "
+                    "%d controls, wanted %d)\n",
                     s.processor.currentSourceForTest() == source ? "matched" : "DID NOT match",
+                    before, s.editor.gridRefreshCountForTest(),
                     s.editor.gridControlCountForTest(), expectedControls);
     return ok;
 }

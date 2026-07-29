@@ -38,6 +38,7 @@ public:
     juce::String statusTextForTest() const;
     juce::String errorTextForTest() const;
     int          gridControlCountForTest() const;
+    int          gridRefreshCountForTest() const;
     ParamGridPanel::WidgetKind gridControlKindForTest(int i) const;
     juce::String gridControlLabelForTest(int i) const;
     double       gridControlValueForTest(int i) const;

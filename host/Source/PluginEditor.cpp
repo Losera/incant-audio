@@ -136,6 +136,11 @@ int PluginForgeEditor::gridControlCountForTest() const
     return paramGridPanel.controlCountForTest();
 }
 
+int PluginForgeEditor::gridRefreshCountForTest() const
+{
+    return paramGridPanel.refreshCountForTest();
+}
+
 ParamGridPanel::WidgetKind PluginForgeEditor::gridControlKindForTest(int i) const
 {
     return paramGridPanel.controlKindForTest(i);

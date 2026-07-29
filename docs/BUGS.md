@@ -68,6 +68,7 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-030 | `run_efficacy_study.py` takes no PF-025 lock — it can run concurrently with `run_benchmark.py` and share one free-tier rate limit | medium | open | S4 Testing | `bench/run_efficacy_study.py` (no `acquire_lock`) | 2026-07-28 | — |
 | PF-031 | The 25-prompt benchmark's noise floor is unmeasured — it has never been run twice on an unchanged prompt, so no delta can be called significant | medium | open | S4 Testing | `bench/run_benchmark.py` | 2026-07-28 | — |
 | PF-033 | Reopening a saved project resets every knob to the patch defaults — the editor's seeding overwrites the restore | high | fixed | S3 Plugin UX | `ParamGridPanel.cpp` `refreshParamKnobs` | 2026-07-28 | `81fc75b` |
+| PF-034 | `EditorSessionTest` scenario 6 raced the message thread — green locally, red on the runner | medium | fixed | S4 Testing | `host/tests/EditorSessionTest.cpp` `loadAndSettle` | 2026-07-28 | pending commit |
 | PF-032 | 2 of 22 compiling patches render SILENT — a warm lowpass at rms 2.5e-08 and a noise gate at 0.0; the compile rate overstates working output | high | open | S1 Backend | `bench/results/results.json`, `bench/render_oracle.py` | 2026-07-28 | — |
 
 ---
@@ -1019,3 +1020,40 @@ outcomes is not evidence; the values were changed to 0.95 and 0.05 for that reas
 `getStateInformation`/`setStateInformation` called directly on the message thread, which is
 what the harness does. A host that restores from another thread, or interleaves the restore
 with a user-triggered compile, is not exercised and cannot be without a host.
+
+### PF-034 — `EditorSessionTest` scenario 6 raced the message thread. *(fixed 2026-07-28)*
+
+**medium · S4 Testing · found by CI on the harness's first pushed run**
+
+`loadAndSettle()` waited for the processor's source of record to match and for the grid's
+control count to equal an expected value. Both can be true while the grid still shows the
+PREVIOUS patch: `currentFaustSource` is assigned on the **compile thread**
+(`PluginProcessor.cpp:180-181`), whereas the widgets are rebuilt later, on the **message
+thread**, via `callAsync`. When consecutive patches have the same parameter count — scenario 6
+loads a 1-param patch over a 1-param patch — the count discriminates nothing, so the wait
+resolved on the compile-thread assignment and the test read stale labels.
+
+Green on this dev box every time. Red on the CI runner: `[FAIL] the label still followed`,
+1 failure out of 61.
+
+**This is the third instance of one shape in a single day**, and that is the reason it is
+filed rather than quietly fixed. PF-027 was a defect that reproduced only on the runner.
+PF-029 was a ladder that ran less than CI did. This is a test whose *timing assumption* held
+locally and not remotely. Every one of them is the dev box and the runner disagreeing, and in
+every one the dev box was the more flattering answer.
+
+It is also the second time the SAME function got this wrong. The first version watched only
+the control count, which was not a wait at all when the count already matched — caught locally,
+because it produced obviously false passes. Adding the source of record fixed the loud half of
+the bug and left the quiet half, and the quiet half needed a slower machine to show up.
+
+**Fix.** `ParamGridPanel::refreshCountForTest()` — a counter bumped once per
+`refreshParamKnobs`, on the message thread, after the widgets exist. `loadAndSettle` waits for
+it to **advance** past the value read before the load. Advancement cannot be satisfied by any
+prior state, unlike equality against an expected count, so the class of bug is closed rather
+than the instance.
+
+**Not covered.** No local reproduction exists — the race needs the runner's timing, and this
+was verified by pushing and reading CI rather than by constructing a delay. That is the same
+cheap experiment PF-027 was closed with, and the same one three sessions avoided in favour of
+better hypotheses.

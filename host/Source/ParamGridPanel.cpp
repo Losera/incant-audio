@@ -123,6 +123,7 @@ void ParamGridPanel::refreshParamKnobs(const FaustEngine::ParamList& params)
     }
 
     layoutControls();
+    ++refreshCount;     // see refreshCountForTest() in the header
 }
 
 void ParamGridPanel::layoutControls()
