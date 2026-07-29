@@ -62,12 +62,12 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-024 | Generation produces invalid Faust for stereo routing / unbounded delays / ping-pong / artist-reference prompts (P6 #2,#6,#9,#10) | high | open | S1 Backend | `llm/prompts/system_prompt.txt` | 2026-07-24 | — |
 | PF-025 | Benchmark harness has no concurrency guard and overwrites `results.json` unconditionally — two runs destroy each other's evidence and share one rate limit | high | fixed | S4 Testing | `bench/run_benchmark.py:32-115,296-322` | 2026-07-27 | pending commit |
 | PF-026 | CI red on four consecutive pushes and no artifact in the loop reported it — the digest, the Broken list and `check.sh` were all silent | high | fixed | S4 Testing | `tools/status_digest.sh` | 2026-07-28 | pending commit |
-| PF-027 | `OfflineRenderTest` dies with SIGILL (exit 132) on the CI runner at the 4th patch — cause still unknown; the gdb post-mortem was reporting the wrong frame | high | open | S4 Testing | `.github/workflows/test.yml:191-225`, tremolo patch | 2026-07-28 | — |
+| PF-027 | `OfflineRenderTest` dies with SIGILL (exit 132) on the CI runner — it was the missing MessageManager, not the CPU | high | fixed | S4 Testing | `host/tests/OfflineRenderTest.cpp` `main()` | 2026-07-28 | `144e023` (green run `30409357504`) |
 | PF-028 | COLLABORATION.md §7's hook table named two hooks retired six days earlier and omitted the one that was running | medium | fixed | S4 Testing | `COLLABORATION.md` §7 | 2026-07-28 | pending commit |
-| PF-029 | `tools/check.sh` never builds or runs `OfflineRenderTest` or `PromptPanelThreadingTest` — CI is the only thing that does | high | open | S4 Testing | `tools/check.sh:96-97` vs `.github/workflows/test.yml:167` | 2026-07-28 | — |
+| PF-029 | `tools/check.sh` never builds or runs `OfflineRenderTest` or `PromptPanelThreadingTest` — CI is the only thing that does | high | fixed | S4 Testing | `tools/check.sh` `level_full` | 2026-07-28 | `558ac96` |
 | PF-030 | `run_efficacy_study.py` takes no PF-025 lock — it can run concurrently with `run_benchmark.py` and share one free-tier rate limit | medium | open | S4 Testing | `bench/run_efficacy_study.py` (no `acquire_lock`) | 2026-07-28 | — |
 | PF-031 | The 25-prompt benchmark's noise floor is unmeasured — it has never been run twice on an unchanged prompt, so no delta can be called significant | medium | open | S4 Testing | `bench/run_benchmark.py` | 2026-07-28 | — |
-| PF-033 | Reopening a saved project resets every knob to the patch defaults — the editor's seeding overwrites the restore | high | fixed | — | `ParamGridPanel.cpp` `refreshParamKnobs` | 2026-07-28 | pending commit |
+| PF-033 | Reopening a saved project resets every knob to the patch defaults — the editor's seeding overwrites the restore | high | fixed | S3 Plugin UX | `ParamGridPanel.cpp` `refreshParamKnobs` | 2026-07-28 | `81fc75b` |
 | PF-032 | 2 of 22 compiling patches render SILENT — a warm lowpass at rms 2.5e-08 and a noise gate at 0.0; the compile rate overstates working output | high | open | S1 Backend | `bench/results/results.json`, `bench/render_oracle.py` | 2026-07-28 | — |
 
 ---
@@ -700,6 +700,35 @@ the evidence to wait for.
 
 **Not covered.** Whether the tremolo patch is special or merely fourth. Whether the fault is
 in JIT-compiled code at all. Both need the backtrace that does not exist yet.
+
+**CLOSED `144e023`, 2026-07-28, by run `30409357504` going green at HEAD.** The
+`ScopedJuceInitialiser_GUI` was the fix, not a diagnostic aid. It was pushed **alone**, ahead
+of the rest of a sixteen-path working tree, specifically so the result would be attributable —
+and it was: one commit, one run, green, including the `Run OfflineRenderTest` step that had
+failed the previous four times.
+
+**So the CPU hypothesis was wrong, and it was wrong for three days.** `lscpu` flags, the
+`AMD EPYC 9V74`, CI's faust 2.70.3 against local 2.85.5, an `ud2` from libfaust's LLVM — none
+of it was ever evidence, and the workflow comment that enumerates it says as much in its last
+line (*"That is a guess"*) before two separate readings treated it as a finding anyway. The
+actual cause was the thing the same comment dismissed: *"NOT the JUCE Timer assertion in the
+log — that fires locally too, 19x, on runs that pass."* True, and irrelevant. `Timer::startTimer`
+asserting and then proceeding with no MessageManager leaves the timer machinery in a state that
+is fine until it isn't; locally it survived, on the runner it did not. "It fires locally on runs
+that pass" ruled out the assertion as a *symptom* and was read as ruling it out as a *cause*.
+
+**Three readings, three wrong answers, one cheap experiment.** The registry's first draft
+blamed the Timer assertion via the gdb backtrace (wrong frame — the post-mortem's own
+breakpoint). The correction blamed SIGILL at the tremolo patch (right symptom, invented
+cause). The workflow blamed the runner's instruction set (never tested). What settled it was
+pushing one commit by itself and reading one run. The lesson is not about JUCE: it is that
+three sessions spent their effort on better hypotheses when the cheapest available experiment
+was already sitting uncommitted in the working tree.
+
+**Not covered.** Why it survives locally and not on the runner. The fix removes the
+undefined-behaviour window entirely, so the difference no longer matters — but it was never
+explained, and if a fifth timer-dependent construct ever appears in a headless harness, that
+gap is where it will bite.
 
 ### PF-028 — §7's hook table described hooks that did not exist. *(fixed 2026-07-28)*
 
