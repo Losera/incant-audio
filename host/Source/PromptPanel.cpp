@@ -115,6 +115,21 @@ PromptPanel::PromptPanel(PluginForgeProcessor& p)
     addAndMakeVisible(historyButton);
     historyButton.onClick = [this] { showHistoryMenu(); };
 
+    // PF-020's residual affordance. Off by default, because Fresh is the correct
+    // default and making it visible must not change it.
+    addAndMakeVisible(refineToggle);
+    refineToggle.setToggleState(false, juce::dontSendNotification);
+    // ASCII only. juce::String(const char*) asserts on any byte above 127
+    // (juce_String.cpp:315) because it cannot know the source encoding — an
+    // em dash here fired the assertion once per panel construction, 12 times in
+    // one EditorSessionTest run. Harmless output, but this project has already
+    // paid for assertion noise once: 19 benign JUCE assertions are what hid
+    // PF-027's real fault through four red CI runs. Use CharPointer_UTF8 if a
+    // non-ASCII character is ever genuinely wanted here.
+    refineToggle.setTooltip(
+        "Off: a new plugin - knobs reset to the new patch's own defaults.\n"
+        "On: refine the current one - knob positions carry over.");
+
     addAndMakeVisible(statusLabel);
     statusLabel.setText("Ready.", juce::dontSendNotification);
     statusLabel.setJustificationType(juce::Justification::centredLeft);
@@ -222,6 +237,13 @@ void PromptPanel::submitPrompt()
             return;                     // tearing down: drop the request
 
         pendingPrompt = text;
+        // The load mode is read HERE, on the message thread, from the toggle, and
+        // published with the job. Reading refineToggle on the worker instead would
+        // be a data race on a Component, and would also mean a tick made mid-run
+        // retroactively changed a generation the user had already started.
+        pendingMode = refineToggle.getToggleState()
+                          ? PluginForgeProcessor::LoadMode::Iterate
+                          : PluginForgeProcessor::LoadMode::Fresh;
         // Stamp and job published under ONE lock — see the SUBTLE note on
         // `generation` in the header for why re-reading the atomic at pickup was
         // a race that made a run discard itself.
@@ -254,6 +276,7 @@ void PromptPanel::workerLoop()
     {
         juce::String prompt;
         juce::uint64 myGeneration = 0;
+        auto mode = PluginForgeProcessor::LoadMode::Fresh;
         {
             std::unique_lock<std::mutex> lock(jobMutex);
             jobCv.wait(lock, [this] { return hasJob || stopping; });
@@ -261,14 +284,16 @@ void PromptPanel::workerLoop()
                 return;
             prompt       = pendingPrompt;
             myGeneration = pendingGeneration;
+            mode         = pendingMode;
             hasJob       = false;
         }
 
-        runGeneration(prompt, myGeneration);
+        runGeneration(prompt, myGeneration, mode);
     }
 }
 
-void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myGeneration)
+void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myGeneration,
+                                PluginForgeProcessor::LoadMode mode)
 {
     // Superseded, or shutting down: nothing this run produces is wanted any more.
     // Checked before touching the processor and again before publishing.
@@ -478,7 +503,9 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
         // own background thread and returns immediately — it does not block or
         // touch the audio thread. Pass the originating prompt (FLEET req #4) so a
         // DAW-saved session persists what was asked for, not just the code.
-        proc.loadFaustCode(faustCode, juce::String(prompt));
+        // `mode` is the one captured at submit (see submitPrompt), not a fresh
+        // read of the toggle.
+        proc.loadFaustCode(faustCode, juce::String(prompt), mode);
 
         // UI components must only be touched on the message thread.
         juce::MessageManager::callAsync([safeThis, faustCode]
@@ -652,6 +679,10 @@ void PromptPanel::resized()
     generateButton.setBounds(buttonR.removeFromLeft(110));
     buttonR.removeFromLeft(gap);
     historyButton.setBounds(buttonR.removeFromLeft(90));
+    buttonR.removeFromLeft(gap);
+    // Takes whatever is left rather than a fixed width, so the toggle simply
+    // disappears in a band too narrow for it instead of overlapping History.
+    refineToggle.setBounds(buttonR);
 
     progressLabel.setBounds(progressR);
     statusLabel.setBounds(statusR);

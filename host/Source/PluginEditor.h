@@ -45,6 +45,9 @@ public:
     // test that waited for it would be timing-dependent; this makes the edge-detect
     // in timerCallback() observable without a sleep.
     void         pumpMeterTickForTest() { timerCallback(); }
+    // The Fresh/Refine toggle, driven and read without a click.
+    void         setRefineForTest(bool on) { promptPanel.setRefineForTest(on); }
+    bool         refineEnabledForTest() const { return promptPanel.refineEnabledForTest(); }
 
 private:
     // 30Hz UI tick: pulls processor.outputLevel (relaxed atomic, written on the

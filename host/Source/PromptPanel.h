@@ -108,6 +108,10 @@ public:
     // what the user is actually being told.
     juce::String statusTextForTest() const { return statusLabel.getText(); }
 
+    // Test-only. The Refine toggle's state, and a way to set it without a click.
+    bool refineEnabledForTest() const { return refineToggle.getToggleState(); }
+    void setRefineForTest(bool on) { refineToggle.setToggleState(on, juce::sendNotification); }
+
 private:
     void timerCallback() override;
 
@@ -126,6 +130,15 @@ private:
     juce::Label       statusLabel;
     juce::Label       progressLabel;
     juce::TextEditor  errorBox;
+
+    // ── Fresh vs Refine (PF-020's open residual) ────────────────────────────
+    // LoadMode has existed in the processor since 4a84c1c and defaults correctly;
+    // the user simply had no way to choose it. Unticked (the default) means
+    // LoadMode::Fresh — a new patch is a NEW plugin and does not inherit the
+    // previous one's knob positions by slot index, which is the PF-020 defect.
+    // Ticked means Iterate: keep the current values across the next generation,
+    // which is what "make the resonance stronger" needs.
+    juce::ToggleButton refineToggle { "Refine" };
 
     // Resolved once in the constructor; invalid juce::File (existsAsFile()==false)
     // if generate.py could not be located.
@@ -161,7 +174,8 @@ private:
     // teardown. Started lazily on first submit so a panel that never generates
     // never spawns a thread.
     void workerLoop();
-    void runGeneration(const juce::String& prompt, juce::uint64 myGeneration);
+    void runGeneration(const juce::String& prompt, juce::uint64 myGeneration,
+                       PluginForgeProcessor::LoadMode mode);
     void shutdownWorker();
 
     std::thread             worker;
@@ -169,6 +183,14 @@ private:
     std::condition_variable jobCv;
     juce::String            pendingPrompt;
     juce::uint64            pendingGeneration = 0;   // guarded by jobMutex
+    // The load mode AS OF SUBMIT, published under jobMutex with the prompt and
+    // the stamp. Deliberately NOT re-read from refineToggle on the worker: the
+    // toggle is a message-thread component, reading it from the worker would be a
+    // data race, and a user who ticks Refine while a run is in flight means it for
+    // the NEXT run, not the one already going. Same reasoning as the `generation`
+    // stamp below, which was a real race caught by the PF-006 test.
+    PluginForgeProcessor::LoadMode pendingMode
+        = PluginForgeProcessor::LoadMode::Fresh;      // guarded by jobMutex
     bool                    hasJob   = false;
     bool                    stopping = false;   // guarded by jobMutex
 

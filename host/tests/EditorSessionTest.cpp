@@ -359,7 +359,7 @@ void scenario02_widgetKinds()
     for (int i = 0; i < s.editor.gridControlCountForTest(); ++i)
         anyRotary = anyRotary || s.editor.gridControlKindForTest(i) == WidgetKind::Rotary;
     check(! anyRotary,
-          "no param renders as a rotary — the fallback arm is unreachable for real "
+          "no param renders as a rotary -- the fallback arm is unreachable for real "
           "Faust kinds, whatever ui_design_plan.md says");
 
     snapshot(s.editor, "02_widget_kinds");
@@ -416,7 +416,7 @@ void scenario04_errorSurfacing(const juce::File& tmp)
     {
         const auto text = s.editor.errorTextForTest();
         check(text.contains("attempt 3"),
-              "the error is UNTRUNCATED — the third attempt's text is present, not "
+              "the error is UNTRUNCATED -- the third attempt's text is present, not "
               "cut at the status line's 200-char cap");
         check(text.contains("endless evaluation cycle"),
               "the middle of a multi-line error survives too");
@@ -493,7 +493,34 @@ process = _ * w, _ * w;
     check(s.editor.gridControlLabelForTest(0) == "Width", "the label followed the new patch");
     check(s.editor.gridControlValueForTest(0) < 0.5,
           "PF-020: the slot was RESET to patch B's default, not left at patch A's 1.0");
-    snapshot(s.editor, "06_fresh_resets_knobs");
+    snapshot(s.editor, "06a_fresh_resets_knobs");
+
+    // ── The other half of the affordance ────────────────────────────────────
+    // Iterate is what "make the resonance stronger" needs, and it is now
+    // reachable from the editor rather than only from code. This is also the red
+    // case for the assertion above: if Fresh and Iterate produced the same
+    // result, one of these two checks would have to fail.
+    check(! s.editor.refineEnabledForTest(),
+          "Refine is OFF by default -- making the mode visible must not change it");
+
+    if (auto* rp = s.processor.apvts.getParameter(ParamPool::slotId(0)))
+        rp->setValueNotifyingHost(1.0f);
+    pump(100);
+
+    s.editor.setRefineForTest(true);
+    check(s.editor.refineEnabledForTest(), "Refine can be turned on");
+
+    const char* patchC = R"(import("stdfaust.lib");
+w = hslider("Depth", 0.2, 0, 1, 0.01);
+process = _ * w, _ * w;
+)";
+    check(loadAndSettle(s, patchC, 1, PluginForgeProcessor::LoadMode::Iterate),
+          "patch C loaded in Iterate mode");
+    check(s.editor.gridControlLabelForTest(0) == "Depth", "the label still followed");
+    check(s.editor.gridControlValueForTest(0) > 0.9,
+          juce::String("Iterate KEPT the knob at 1.0 instead of resetting to 0.2 (got ")
+              + juce::String(s.editor.gridControlValueForTest(0), 3) + ")");
+    snapshot(s.editor, "06b_refine_keeps_knobs");
 }
 
 // 7 — The output guard trips and the user is told.
@@ -655,7 +682,7 @@ int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInit;
 
-    std::printf("EditorSessionTest — a simulated human session against the real editor\n");
+    std::printf("EditorSessionTest -- a simulated human session against the real editor\n");
     std::printf("  10 scenarios, no network, no quota, snapshots to artifacts/images/\n");
 
     auto tmp = juce::File::getSpecialLocation(juce::File::tempDirectory)
