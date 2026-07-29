@@ -25,6 +25,27 @@ public:
     void paint(juce::Graphics&) override;
     void resized() override;
 
+    // ── Test-only surface (host/tests/EditorSessionTest.cpp) ────────────────
+    // Forwarders, not accessors to the panels themselves: a test that could reach
+    // `promptPanel` could also reach past what it is asserting, and the panels'
+    // privacy is load-bearing (the shell owns the layout contract, the panels own
+    // their widgets). Everything here is one line and message-thread only.
+    //
+    // These exist because nothing had ever constructed this class. PluginForgeEditor,
+    // ParamGridPanel and the meter/mute edge-detect below had zero coverage;
+    // PromptPanelThreadingTest drives the PANEL, never the editor that owns it.
+    void         submitPromptForTest(const juce::String& text);
+    juce::String statusTextForTest() const;
+    juce::String errorTextForTest() const;
+    int          gridControlCountForTest() const;
+    ParamGridPanel::WidgetKind gridControlKindForTest(int i) const;
+    juce::String gridControlLabelForTest(int i) const;
+    double       gridControlValueForTest(int i) const;
+    // Drives the 30Hz meter/mute tick directly. The Timer fires on wall-clock, so a
+    // test that waited for it would be timing-dependent; this makes the edge-detect
+    // in timerCallback() observable without a sleep.
+    void         pumpMeterTickForTest() { timerCallback(); }
+
 private:
     // 30Hz UI tick: pulls processor.outputLevel (relaxed atomic, written on the
     // audio thread) into displayLevel with instant attack / exponential decay,

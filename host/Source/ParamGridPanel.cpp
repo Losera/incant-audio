@@ -1,6 +1,8 @@
 #include "ParamGridPanel.h"
 #include "ParamGridLayout.h"
-#include "ParamMap.h"
+// ParamMap.h is deliberately NOT included. This panel used to convert patch
+// defaults into slot values itself; that seeding moved to the processor (PF-033,
+// see refreshParamKnobs). Leaving the include would invite it back.
 
 ParamGridPanel::ParamGridPanel(PluginForgeProcessor& p)
     : processor(p)
@@ -24,21 +26,34 @@ void ParamGridPanel::refreshParamKnobs(const FaustEngine::ParamList& params)
     const int numMapped =
         juce::jmin(static_cast<int>(params.size()), ParamPool::POOL_SIZE);
 
-    // ── Seed EVERY mapped slot, not just the ones with a widget ─────────────
-    // Unchanged from the Task-0 split: pushToFaust denormalises, so a slot left
-    // at 0.0 maps to its zone MINIMUM (a 20 Hz cutoff = silence). Seed the whole
-    // mapped range from the patch defaults regardless of what gets a widget.
-    for (int i = 0; i < numMapped; ++i)
-    {
-        const auto& p = params[static_cast<size_t>(i)];
-        if (auto* rp = processor.apvts.getParameter(ParamPool::slotId(i)))
-        {
-            // Exact inverse of pushToFaust's forward map — the two must agree or a
-            // knob lies about the value it sends.
-            rp->setValueNotifyingHost(
-                juce::jlimit(0.0f, 1.0f, ParamMap::mapZoneToSlot(p.defaultValue, p)));
-        }
-    }
+    // ── NO SEEDING HERE. It belongs to the processor, and only to it ────────
+    // This function used to seed every mapped slot from the patch defaults, on
+    // every compile, unconditionally. That was correct when it was written and
+    // became a data-loss bug the moment LoadMode existed (PF-033).
+    //
+    // The restore path is the failure. setStateInformation replaces the APVTS
+    // state with the SAVED values and then recompiles with LoadMode::Iterate
+    // precisely so nothing resets them (PluginProcessor.cpp:65-69). The compile
+    // succeeds, the callback hops to the message thread, it lands HERE — and the
+    // seeding overwrote every restored value with the patch's declared default.
+    // So reopening a saved project put every knob back to factory position, but
+    // only if the editor happened to be open, which is the same
+    // conditional-on-the-UI defect PF-020 fixed, running in the other direction.
+    // StatePersistenceTest could not see it: it never constructs an editor.
+    //
+    // The processor already does this properly. resetMappedSlotsToDefaults()
+    // (PluginProcessor.cpp:112-142) covers all 64 slots rather than just the
+    // mapped ones, zeroes the unmapped remainder so a stale value cannot reappear
+    // under a later patch, uses the same ParamMap conversion, and runs inside the
+    // swap protocol's safe window — after the audioBusy drain, before ready=true
+    // — which is the only point at which slot values can be rewritten without
+    // pushToFaust concurrently reading them. A message-thread write from here had
+    // none of those properties.
+    //
+    // The reason the seeding mattered at all still holds: pushToFaust
+    // denormalises, so a slot left at 0.0 maps to its zone MINIMUM (a 20 Hz
+    // cutoff = silence). That is exactly what the processor's Fresh path now
+    // guarantees, on every load, with or without an editor.
 
     // ── Rebuild the widgets ─────────────────────────────────────────────────
     // clear() first so each old attachment detaches (Control destroys attachment
@@ -156,4 +171,71 @@ void ParamGridPanel::resized()
 {
     viewport.setBounds(getLocalBounds());
     layoutControls();
+}
+
+// ── Test-only observables ───────────────────────────────────────────────────
+// Read the widget's ACTUAL runtime type and style rather than re-deriving it
+// from the Faust Kind. Re-deriving would make the test agree with
+// refreshParamKnobs by construction and prove nothing — the claim under test is
+// precisely that the switch above maps Kind to widget the way the header says.
+
+ParamGridPanel::WidgetKind ParamGridPanel::controlKindForTest(int index) const
+{
+    if (index < 0 || index >= static_cast<int>(controls.size()))
+        return WidgetKind::Unknown;
+
+    auto* w = controls[static_cast<size_t>(index)].widget.get();
+    if (dynamic_cast<juce::ToggleButton*>(w) != nullptr)
+        return WidgetKind::Toggle;
+
+    if (auto* sl = dynamic_cast<juce::Slider*>(w))
+    {
+        switch (sl->getSliderStyle())
+        {
+            case juce::Slider::LinearHorizontal: return WidgetKind::HorizontalSlider;
+            case juce::Slider::LinearVertical:   return WidgetKind::VerticalSlider;
+            case juce::Slider::IncDecButtons:    return WidgetKind::IncDec;
+            case juce::Slider::RotaryHorizontalVerticalDrag:
+            case juce::Slider::Rotary:
+            case juce::Slider::RotaryHorizontalDrag:
+            case juce::Slider::RotaryVerticalDrag: return WidgetKind::Rotary;
+            default: return WidgetKind::Unknown;
+        }
+    }
+    return WidgetKind::Unknown;
+}
+
+juce::String ParamGridPanel::controlLabelForTest(int index) const
+{
+    if (index < 0 || index >= static_cast<int>(controls.size()))
+        return {};
+    auto* l = controls[static_cast<size_t>(index)].label.get();
+    return l != nullptr ? l->getText() : juce::String();
+}
+
+double ParamGridPanel::controlValueForTest(int index) const
+{
+    if (index < 0 || index >= static_cast<int>(controls.size()))
+        return 0.0;
+
+    auto* w = controls[static_cast<size_t>(index)].widget.get();
+    if (auto* sl = dynamic_cast<juce::Slider*>(w))
+        return sl->getValue();
+    if (auto* tb = dynamic_cast<juce::ToggleButton*>(w))
+        return tb->getToggleState() ? 1.0 : 0.0;
+    return 0.0;
+}
+
+const char* ParamGridPanel::widgetKindName(WidgetKind k)
+{
+    switch (k)
+    {
+        case WidgetKind::Rotary:           return "Rotary";
+        case WidgetKind::HorizontalSlider: return "HorizontalSlider";
+        case WidgetKind::VerticalSlider:   return "VerticalSlider";
+        case WidgetKind::IncDec:           return "IncDec";
+        case WidgetKind::Toggle:           return "Toggle";
+        case WidgetKind::Unknown:
+        default:                           return "Unknown";
+    }
 }

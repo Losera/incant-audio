@@ -67,6 +67,7 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-029 | `tools/check.sh` never builds or runs `OfflineRenderTest` or `PromptPanelThreadingTest` — CI is the only thing that does | high | open | S4 Testing | `tools/check.sh:96-97` vs `.github/workflows/test.yml:167` | 2026-07-28 | — |
 | PF-030 | `run_efficacy_study.py` takes no PF-025 lock — it can run concurrently with `run_benchmark.py` and share one free-tier rate limit | medium | open | S4 Testing | `bench/run_efficacy_study.py` (no `acquire_lock`) | 2026-07-28 | — |
 | PF-031 | The 25-prompt benchmark's noise floor is unmeasured — it has never been run twice on an unchanged prompt, so no delta can be called significant | medium | open | S4 Testing | `bench/run_benchmark.py` | 2026-07-28 | — |
+| PF-033 | Reopening a saved project resets every knob to the patch defaults — the editor's seeding overwrites the restore | high | fixed | — | `ParamGridPanel.cpp` `refreshParamKnobs` | 2026-07-28 | pending commit |
 | PF-032 | 2 of 22 compiling patches render SILENT — a warm lowpass at rms 2.5e-08 and a noise gate at 0.0; the compile rate overstates working output | high | open | S1 Backend | `bench/results/results.json`, `bench/render_oracle.py` | 2026-07-28 | — |
 
 ---
@@ -935,3 +936,57 @@ the gate against current output. The first run over a current corpus found this 
 
 **Not covered.** Whether either patch is *musically* right, which no oracle can answer — only
 the P6 listening pass. Silence is the one wrong answer a machine can detect.
+
+---
+
+### PF-033 — Reopening a saved project resets every knob to the patch defaults. *(fixed 2026-07-28)*
+
+**high · S3 Plugin UX · found 2026-07-28 by `EditorSessionTest` scenario 10, on its first
+green run**
+
+`ParamGridPanel::refreshParamKnobs()` seeded every mapped slot from the patch's declared
+defaults, unconditionally, on every compile. That was correct when it was written and became
+a data-loss bug the moment `LoadMode` existed.
+
+**The failing path.** `setStateInformation` replaces the APVTS state with the SAVED values and
+then recompiles with `LoadMode::Iterate` **precisely so that nothing resets them**
+(`PluginProcessor.cpp:65-69`). The compile succeeds; the callback hops to the message thread;
+it lands in `refreshParamKnobs`; the seeding overwrites every restored value with the patch
+default. Measured, not inferred — a 4-param patch saved with slot 1 at 0.95 and slot 3 at
+0.05 came back at **0.250 and 0.750**, which are exactly those slots' declared defaults.
+
+So: reopen a saved DAW project and every knob is back at factory position — **but only if the
+editor happened to be open.** That is the same conditional-on-the-UI defect as PF-020, running
+in the other direction. PF-020 was the UI-layer seeding failing to run headless; this is the
+same seeding running when it must not.
+
+**Why nothing caught it for five days.** `StatePersistenceTest` round-trips 33/33 and never
+constructs an editor, so the clobber cannot happen there. Nothing else constructed one either
+— that is the hole `EditorSessionTest` was built to fill, and this is what was in it. The
+class is familiar: PF-026's CI blindness, PF-029's ladder scope, the five hooks that never
+fired. Every control was real; none of them was pointed here.
+
+**Fix: delete the seeding, and do not replace it.** The processor already does the job
+properly. `resetMappedSlotsToDefaults()` (`PluginProcessor.cpp:112-142`) covers all 64 slots
+rather than only the mapped ones, zeroes the unmapped remainder so a stale value cannot
+reappear under a later patch, uses the same `ParamMap` conversion, and runs inside the swap
+protocol's safe window — after the `audioBusy` drain, before `ready=true` — which is the only
+point at which slot values can be rewritten without `pushToFaust` concurrently reading them. A
+message-thread write from the panel had none of those properties. `ParamMap.h` was dropped
+from `ParamGridPanel.cpp`'s includes so the seeding cannot quietly return.
+
+The reason the seeding mattered at all still holds and is still honoured: `pushToFaust`
+denormalises, so a slot left at 0.0 maps to its zone MINIMUM (a 20 Hz cutoff = silence). The
+processor's `Fresh` path guarantees that on every load, with or without an editor.
+
+**Seen failing before believed.** `EditorSessionTest` scenario 10 fails on the pre-fix code
+with the measured values above and passes after, and it prints both the saved and the restored
+value on every run so the next reader does not have to trust the assertion's wording. Note the
+first draft of that scenario moved slot 2 to 0.1 — which is that slot's own declared default —
+so it passed whether the value was restored or reset. A test that cannot distinguish the two
+outcomes is not evidence; the values were changed to 0.95 and 0.05 for that reason.
+
+**Not covered.** Whether a real DAW's save/restore ordering matches
+`getStateInformation`/`setStateInformation` called directly on the message thread, which is
+what the harness does. A host that restores from another thread, or interleaves the restore
+with a user-triggered compile, is not exercised and cannot be without a host.

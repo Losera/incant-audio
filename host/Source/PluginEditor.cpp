@@ -85,6 +85,43 @@ void PluginForgeEditor::updateWindowSizeForParams()
 
 PluginForgeEditor::~PluginForgeEditor() {}
 
+// ── Test-only forwarders ────────────────────────────────────────────────────
+// See the header for why these are forwarders rather than panel accessors.
+void PluginForgeEditor::submitPromptForTest(const juce::String& text)
+{
+    promptPanel.submitPromptForTest(text);
+}
+
+juce::String PluginForgeEditor::statusTextForTest() const
+{
+    return promptPanel.statusTextForTest();
+}
+
+juce::String PluginForgeEditor::errorTextForTest() const
+{
+    return promptPanel.errorTextForTest();
+}
+
+int PluginForgeEditor::gridControlCountForTest() const
+{
+    return paramGridPanel.controlCountForTest();
+}
+
+ParamGridPanel::WidgetKind PluginForgeEditor::gridControlKindForTest(int i) const
+{
+    return paramGridPanel.controlKindForTest(i);
+}
+
+juce::String PluginForgeEditor::gridControlLabelForTest(int i) const
+{
+    return paramGridPanel.controlLabelForTest(i);
+}
+
+double PluginForgeEditor::gridControlValueForTest(int i) const
+{
+    return paramGridPanel.controlValueForTest(i);
+}
+
 void PluginForgeEditor::timerCallback()
 {
     // Instant attack, exponential release — the standard meter ballistics that

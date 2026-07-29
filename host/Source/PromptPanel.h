@@ -103,6 +103,11 @@ public:
     // Test-only. Current error-region text, for asserting PF-021's clear-on-submit.
     juce::String errorTextForTest() const { return errorBox.getText(); }
 
+    // Test-only. The one status line. The shell routes compile-success and
+    // output-guard-mute text through setStatus(), so this is where a test reads
+    // what the user is actually being told.
+    juce::String statusTextForTest() const { return statusLabel.getText(); }
+
 private:
     void timerCallback() override;
 

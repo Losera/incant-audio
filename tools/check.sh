@@ -100,7 +100,7 @@ level_full() {
     run "build the host and every test harness" \
         cmake --build host/build --target PluginForgeHost PluginForgeHost_Standalone \
               PluginForgeHost_VST3 ParamPoolTsanTest OfflineRenderTest \
-              PromptPanelThreadingTest
+              PromptPanelThreadingTest EditorSessionTest
     local tsan
     tsan="$(find host/build/ParamPoolTsanTest_artefacts -type f -name ParamPoolTsanTest 2>/dev/null | head -n1)"
     if [[ -n "$tsan" ]]; then
@@ -143,6 +143,20 @@ level_full() {
     else
       run "PromptPanelThreadingTest (PF-006 regression)" \
           timeout 300 "$promptpanel"
+    fi
+
+    local session
+    session="$(find host/build/EditorSessionTest_artefacts -type f -name EditorSessionTest 2>/dev/null | head -n1)"
+    if [[ -z "$session" ]]; then
+      skip "EditorSessionTest" "binary not built"
+    elif [[ -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]]; then
+      skip "EditorSessionTest" "no DISPLAY/WAYLAND_DISPLAY — needs a display or xvfb-run"
+    else
+      # Ten scenarios against the real editor, plus PNG snapshots into
+      # artifacts/images/. The snapshots are the cheap part of an eye check:
+      # look at them when the grid or the layout changed.
+      run "EditorSessionTest (simulated human session)" \
+          timeout 300 "$session"
     fi
   else
     skip "host build" "cmake or JUCE_PATH missing"

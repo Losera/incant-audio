@@ -42,6 +42,26 @@ public:
     static constexpr int kCellH  = 95;   // label (kLabelH) + widget body
     static constexpr int kLabelH = 16;
 
+    // ── Test-only observables ───────────────────────────────────────────────
+    // The widget-kind promise above ("toggle-kind params must render as a
+    // ToggleButton, never a rotary") was closed as PF-005 in 2026-07-23 and its
+    // own closing note records it as "not confirmed by eye/runtime". Nothing
+    // could confirm it: the controls are private and no test had ever
+    // constructed this panel. These accessors are what EditorSessionTest reads.
+    // Mirrors the *ForTest convention in PluginForgeProcessor and PromptPanel.
+    enum class WidgetKind
+    {
+        Rotary, HorizontalSlider, VerticalSlider, IncDec, Toggle, Unknown
+    };
+
+    int          controlCountForTest() const { return static_cast<int>(controls.size()); }
+    WidgetKind   controlKindForTest(int index) const;
+    juce::String controlLabelForTest(int index) const;
+    // The widget's OWN value, not the APVTS slot's — so a test can catch an
+    // attachment that silently stopped tracking its parameter.
+    double       controlValueForTest(int index) const;
+    static const char* widgetKindName(WidgetKind k);
+
 private:
     // One control = its widget (Slider OR ToggleButton), a name label, and exactly
     // one attachment (the other stays null). Declaration order is deliberate: the

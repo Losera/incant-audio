@@ -163,8 +163,12 @@ jobs:
       # pumps the message loop, so unlike the above it DOES need a display —
       # verified the hard way: run headless it hangs indefinitely rather than
       # failing, which is why it runs under xvfb below AND under `timeout`.
+      # EditorSessionTest joined them 2026-07-28: ten scenarios against the REAL
+      # PluginForgeEditor, which nothing had ever constructed. It found PF-033 on
+      # its first green run — the editor's unconditional default-seeding was
+      # overwriting every value a state restore had just put back.
       - name: Build behavioural test harnesses
-        run: cmake --build build-ci --target OfflineRenderTest PromptPanelThreadingTest
+        run: cmake --build build-ci --target OfflineRenderTest PromptPanelThreadingTest EditorSessionTest
 
       # The audio path's own gate. No network, no API key, no quota: the corpus is
       # hand-written Faust, so this measures the AUDIO path, never generation
@@ -240,6 +244,32 @@ jobs:
             exit 1
           fi
           timeout 300 xvfb-run -a "$BIN"
+
+      # Same display requirement, same reasoning as the step above: it constructs
+      # juce::Components and pumps the message loop. The PNG snapshots it writes
+      # go through Component::createComponentSnapshot (software renderer, no
+      # peer), so those need no compositor — but the message loop does.
+      #
+      # Uploaded as an artifact rather than merely written: the snapshots are the
+      # cheap half of an eye check, and a UI regression that survives the
+      # assertions is exactly the kind a human spots in two seconds and a test
+      # never spots at all.
+      - name: Run EditorSessionTest (simulated human session, under xvfb)
+        run: |
+          BIN="$(find build-ci/EditorSessionTest_artefacts -type f -name EditorSessionTest | head -n 1)"
+          if [ -z "$BIN" ]; then
+            echo "EditorSessionTest binary not found" >&2
+            exit 1
+          fi
+          timeout 300 xvfb-run -a "$BIN"
+
+      - name: Upload editor snapshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: editor-session-snapshots
+          path: artifacts/images/session_*.png
+          if-no-files-found: warn
 
       # Decision (P3 "if TSan runtime in Actions is questionable"): RUN it, not
       # build-only. Rationale: the harness is cheap (~20 tiny JIT compiles +

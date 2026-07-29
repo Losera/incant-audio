@@ -320,3 +320,61 @@ target_link_libraries(OfflineRenderTest PRIVATE
     juce::juce_recommended_config_flags
     ${LIBFAUST_LIB}
 )
+
+# EditorSessionTest -- a simulated human session against the real editor
+# (host/tests/EditorSessionTest.cpp). Constructs PluginForgeProcessor AND
+# PluginForgeEditor and drives them through the entry points a person's clicks
+# and keystrokes would reach, then asserts what the screen says: status text,
+# control count, widget kind, window height, restored values. Ten scenarios.
+#
+# It fills a hole rather than adding depth: nothing had ever constructed the
+# editor, so ParamGridPanel, the shell's dynamic window sizing, and the
+# output-guard mute edge-detect had zero coverage between them, and PF-005's
+# widget-kind promise had been "not confirmed by eye/runtime" since 2026-07-23.
+#
+# Needs a display, for the same reason PromptPanelThreadingTest does: it
+# constructs juce::Components and pumps the message loop. Snapshots go through
+# Component::createComponentSnapshot (software renderer, no peer), so the PNGs
+# themselves do not need a compositor -- but the message loop does.
+#
+# Same source/link set and the same sanitizers as the two harnesses above.
+juce_add_console_app(EditorSessionTest
+    PRODUCT_NAME "Editor Session Test"
+)
+
+target_sources(EditorSessionTest PRIVATE
+    tests/EditorSessionTest.cpp
+    Source/PluginProcessor.cpp
+    Source/PluginEditor.cpp
+    Source/PromptPanel.cpp
+    Source/CodeEditorPanel.cpp
+    Source/ParamGridPanel.cpp
+    Source/FaustEngine.cpp
+    Source/ParamPool.cpp
+    Source/OutputGuard.cpp
+)
+
+target_compile_features(EditorSessionTest PRIVATE cxx_std_17)
+
+target_compile_definitions(EditorSessionTest PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_VST3_CAN_REPLACE_VST2=0
+    # runDispatchLoopUntil lives inside `#if JUCE_MODAL_LOOPS_PERMITTED`
+    # (juce_MessageManager.h:82-88). See PromptPanelThreadingTest above for why
+    # this is scoped to test targets and never to the shipping plugin.
+    JUCE_MODAL_LOOPS_PERMITTED=1
+)
+
+# -fno-sanitize=vptr: see the StatePersistenceTest block -- libfaust.so is built
+# -fno-rtti and does not export typeinfo for llvm_dsp.
+target_compile_options(EditorSessionTest PRIVATE -fsanitize=address,undefined -fno-sanitize=vptr -g -O1)
+target_link_options(EditorSessionTest PRIVATE -fsanitize=address,undefined -fno-sanitize=vptr)
+
+target_link_libraries(EditorSessionTest PRIVATE
+    juce::juce_audio_utils
+    juce::juce_dsp
+    juce::juce_gui_extra
+    juce::juce_recommended_config_flags
+    ${LIBFAUST_LIB}
+)
