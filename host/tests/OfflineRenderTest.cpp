@@ -57,6 +57,10 @@
 
 #include "../Source/PluginProcessor.h"
 
+// WavAudioFormat / AudioFormatWriter for --capture. PluginProcessor.h pulls in
+// juce_audio_processors, which does NOT transitively expose juce_audio_formats.
+#include <juce_audio_formats/juce_audio_formats.h>
+
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
@@ -355,8 +359,117 @@ constexpr int    kBlockSize  = 512;
 constexpr int    kBlocks     = 200;   // ~2.1s at 48k — long enough for LFOs/decay
 } // namespace
 
-int main()
+// ── Capture mode ────────────────────────────────────────────────────────────
+// `OfflineRenderTest --capture <in.dsp> <out.wav>` renders one arbitrary patch
+// to a WAV instead of running the corpus. It exists so bench/p6_capture.py can
+// hand a human something to LISTEN to, which is the one judgement in this
+// project with no instrument (COLLABORATION.md §1).
+//
+// WHY THIS BINARY AND NOT bench/render_oracle.py. The oracle renders through
+// faust2sndfile — the offline Faust compiler, a DIFFERENT code path from the one
+// that ships. This renders through PluginForgeProcessor::processBlock, so the
+// libfaust JIT, the FaustEngine swap protocol, ParamPool's denormalisation and
+// OutputGuard all run exactly as they do in a DAW. A patch can be well-behaved
+// under faust2sndfile and garbage here, because most of what this project got
+// wrong lived in the glue. If a human is going to spend their ears on it, they
+// should be hearing the real thing.
+//
+// Parameters sit at the patch's declared defaults: loadFaustCode defaults to
+// LoadMode::Fresh, so every mapped slot is seeded from the patch's own default
+// before a sample is rendered. That is the same position a user hears
+// immediately after clicking Generate, which is the moment being simulated.
+int runCapture(const juce::String& dspPath, const juce::String& wavPath)
 {
+    juce::File dspFile(dspPath);
+    if (! dspFile.existsAsFile())
+    {
+        std::printf("capture: no such file: %s\n", dspPath.toRawUTF8());
+        return 2;
+    }
+
+    PluginForgeProcessor p;
+    p.prepareToPlay(kSampleRate, kBlockSize);
+
+    if (! loadAndAwait(p, dspFile.loadFileAsString()))
+    {
+        std::printf("capture: JIT compile FAILED for %s\n", dspPath.toRawUTF8());
+        return 3;
+    }
+
+    // Render to a buffer rather than streaming, so the stats below describe
+    // exactly the samples written to disk.
+    juce::AudioBuffer<float> block(2, kBlockSize);
+    juce::AudioBuffer<float> whole(2, kBlockSize * kBlocks);
+    juce::MidiBuffer midi;
+    TestSignal signal;
+    signal.prepare(kSampleRate);
+
+    Stats s;
+    double sumSq = 0.0, sum = 0.0;
+    for (int b = 0; b < kBlocks; ++b)
+    {
+        signal.fill(block);
+        p.processBlock(block, midi);
+        accumulate(s, block, sumSq, sum);
+        for (int ch = 0; ch < 2; ++ch)
+            whole.copyFrom(ch, b * kBlockSize, block, ch, 0, kBlockSize);
+    }
+    if (s.sampleCount > 0)
+    {
+        s.rms = (float) std::sqrt(sumSq / s.sampleCount);
+        s.dc  = (float) (sum / s.sampleCount);
+    }
+
+    juce::File wav(wavPath);
+    wav.getParentDirectory().createDirectory();
+    wav.deleteFile();
+
+    juce::WavAudioFormat format;
+    // createWriterFor TAKES OWNERSHIP of the stream on success and deletes it on
+    // failure (juce_AudioFormat.h) — hence the release() and the raw new. The
+    // writer is scoped so it flushes before the stats are printed.
+    std::unique_ptr<juce::FileOutputStream> stream(wav.createOutputStream());
+    if (stream == nullptr)
+    {
+        std::printf("capture: cannot write %s\n", wavPath.toRawUTF8());
+        return 4;
+    }
+    {
+        std::unique_ptr<juce::AudioFormatWriter> writer(
+            format.createWriterFor(stream.get(), kSampleRate, 2, 24, {}, 0));
+        if (writer == nullptr)
+        {
+            std::printf("capture: cannot create WAV writer\n");
+            return 4;
+        }
+        stream.release();               // now owned by writer
+        writer->writeFromAudioSampleBuffer(whole, 0, whole.getNumSamples());
+    }
+
+    // One machine-readable line, so the driver does not have to parse prose.
+    std::printf("CAPTURE_OK wav=%s params=%d rms=%.6f peak=%.6f dc=%.6f nan=%d inf=%d muted=%d\n",
+                wav.getFullPathName().toRawUTF8(),
+                p.currentLabelsForTest().size(),
+                s.rms, s.peak, s.dc,
+                s.anyNaN ? 1 : 0, s.anyInf ? 1 : 0,
+                p.isOutputMuted() ? 1 : 0);
+    return 0;
+}
+
+int main(int argc, char** argv)
+{
+    if (argc == 4 && juce::String(argv[1]) == "--capture")
+    {
+        juce::ScopedJuceInitialiser_GUI juceInit;
+        return runCapture(juce::String::fromUTF8(argv[2]),
+                          juce::String::fromUTF8(argv[3]));
+    }
+    if (argc > 1)
+    {
+        std::printf("usage: OfflineRenderTest [--capture <in.dsp> <out.wav>]\n");
+        return 2;
+    }
+
     // SUBTLE: this must outlive every PluginForgeProcessor below. The APVTS ctor calls
     // startTimerHz(10) (juce_AudioProcessorValueTreeState.cpp:265 -> juce_Timer.cpp:352),
     // and Timer::startTimer asserts a MessageManager exists (juce_Timer.cpp:336). Without

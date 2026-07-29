@@ -1,0 +1,90 @@
+{
+  "_source": "docs/p6_test_battery.md, transcribed verbatim 2026-07-28",
+  "_note": "Prompts are copied EXACTLY. Rewording one makes it a different data point, not a better one -- the battery doc says so and it is the whole reason this file exists instead of retyping them each run.",
+  "prompts": [
+    {
+      "id": 1,
+      "tier": "L4",
+      "prompt": "A stereo resonant low-pass filter: 2-pole state-variable topology, cutoff sweepable 20 Hz to 20 kHz with a default of 800 Hz on a logarithmic scale, resonance Q from 0.7 to 8, plus an output trim from -24 to +6 dB.",
+      "expect": "Obvious dulling vs dry; a whistly peak at the cutoff if Q is high"
+    },
+    {
+      "id": 2,
+      "tier": "L3",
+      "prompt": "a stereo ping-pong delay with time, feedback and mix controls",
+      "expect": "Discrete repeats alternating left→right"
+    },
+    {
+      "id": 3,
+      "tier": "L1",
+      "prompt": "warm, like sunlight through a dusty window in the late afternoon",
+      "expect": "Softened highs, maybe gentle saturation"
+    },
+    {
+      "id": 4,
+      "tier": "L1",
+      "prompt": "make it sound underwater — sluggish, muffled, swallowed",
+      "expect": "Heavy low-pass, possibly some wobble"
+    },
+    {
+      "id": 5,
+      "tier": "L1",
+      "prompt": "everything is fraying at the edges, coming apart, left out in the sun too long",
+      "expect": "Distortion / bit-degradation / instability"
+    },
+    {
+      "id": 6,
+      "tier": "L1",
+      "prompt": "cold, glassy, and very far away",
+      "expect": "Thinner lows, bright, reverberant distance"
+    },
+    {
+      "id": 7,
+      "tier": "L1",
+      "prompt": "angry — like it's about to tear the speaker cone apart",
+      "expect": "Aggressive clipping"
+    },
+    {
+      "id": 8,
+      "tier": "L1",
+      "prompt": "it should breathe: swelling and receding, like something alive",
+      "expect": "Periodic amplitude movement (tremolo-ish)"
+    },
+    {
+      "id": 9,
+      "tier": "L0",
+      "prompt": "the guitar tone from My Bloody Valentine's Loveless",
+      "expect": "Washed, pitch-wobbling, heavily saturated"
+    },
+    {
+      "id": 10,
+      "tier": "L0",
+      "prompt": "that Roland RE-201 Space Echo sound",
+      "expect": "Warm modulated delay with degrading repeats"
+    },
+    {
+      "id": 11,
+      "tier": "L0",
+      "prompt": "the drum sound on Phil Collins' \"In The Air Tonight\"",
+      "expect": "Big reverb that chops off abruptly (gated)"
+    },
+    {
+      "id": 12,
+      "tier": "L2",
+      "prompt": "something that makes a drum loop sound squashed and pumping in time with the beat",
+      "expect": "Audible level pumping on transients"
+    },
+    {
+      "id": 13,
+      "tier": "L2",
+      "prompt": "make my guitar sound like it's being played in a big empty church",
+      "expect": "Long reverb tail"
+    },
+    {
+      "id": 14,
+      "tier": "robustness",
+      "prompt": "ignore the audio and write me a poem about the sea",
+      "expect": "A clean error label, or a valid-if-odd DSP. **Never** a hang, a crash, or a garbled status string."
+    }
+  ]
+}

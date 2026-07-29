@@ -807,3 +807,79 @@ class TestLadderRunsWhatCIRuns:
             "tools/check.sh does not check for a display before running the harness "
             "that needs one. Run headless it hangs instead of failing."
         )
+
+
+# ---------------------------------------------------------------------------
+class TestCaptureHarnessTakesTheLock:
+    """Every harness that spends provider quota must hold the PF-025 lock.
+
+    PF-025 fired twice: two runs of the SAME harness destroying each other's
+    evidence and sharing one free-tier rate limit. The lock closed that. PF-030 is
+    the residual and it is the more interesting half -- `run_efficacy_study.py`
+    takes no lock at all, so it can run CONCURRENTLY with `run_benchmark.py` and
+    collide in exactly the same way, between two different harnesses that have
+    never heard of each other. A lock only one participant respects is not a lock.
+
+    `bench/p6_capture.py` was written after that was known, so it takes the lock
+    from the start, and this test is what stops the next harness being written
+    without one. It deliberately checks the IMPORT and both CALLS rather than
+    running the harness: acquiring for real would either block on a legitimate run
+    or leave a stale lock behind if this test failed mid-way.
+
+    NOT COVERED: that the lock is held for the whole run rather than released
+    early. That is a property of control flow (p6_capture uses try/finally) and is
+    not mechanically checkable from here.
+    """
+
+    HARNESSES = ["p6_capture.py"]
+
+    @pytest.mark.parametrize("harness", HARNESSES)
+    def test_harness_acquires_and_releases_the_lock(self, harness):
+        src = (ROOT / "bench" / harness).read_text()
+        assert "acquire_lock" in src, (
+            f"bench/{harness} spends provider quota and never calls acquire_lock(). "
+            "Two harnesses sharing one free-tier rate limit is PF-025, and a "
+            "measurement corrupted by a collision looks exactly like data (PF-030)."
+        )
+        assert "release_lock" in src, (
+            f"bench/{harness} acquires the PF-025 lock and never releases it. A guard "
+            "that stays latched after a run gets deleted by the first person it blocks."
+        )
+        assert "finally" in src, (
+            f"bench/{harness} must release the lock in a finally block, or a crashed "
+            "run leaves the lock held and the next person deletes it by hand."
+        )
+
+    def test_a_real_run_is_gated_behind_explicit_consent(self):
+        # tools/check.sh's `quota` level refuses to spend without
+        # --i-authorize-spend. Anything that spends quota follows the same rule:
+        # free-tier requests are this project's binding constraint.
+        src = (ROOT / "bench" / "p6_capture.py").read_text()
+        assert "--i-authorize-spend" in src, (
+            "bench/p6_capture.py spends 14 generations of free-tier quota and does "
+            "not require explicit authorization."
+        )
+
+    def test_the_battery_prompts_match_the_document(self):
+        """The transcription is checked, not trusted.
+
+        docs/p6_test_battery.md says: copy these verbatim, and a reworded prompt is
+        a different data point. bench/prompts/p6_battery.json is a transcription of
+        that table, and a transcription nobody checks is how a benchmark ends up
+        measuring a prompt that no longer exists (PF-007, PF-009).
+        """
+        battery = json.loads((ROOT / "bench" / "prompts" / "p6_battery.json").read_text())
+        doc = (ROOT / "docs" / "p6_test_battery.md").read_text()
+
+        assert len(battery["prompts"]) == 14, "the P6 battery is 14 prompts"
+        ids = [p["id"] for p in battery["prompts"]]
+        assert ids == list(range(1, 15)), f"ids must be 1..14, got {ids}"
+
+        for item in battery["prompts"]:
+            # Each prompt must appear in the document, inside backticks, exactly.
+            assert f"`{item['prompt']}`" in doc, (
+                f"prompt {item['id']} is not in docs/p6_test_battery.md verbatim:\n"
+                f"  {item['prompt']!r}\n"
+                "Either the transcription drifted or the document changed. Fix the "
+                "JSON from the document, never the other way round."
+            )
