@@ -70,6 +70,7 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-033 | Reopening a saved project resets every knob to the patch defaults — the editor's seeding overwrites the restore | high | fixed | S3 Plugin UX | `ParamGridPanel.cpp` `refreshParamKnobs` | 2026-07-28 | `81fc75b` |
 | PF-034 | `EditorSessionTest` scenario 6 raced the message thread — green locally, red on the runner | medium | fixed | S4 Testing | `host/tests/EditorSessionTest.cpp` `loadAndSettle` | 2026-07-28 | pending commit |
 | PF-032 | 2 of 22 compiling patches render SILENT — a warm lowpass at rms 2.5e-08 and a noise gate at 0.0; the compile rate overstates working output | high | open | S1 Backend | `bench/results/results.json`, `bench/render_oracle.py` | 2026-07-28 | — |
+| PF-035 | `min_max_tokens` makes a per-call output budget unenforceable — the judge asks for 300 and silently gets 4096 | low | open | S4 Testing | `bench/score_efficacy.py:465`, `providers.py` `make_generator` | 2026-07-29 | — |
 
 ---
 
@@ -464,6 +465,56 @@ place it does teach a language construct, it teaches a construct that does not e
 references only. A control that extracts every construct the prompt *recommends* and compiles it
 would have caught `let` the day it was written. That is a new enforcement mechanism — route it
 through `/architecture-planning`.
+
+---
+
+### PF-035 — a per-call output budget cannot be expressed. *(open, found 2026-07-29)*
+
+**low · open · S4 Testing · noticed while auditing `max_tokens` call sites for the groq
+headroom work, not by a failure**
+
+`make_generator` floors every request at the provider's own minimum:
+
+```python
+max_tokens = max(max_tokens, spec.min_max_tokens)     # llm/providers.py:766
+```
+
+Every spec sets `min_max_tokens=4096` (`llm/providers.py:258` and the four siblings;
+confirmed for groq / gemini / openrouter / ollama / anthropic). So a caller asking for a
+*smaller* budget is silently overridden, and there is no way to express "this call should
+be short". The one caller that tries is the semantic judge:
+
+```python
+judge = providers.make_generator(
+    JUDGE_PROVIDER, system_prompt="", model=JUDGE_MODEL,
+    temperature=0.0, max_tokens=300,          # bench/score_efficacy.py:465 -> becomes 4096
+)
+```
+
+**Why this is filed low and not fixed here.** The floor exists for a real reason and it is
+documented at `llm/providers.py:92-97`: the original truncation confound was a spec —
+anthropic — whose floor was 0 while every recorded benchmark ran through it. The floor is
+the fix for that, and inverting it to respect small requests would reopen the hole. So this
+is a design tension, not a defect with an obvious patch.
+
+**What it actually costs today: nothing measurable.** `max_tokens` is a cap, not a spend —
+TPD is billed on completion tokens actually produced, and a judge verdict is short whatever
+the cap says. TPM admission (`prompt_tokens + max_tokens <= 8000`, see PF-032's neighbours
+and `tests/test_prompt_headroom.py`) *does* count the cap, but the judge passes
+`system_prompt=""`, so its prompt side is a few hundred tokens and 4096 is nowhere near the
+ceiling. The one number that would move is a per-call cost bound, and nothing depends on one.
+
+**Why it is worth writing down anyway.** If a future caller needs a genuinely bounded reply
+— a classifier, a yes/no gate, anything where a runaway completion is the failure — it
+cannot get one through this seam, and the override is silent. A caller that asks for 300 and
+receives a 4096 budget has no way to find out.
+
+**Not verified.** That no current caller depends on a small cap being honoured: checked the
+five call sites (`llm/generate.py:110`, `bench/run_benchmark.py:193`,
+`bench/run_efficacy_study.py:143`, `bench/score_efficacy.py:465`, and `make_generator`'s own
+default) and none does, but "none does" is a statement about today's tree. The judge has
+never executed (PF-013), so its behaviour under the 4096 cap is unobserved rather than
+observed-fine.
 
 ---
 

@@ -59,8 +59,42 @@ DEFAULT_PROVIDER = "anthropic"
 # were recorded as compile failures. docs/research/truncation-confound-HANDOFF-S1.md
 #
 # 4096 is not arbitrary: above the hidden-reasoning-token floor that made
-# gemini-3.6-flash return 39 visible tokens at 1024, and below groq's ~7500 TPM
-# ceiling past which gpt-oss-120b returns 413.
+# gemini-3.6-flash return 39 visible tokens at 1024, and below the groq admission
+# ceiling described below.
+#
+# THE GROQ CEILING IS A RELATIONSHIP, NOT A NUMBER. Measured live 2026-07-28 on
+# openai/gpt-oss-120b: groq admits a request only when
+#
+#     prompt_tokens + max_tokens <= 8000        (the TPM limit)
+#
+# and rejects with a NON-RETRYABLE 413 "Request too large" when it does not. The
+# boundary is exact — at prompt_tokens=3283, max_tokens=4717 passes this check and
+# 4718 returns 413. An earlier note here said "~7500", which was the symptom
+# observed under a shorter prompt, recorded as if it were a property of the model.
+#
+# So the headroom moves whenever the system prompt does, and right now it is thin:
+#
+#     3283 (llm/prompts/system_prompt.txt) + 4096 = 7379 of 8000  ->  92% used
+#
+# 621 tokens of slack — 18.9% of the prompt. 48% of that prompt is the stdlib block
+# generated from the installed /usr/share/faust/*.lib by tools/gen_stdlib_block.py,
+# so the BLOCK would have to grow by roughly 39% to move the whole file 19% and take
+# groq from working to a hard 413 on every request — an outage on the volume
+# provider, triggered by upgrading an unrelated dependency.
+#
+# (Growth-of-the-block and growth-of-the-file differ by more than 2x here; an
+# earlier version of this comment conflated them and said "~19% block growth".)
+#
+# 621 IS THE RAW SLACK, NOT THE BUDGET YOU MAY SPEND. The guard applies a
+# SAFETY_FACTOR of 1.05 to its token estimate, so it trips at 457 tokens of slack,
+# not 621. Anyone planning a prompt edit against 621 will be surprised by a red test
+# at about 1,270 characters. 457 binds; 621 is what the server would actually allow
+# if the estimate were exact, and it deliberately is not.
+#     python tests/test_prompt_headroom.py     # prints the live number
+#
+# This sum is now guarded by tests/test_prompt_headroom.py rather than by this
+# comment, because a comment cannot fail. Anything that grows the prompt will trip
+# that test before it reaches production.
 #
 # ProviderSpec.min_max_tokens raises whatever a caller asks for (see
 # make_generator), so a spec floored at 4096 rescues a caller that asks for less.
@@ -225,7 +259,10 @@ PROVIDERS: dict[str, ProviderSpec] = {
         notes="Free tier, no credit card. Measured 2026-07-21 on this account: "
               "5 requests/MINUTE and only 20 requests/DAY, both PER MODEL. Quotas "
               "are per-model, so switching PLUGINFORGE_MODEL gets a fresh daily "
-              "budget. Far too small for a 125-prompt study — use groq for volume.",
+              "budget. Far too small for a 125-prompt study — but do NOT read that "
+              "as 'use groq' (which this note said until 2026-07-28): groq's 200,000 "
+              "TPD affords ~57 generations/day, so it cannot run that study either. "
+              "No configured free provider currently can in a single day.",
     ),
     "groq": ProviderSpec(
         name="groq",
@@ -235,8 +272,29 @@ PROVIDERS: dict[str, ProviderSpec] = {
         base_url="https://api.groq.com/openai/v1",
         signup_url="https://console.groq.com",
         min_max_tokens=4096,
-        notes="Free tier, no credit card, up to ~14,400 RPD — the volume option for "
-              "the efficacy study. Model choice here is load-bearing; all four "
+        notes="Free tier, no credit card. NOT the volume option — that claim was "
+              "wrong and is corrected here 2026-07-28.\n"
+              "WHAT BINDS IS TOKENS PER DAY, and the old note recorded only "
+              "requests. Measured live on this account (service tier 'on_demand'), "
+              "openai/gpt-oss-120b:\n"
+              "  TPD  200,000 tokens/day   <- the real ceiling; was recorded nowhere\n"
+              "  TPM    8,000 tokens/min\n"
+              "One generation costs 3,493 tokens (3,283 system prompt + ~210 "
+              "completion), so the day affords ~57 generations. The 125-prompt "
+              "efficacy study needs ~437,000 tokens: 2.2 days at one attempt each, "
+              "more once the 3-attempt retry loop runs. The provider chosen BECAUSE "
+              "it was the volume option cannot run the study it was chosen for.\n"
+              "The old '~14,400 RPD' figure is unverified, not merely superseded: "
+              "the observed header was x-ratelimit-limit-requests=1000, decrementing "
+              "only on success, but x-ratelimit-reset-requests was not captured so "
+              "the window is unknown. Requests were never the binding limit either "
+              "way — at 200,000 TPD you can afford ~57 of them.\n"
+              "SUBTLE: admission above the TPM ceiling is not deterministic. "
+              "max_tokens=5200 and 7000 (requested 8,483 and 10,283) were both "
+              "ADMITTED from the same bucket state that rejected 4718 (8,001). "
+              "Unexplained, reproduced twice. Treat prompt+max_tokens<=8000 as the "
+              "safe rule and never rely on an admission above it.\n"
+              "Model choice here is load-bearing; all four "
               "candidates were measured against a real faust compile 2026-07-21 on "
               "the L4 anchor prompt:\n"
               "  gpt-oss-120b  COMPILES clean — the default.\n"
@@ -250,9 +308,10 @@ PROVIDERS: dict[str, ProviderSpec] = {
               "gain'. NOTE it is NOT deprecated — an earlier note here said so, "
               "wrongly; it is live.\n"
               "  qwen/qwen3.6-27b  overruns 4096 without finishing.\n"
-              "TPM cap is 8000 for gpt-oss-120b: max_tokens above ~7500 returns 413 "
-              "rate_limit_exceeded, so 4096 is chosen to sit between the reasoning "
-              "floor and that ceiling.",
+              "The admission rule is prompt_tokens + max_tokens <= 8000, not a fixed "
+              "max_tokens ceiling — see the MAX_OUTPUT_TOKENS comment at the top of "
+              "this module for the measurement and for why the current 7,379-of-8,000 "
+              "leaves only 621 tokens of slack.",
     ),
     "openrouter": ProviderSpec(
         name="openrouter",
@@ -672,13 +731,21 @@ def _post_with_backoff(url: str, headers: dict, payload: dict, budget=None) -> d
 # ── The seam every call site uses ─────────────────────────────────────────────
 
 def make_generator(provider: str, *, system_prompt: str, model: str | None = None,
-                   temperature: float | None = None, max_tokens: int = 1024,
+                   temperature: float | None = None,
+                   max_tokens: int = MAX_OUTPUT_TOKENS,
                    budget: "Budget | None" = None):
     """Returns callable(user_message) -> code string.
 
     temperature=None omits the parameter entirely (required by claude-opus-4-7+,
     which reject it with a 400). Passing a temperature to such a model raises here
     with an actionable message rather than failing at request time.
+
+    This default was a bare 1024 until 2026-07-28 — the last copy of the number
+    that produced the truncation confound. It was inert, because every spec floors
+    at MAX_OUTPUT_TOKENS and the max() below rescued it, but that is the same
+    "the floor will catch it" reasoning that let the anthropic spec run every
+    recorded benchmark truncated. The seam's own default should not be a value no
+    caller is allowed to pass.
 
     budget=None keeps the historical unbounded behaviour and is what the bench
     harnesses use — a benchmark run is not racing a subprocess cap and should be
