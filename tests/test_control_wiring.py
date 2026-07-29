@@ -831,7 +831,7 @@ class TestCaptureHarnessTakesTheLock:
     not mechanically checkable from here.
     """
 
-    HARNESSES = ["p6_capture.py"]
+    HARNESSES = ["p6_capture.py", "run_efficacy_study.py"]
 
     @pytest.mark.parametrize("harness", HARNESSES)
     def test_harness_acquires_and_releases_the_lock(self, harness):

@@ -55,6 +55,9 @@ sys.path.insert(0, str(BENCH_DIR))
 # run_benchmark), so no import cycle is introduced.
 import run_benchmark  # noqa: E402
 from run_benchmark import CLAUDE_MODEL, registry_name, validate_faust  # noqa: E402,F401
+from run_benchmark import (  # noqa: E402  (PF-025/PF-030 — one lock, every harness)
+    BenchmarkLockHeld, acquire_lock, release_lock,
+)
 
 sys.path.insert(0, str(BENCH_DIR.parent / "llm"))
 import providers  # noqa: E402
@@ -292,9 +295,32 @@ def main(argv=None) -> int:
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         out_file = DEFAULT_OUT_DIR / f"efficacy_{stamp}.json"
 
-    preflight_check(args.provider)
-    records = run_study(tasks, retries=args.retries, out_file=out_file,
-                        dry_run=args.dry_run, provider=args.provider, model=args.model)
+    # PF-030. This harness spends the same free-tier quota as run_benchmark.py and
+    # took no lock at all, so the two could run concurrently and interleave their
+    # requests against one rate limit. That is the more dangerous half of PF-025:
+    # a measurement corrupted by a collision does not look corrupted, it looks like
+    # data. A lock only one participant respects is not a lock.
+    #
+    # Held for the WHOLE run, and taken on --dry-run too: the hazard is a property
+    # of the run, and a guard skipped when it is inconvenient is not a guard
+    # (bench/p6_capture.py:202-206 makes the same argument).
+    #
+    # Exit 2, not 1, so a caller can tell "someone else is running" from "preflight
+    # failed" without parsing text — matching run_benchmark.py:372. preflight_check()
+    # runs inside the lock, and the finally releases it either way, including on a
+    # sys.exit from preflight (SystemExit unwinds through finally).
+    try:
+        acquire_lock()
+    except BenchmarkLockHeld as exc:
+        print(f"Refusing to start:\n  ✗ {exc}", file=sys.stderr)
+        return 2
+    try:
+        preflight_check(args.provider)
+        records = run_study(tasks, retries=args.retries, out_file=out_file,
+                            dry_run=args.dry_run, provider=args.provider, model=args.model)
+    finally:
+        release_lock()
+
     print_summary(records, dataset["tiers"])
     print(f"\nResults saved to: {out_file}", file=sys.stderr)
     return 0
