@@ -1057,3 +1057,56 @@ than the instance.
 was verified by pushing and reading CI rather than by constructing a delay. That is the same
 cheap experiment PF-027 was closed with, and the same one three sessions avoided in favour of
 better hypotheses.
+
+### PF-032 — Two compiling patches render silent. *(diagnosed 2026-07-28, not fixed)*
+
+**high · open · S1 Backend · found by the render oracle 2026-07-28**
+
+Both are **unit-contract errors on stdlib function arguments**, not audio-path faults, and
+both are one line from working. Verified by rendering the generated code and a one-argument
+variant of it through `bench/render_oracle.py`:
+
+| patch | as generated | with the unit fixed |
+|---|---|---|
+| warm analog low-pass | rms **2.48e-08** (−132 dB) | rms **0.0114** (−18.9 dB), passes |
+| noise gate | rms **exactly 0.0** | rms **0.0995** (−0.1 dB), passes |
+
+**The low-pass divides its cutoff by the sample rate.** `vaeffects.lib:71` documents
+`moog_vcf(res, fr)` as taking *"`fr`: corner-resonance frequency in **Hz**"*. The patch writes
+`hslider("Cutoff [unit:Hz]", 1000, ...) : si.smoo : *(1.0/ma.SR)`, so it passes
+1000/48000 = **0.0208 Hz**. The filter is doing exactly what it was told; a 0.02 Hz corner
+removes everything. The model applied the normalisation that *some* DSP APIs want and this one
+does not. (Its `res` slider also runs 0–4.0 where the same doc block, `:69-70`, says
+normalised 0–1 — harmless at the 0.5 default, wrong at the extremes.)
+
+**The gate converts dB to linear, and so does the library.** `misceffects.lib:164` documents
+`thresh` as *"dB level threshold above which gate opens (e.g., -60 dB)"*, and `:188` shows the
+implementation doing the conversion itself: `rawgatesig(x) = inlevel(x) > ba.db2linear(thresh)`.
+The patch pre-converts with `ba.db2linear`, so −40 dB arrives as 0.01, is read as **0.01 dB**,
+and becomes a threshold of ~1.0 linear. Nothing in a −18 dB test signal ever exceeds it, the
+gate never opens, and the output is not merely quiet but **identically zero** — which is what
+distinguishes this from the low-pass and is the tell for a double conversion.
+
+**Why this is not the oracle's fault, and why the compile rate overstates the product.** Both
+patches are valid Faust, both JIT cleanly, both would load in a DAW and produce nothing. A
+compile-rate metric cannot see this by construction, which is the argument for the oracle
+existing. 22/25 compiling becomes **16/18 of renderable patches actually producing audio.**
+
+**Why the existing controls could not prevent it.** `check_prompt_invariants.py` resolves every
+`ns.func` in the system prompt against the installed stdlib, so it guarantees the functions
+exist. It says nothing about what their arguments **mean**. `tools/gen_stdlib_block.py` emits
+names and arities; units and normalisation conventions are in the `//` doc blocks it does not
+read. So the prompt teaches the model a vocabulary and none of the grammar of units, and Hz
+versus normalised-frequency versus dB versus linear is exactly where a plausible-looking
+conversion silently produces silence.
+
+**Fix shape (not done here — it is a prompt edit, i.e. PF-024's territory and its evidence
+bar).** Either extend the generated stdlib block to carry the argument units for the functions
+whose doc blocks state them, or add an explicit rule plus a few-shot for the two conventions
+that actually bit: pass frequencies in Hz unless the doc says normalised, and never pre-convert
+dB for a function that documents a dB parameter. A prompt edit owes a benchmark statement per
+`.claude/rules/tier2-evidence.md`.
+
+**Not covered.** Whether these two are representative. Two patches out of 22 is a diagnosis of
+two patches; the claim that *unit contracts* are a general failure class is a hypothesis this
+supports and does not establish. The efficacy grid (PF-011) is what would size it.

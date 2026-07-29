@@ -53,6 +53,14 @@ Each closure below was verified by reading the cited code at HEAD, or by a named
   Fixed by deleting the seeding; the processor's `resetMappedSlotsToDefaults` already does it
   properly and in the swap protocol's safe window. `StatePersistenceTest` round-trips 33/33
   and cannot see this, because it never constructs an editor.
+- **The harness's own timing race is closed, and CI is what found it.** *(PF-034, `10c27e2`.)*
+  On its first pushed run `EditorSessionTest` failed 1 of 61 on the runner and passed every
+  time locally: `loadAndSettle` waited on the source of record, which is assigned on the
+  **compile** thread, while the widgets are rebuilt later on the **message** thread. With two
+  consecutive patches of equal parameter count the wait discriminated nothing. Replaced with a
+  refresh counter that must **advance**, which no prior state can satisfy. Third instance in
+  one day of the dev box and the runner disagreeing — PF-027, PF-029, PF-034 — and in all
+  three the dev box gave the more flattering answer.
 - **Fresh vs Refine is reachable from the UI.** *(PF-020's residual, `3106cd9`.)* A Refine
   toggle, off by default. The mode is read on the message thread at submit and published into
   the job slot under `jobMutex` with the prompt and the stamp — never re-read on the worker,
@@ -132,10 +140,23 @@ Registry with IDs, severity and discovery dates: `docs/BUGS.md`.
 folded into the prompt.** This is the single biggest thing standing between here and a
 listening pass that is worth the human's time — ping-pong is prompt #2 of 14.
 
-**2. Two compiling patches render silent.** *(PF-032, high, open.)* A warm lowpass at rms
-2.5e-08 and a noise gate at 0.0. The 88% compile rate overstates working output; of renderable
-patches the real rate is 16/18. **Diagnose this before the next listening pass** — a human who
-hears silence will blame the audio path and spend their session in the wrong place.
+**2. Two compiling patches render silent.** *(PF-032, high, **diagnosed 2026-07-28, not
+fixed**.)* Both are **unit-contract errors on stdlib arguments**, and both are one line from
+working — verified by rendering the generated code against a one-argument variant:
+
+- The warm low-pass writes `cutoff : *(1.0/ma.SR)`, but `vaeffects.lib:71` documents
+  `moog_vcf(res, fr)` as taking **Hz**. It passes 0.0208 Hz. rms 2.5e-08 → **0.0114** when the
+  Hz goes through unscaled.
+- The noise gate pre-converts with `ba.db2linear`, but `misceffects.lib:164` documents `thresh`
+  in **dB** and `:188` does the conversion itself. Double conversion makes the threshold ~1.0
+  linear, so the gate never opens and the output is *identically* 0.0 → **0.0995** when the dB
+  goes through raw.
+
+Both are valid Faust that JITs cleanly, loads in a DAW, and produces nothing — which is
+precisely what a compile-rate metric cannot see. `check_prompt_invariants.py` guarantees every
+`ns.func` exists and says nothing about what its arguments **mean**; the stdlib block carries
+names and arities, and units live in the `//` doc blocks it does not read. **Fixing it is a
+prompt edit, i.e. item 1 below and its evidence bar.** Full working in `docs/BUGS.md`.
 
 **3. The benchmark's noise floor is unmeasured.** *(PF-031, medium, open.)* It has never been
 run twice on an unchanged prompt, so no delta can be called significant — including this
@@ -167,12 +188,16 @@ cost — PF-013's successor is now one command instead of a 40-minute manual ses
 
 ## Next three things
 
-1. **Close PF-024's remaining three classes.** `syntax:FLOAT`, `syntax:EXTRA`,
-   `recursion_cycle`. The faust-idioms skill has a compiled pattern for the third. A prompt
-   edit owes a benchmark statement per `.claude/rules/tier2-evidence.md` — and PF-031 means
-   the honest statement is per-class, not aggregate.
-2. **Diagnose PF-032.** Two patches compile and render silent. Is it the generation or the
-   oracle's input assumptions? Unknown, and it is the cheapest thing here.
+1. **Close PF-024's three classes and PF-032's two, in one prompt edit.** `syntax:FLOAT`,
+   `syntax:EXTRA`, `recursion_cycle`, plus the two unit contracts PF-032 just pinned down
+   (frequencies in Hz unless the doc says normalised; never pre-convert dB for a function that
+   documents a dB parameter). The faust-idioms skill has a compiled pattern for the recursion
+   case. A prompt edit owes a benchmark statement per `.claude/rules/tier2-evidence.md` — and
+   PF-031 means the honest statement is per-class, not aggregate.
+2. **Decide whether the stdlib block should carry argument units.** PF-032's root cause is
+   that the generated block teaches names and arities while the units sit in doc-block prose
+   the generator does not read. Extending it would close the class rather than the two
+   instances. New enforcement surface → route through `/architecture-planning`.
 3. *(evidence)* **Fire `bench/p6_capture.py` live, then the efficacy grid.** 14 generations on
    groq closes the objective half and hands over WAVs; then 125 more closes PF-011, then
    `score_efficacy.py --judge` closes PF-013. Sequential, not parallel — PF-030. Fresh
@@ -188,8 +213,8 @@ cost — PF-013's successor is now one command instead of a 40-minute manual ses
 2. **Authorizing the live capture run.** `python bench/p6_capture.py --i-authorize-spend`
    spends 14 free-tier generations ($0 on groq) and produces
    `artifacts/p6_<date>/` — 14 WAVs and a scorecard. Built and dry-run this session,
-   deliberately not fired. **Worth doing after PF-024, not before**, or four of the fourteen
-   rows will be generation failures you already knew about.
+   deliberately not fired. **Worth doing after item 1 above, not before**, or several of the
+   fourteen rows will be generation failures already on record — ping-pong is prompt #2.
 
 3. **A second P6 listening pass.** Per COLLABORATION.md §1 this is the one judgement in the
    project with no instrument: the oracle proves a patch is not broken and cannot tell you the
