@@ -332,7 +332,7 @@ void PluginForgeProcessor::setStateInformation(const void* data, int sizeInBytes
     }
 }
 
-juce::String PluginForgeProcessor::currentSourceForTest() const
+juce::String PluginForgeProcessor::currentSource() const
 {
     std::lock_guard<std::mutex> lock(metaMutex);
     return currentFaustSource;

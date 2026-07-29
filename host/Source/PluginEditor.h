@@ -48,6 +48,11 @@ public:
     // The Fresh/Refine toggle, driven and read without a click.
     void         setRefineForTest(bool on) { promptPanel.setRefineForTest(on); }
     bool         refineEnabledForTest() const { return promptPanel.refineEnabledForTest(); }
+    // The code-view disclosure, and what the view is actually showing.
+    void         setCodeVisibleForTest(bool on) { setCodeViewVisible(on); }
+    bool         codeVisibleForTest() const { return codeEditorPanel.isVisible(); }
+    juce::String codeTextForTest() const { return codeEditorPanel.displayedSourceForTest(); }
+    bool         codeIsReadOnlyForTest() const { return codeEditorPanel.isReadOnlyForTest(); }
 
 private:
     // 30Hz UI tick: pulls processor.outputLevel (relaxed atomic, written on the
@@ -60,6 +65,11 @@ private:
     // window never violates setResizeLimits; past the cap the grid Viewport scrolls.
     void updateWindowSizeForParams();
 
+    // Show/hide the read-only Faust view and re-run the window sizing, which
+    // already accounts for kCodeBandH when the panel is visible. Pushes the live
+    // source in on the way up so a view revealed after a compile is not blank.
+    void setCodeViewVisible(bool shouldBeVisible);
+
     // ── Layout budget (docs/FLEET.md req #17; posted to S2) ──────────────────
     // PromptPanel band: fixed, generous enough for S2's stacked contents
     // (multi-line prompt + button/History row + progress + status + a scrollable
@@ -70,9 +80,14 @@ private:
     static constexpr int kCodeBandH   = 240;
 
     // Non-grid vertical chrome in window px when the code panel is hidden:
-    // top margin 16 + title 36 + prompt 220 + gap 8 + meter 14 + gap 10 + bottom
-    // margin 16 = 320. (When the code panel is visible, add kCodeBandH.)
-    static constexpr int kChromeHeight = 16 + 36 + kPromptBandH + 8 + 14 + 10 + 16; // 320
+    // top margin 16 + title 36 + prompt 220 + gap 8 + meter 14 + gap 10 +
+    // code-disclosure row 24 + gap 6 + bottom margin 16 = 350. (When the code
+    // panel is visible, add kCodeBandH.) This MUST match what resized() consumes
+    // — the two are a single contract split across two files, and the disclosure
+    // row was added to both in the same change.
+    static constexpr int kCodeToggleRowH = 24;
+    static constexpr int kChromeHeight =
+        16 + 36 + kPromptBandH + 8 + 14 + 10 + kCodeToggleRowH + 6 + 16;  // 350
     static constexpr int kMinWindowH   = 400;  // matches setResizeLimits minimum
     static constexpr int kMaxGridRows  = 6;    // rows shown before the grid scrolls
 
@@ -82,6 +97,10 @@ private:
     PromptPanel     promptPanel;
     CodeEditorPanel codeEditorPanel;
     ParamGridPanel  paramGridPanel;
+
+    // Disclosure for the read-only Faust view. Off by default: the code is for
+    // the user who wants it, and a no-code tool must not open on a wall of DSL.
+    juce::TextButton codeToggle { "Show code" };
 
     // ── Level meter (shell-owned) ────────────────────────────────────────────
     juce::Rectangle<int> meterBounds;      // set in resized(), painted in paint()

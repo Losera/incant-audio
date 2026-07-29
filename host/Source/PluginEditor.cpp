@@ -18,10 +18,15 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
     addAndMakeVisible(promptPanel);
     addAndMakeVisible(paramGridPanel);
 
-    // CodeEditorPanel is a Task-0 placeholder with no behaviour yet: add it as an
-    // invisible child and give it no layout space, so the split stays
-    // zero-behaviour. Session 2 makes it visible and requests space via FLEET.md.
+    // The read-only Faust view (ux_roadmap Phase 3a). Still an invisible child
+    // with no layout space UNTIL the user asks for it: this is a no-code tool and
+    // must not open on a wall of DSL. The band it takes when shown (kCodeBandH)
+    // has been reserved in resized() and updateWindowSizeForParams() since the
+    // Task-0 split — the plumbing was finished long before the panel was.
     addChildComponent(codeEditorPanel);
+
+    addAndMakeVisible(codeToggle);
+    codeToggle.onClick = [this] { setCodeViewVisible(! codeEditorPanel.isVisible()); };
 
     startTimerHz(30);   // level-meter repaint tick (see timerCallback)
 
@@ -64,9 +69,33 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
                 + juce::String(numParams)
                 + (numParams == 1 ? " param mapped." : " params mapped."));
             safeThis->paramGridPanel.refreshParamKnobs(params);
+            // The source of record is committed in the same success branch that
+            // fires this callback (PluginProcessor.cpp:180-181), so by the time
+            // this message-thread hop runs, currentSource() is the patch that
+            // just went live. Pushed unconditionally, even while the view is
+            // hidden, so revealing it is instant and never shows a stale patch.
+            safeThis->codeEditorPanel.showSource(safeThis->processor.currentSource());
             safeThis->updateWindowSizeForParams();
         });
     };
+}
+
+void PluginForgeEditor::setCodeViewVisible(bool shouldBeVisible)
+{
+    if (codeEditorPanel.isVisible() == shouldBeVisible)
+        return;
+
+    if (shouldBeVisible)
+        codeEditorPanel.showSource(processor.currentSource());
+
+    codeEditorPanel.setVisible(shouldBeVisible);
+    codeToggle.setButtonText(shouldBeVisible ? "Hide code" : "Show code");
+
+    // updateWindowSizeForParams already adds kCodeBandH when the panel is
+    // visible, so the window grows and shrinks with the disclosure rather than
+    // stealing the band from the param grid.
+    updateWindowSizeForParams();
+    resized();
 }
 
 void PluginForgeEditor::updateWindowSizeForParams()
@@ -188,6 +217,14 @@ void PluginForgeEditor::resized()
     area.removeFromTop(8);
     meterBounds = area.removeFromTop(14);
     area.removeFromTop(10);
+
+    // Disclosure sits directly above whichever region is below it, so it reads as
+    // the control for the code band rather than as part of the prompt block.
+    {
+        auto row = area.removeFromTop(24);
+        codeToggle.setBounds(row.removeFromRight(110));
+        area.removeFromTop(6);
+    }
 
     // Code/Errors region (S2): reserved at the bottom only while the panel is
     // visible. It starts hidden, so the grid keeps the whole remainder today.

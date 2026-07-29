@@ -115,10 +115,23 @@ public:
 
     juce::AudioProcessorValueTreeState apvts;
 
-    // Test-only accessors for the retained metadata, so the state round-trip test
+    // The Faust source currently live, or empty if nothing has compiled. Product
+    // API, not a test hook: CodeEditorPanel reads it to show the user what was
+    // generated (docs/ux_roadmap.md Phase 3a). metaMutex-guarded and never taken
+    // on the audio thread, so any non-audio thread may call it.
+    //
+    // It began as currentSourceForTest() — the source of record was observable
+    // only to tests for five days while the panel meant to display it stayed an
+    // empty stub. The name is now honest about who reads it.
+    juce::String currentSource() const;
+
+    // Test-only accessor for the retained prompt, so the state round-trip test
     // can assert what setState restored without reaching into private members.
-    juce::String currentSourceForTest() const;
     juce::String currentPromptForTest() const;
+
+    // Test-only alias retained so the existing harnesses keep reading the way
+    // they were written. Prefer currentSource() in new code.
+    juce::String currentSourceForTest() const { return currentSource(); }
 
     // Test-only. The live slot->label map. This used to be observable only by
     // serialising a blob and counting <SlotLabels> children; that node was

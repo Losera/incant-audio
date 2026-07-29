@@ -676,6 +676,57 @@ void scenario10_stateRoundTrip()
     snapshot(s2.editor, "10b_after_restore");
 }
 
+// 11 — Open the hood.
+void scenario11_codeView()
+{
+    scenario("11. show the generated Faust",
+             "ux_roadmap Phase 3a: read-only source view behind a disclosure");
+
+    Session s;
+    check(! s.editor.codeVisibleForTest(),
+          "the code view starts HIDDEN -- a no-code tool must not open on a wall of DSL");
+
+    const int hiddenH = s.editor.getHeight();
+
+    // Reveal it before anything has compiled: it must say so, not sit blank.
+    s.editor.setCodeVisibleForTest(true);
+    pump(50);
+    check(s.editor.codeVisibleForTest(), "the disclosure shows it");
+    check(s.editor.codeTextForTest().contains("No patch compiled yet"),
+          "with nothing compiled it explains itself instead of showing an empty box");
+    check(s.editor.getHeight() > hiddenH,
+          juce::String("the window grew to make room (") + juce::String(hiddenH)
+              + " -> " + juce::String(s.editor.getHeight()) + "px)");
+    snapshot(s.editor, "11a_code_view_empty");
+
+    // Now compile something and confirm the view follows it.
+    check(loadAndSettle(s, kEveryKindPatch, 5), "a 5-param patch compiled");
+    pump(200);
+    const auto shown = s.editor.codeTextForTest();
+    check(shown.contains("hslider(\"Cutoff\""),
+          "the view shows the ACTUAL source of the live patch");
+    check(shown == s.processor.currentSource(),
+          "what is on screen is exactly the processor's source of record, not a copy "
+          "that can drift");
+    check(s.editor.codeIsReadOnlyForTest(),
+          "it is READ-ONLY -- Phase 3a is the view alone; an editable box with no "
+          "Compile button is worse than a label");
+    snapshot(s.editor, "11b_code_view_populated");
+
+    // Hiding it gives the band back to the grid.
+    s.editor.setCodeVisibleForTest(false);
+    pump(50);
+    check(! s.editor.codeVisibleForTest(), "it hides again");
+
+    // A view revealed AFTER a compile must not be blank: showSource is pushed on
+    // the way up, not only from the compile callback.
+    s.editor.setCodeVisibleForTest(true);
+    pump(50);
+    check(s.editor.codeTextForTest().contains("hslider(\"Cutoff\""),
+          "reopening it shows the live patch, not the placeholder");
+    snapshot(s.editor, "11c_code_view_reopened");
+}
+
 } // namespace
 
 int main()
@@ -700,6 +751,7 @@ int main()
     scenario08_rapidFire(tmp);
     scenario09_teardownMidFlight(tmp);
     scenario10_stateRoundTrip();
+    scenario11_codeView();
 
     tmp.deleteRecursively();
 
