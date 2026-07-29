@@ -4,11 +4,11 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
     : AudioProcessorEditor(&p), processor(p),
       promptPanel(p), codeEditorPanel(p), paramGridPanel(p)
 {
-    // Taller default than the pre-split 480×410 so S2's widened prompt/error band
-    // (kPromptBandH, FLEET req #17) fits with a grid row visible below the meter.
+    // Taller default than the pre-split 480×410 so the widened prompt/error band
+    // (Chrome::promptH) fits with a grid row visible below the meter.
     setSize(480, 460);
 
-    // Resizable shell (FLEET req #1/#17): the prompt+error band and the auto-layout
+    // Resizable shell: the prompt+error band and the auto-layout
     // grid both need to flex, and the code editor won't fit a fixed window. Each
     // child panel gets its own bounds in resized(); min height keeps the prompt
     // band + meter visible, max stays within a sane on-screen size.
@@ -20,7 +20,7 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
 
     // The read-only Faust view (ux_roadmap Phase 3a). Still an invisible child
     // with no layout space UNTIL the user asks for it: this is a no-code tool and
-    // must not open on a wall of DSL. The band it takes when shown (kCodeBandH)
+    // must not open on a wall of DSL. The band it takes when shown (Chrome::codeH)
     // has been reserved in resized() and updateWindowSizeForParams() since the
     // Task-0 split — the plumbing was finished long before the panel was.
     addChildComponent(codeEditorPanel);
@@ -40,8 +40,8 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
 
     // Surface a Faust compile failure (as opposed to an LLM-generation failure,
     // handled inside PromptPanel) in the status line. Uses the canonical
-    // onFaustCompileFailure name (FLEET req #7); the deprecated onFaustCompileError
-    // alias in PluginProcessor.h can now be removed by S1.
+    // onFaustCompileFailure name; the deprecated onFaustCompileError alias in
+    // PluginProcessor.h is now assigned by nothing and can be removed.
     processor.onFaustCompileFailure = [safeThis](const juce::String& error)
     {
         juce::MessageManager::callAsync([safeThis, error]
@@ -91,7 +91,7 @@ void PluginForgeEditor::setCodeViewVisible(bool shouldBeVisible)
     codeEditorPanel.setVisible(shouldBeVisible);
     codeToggle.setButtonText(shouldBeVisible ? "Hide code" : "Show code");
 
-    // updateWindowSizeForParams already adds kCodeBandH when the panel is
+    // updateWindowSizeForParams already adds Chrome::codeH when the panel is
     // visible, so the window grows and shrinks with the disclosure rather than
     // stealing the band from the param grid.
     updateWindowSizeForParams();
@@ -107,8 +107,8 @@ void PluginForgeEditor::updateWindowSizeForParams()
     const int wanted = paramGridPanel.preferredContentHeight();
     const int capH   = kMaxGridRows * ParamGridPanel::kCellH;
     const int gridH  = juce::jmin(wanted, capH);
-    const int codeH  = codeEditorPanel.isVisible() ? kCodeBandH : 0;
-    const int winH   = juce::jmax(kMinWindowH, kChromeHeight + gridH + codeH);
+    const int codeH  = codeEditorPanel.isVisible() ? chrome.codeH : 0;
+    const int winH   = juce::jmax(kMinWindowH, chromeHeight(chrome) + gridH + codeH);
     setSize(getWidth(), winH);   // synchronously triggers resized() below
 }
 
@@ -214,27 +214,42 @@ void PluginForgeEditor::resized()
 {
     // Vertical bands. Each panel lays its own widgets out relative to the bounds
     // it is handed here (S2 owns PromptPanel's internal split; S3 owns the grid).
-    // The band heights here MUST match kChromeHeight in the header.
-    auto area = getLocalBounds().reduced(16);
-    area.removeFromTop(36);                       // title spacer (title painted full-width)
+    // Every band comes from `chrome`, which chromeHeight() also sums — so the
+    // window arithmetic in updateWindowSizeForParams() cannot drift from what is
+    // carved here. Do not reintroduce a literal.
+    //
+    // The de-duplication that produced `Chrome` claimed zero behaviour change, and
+    // nothing else pins it: EditorSessionTest reads a window height that has passed
+    // through jmax/jmin clamps, so it cannot isolate the sum. This can, at compile
+    // time. When it fires, update the height baselines in the same commit as the
+    // band change — do not relax it. (Lives here, not at class scope: `Chrome{}`
+    // needs default member initializers the enclosing class has not finished
+    // declaring yet.)
+    static_assert(chromeHeight(Chrome{}) == 350,
+                  "Chrome must still sum to 350 — the pre-refactor kChromeHeight.");
 
-    promptPanel.setBounds(area.removeFromTop(kPromptBandH));   // FLEET req #17
-    area.removeFromTop(8);
-    meterBounds = area.removeFromTop(14);
-    area.removeFromTop(10);
+    const auto& c = chrome;
+
+    auto area = getLocalBounds().reduced(c.margin);
+    area.removeFromTop(c.titleH);                 // title spacer (title painted full-width)
+
+    promptPanel.setBounds(area.removeFromTop(c.promptH));
+    area.removeFromTop(c.gapMeter);
+    meterBounds = area.removeFromTop(c.meterH);
+    area.removeFromTop(c.gapRow);
 
     // Disclosure sits directly above whichever region is below it, so it reads as
     // the control for the code band rather than as part of the prompt block.
     {
-        auto row = area.removeFromTop(24);
+        auto row = area.removeFromTop(c.rowH);
         codeToggle.setBounds(row.removeFromRight(110));
-        area.removeFromTop(6);
+        area.removeFromTop(c.gapGrid);
     }
 
     // Code/Errors region (S2): reserved at the bottom only while the panel is
     // visible. It starts hidden, so the grid keeps the whole remainder today.
     if (codeEditorPanel.isVisible())
-        codeEditorPanel.setBounds(area.removeFromBottom(kCodeBandH));
+        codeEditorPanel.setBounds(area.removeFromBottom(c.codeH));
 
     // Remaining space is the auto-layout grid.
     paramGridPanel.setBounds(area);

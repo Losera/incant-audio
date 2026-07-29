@@ -4,10 +4,18 @@
 
 // ── ParamGridLayout ─────────────────────────────────────────────────────────
 // The deterministic grid arithmetic from docs/ui_design_plan.md §3, factored out
-// of ParamGridPanel as free functions so it carries NO JUCE dependency and can be
-// exercised by a plain host test (host/tests/ParamGridLayoutTest.cpp) without a
-// live editor, message thread, or compiled DSP. ParamGridPanel is the only
-// production caller; keep the two in sync by construction (it includes this).
+// of ParamGridPanel as free functions so it carries NO JUCE dependency and COULD
+// be exercised without a live editor, message thread or compiled DSP.
+//
+// It is not, today. This comment used to name host/tests/ParamGridLayoutTest.cpp
+// as the test that did it; that file has never existed. The arithmetic is covered
+// only indirectly, through EditorSessionTest scenario 3 (a 40-param patch, which
+// pins the 6-column clamp and the row count via the window height it prints).
+// Naming a test that does not exist is how this project has repeatedly mistaken a
+// declared control for a running one — so either write it or leave this honest.
+//
+// ParamGridPanel is the only production caller; keep the two in sync by
+// construction (it includes this).
 namespace ParamGridLayout
 {
 

@@ -748,7 +748,7 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInit;
 
     std::printf("EditorSessionTest -- a simulated human session against the real editor\n");
-    std::printf("  10 scenarios, no network, no quota, snapshots to artifacts/images/\n");
+    std::printf("  11 scenarios, no network, no quota, snapshots to artifacts/images/\n");
 
     auto tmp = juce::File::getSpecialLocation(juce::File::tempDirectory)
                    .getChildFile("pluginforge_editor_session");

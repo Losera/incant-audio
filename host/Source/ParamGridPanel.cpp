@@ -16,9 +16,14 @@ ParamGridPanel::ParamGridPanel(PluginForgeProcessor& p)
     viewport.setScrollBarsShown(true, false);
 }
 
-int ParamGridPanel::preferredContentHeight() const
+int ParamGridPanel::contentHeightForCurrentMode() const
 {
     return ParamGridLayout::rowsFor(static_cast<int>(controls.size())) * kCellH;
+}
+
+int ParamGridPanel::preferredContentHeight() const
+{
+    return contentHeightForCurrentMode();
 }
 
 void ParamGridPanel::refreshParamKnobs(const FaustEngine::ParamList& params)
@@ -69,6 +74,13 @@ void ParamGridPanel::refreshParamKnobs(const FaustEngine::ParamList& params)
         const auto  id = ParamPool::slotId(i);
         Control c;
 
+        // Keep the metadata so a presentation change can restyle without rebuilding.
+        // The zone pointer must NOT survive the copy: it points into the DSP instance
+        // that produced it and dangles the moment that instance is deleted
+        // (FaustEngine.h:59-64), which this copy outlives.
+        c.meta      = p;
+        c.meta.zone = nullptr;
+
         c.label = std::make_unique<juce::Label>();
         c.label->setJustificationType(juce::Justification::centred);
         c.label->setFont(juce::Font(12.0f));
@@ -90,28 +102,10 @@ void ParamGridPanel::refreshParamKnobs(const FaustEngine::ParamList& params)
         }
         else
         {
+            // TYPE only. Every styling decision — slider style, text box, readout —
+            // belongs to applyPresentation() below, so that a mode change can
+            // restyle in place without touching an attachment.
             auto sl = std::make_unique<juce::Slider>();
-            switch (p.kind)
-            {
-                case FaustEngine::Kind::HSlider:   // juce_Slider.h:63/96
-                    sl->setSliderStyle(juce::Slider::LinearHorizontal);
-                    sl->setTextBoxStyle(juce::Slider::TextBoxRight, false, 56, 16);
-                    break;
-                case FaustEngine::Kind::VSlider:   // :64/99
-                    sl->setSliderStyle(juce::Slider::LinearVertical);
-                    sl->setTextBoxStyle(juce::Slider::TextBoxBelow, false, 56, 16);
-                    break;
-                case FaustEngine::Kind::NumEntry:  // :75/96 — number box w/ inc-dec
-                    sl->setSliderStyle(juce::Slider::IncDecButtons);
-                    sl->setTextBoxStyle(juce::Slider::TextBoxLeft, false, 56, 16);
-                    break;
-                case FaustEngine::Kind::Button:
-                case FaustEngine::Kind::CheckButton:
-                default:                            // :73 — rotary is the fallback
-                    sl->setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-                    sl->setTextBoxStyle(juce::Slider::TextBoxBelow, false, 64, 16);
-                    break;
-            }
             c.sliderAtt =
                 std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
                     processor.apvts, id, *sl);
@@ -119,6 +113,7 @@ void ParamGridPanel::refreshParamKnobs(const FaustEngine::ParamList& params)
             c.widget = std::move(sl);
         }
 
+        applyPresentation(c);
         controls.push_back(std::move(c));
     }
 
@@ -126,18 +121,54 @@ void ParamGridPanel::refreshParamKnobs(const FaustEngine::ParamList& params)
     ++refreshCount;     // see refreshCountForTest() in the header
 }
 
+void ParamGridPanel::applyPresentation(Control& c)
+{
+    // Anything that is not a Slider has no style to apply. A ToggleButton returns
+    // here, which is why no rotary code below can ever reach a toggle-kind param.
+    auto* sl = dynamic_cast<juce::Slider*>(c.widget.get());
+    if (sl == nullptr)
+        return;
+
+    switch (c.meta.kind)
+    {
+        case FaustEngine::Kind::HSlider:   // juce_Slider.h:63/96
+            sl->setSliderStyle(juce::Slider::LinearHorizontal);
+            sl->setTextBoxStyle(juce::Slider::TextBoxRight, false, 56, 16);
+            break;
+        case FaustEngine::Kind::VSlider:   // :64/99
+            sl->setSliderStyle(juce::Slider::LinearVertical);
+            sl->setTextBoxStyle(juce::Slider::TextBoxBelow, false, 56, 16);
+            break;
+        case FaustEngine::Kind::NumEntry:  // :75/96 — number box w/ inc-dec
+            sl->setSliderStyle(juce::Slider::IncDecButtons);
+            sl->setTextBoxStyle(juce::Slider::TextBoxLeft, false, 56, 16);
+            break;
+        case FaustEngine::Kind::Button:
+        case FaustEngine::Kind::CheckButton:
+        default:                            // :73 — rotary is the fallback
+            sl->setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+            sl->setTextBoxStyle(juce::Slider::TextBoxBelow, false, 64, 16);
+            break;
+    }
+}
+
 void ParamGridPanel::layoutControls()
 {
     const int n    = static_cast<int>(controls.size());
     const int cols = ParamGridLayout::columnsFor(n);
-    const int rows = ParamGridLayout::rowsFor(n);
+    // No `rows` local: the row count is only ever needed as a height, and that now
+    // comes from contentHeightForCurrentMode() below.
 
     // Decide the scrollbar from geometry (not from the Viewport's current, possibly
     // stale, scrollbar state) so the content width is deterministic and no
     // horizontal bar ever appears. getScrollBarThickness() verified juce_Viewport.h:244.
     const int fullW    = viewport.getWidth();
     const int fullH    = viewport.getHeight();
-    const int contentH = rows * kCellH;
+    // Through contentHeightForCurrentMode(), NOT a second `rows * kCellH` — the
+    // shell sizes the window from preferredContentHeight() and this lays the cells
+    // out; two independent copies of that arithmetic is the kChromeHeight defect
+    // (see PluginEditor.h), which drifted in exactly this way.
+    const int contentH = contentHeightForCurrentMode();
     const bool vscroll = contentH > fullH;
     const int viewW    = juce::jmax(0, fullW - (vscroll ? viewport.getScrollBarThickness() : 0));
 

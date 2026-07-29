@@ -6,15 +6,17 @@
 #include "ParamGridPanel.h"
 
 // ── PluginForgeEditor ───────────────────────────────────────────────────────
-// Thin top-level shell (docs/FLEET.md Wave 0, Task 0). It owns the window, the
-// title + output level meter, and three child panels — PromptPanel (S2),
-// CodeEditorPanel (S2, placeholder), ParamGridPanel (S3) — and wires the
-// processor's compile callbacks to the panels. All prompt/LLM behaviour lives in
-// PromptPanel; all knob behaviour in ParamGridPanel. This split is
-// ZERO-behaviour-change vs. the pre-split monolith.
+// Thin top-level shell. It owns the window, the title + output level meter, and
+// three child panels — PromptPanel, CodeEditorPanel (read-only Faust view) and
+// ParamGridPanel — and wires the processor's compile callbacks to the panels. All
+// prompt/LLM behaviour lives in PromptPanel; all knob behaviour in ParamGridPanel.
+// This split was ZERO-behaviour-change vs. the pre-split monolith.
 //
-// Window sizing / top-level resized() is S3-owned; S2 requests layout space for
-// the code editor via docs/FLEET.md.
+// (The board this was carved against, docs/FLEET.md, has since been deleted; the
+// lane names S1/S2/S3 in the comments below are historical. `git log` has it.)
+//
+// Window sizing / top-level resized() belongs to this shell, and the code panel's
+// band is part of the Chrome budget below rather than negotiated per-panel.
 class PluginForgeEditor : public juce::AudioProcessorEditor,
                           private juce::Timer
 {
@@ -67,30 +69,56 @@ private:
     void updateWindowSizeForParams();
 
     // Show/hide the read-only Faust view and re-run the window sizing, which
-    // already accounts for kCodeBandH when the panel is visible. Pushes the live
+    // already accounts for Chrome::codeH when the panel is visible. Pushes the live
     // source in on the way up so a view revealed after a compile is not blank.
     void setCodeViewVisible(bool shouldBeVisible);
 
-    // ── Layout budget (docs/FLEET.md req #17; posted to S2) ──────────────────
-    // PromptPanel band: fixed, generous enough for S2's stacked contents
-    // (multi-line prompt + button/History row + progress + status + a scrollable
-    // error region). CodeEditorPanel band: reserved at the BOTTOM only while that
-    // panel is visible (it starts hidden), so today the grid keeps the full
-    // remainder. These MUST match what resized() consumes.
-    static constexpr int kPromptBandH = 220;
-    static constexpr int kCodeBandH   = 240;
+    // ── Layout budget ────────────────────────────────────────────────────────
+    // Every non-grid vertical band, in the order resized() carves them. The grid
+    // gets whatever is left.
+    //
+    // WHY A STRUCT AND NOT CONSTANTS. This used to be a list of constants plus a
+    // hand-summed kChromeHeight, with a header comment insisting the two "MUST
+    // match what resized() consumes". They were never linked by construction, and
+    // they had already drifted: resized() carved the disclosure row with a bare
+    // literal 24 while kCodeToggleRowH sat unread beside the sum. Now resized()
+    // CONSUMES this struct and chromeHeight() SUMS it — one source, two readers,
+    // and a band cannot be changed in one place only.
+    struct Chrome
+    {
+        int margin     = 16;   // reduced() inset, counted top and bottom
+        int titleH     = 36;   // title spacer (the title is painted full-width)
+        int promptH    = 220;  // PromptPanel: multi-line prompt + buttons +
+                               // progress + status + a scrollable error region
+        int gapMeter   = 8;
+        int meterH     = 14;
+        int gapRow     = 10;
+        int rowH       = 24;   // the disclosure / mode row
+        int gapGrid    = 6;
+        int codeH      = 240;  // CodeEditorPanel, reserved at the BOTTOM and only
+                               // while that panel is visible
+    };
 
-    // Non-grid vertical chrome in window px when the code panel is hidden:
-    // top margin 16 + title 36 + prompt 220 + gap 8 + meter 14 + gap 10 +
-    // code-disclosure row 24 + gap 6 + bottom margin 16 = 350. (When the code
-    // panel is visible, add kCodeBandH.) This MUST match what resized() consumes
-    // — the two are a single contract split across two files, and the disclosure
-    // row was added to both in the same change.
-    static constexpr int kCodeToggleRowH = 24;
-    static constexpr int kChromeHeight =
-        16 + 36 + kPromptBandH + 8 + 14 + 10 + kCodeToggleRowH + 6 + 16;  // 350
+    // Non-grid chrome in window px, EXCLUDING the code band (which is added by the
+    // caller only when the panel is visible). 350 for the Console values above.
+    static constexpr int chromeHeight(const Chrome& c)
+    {
+        return c.margin + c.titleH + c.promptH + c.gapMeter + c.meterH
+             + c.gapRow + c.rowH + c.gapGrid + c.margin;
+    }
+
+    // The sum is pinned by a static_assert at the top of resized() — NOT here.
+    // `Chrome{}` needs its default member initializers, which are not available
+    // until the enclosing class is complete, so a class-scope assertion is
+    // ill-formed ("default member initializer required before the end of its
+    // enclosing class"). resized() is the right home anyway: it is the reader whose
+    // agreement with this sum is the actual contract.
+
     static constexpr int kMinWindowH   = 400;  // matches setResizeLimits minimum
     static constexpr int kMaxGridRows  = 6;    // rows shown before the grid scrolls
+
+    // The band budget in force. A single instance today; step 7 makes it per-mode.
+    Chrome chrome;
 
     PluginForgeProcessor& processor;
 

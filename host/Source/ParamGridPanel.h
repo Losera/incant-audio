@@ -11,7 +11,11 @@
 //   • picks a widget from each param's Faust Kind (FaustEngine.h:23-30):
 //       Button / CheckButton → ToggleButton (never a rotary),
 //       HSlider → horizontal, VSlider → vertical, NumEntry → inc/dec,
-//       anything else → rotary;
+//       anything else → rotary — but that arm is UNREACHABLE today: Kind has
+//       exactly five values and applyPresentation() handles all five, so no
+//       generated plugin has ever shown a rotary. docs/ui_design_plan.md §3
+//       describes rotary as the live fallback; it is dead code until a
+//       presentation deliberately selects it;
 //   • lays them on a sqrt-derived grid (cols = clamp(ceil(sqrt(N)),2,6)) inside a
 //     vertically-scrolling Viewport, so a 40-param synth doesn't overflow.
 // Per-slot Attachment wiring is preserved (Slider→SliderAttachment,
@@ -27,9 +31,13 @@ public:
 
     void resized() override;
 
-    // Rebuild the control surface for a freshly compiled patch: seed every mapped
-    // pool slot from the patch defaults, then (re)create one kind-appropriate
-    // widget + attachment per param.
+    // Rebuild the control surface for a freshly compiled patch: (re)create one
+    // kind-appropriate widget + attachment per param.
+    //
+    // It does NOT seed slot values. It used to, and that was PF-033 (`81fc75b`):
+    // seeding here overwrote every restored value on a project reopen.
+    // PluginProcessor::resetMappedSlotsToDefaults() owns seeding now, and only it.
+    // The long note at the top of refreshParamKnobs() has the full argument.
     void refreshParamKnobs(const FaustEngine::ParamList& params);
 
     // Pixel height the grid *content* wants for the current control count (rows ×
@@ -73,11 +81,22 @@ public:
 private:
     // One control = its widget (Slider OR ToggleButton), a name label, and exactly
     // one attachment (the other stays null). Declaration order is deliberate: the
-    // attachments come AFTER the widget so they are destroyed BEFORE it — an
-    // AudioProcessorValueTreeState attachment must never outlive the widget it
-    // binds (juce_AudioProcessorValueTreeState.h keeps a reference to the control).
+    // attachments come AFTER the label and the widget so they are destroyed BEFORE
+    // them — an AudioProcessorValueTreeState attachment must never outlive the
+    // widget it binds (juce_AudioProcessorValueTreeState.h keeps a reference to the
+    // control). `meta` is first so it is destroyed last and can never sit between a
+    // widget and its attachment.
     struct Control
     {
+        // The ParamInfo this control was built from, kept so a presentation change
+        // can restyle without a rebuild (and so the readout can name its own unit).
+        //
+        // ⚠️ `meta.zone` is NULLED at copy time in refreshParamKnobs. The pointer is
+        // only valid while the DSP instance that produced it is alive
+        // (FaustEngine.h:59-64), and this copy outlives it. Nulling turns a silent
+        // use-after-free into a null deref.
+        FaustEngine::ParamInfo meta;
+
         std::unique_ptr<juce::Component> widget;
         std::unique_ptr<juce::Label>     label;
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> sliderAtt;
@@ -85,6 +104,20 @@ private:
     };
 
     void layoutControls();
+
+    // Apply the CURRENT presentation's styling to one control. Owns every styling
+    // decision; refreshParamKnobs owns only the widget TYPE choice.
+    //
+    // This early-returns unless the widget is a juce::Slider, which is what makes
+    // "a toggle-kind param never renders as a rotary" structural rather than
+    // conditional: a ToggleButton is unreachable from the rotary code path, so no
+    // later edit to a boolean can undo the promise.
+    void applyPresentation(Control& c);
+
+    // The single height computation, shared by layoutControls() and
+    // preferredContentHeight(). Two independent versions of this is the same defect
+    // shape as the old kChromeHeight (see PluginEditor.h) — do not split it.
+    int contentHeightForCurrentMode() const;
 
     PluginForgeProcessor& processor;
 
