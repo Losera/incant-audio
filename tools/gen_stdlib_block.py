@@ -71,10 +71,14 @@ CURATED: list[tuple[str, list[tuple[str, str, str]]]] = [
         ("fi", "dcblocker", "DC blocker; no arguments"),
     ]),
     ("Virtual-analog filters", [
-        ("ve", "moog_vcf",   "Moog ladder VCF"),
-        ("ve", "moogLadder", "alternative Moog ladder model"),
-        ("ve", "korg35LPF",  "Korg 35 low-pass"),
-        ("ve", "diodeLadder", "diode-ladder (TB-303 style) low-pass"),
+        # PF-032: the generated warm low-pass wrote `cutoff : *(1.0/ma.SR)` and
+        # rendered silent at rms 2.5e-08. moog_vcf takes Hz (vaeffects.lib:71) and
+        # res is normalised (:69); the sibling three take normalised frequency
+        # (:184,:326,:391). The distinction is the whole trap, so it is stated.
+        ("ve", "moog_vcf",   "Moog ladder VCF; fr in Hz, res normalised 0-1"),
+        ("ve", "moogLadder", "Moog ladder; normFreq is 0-1, NOT Hz"),
+        ("ve", "korg35LPF",  "Korg 35 low-pass; normFreq is 0-1, NOT Hz"),
+        ("ve", "diodeLadder", "diode-ladder (TB-303); normFreq is 0-1, NOT Hz"),
     ]),
     ("Delays", [
         ("de", "delay",  "integer-sample delay; first arg is the MAXIMUM delay"),
@@ -89,12 +93,16 @@ CURATED: list[tuple[str, list[tuple[str, str, str]]]] = [
         ("pf", "vibrato2_mono",  "vibrato"),
     ]),
     ("Dynamics", [
-        ("co", "compressor_mono",         "mono compressor"),
-        ("co", "compressor_stereo",       "stereo compressor, linked detection"),
+        # PF-032: the generated noise gate pre-converted thresh with ba.db2linear
+        # and rendered EXACTLY 0.0. thresh is dB (misceffects.lib:129,164;
+        # compressors.lib:140) and the library converts internally at
+        # misceffects.lib:188 -- so a pre-conversion is applied twice.
+        ("co", "compressor_mono",         "mono compressor; thresh in dB, pass it raw"),
+        ("co", "compressor_stereo",       "stereo compressor, linked; thresh in dB, raw"),
         ("co", "limiter_1176_R4_mono",    "1176-style limiter, mono"),
         ("co", "limiter_1176_R4_stereo",  "1176-style limiter, stereo"),
-        ("ef", "gate_mono",               "noise gate, mono"),
-        ("ef", "gate_stereo",             "noise gate, stereo"),
+        ("ef", "gate_mono",               "noise gate, mono; thresh in dB, pass it raw"),
+        ("ef", "gate_stereo",             "noise gate, stereo; thresh in dB, pass it raw"),
         ("an", "amp_follower_ar",         "envelope follower with attack/release"),
     ]),
     ("Distortion / saturation", [

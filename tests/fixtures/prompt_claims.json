@@ -17,7 +17,6 @@
     "            cannot be compiled literally. Recorded so completeness stays honest",
     "            rather than quietly skipping what it cannot check."
   ],
-
   "definitions": [
     {
       "snippet": "echoCh(x) = x * 0.5;",
@@ -30,7 +29,7 @@
       "verdict": "fails",
       "program": "import(\"stdfaust.lib\");\nechoCh = x * 0.5;\nprocess = echoCh;",
       "expect_error": "undefined symbol : x",
-      "note": "The prompt's counter-example: `never echoCh = x * 0.5;`. Today's stereo-delay failure was exactly this — the model copied the echoCh few-shot and dropped the parameter list."
+      "note": "The prompt's counter-example: `never echoCh = x * 0.5;`. Today's stereo-delay failure was exactly this \u2014 the model copied the echoCh few-shot and dropped the parameter list."
     },
     {
       "snippet": "d = d : *(0.5);",
@@ -54,9 +53,22 @@
       "snippet": "process = L, R;",
       "verdict": "template",
       "note": "L and R are metavariables named as such in the same sentence."
+    },
+    {
+      "snippet": "wet.0",
+      "verdict": "fails",
+      "program": "import(\"stdfaust.lib\");\nwet = _ , _;\nprocess = wet.0;",
+      "expect_error": "syntax error",
+      "note": "PF-024 syntax:FLOAT. The generated ping-pong wrote `wet.0*mix`; the 0 after the dot lexes as a FLOAT. Faust has no channel indexing."
+    },
+    {
+      "snippet": "(a > b) ? x : y",
+      "verdict": "fails",
+      "program": "import(\"stdfaust.lib\");\nprocess = (_ > 0.5) ? 1.0 : 0.0;",
+      "expect_error": "syntax error",
+      "note": "PF-024 syntax:EXTRA. The generated sidechain compressor wrote a C-style ternary. select2 is the replacement, checked under expressions above."
     }
   ],
-
   "error_claims": [
     {
       "prompt_claim": "endless evaluation cycle",
@@ -70,6 +82,41 @@
       "expect_error": "must be equal to the number of inputs",
       "verbatim": false,
       "note": "PARAPHRASE, not compiler output. Faust emits: 'The number of outputs [2] of A must be equal to the number of inputs [1] of lowpass(2)(800)'. The quoted form appears nowhere in stderr. Recorded rather than silently corrected because the prompt is Tier 2 and generate.py feeds real stderr back on retry, so the two wordings should probably converge. docs/BUGS.md uses the same paraphrase."
+    }
+  ],
+  "_why_expressions": [
+    "Claims the prompt makes as bare EXPRESSIONS -- not definitions, and carrying no",
+    "quoted compiler error. test_prompt_claims.py's own 'NOT COVERED' note named this",
+    "as its blind spot, and the PF-024/PF-032 prompt edit (2026-07-29) walked straight",
+    "into it: it added select2's argument ORDER and the (_ , !) channel-selection",
+    "idiom, both of which are load-bearing and neither of which any test could see.",
+    "",
+    "Order and side cannot be checked by compiling -- both orders compile. So each",
+    "entry names a constant that must SURVIVE and one that must NOT, and the test reads",
+    "the folded constant out of the generated C++. That checks the semantics the prompt",
+    "actually asserts, not merely that the syntax parses."
+  ],
+  "expressions": [
+    {
+      "prompt_claim": "select2(cond, whenFalse, whenTrue)",
+      "program": "import(\"stdfaust.lib\");\nprocess = select2(0, 111.0, 999.0);",
+      "expect_constant": "111",
+      "reject_constant": "999",
+      "note": "cond=0 must select the FIRST value argument. If Faust ever reversed this the prompt would be teaching the branches backwards, and every generated conditional would be inverted while compiling perfectly."
+    },
+    {
+      "prompt_claim": "(_ , !) keeps the left",
+      "program": "import(\"stdfaust.lib\");\nprocess = 111.0, 999.0 : (_ , !);",
+      "expect_constant": "111",
+      "reject_constant": "999",
+      "note": "! is the cut primitive. Both (_ , !) and (! , _) compile and have the same arity, so only the value distinguishes them."
+    },
+    {
+      "prompt_claim": "(! , _) keeps the right",
+      "program": "import(\"stdfaust.lib\");\nprocess = 111.0, 999.0 : (! , _);",
+      "expect_constant": "999",
+      "reject_constant": "111",
+      "note": "The mirror of the entry above; asserted separately so a change that broke one direction could not hide behind the other."
     }
   ]
 }

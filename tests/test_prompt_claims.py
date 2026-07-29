@@ -92,6 +92,25 @@ def _compile(program: str) -> subprocess.CompletedProcess:
     )
 
 
+def _emit_cpp(program: str) -> str:
+    """Compile to C++ and return the source, so a folded constant can be read back.
+
+    Used only by the `expressions` checks: select2's argument ORDER and which side
+    (_ , !) keeps are semantic claims that both orders satisfy syntactically, so
+    compiling proves nothing about them. Faust folds these constant programs, and the
+    surviving literal is the answer.
+    """
+    import tempfile
+    with tempfile.NamedTemporaryFile("w", suffix=".dsp", delete=False) as f:
+        f.write(program)
+        path = f.name
+    r = subprocess.run(
+        ["faust", "-lang", "cpp", path], capture_output=True, text=True, timeout=60
+    )
+    assert r.returncode == 0, f"expression program did not compile:\n{r.stderr[:400]}"
+    return r.stdout
+
+
 # ------------------------------------------------------------------ L0 completeness
 
 class TestFixtureAndPromptAgree:
@@ -144,7 +163,30 @@ class TestFixtureAndPromptAgree:
         fx = _fixture()
         assert len(fx["definitions"]) >= 4, "suspiciously few definitions tracked"
         assert len(fx["error_claims"]) >= 2, "suspiciously few error claims tracked"
+        assert len(fx["expressions"]) >= 3, "suspiciously few expression claims tracked"
         assert DEF_RE.findall(_flat_prose()), "DEF_RE matched nothing — extractor broke"
+
+    def test_every_expression_claim_is_still_in_the_prompt(self):
+        """Forward direction only, and the limit is stated rather than implied.
+
+        Each `expressions` entry names a construct the prose asserts; if the prose
+        stops asserting it, the entry is stale and must go. The REVERSE direction —
+        finding an expression claim in the prose that has no entry — is still not
+        mechanised, because there is no reliable way to extract "a claim written as a
+        bare expression" from prose. That remains this file's blind spot; it is now a
+        narrower one, since the three constructs the 2026-07-29 edit added are pinned.
+        """
+        flat = _flat_prose()
+        missing = [
+            e["prompt_claim"] for e in _fixture()["expressions"]
+            if re.sub(r"\s+", " ", e["prompt_claim"]) not in flat
+        ]
+        assert not missing, (
+            "Expression claim(s) in the fixture that the prompt no longer makes:\n  "
+            + "\n  ".join(missing)
+            + "\nDrop the entry, or restore the claim. A fixture asserting things about "
+              "a prompt that has moved on is the attention-report failure mode."
+        )
 
 
 # ------------------------------------------------------------- L1/L2 the claims hold
@@ -193,6 +235,36 @@ class TestClaimsHoldAgainstTheCompiler:
                     f"got {r.stderr.strip().splitlines()[0][:90]!r}"
                 )
         assert not bad, "Quoted error claim(s) that do not reproduce:\n  " + "\n  ".join(bad)
+
+    def test_expression_claims_select_the_side_the_prompt_says(self):
+        """The order/side claims, checked by VALUE rather than by compiling.
+
+        This is the test the 2026-07-29 prompt edit needed and did not have. Both
+        select2 argument orders compile; both (_ , !) and (! , _) compile and have
+        identical arity. A prompt that taught either one backwards would produce
+        generated plugins that compile, load, run, and invert every conditional or
+        route the wrong channel — the same shape of defect as PF-032, where valid
+        Faust rendered silence.
+        """
+        bad = []
+        for e in _fixture()["expressions"]:
+            cpp = _emit_cpp(e["program"])
+            kept, dropped = e["expect_constant"], e["reject_constant"]
+            if kept not in cpp:
+                bad.append(
+                    f"{e['prompt_claim']} — expected the constant {kept} to survive "
+                    f"folding and it did not. The prompt teaches this backwards."
+                )
+            elif dropped in cpp:
+                bad.append(
+                    f"{e['prompt_claim']} — {dropped} survived too, so the program did "
+                    f"not fold to one branch and this check proves nothing. Fix the "
+                    f"fixture program, do not delete the assertion."
+                )
+        assert not bad, (
+            "Expression claim(s) whose semantics do not match the prompt:\n  "
+            + "\n  ".join(bad)
+        )
 
     def test_verbatim_claims_really_are_verbatim(self):
         """A claim marked verbatim must appear in stderr exactly as the prompt quotes it.

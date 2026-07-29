@@ -10,41 +10,52 @@ boundary is exact: at prompt_tokens=3283, max_tokens=4717 is admitted and 4718 i
 refused. `_post_with_backoff` retries 429 and >=500 only, so a 413 does not retry —
 it surfaces as an untyped RuntimeError and the generation is simply dead.
 
-Production sits at 92% of that allowance:
+At the 2026-07-28 calibration, production sat at 92% of that allowance:
 
     3283 (llm/prompts/system_prompt.txt, + a short user message)
   + 4096 (providers.MAX_OUTPUT_TOKENS)
   = 7379 of 8000        ->  621 tokens of slack
 
 621 is the RAW slack. It is not the budget a prompt edit may spend, because
-estimate_prompt_tokens() applies SAFETY_FACTOR below: against the real file the
-estimate is 3447 rather than 3283, so this module's assertions trip at **457**
-tokens of slack (~1,270 chars). 457 is the number to plan an edit against; 621 is
-what the server would allow if the estimate were exact, and it deliberately is not.
-Run this file as a script to print the live figure.
+estimate_prompt_tokens() applies SAFETY_FACTOR below: at the calibration point the
+estimate was 3447 rather than 3283, so this module's assertions tripped at **457**
+tokens of slack rather than 621. Plan an edit against the estimator, not the raw
+figure. Run this file as a script to print the live number.
 
-48% of that prompt is the stdlib block, GENERATED from the installed
+46% of that prompt is the stdlib block, GENERATED from the installed
 /usr/share/faust/*.lib by tools/gen_stdlib_block.py. So the failure mode this file
 exists to catch is: someone upgrades Faust, the stdlib block grows, and every groq
 request begins failing with a hard 413 — an outage on the volume provider, caused by
 upgrading an unrelated dependency, with nothing in the test suite objecting. Nobody
 would connect the two.
 
-HOW MUCH GROWTH IT TAKES, since a wrong number here is worse than none. 621 tokens
-of slack is 18.9% of the 3,283-token prompt. The stdlib block is 48% of the file, so
-the block itself must grow by roughly 39% to move the whole file 19%. (An earlier
-draft of this file and of the llm/providers.py comment said "~19% growth in the
-stdlib block", conflating growth-of-the-block with growth-of-the-file. The red case
-below caught it, which is the entire argument for having one.) With SAFETY_FACTOR
-applied the guard trips earlier — at about 29% block growth.
+*** THE MARGIN IS NOW THIN, AND THIS IS THE PLACE THAT SAYS SO. *** The PF-024/PF-032
+prompt edit (2026-07-29) spent most of the slack, deliberately and with the user's
+decision on record. Measured after it:
+
+    prompt         12,414 chars   (was 11,505 -> 7.9% above the calibration anchor)
+    stdlib block    5,737 chars   (46% of the file)
+    slack             185 tokens  (was 457)  = ~617 chars of room left
+    trips at         10.8% growth of the stdlib block   (was ~29%)
+
+A Faust upgrade adding a tenth to the block now takes groq down. That is a real
+change in exposure, not a documentation detail, and the bounds in
+TestTheGuardCanActuallyFail were re-bracketed to match it rather than relaxed to
+hide it — see that class for the arithmetic.
+
+**A re-measure is due.** At 7.9% drift the anchor still describes the file within
+tolerance (test_calibration_anchor_still_describes_the_file allows 10%), but the
+3283 figure is now an extrapolation over 909 characters it never saw. Re-measuring
+costs ONE live groq generation: send this exact file and read usage.prompt_tokens.
+Do it on the next authorized run and update MEASURED_* below.
 
 WHY AN ESTIMATE AND NOT A TOKENIZER. No tokenizer for this model is installed, and
 adding one is a dependency change (COLLABORATION.md §2 trigger 4). Instead the
 estimate is CALIBRATED against a real measurement — groq's own usage.prompt_tokens
 for this exact file — and scaled linearly by character count, then made
 deliberately pessimistic. That is weaker than tokenizing and stronger than nothing:
-it cannot tell you the exact count, but it will fire long before a 19% growth in
-the stdlib block reaches production.
+it cannot tell you the exact count, but it fires well before a 413 reaches
+production.
 
 WHAT THIS DOES NOT CATCH, stated per COLLABORATION.md §7:
   * It is calibrated on ONE model on ONE provider on ONE day. TPM limits are
@@ -153,26 +164,41 @@ class TestTheGuardCanActuallyFail:
     def test_a_realistic_stdlib_block_growth_trips_the_guard(self):
         """The concrete predicted failure, pinned so the docstring cannot rot.
 
-        Growth is applied to the STDLIB BLOCK's share of the file (48%), not to the
+        Growth is applied to the STDLIB BLOCK's share of the file (46%), not to the
         file, because those differ by more than 2x and conflating them is the error
         this test was written to stop repeating.
 
-        A 20% block growth is asserted NOT to trip (it leaves ~127 tokens), and a
-        50% block growth IS asserted to trip. Both bounds matter: the first stops
-        the guard being described as more sensitive than it is.
+        THE BOUNDS MOVED ON 2026-07-29 AND THAT IS THE POINT. They were 20% (must
+        not trip) / 50% (must trip), bracketing a measured threshold of ~29%. The
+        PF-024/PF-032 prompt edit spent 909 characters and the threshold fell to
+        **10.8%**, so the old lower bound started failing — correctly. It was
+        reporting that the guard had become more sensitive than the file claimed.
+
+        Re-bracketed to 5% / 20% around the new measured 10.8%. This is the one
+        edit in this file that could be mistaken for tuning a test until it passes,
+        so: the assertion did not change, the file did. Confirm with
+
+            python tests/test_prompt_headroom.py
+
+        which prints the live slack, and recompute 10.8% as slack_chars/block_chars.
+        If a future edit pushes the threshold under 5%, do NOT widen these bounds
+        again — buy headroom back instead, by trimming the curated list in
+        tools/gen_stdlib_block.py or by revisiting MAX_OUTPUT_TOKENS.
         """
         text = PROMPT_PATH.read_text()
-        stdlib_chars = 5510          # measured; the generated block's size today
+        stdlib_chars = 5737          # measured 2026-07-29; the generated block today
 
-        mild = text + "y" * int(stdlib_chars * 0.20)
+        mild = text + "y" * int(stdlib_chars * 0.05)
         assert headroom_tokens(mild, providers.MAX_OUTPUT_TOKENS) > 0, (
-            "A 20% stdlib growth now trips the guard — headroom has shrunk since "
-            "2026-07-28. Re-measure before trusting any figure in this file."
+            "A 5% stdlib growth now trips the guard. Headroom is under ~290 chars, "
+            "which is less than one added function entry — the prompt is effectively "
+            "full. Buy room back (trim tools/gen_stdlib_block.py's curated list) "
+            "rather than widening this bound."
         )
 
-        severe = text + "y" * int(stdlib_chars * 0.50)
+        severe = text + "y" * int(stdlib_chars * 0.20)
         assert headroom_tokens(severe, providers.MAX_OUTPUT_TOKENS) < 0, (
-            "A 50% growth in the generated stdlib block no longer trips this "
+            "A 20% growth in the generated stdlib block no longer trips this "
             "guard — either the prompt shrank a lot or the limits moved. Re-measure."
         )
 

@@ -15,12 +15,21 @@ STRICT RULES:
 - hslider format: hslider("Label [unit:Hz]", default, min, max, step)
 - Smooth any slider controlling a filter frequency, delay time, or gain with
   : si.smoo — otherwise parameter changes produce audible zipper noise.
+- Units are whatever the reference says for that argument. A frequency documented
+  in Hz must NOT be divided by ma.SR; a threshold documented in dB must NOT be run
+  through ba.db2linear first, because the library does that itself. Both mistakes
+  compile cleanly and render SILENCE.
 - For stereo effects: process = L, R; where L and R operate on separate channels.
 - For stereo pass-through: use _ , _ as input signals.
 - process must be defined exactly once, and never re-defined
 - Never define the same variable or function name more than once in a single file.
-- Faust has NO let bindings. For an intermediate value, give it its own top-level
-  definition, or use a with { } block attached to the definition that uses it.
+- Faust is NOT C. It has no let, no ? : ternary, and no way to index a channel out
+  of a multi-output expression. These are the three constructs most often invented,
+  and each has a real replacement:
+    an intermediate value  ->  a top-level definition, or a with { } block
+    a condition            ->  select2(cond, whenFalse, whenTrue)
+    one of two channels    ->  (_ , !) keeps the left, (! , _) keeps the right
+  wet.0 and (a > b) ? x : y are syntax errors, not slower paths.
 - A definition that uses an argument must DECLARE it. Write echoCh(x) = x * 0.5;
   never echoCh = x * 0.5; — a name on the right that is not in the parameter list
   is an undefined symbol.
@@ -74,10 +83,10 @@ Filters:
   fi.dcblocker                                  DC blocker; no arguments
 
 Virtual-analog filters:
-  ve.moog_vcf(res, fr)                          Moog ladder VCF
-  ve.moogLadder(normFreq, Q, x)                 alternative Moog ladder model
-  ve.korg35LPF(normFreq, Q)                     Korg 35 low-pass
-  ve.diodeLadder(normFreq, Q)                   diode-ladder (TB-303 style) low-pass
+  ve.moog_vcf(res, fr)                          Moog ladder VCF; fr in Hz, res normalised 0-1
+  ve.moogLadder(normFreq, Q, x)                 Moog ladder; normFreq is 0-1, NOT Hz
+  ve.korg35LPF(normFreq, Q)                     Korg 35 low-pass; normFreq is 0-1, NOT Hz
+  ve.diodeLadder(normFreq, Q)                   diode-ladder (TB-303); normFreq is 0-1, NOT Hz
 
 Delays:
   de.delay(n, d, x)                             integer-sample delay; first arg is the MAXIMUM delay
@@ -98,13 +107,13 @@ Modulation effects:
 
 Dynamics:
   co.compressor_mono(ratio, thresh, att, rel, x)
-                                                mono compressor
+                                                mono compressor; thresh in dB, pass it raw
   co.compressor_stereo(ratio, thresh, att, rel, x, y)
-                                                stereo compressor, linked detection
+                                                stereo compressor, linked; thresh in dB, raw
   co.limiter_1176_R4_mono(x)                    1176-style limiter, mono
   co.limiter_1176_R4_stereo(x, y)               1176-style limiter, stereo
-  ef.gate_mono(thresh, att, hold, rel, x)       noise gate, mono
-  ef.gate_stereo(thresh, att, hold, rel, x, y)  noise gate, stereo
+  ef.gate_mono(thresh, att, hold, rel, x)       noise gate, mono; thresh in dB, pass it raw
+  ef.gate_stereo(thresh, att, hold, rel, x, y)  noise gate, stereo; thresh in dB, pass it raw
   an.amp_follower_ar(att, rel)                  envelope follower with attack/release
 
 Distortion / saturation:
@@ -193,9 +202,12 @@ MAXD  = 96000;
 dtime = hslider("Time [unit:ms]", 250, 10, 1000, 1) : si.smoo
         : *(ma.SR/1000.0) : min(MAXD-1) : max(1);
 fb    = hslider("Feedback", 0.4, 0, 0.95, 0.01);
-process = _,_ : (cross ~ (de.fdelay(MAXD, dtime), de.fdelay(MAXD, dtime)))
+mix   = hslider("Dry/Wet", 0.5, 0, 1, 0.01) : si.smoo;
+process = _,_ <: dry, wet :> _,_
 with {
   cross(fbL, fbR, inL, inR) = inL + fbR*fb, inR + fbL*fb;
+  dry = par(i, 2, _ * (1 - mix));
+  wet = (cross ~ (de.fdelay(MAXD, dtime), de.fdelay(MAXD, dtime))) : par(i, 2, _ * mix);
 };
 
 USER: a tape-style flanger
