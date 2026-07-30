@@ -44,6 +44,7 @@ public:
     ParamGridPanel::WidgetKind gridControlKindForTest(int i) const;
     juce::String gridControlLabelForTest(int i) const;
     double       gridControlValueForTest(int i) const;
+    juce::String gridControlTextForTest(int i) const;
     // Drives the 30Hz meter/mute tick directly. The Timer fires on wall-clock, so a
     // test that waited for it would be timing-dependent; this makes the edge-detect
     // in timerCallback() observable without a sleep.

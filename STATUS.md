@@ -44,7 +44,17 @@ Each closure below was verified by reading the cited code at HEAD, or by a named
   step still carries the preload and that the sanitizer runtime leads it (an ASan binary
   aborts outright if anything precedes libasan — found the hard way). Mutation-tested against
   four breakages; each caught by the intended assertion, green again after restore.
-- **The three UI observations are now defects with IDs.** *(PF-037/038/039.)* They had been
+- **The knobs say what they mean, and fixing that exposed a real bug underneath.**
+  *(PF-037 + PF-040, pending commit.)* `ParamMap::formatZone`/`parseZone` installed on each
+  slider's `textFromValueFunction` — plugin UI only, the slot stays 0..1 and the parameter is
+  untouched. Order matters: JUCE's attachment assigns that function itself
+  (`juce_ParameterAttachments.cpp:118-119`), so ours has to land after it.
+  **Then the new test failed on 819 Hz.** `AudioParameterFloat`'s bare min/max constructor
+  hardcodes `interval 0.01` (`juce_AudioParameterFloat.cpp:76`), so all 64 slots have had
+  **101 positions** for the project's whole life and an 800 Hz default landed on 819.
+  Measured directly: writing 0.039039 to the parameter read back 0.040000. Both fixed;
+  `StatePersistenceTest` still passes.
+- **The other two UI observations are defects with IDs.** *(PF-038/039.)* They had been
   sitting in this file's prose with no ID, one rewrite away from vanishing.
 - **The editor is driven by something, at last.** *(`81fc75b`.)*
   `host/tests/EditorSessionTest.cpp` — 61 checks over 11 scenarios against the real
@@ -98,14 +108,15 @@ The Tier-2 benchmark statement is unpaid, and per PF-031 the honest form is per-
 aggregate. `check.sh audio` will stay red regardless — it renders the stored 07-28 corpus,
 which a prompt edit cannot retroactively change.
 
-**2. Every parameter displays as a raw 0–1 slot number.** *(PF-037, medium, open.)* A cutoff
-of 800 Hz reads `0.04`. The DSP is correct — `ParamMap` denormalizes into it — and nothing
-denormalizes for the display, so no user can read what any knob is set to. Previously
-declined as "a design question, not a bug"; that was wrong.
-
-**3. The benchmark's noise floor is unmeasured.** *(PF-031, medium, open.)* It has never been
+**2. The benchmark's noise floor is unmeasured.** *(PF-031, medium, open.)* It has never been
 run twice on an unchanged prompt, so no delta can be called significant — including
 80%→88%.
+
+**3. The DAW still sees raw slots.** *(follow-up to PF-037, open, unfiled.)* The plugin's own
+knobs now read `800 Hz`; the host's automation lane still reads `Macro 7: 0.04`. Closing it
+means a `stringFromValue` lambda fed per-patch metadata the host may call from any thread
+while the compile thread republishes it — a concurrency change next to the
+"parameters are declared once" invariant, deliberately not taken on inside a readout fix.
 
 **4. Knob ordering and a dead widget arm.** *(PF-038 low, PF-039 low, open.)* Knobs sort
 lexicographically (`P0, P1, P10, P11 … P2`); the rotary fallback is unreachable while
@@ -143,9 +154,9 @@ blocking item is authorization, not work.
    groq closes the objective half and hands over WAVs; then 125 more closes PF-011, then
    `score_efficacy.py --judge` closes PF-013. Sequential, not parallel — PF-030. This is also
    what pays PF-024/PF-032's outstanding benchmark statement.
-3. **Fix PF-037.** The knob readout is the most visible defect in the product and the cheapest
-   of the three UI items — `ParamMap` already has the denormalization; nothing calls it for
-   display.
+3. **Look at `artifacts/images/session_12_readout.png`.** PF-037's test asserts the grid
+   reports the right *strings*; whether it now *looks* right is a human's two seconds and
+   nothing else's. Same class of judgement as the listening pass, at a much smaller scale.
 
 ## Waiting on you
 

@@ -206,6 +206,117 @@ int main()
         check(monotonic, "cutoff increases monotonically across the full sweep");
     }
 
+    // ── PF-037: the readout ─────────────────────────────────────────────────
+    // Every knob used to display its raw 0..1 SLOT. The headline case is the
+    // one from the defect report: an 800 Hz cutoff read `0.04`.
+    {
+        std::printf("\nPF-037 — the readout shows real units\n");
+
+        // THE DEFECT REPORT'S OWN NUMBER IS A CLUE, and it took a failing test
+        // to notice. STATUS.md recorded "a cutoff of 800 Hz reads 0.04". On the
+        // log curve 800 Hz sits at slot 0.534, not 0.04 -- 0.04 is the LINEAR
+        // slot, (800-20)/(20000-20). So the patch the harness photographed
+        // declared neither [unit:Hz] nor [scale:log], which is the common
+        // generated case and the one curveFor() cannot help. Both are pinned
+        // below, because the unitless one is what users will actually meet.
+        PI bare = slider(800.0f, 20.0f, 20000.0f, 1.0f);   // no unit, no scale
+        checkNear(ParamMap::mapZoneToSlot(800.0f, bare), 0.039f, 0.001f,
+                  "an unitless 20..20k control really does put 800 at slot 0.04");
+        check(ParamMap::formatZone(
+                  ParamMap::mapSlotToZone(ParamMap::mapZoneToSlot(800.0f, bare), bare), bare)
+                  == "800",
+              "and it now reads \"800\" rather than \"0.04\"");
+
+        PI cutoff = slider(800.0f, 20.0f, 20000.0f, 1.0f);
+        cutoff.unit = "Hz";
+
+        // With the unit declared, curveFor() picks Log, so the same 800 Hz sits
+        // at slot 0.53 instead -- a different wrong number, equally unreadable.
+        const float slot = ParamMap::mapZoneToSlot(800.0f, cutoff);
+        checkNear(slot, 0.534f, 0.002f, "declaring Hz moves 800 to the log slot 0.53");
+
+        const juce::String shown =
+            ParamMap::formatZone(ParamMap::mapSlotToZone(slot, cutoff), cutoff);
+        check(shown == "800 Hz", "800 Hz reads as \"800 Hz\", not a slot number");
+
+        // A step of 1 means whole Hz; no decimals should survive.
+        check(! shown.containsChar('.'), "an integer-step Hz control shows no decimals");
+
+        PI gain = slider(0.0f, -24.0f, 6.0f, 0.1f);
+        gain.unit = "dB";
+        check(ParamMap::formatZone(-6.0f, gain) == "-6.0 dB",
+              "a 0.1-step dB control keeps one decimal and its sign");
+
+        // Every exact decimal step, because this is where float bites: 0.01f is
+        // 0.009999999776 as a double, so -log10 is 2.0000000097 and a bare
+        // ceil() yields THREE decimals. Caught end-to-end first ("0.500" for a
+        // 0.01-step Level), pinned here so the epsilon cannot be tuned away.
+        struct StepCase { float step; const char* shown; };
+        const StepCase steps[] = {
+            { 1.0f,    "0"     },
+            { 0.1f,    "0.0"   },
+            { 0.01f,   "0.00"  },
+            { 0.001f,  "0.000" },
+        };
+        for (const auto& sc : steps)
+        {
+            PI p = slider(0.0f, 0.0f, 1.0f, sc.step);
+            const auto got = ParamMap::formatZone(0.0f, p);
+            char msg[128];
+            std::snprintf(msg, sizeof msg, "step %.4f -> \"%s\" (got \"%s\")",
+                          sc.step, sc.shown, got.toRawUTF8());
+            check(got == sc.shown, msg);
+        }
+
+        // The common generated-patch case: no declared unit at all. A bare
+        // number is still an enormous improvement over a slot index.
+        // Precision comes from the RANGE, not the current value, so one knob
+        // prints the same shape at both ends of its travel.
+        PI q = slider(0.7f, 0.7f, 8.0f);
+        check(ParamMap::formatZone(0.7f, q) == "0.70",
+              "an unitless control shows a bare number, no suffix");
+        check(ParamMap::formatZone(8.0f, q) == "8.00",
+              "and the same control keeps that width at the other end");
+
+        PI voices = slider(2.0f, 1.0f, 8.0f, 1.0f);
+        check(ParamMap::formatZone(2.0f, voices) == "2",
+              "a discrete count reads \"2\", not \"0.14\"");
+
+        // Round trip: what the box prints must parse back to the same slot,
+        // or typing nothing and pressing enter moves the knob.
+        {
+            bool roundTrips = true;
+            for (float n = 0.0f; n <= 1.0f; n += 0.05f)
+            {
+                const float zone = ParamMap::mapSlotToZone(n, cutoff);
+                const juce::String txt = ParamMap::formatZone(zone, cutoff);
+                const float back = ParamMap::mapZoneToSlot(
+                    ParamMap::parseZone(txt, cutoff), cutoff);
+                // Tolerance is one integer Hz expressed in slot terms near the
+                // bottom of a log curve, which is the coarsest point.
+                if (std::fabs(back - n) > 0.02f)
+                    roundTrips = false;
+            }
+            check(roundTrips, "formatZone -> parseZone returns the same slot across the sweep");
+        }
+
+        check(ParamMap::parseZone("800 Hz", cutoff) == 800.0f,
+              "parseZone accepts the unit suffix it printed");
+        check(ParamMap::parseZone("800", cutoff) == 800.0f,
+              "parseZone accepts a bare number");
+        checkNear(ParamMap::parseZone("", cutoff), 800.0f, 0.001f,
+                  "empty text falls back to the default, not the minimum");
+        checkNear(ParamMap::parseZone("banana", cutoff), 800.0f, 0.001f,
+                  "unparseable text falls back to the default, not the minimum");
+        check(ParamMap::parseZone("999999", cutoff) == 20000.0f,
+              "an out-of-range entry clamps to max");
+
+        PI toggle = slider(0.0f, 0.0f, 1.0f);
+        toggle.kind = FaustEngine::Kind::CheckButton;
+        check(ParamMap::formatZone(1.0f, toggle) == "On", "a checkbox reads On");
+        check(ParamMap::formatZone(0.0f, toggle) == "Off", "a checkbox reads Off");
+    }
+
     std::printf("\n%s (%d failure%s)\n", failures == 0 ? "PASSED" : "FAILED",
                 failures, failures == 1 ? "" : "s");
     return failures == 0 ? 0 : 1;

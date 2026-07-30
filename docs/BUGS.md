@@ -72,9 +72,10 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-032 | 2 of 22 compiling patches render SILENT — a warm lowpass at rms 2.5e-08 and a noise gate at 0.0; the compile rate overstates working output | high | in-progress | S1 Backend | `tools/gen_stdlib_block.py` curated notes | 2026-07-28 | `a4f942e` prompt-side; unmeasured |
 | PF-035 | `min_max_tokens` makes a per-call output budget unenforceable — the judge asks for 300 and silently gets 4096 | low | open | S4 Testing | `bench/score_efficacy.py:465`, `providers.py` `make_generator` | 2026-07-29 | — |
 | PF-036 | libfaust's JIT emits AVX-512 on CI runners that name the ISA but cannot execute it — SIGILL in `computemydsp`. It **was** the CPU; PF-027 closed that hypothesis wrongly | high | fixed | S4 Testing | `host/tools/pf_cpu_shim.cpp`, `.github/workflows/test.yml` | 2026-07-30 | pending commit |
-| PF-037 | Every parameter displays as a raw 0–1 slot number — 800 Hz reads `0.04`. `ParamMap` denormalizes into the DSP and nothing denormalizes for the display | medium | open | S3 Plugin UX | `ParamGridPanel.cpp` `refreshParamKnobs` | 2026-07-28 | — |
+| PF-037 | Every parameter displays as a raw 0–1 slot number — 800 Hz reads `0.04`. `ParamMap` denormalizes into the DSP and nothing denormalizes for the display | medium | fixed | S3 Plugin UX | `ParamMap.h` `formatZone`, `ParamGridPanel.cpp` `applyPresentation` | 2026-07-28 | pending commit |
 | PF-038 | Knobs appear alphabetically, not in declaration order — a 40-param patch lists `P0, P1, P10, P11 … P2` | low | open | S3 Plugin UX | `ParamGridPanel.cpp` `refreshParamKnobs` | 2026-07-28 | — |
 | PF-039 | The rotary fallback in `refreshParamKnobs` is unreachable dead code; `docs/ui_design_plan.md` still describes it as the fallback widget | low | open | S3 Plugin UX | `ParamGridPanel.cpp`, `docs/ui_design_plan.md` | 2026-07-28 | — |
+| PF-040 | Every macro slot was quantised to 100 positions — JUCE's `AudioParameterFloat` min/max convenience ctor hardcodes `interval 0.01`, so a patch default usually could not be represented (800 Hz became 819 Hz) | high | fixed | S1 Backend | `PluginProcessor.cpp` `createParameterLayout` | 2026-07-30 | pending commit |
 
 ---
 
@@ -700,7 +701,7 @@ observed symptom.
 ---
 
 ### PF-037 / PF-038 / PF-039 — the parameter grid, as the harness photographed it.
-**medium / low / low · open · S3 Plugin UX · observed 2026-07-28, filed 2026-07-30**
+**PF-037 fixed 2026-07-30 · PF-038/PF-039 low, open · S3 Plugin UX · observed 2026-07-28, filed 2026-07-30**
 
 All three were recorded in STATUS.md under *"Two things the harness measured that were
 nobody's claim either way"* and had no IDs, which means they were one STATUS.md rewrite away
@@ -717,6 +718,89 @@ from disappearing. Visible in `artifacts/images/session_*.png`.
   `refreshParamKnobs` handles all five explicitly, so the `default:` arm is unreachable.
   `docs/ui_design_plan.md` still describes it as the fallback widget, so the doc describes a
   widget no generated plugin has ever shown.
+
+**PF-037 CLOSED 2026-07-30, and it found a bigger bug underneath.**
+`ParamMap::formatZone`/`parseZone` convert for the eye, installed on each slider's
+`textFromValueFunction` in `ParamGridPanel::applyPresentation`.
+
+*Order is load-bearing:* `SliderParameterAttachment`'s constructor assigns both text
+functions itself, delegating to the parameter's `getText()`
+(`juce_ParameterAttachments.cpp:118-119`) — which for a plain `AudioParameterFloat(0..1)`
+is exactly what printed `0.04`. Ours must be assigned **after** the attachment exists.
+`refreshParamKnobs` already calls `applyPresentation` after constructing it; moving it
+earlier silently restores the bug, which is why the ordering has a comment and a test.
+
+*Scope, chosen deliberately:* plugin UI only. The slot stays 0..1 and the parameter is
+untouched, so the DAW's automation lane still reads `Macro 7: 0.04`. Making the *parameter*
+unit-aware would mean feeding per-patch metadata to a `stringFromValue` lambda the host can
+call from any thread while the compile thread republishes it — a real concurrency change
+next to the "parameters are declared once" invariant, and not worth taking on to fix a
+readout. Filed as a follow-up rather than done quietly.
+
+*Format:* plain, in Faust's declared unit — `800 Hz`, `-6.0 dB`, `250 ms`; a bare number
+when no unit is declared. No kHz auto-scaling: the box must parse what it prints, and
+rounding `12000 Hz` to `12.0 kHz` makes typing a value and reading it back shift it.
+Precision comes from the declared step, falling back to the **range span** rather than the
+current value — a control whose digit count changes as you turn it reads as a glitch.
+
+**Two things the tests found that reading could not.**
+
+1. **The defect report's own number was a clue nobody followed.** STATUS.md said "a cutoff
+   of 800 Hz reads `0.04`". On the log curve 800 Hz is slot **0.534**; `0.04` is the
+   *linear* slot. So the photographed patch declared neither `[unit:Hz]` nor `[scale:log]`
+   — the common generated case, and the one `curveFor()` cannot help. A test written to the
+   remembered number failed and said so.
+2. **`0.01f` is not 0.01.** It is 0.009999999776, so `-log10` is 2.0000000097 and a bare
+   `ceil()` returns **three** decimals — a 0.01-step control rendered `0.500`. Found
+   end-to-end, then pinned per-step at unit level so the epsilon cannot be tuned away.
+
+**Not verified.** That the grid *looks* right, as opposed to reporting right strings.
+`artifacts/images/session_12_readout.png` is written for exactly that, and looking at it is
+a human's job.
+
+---
+
+### PF-040 — every macro slot had 100 positions. *(fixed 2026-07-30)*
+
+**high · S1 Backend · found by PF-037's regression test, not by reading**
+
+`createParameterLayout` built each of the 64 slots with the bare min/max/default overload:
+
+```cpp
+juce::AudioParameterFloat(slotId(i), "Macro N", 0.0f, 1.0f, 0.0f)
+```
+
+That overload is not a thin wrapper. `juce_AudioParameterFloat.cpp:76`:
+
+```cpp
+AudioParameterFloat::AudioParameterFloat (const ParameterID& pid, const String& nm,
+                                          float minValue, float maxValue, float def)
+   : AudioParameterFloat (pid, nm, { minValue, maxValue, 0.01f }, def)
+```
+
+It **hardcodes an interval of 0.01**. So every slot had exactly 101 reachable positions,
+for the entire life of the project, and a patch's declared default usually could not be
+represented: an 800 Hz cutoff on a linear 20..20000 control needs slot 0.039039, got 0.04,
+and came back as **819 Hz**. Measured, not inferred — writing 0.039039 straight to the
+parameter and reading it back returned 0.040000.
+
+Fixed by passing an explicit `juce::NormalisableRange<float>(0.0f, 1.0f)`, whose two-argument
+constructor leaves `interval` at 0 (`juce_NormalisableRange.h:63-66`), i.e. continuous.
+
+**Why nobody saw it.** The knobs displayed the raw slot, so the symptom of a coarse slot was
+a slightly different meaningless number. PF-037 made the readout honest and the coarseness
+became a wrong frequency on screen in the same session. That is the argument for fixing
+display bugs even when the DSP is provably correct: an unreadable UI hides everything behind
+it.
+
+**Blast radius checked.** `StatePersistenceTest` passes — saved values are floats in the
+ValueTree and restoring is unaffected; removing an interval is strictly more permissive than
+adding one, so no previously-saved value becomes unrepresentable.
+
+**Not verified.** Whether any DAW's automation UI relied on the 0.01 step for its own
+increment behaviour. No host has been driven; only the plugin's own editor.
+
+---
 
 ---
 

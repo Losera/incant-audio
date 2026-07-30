@@ -156,6 +156,11 @@ double PluginForgeEditor::gridControlValueForTest(int i) const
     return paramGridPanel.controlValueForTest(i);
 }
 
+juce::String PluginForgeEditor::gridControlTextForTest(int i) const
+{
+    return paramGridPanel.controlTextForTest(i);
+}
+
 void PluginForgeEditor::timerCallback()
 {
     // Instant attack, exponential release — the standard meter ballistics that

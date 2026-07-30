@@ -76,6 +76,12 @@ public:
     // The widget's OWN value, not the APVTS slot's — so a test can catch an
     // attachment that silently stopped tracking its parameter.
     double       controlValueForTest(int index) const;
+    // What the user actually READS: the text box's rendering of the current
+    // value, pulled through the slider's own textFromValueFunction rather than
+    // recomputed. Recomputing it here would agree with applyPresentation() by
+    // construction and prove nothing — the claim under test is precisely that
+    // the panel's lambda, not JUCE's default, is the one installed (PF-037).
+    juce::String controlTextForTest(int index) const;
     static const char* widgetKindName(WidgetKind k);
 
 private:

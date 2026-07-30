@@ -741,6 +741,76 @@ void scenario11_codeView()
     snapshot(s.editor, "11c_code_view_reopened");
 }
 
+// 12 — What the knobs actually SAY.
+void scenario12_readout()
+{
+    scenario("12. the readout shows real units, not slot numbers",
+             "PF-037: an 800 Hz cutoff used to read 0.04");
+
+    Session s;
+    check(loadAndSettle(s, kEveryKindPatch, 5), "the 5-param patch compiled");
+
+    // kEveryKindPatch declares hslider("Cutoff", 800, 20, 20000, 1) with NO
+    // [unit:Hz] and NO [scale:log] -- which is why the defect report's number
+    // was 0.04 (the LINEAR slot) rather than 0.53 (the log one). This is the
+    // exact patch shape the harness photographed, so it is the right one to
+    // assert on.
+    struct Expect { const char* label; const char* text; const char* why; };
+    const Expect expected[] = {
+        { "Cutoff",  "800",  "a 20..20000 control at its 800 default (was 0.04)" },
+        { "Voices",  "2",    "a discrete 1..8 count (was 0.14)" },
+        { "Level",   "0.50", "a 0..1 control keeps its 0.01 step's two decimals" },
+        { "Bypass",  "Off",  "a checkbox reads its state, not a number" },
+        { "Trigger", "Off",  "a momentary button likewise" },
+    };
+
+    for (const auto& e : expected)
+    {
+        int found = -1;
+        for (int i = 0; i < s.editor.gridControlCountForTest(); ++i)
+            if (s.editor.gridControlLabelForTest(i) == e.label)
+                found = i;
+
+        if (found < 0)
+        {
+            check(false, juce::String("a control labelled '") + e.label + "' exists");
+            continue;
+        }
+
+        const auto got = s.editor.gridControlTextForTest(found);
+        check(got == e.text,
+              juce::String("'") + e.label + "' reads \"" + e.text + "\" -- " + e.why
+                  + " (got \"" + got + "\")");
+    }
+
+    // The claim underneath: the SLOT is still 0..1 and still what the parameter
+    // holds. Only the text is denormalised. If this ever starts reading 800, the
+    // readout has been implemented by corrupting the parameter, and the DAW's
+    // automation lane goes with it.
+    int cutoffIdx = -1;
+    for (int i = 0; i < s.editor.gridControlCountForTest(); ++i)
+        if (s.editor.gridControlLabelForTest(i) == "Cutoff")
+            cutoffIdx = i;
+    if (cutoffIdx >= 0)
+    {
+        const double slot = s.editor.gridControlValueForTest(cutoffIdx);
+        // PF-040's regression, asserted here because this is where it was found.
+        // The slot for an 800 Hz default on a linear 20..20000 control is
+        // 0.039039; with JUCE's hardcoded 0.01 interval it landed on 0.04 and
+        // the readout said 819. Asserting the SLOT rather than only the text
+        // means a return of the quantisation fails here even if the rounding
+        // happens to still print "800".
+        check(std::fabs(slot - 0.039039) < 0.0005,
+              juce::String("the slot holds the patch's exact default, not a 1/100 snap "
+                           "(PF-040) -- got ") + juce::String(slot, 6));
+        check(slot >= 0.0 && slot <= 1.0,
+              juce::String("the underlying slot is still 0..1 (") + juce::String(slot, 4)
+                  + ") -- the text was denormalised, the parameter was not");
+    }
+
+    snapshot(s.editor, "12_readout");
+}
+
 } // namespace
 
 int main()
@@ -748,7 +818,7 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInit;
 
     std::printf("EditorSessionTest -- a simulated human session against the real editor\n");
-    std::printf("  11 scenarios, no network, no quota, snapshots to artifacts/images/\n");
+    std::printf("  12 scenarios, no network, no quota, snapshots to artifacts/images/\n");
 
     auto tmp = juce::File::getSpecialLocation(juce::File::tempDirectory)
                    .getChildFile("pluginforge_editor_session");
@@ -766,6 +836,7 @@ int main()
     scenario09_teardownMidFlight(tmp);
     scenario10_stateRoundTrip();
     scenario11_codeView();
+    scenario12_readout();
 
     tmp.deleteRecursively();
 

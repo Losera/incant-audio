@@ -1,8 +1,21 @@
 #include "ParamGridPanel.h"
 #include "ParamGridLayout.h"
-// ParamMap.h is deliberately NOT included. This panel used to convert patch
-// defaults into slot values itself; that seeding moved to the processor (PF-033,
-// see refreshParamKnobs). Leaving the include would invite it back.
+#include "ParamMap.h"
+// ParamMap.h is included for DISPLAY ONLY — formatZone/parseZone/mapSlotToZone
+// inside the text-box lambdas in applyPresentation() (PF-037).
+//
+// It was previously excluded on purpose, and that reasoning still stands in the
+// direction it was aimed: this panel used to convert patch defaults into slot
+// values and WRITE them, and that seeding moved to the processor (PF-033, see
+// the long note in refreshParamKnobs). The prohibition is on writing slot
+// values from here, not on reading the conversion. Reading it is in fact the
+// point — the alternative to calling mapSlotToZone is an inline formula in the
+// UI layer, which is the exact defect ParamMap.h's own header comment was
+// written about ("two halves of one conversion, implemented once each,
+// disagreeing").
+//
+// So: nothing below may assign to an APVTS parameter. The text lambdas convert
+// for the eye and hand the result back to JUCE.
 
 ParamGridPanel::ParamGridPanel(PluginForgeProcessor& p)
     : processor(p)
@@ -128,6 +141,38 @@ void ParamGridPanel::applyPresentation(Control& c)
     auto* sl = dynamic_cast<juce::Slider*>(c.widget.get());
     if (sl == nullptr)
         return;
+
+    // ── The readout (PF-037) ────────────────────────────────────────────────
+    // The slider's VALUE is the 0..1 slot, and that is correct and must stay:
+    // the attachment, the APVTS and the host automation lane all speak slots.
+    // Only the TEXT is denormalised, via the same ParamMap the audio path uses.
+    //
+    // ORDER IS LOAD-BEARING. SliderParameterAttachment's constructor assigns
+    // both of these itself, delegating to the parameter's getText()
+    // (juce_ParameterAttachments.cpp:118-119) — which for a plain
+    // AudioParameterFloat(0..1) is what printed `0.04` for 800 Hz. Ours must be
+    // assigned AFTER the attachment exists to win, and refreshParamKnobs calls
+    // applyPresentation() after constructing it. Moving this earlier silently
+    // restores the bug.
+    //
+    // `meta` is copied into each lambda rather than captured by reference: the
+    // Control can be moved (controls is a vector that grows), and a reference
+    // into it would dangle. meta.zone is already null (refreshParamKnobs), so
+    // the copy carries no pointer into the DSP.
+    sl->textFromValueFunction = [meta = c.meta](double slotValue)
+    {
+        return ParamMap::formatZone(
+            ParamMap::mapSlotToZone(static_cast<float>(slotValue), meta), meta);
+    };
+    sl->valueFromTextFunction = [meta = c.meta](const juce::String& text)
+    {
+        return static_cast<double>(
+            ParamMap::mapZoneToSlot(ParamMap::parseZone(text, meta), meta));
+    };
+    // The attachment has already pushed the current value through the OLD text
+    // function, so the box is showing a slot number until something repaints.
+    // updateText() re-renders it now (juce_Slider.h:844).
+    sl->updateText();
 
     switch (c.meta.kind)
     {
@@ -256,6 +301,22 @@ double ParamGridPanel::controlValueForTest(int index) const
     if (auto* tb = dynamic_cast<juce::ToggleButton*>(w))
         return tb->getToggleState() ? 1.0 : 0.0;
     return 0.0;
+}
+
+juce::String ParamGridPanel::controlTextForTest(int index) const
+{
+    if (index < 0 || index >= static_cast<int>(controls.size()))
+        return {};
+
+    auto* w = controls[static_cast<size_t>(index)].widget.get();
+    if (auto* sl = dynamic_cast<juce::Slider*>(w))
+        // getTextFromValue runs whichever textFromValueFunction is installed
+        // (juce_Slider.h:754), which is the whole point: if applyPresentation
+        // stopped overriding it, this returns the attachment's slot number.
+        return sl->getTextFromValue(sl->getValue());
+    if (auto* tb = dynamic_cast<juce::ToggleButton*>(w))
+        return tb->getToggleState() ? "On" : "Off";
+    return {};
 }
 
 const char* ParamGridPanel::widgetKindName(WidgetKind k)

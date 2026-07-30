@@ -34,10 +34,24 @@ PluginForgeProcessor::createParameterLayout()
 
     for (int i = 0; i < ParamPool::POOL_SIZE; ++i)
     {
+        // ⚠️ The NormalisableRange is EXPLICIT, and must stay explicit (PF-040).
+        // The convenience overload that takes bare min/max/default is
+        //     AudioParameterFloat (pid, nm, { minValue, maxValue, 0.01f }, def)
+        // -- juce_AudioParameterFloat.cpp:76, which hardcodes an interval of
+        // 0.01. Every slot therefore had exactly 100 positions, so a patch's
+        // declared default usually could not be represented: an 800 Hz cutoff
+        // on a 20..20000 control needs slot 0.039039 and got 0.04, i.e. 819 Hz.
+        // The two-argument NormalisableRange leaves interval at 0
+        // (juce_NormalisableRange.h:63-66), which is continuous.
+        //
+        // This was invisible for the project's whole history because the knobs
+        // displayed the raw slot; it surfaced the moment the readout started
+        // showing real units (PF-037) and a test asserted the default.
         params.push_back(std::make_unique<juce::AudioParameterFloat>(
             ParamPool::slotId(i),               // paramID (stable — DAW automation uses this)
             "Macro " + juce::String(i + 1),     // display name
-            0.0f, 1.0f, 0.0f
+            juce::NormalisableRange<float>(0.0f, 1.0f),
+            0.0f
         ));
     }
 
