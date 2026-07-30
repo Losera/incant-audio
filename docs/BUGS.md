@@ -672,13 +672,30 @@ is a guess."* The guess was right for three days.
 binary aborts with *"ASan runtime does not come first in initial library list"* if anything
 precedes it — observed locally while wiring this, which is why the ordering has its own test.
 
-**Not verified.** That CI passes on an EPYC 9V74. No workflow can request a CPU model, so
-this cannot be demonstrated on demand — it is precisely why the regression test disassembles
-JIT output on the dev box instead. **Do not read the next green run as confirmation**; that
-inference is what closed PF-027 early. What *would* confirm it is a green run whose
-`lscpu` line says 9V74, and the workflow still prints that line. `ParamPoolTsanTest` also
-JITs and is covered by the same preload, but has never been observed failing this way, so its
-coverage is precautionary rather than a fix for an observed symptom.
+**Confirmed on the CI toolchain, run `30574593504`.** The first pushed run drew an EPYC 7763
+— a safe CPU — so its green conclusion says nothing about this bug. What *is* evidence is
+that `JitTargetTest` reproduced the red case **on the runner image**, against Ubuntu's Faust
+2.70.3 and its LLVM rather than the Arch 2.85.5 the diagnosis was built on:
+
+```
+  tremolo    evex=1   kmask=2   vex=54       <- under znver4
+  toggle     evex=24  kmask=0   vex=116
+  highpass   evex=0   kmask=0   vex=55
+  [PASS] tremolo: no AVX-512 (evex=0 kmask=0) <- under x86-64
+```
+
+So both halves of the causal chain now hold on CI's own toolchain: libfaust *does* emit
+AVX-512 when it believes the host is znver4, and the shim *does* suppress it. That is
+independent of runner draw, which is what makes it worth more than a green run.
+
+**Still not verified.** The final end-to-end link: that a 9V74 runner executes the shimmed
+code without SIGILL. No workflow can request a CPU model, so it cannot be demonstrated on
+demand. **Do not read a green run as confirmation** — that inference is what closed PF-027
+early, and at a ~1-in-5 failure rate four of five green runs were always going to happen
+anyway. What closes it is a green run whose `lscpu` line says 9V74; the workflow still prints
+that line. `ParamPoolTsanTest` also JITs and is covered by the same preload, but has never
+been observed failing this way, so its coverage is precautionary rather than a fix for an
+observed symptom.
 
 ---
 

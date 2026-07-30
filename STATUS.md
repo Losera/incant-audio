@@ -131,10 +131,14 @@ blocking item is authorization, not work.
 
 ## Next three things
 
-1. **Push, and read the CI result correctly.** The fix is local-green but unpushed. **A green
-   run is not confirmation** — at a 1-in-5 failure rate, 80% of runs were already green with
-   the bug live. That inference is what closed PF-027 early. What confirms it is a green run
-   whose `lscpu` line says `AMD EPYC 9V74`; the workflow still prints that line.
+1. **Watch for a green run on a 9V74.** Pushed as `5037a7b`; run `30574593504` is green but
+   drew an EPYC 7763, so its conclusion says nothing about the bug. What it *did* establish is
+   stronger than that: `JitTargetTest` reproduced the red case **on the runner image**
+   (Ubuntu Faust 2.70.3) — `tremolo` 1 EVEX / 2 opmask and `toggle` 24 EVEX under `znver4`,
+   zero under `x86-64` — so both halves of the causal chain hold on CI's own toolchain,
+   independent of runner draw. The one remaining link is end-to-end: a green run whose `lscpu`
+   line says `AMD EPYC 9V74`. The workflow still prints that line. **Until then, do not read
+   any green run as confirmation** — that inference is what closed PF-027 early.
 2. *(evidence)* **Fire `bench/p6_capture.py` live, then the efficacy grid.** 14 generations on
    groq closes the objective half and hands over WAVs; then 125 more closes PF-011, then
    `score_efficacy.py --judge` closes PF-013. Sequential, not parallel — PF-030. This is also
