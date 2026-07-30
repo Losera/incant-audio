@@ -79,9 +79,11 @@ extern "C" const char* __lsan_default_suppressions()
 namespace
 {
 int failures = 0;
+int checks   = 0;
 
 void check(bool condition, const juce::String& what)
 {
+    ++checks;
     std::printf("    [%s] %s\n", condition ? " OK " : "FAIL", what.toRawUTF8());
     if (! condition)
         ++failures;
@@ -669,5 +671,10 @@ int main(int argc, char** argv)
 
     std::printf("%s (%d failure%s)\n",
                 failures == 0 ? "PASS" : "FAIL", failures, failures == 1 ? "" : "s");
+    // One machine-readable line for tools/health_report.py. The `checks` total is
+    // the point: every harness here already carried an exact `failures` int and
+    // threw the denominator away, so "0 failures" was indistinguishable from
+    // "ran nothing". Format is fixed and shared by all seven harnesses.
+    std::printf("PF_SUMMARY harness=%s checks=%d failures=%d\n", "OfflineRenderTest", checks, failures);
     return failures == 0 ? 0 : 1;
 }

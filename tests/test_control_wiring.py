@@ -916,6 +916,10 @@ class TestJitTargetIsPinnedInCI:
         "Run PromptPanelThreadingTest",
         "Run EditorSessionTest",
         "Run ParamPoolTsanTest",
+        # StatePersistenceTest constructs a real processor and compiles Faust
+        # through the JIT, so it carries the same AVX-512 exposure. It joined the
+        # workflow 2026-07-30 after being found to run nowhere at all.
+        "Run the pure harnesses",
     )
 
     @staticmethod

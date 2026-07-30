@@ -100,7 +100,33 @@ level_full() {
     run "build the host and every test harness" \
         cmake --build host/build --target PluginForgeHost PluginForgeHost_Standalone \
               PluginForgeHost_VST3 ParamPoolTsanTest OfflineRenderTest \
-              PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim
+              PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim \
+              OutputGuardTest ParamMapTest StatePersistenceTest
+
+    # ── Three harnesses that existed and ran nowhere ─────────────────────────
+    # Found 2026-07-30 while surveying the measurement surface: OutputGuardTest
+    # (17 checks), ParamMapTest (46) and StatePersistenceTest (33) all had CMake
+    # targets and appeared in neither this ladder nor the workflow. 96 assertions
+    # that compiled and never executed.
+    #
+    # This is PF-029 inverted. There, CI ran harnesses the ladder did not; here,
+    # NOTHING ran them, and both are the same defect -- a control believed to run
+    # that does not. All three are pure/fast (no display, no network, seconds at
+    # most), so there was never a cost reason for the omission.
+    #
+    # Adding them here also propagates to CI: TestLadderRunsWhatCIRuns parses the
+    # workflow's harness list, so the workflow must gain them too or the relation
+    # breaks -- which is the guard doing its job in the right direction.
+    local pure
+    for pure in OutputGuardTest ParamMapTest StatePersistenceTest; do
+      local bin
+      bin="$(find host/build -type f -name "$pure" 2>/dev/null | head -n1)"
+      if [[ -n "$bin" ]]; then
+        run "$pure" env timeout 300 "$bin"
+      else
+        skip "$pure" "binary not built"
+      fi
+    done
 
     # ── PF-036: the JIT's target CPU ─────────────────────────────────────────
     # CI preloads host/tools/pf_cpu_shim.cpp over llvm::sys::getHostCPUName() so

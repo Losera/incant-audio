@@ -1,0 +1,252 @@
+[
+  {
+    "provider": "groq",
+    "category": "trivial",
+    "prompt": "a simple stereo gain control with a dB slider",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\ngain = hslider(\"Gain [unit:dB]\", 0, -60, 12, 0.1) : ba.db2linear : si.smoo;\nprocess = _ * gain, _ * gain;",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-30T20:31:03.955714+00:00"
+  },
+  {
+    "provider": "groq",
+    "category": "trivial",
+    "prompt": "a mute toggle with one boolean parameter",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nmute = hslider(\"Mute\", 0, 0, 1, 1) : si.smoo;\nprocess = select2(mute, _, 0), select2(mute, _, 0);",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-30T20:31:05.173860+00:00"
+  },
+  {
+    "provider": "groq",
+    "category": "trivial",
+    "prompt": "a mono-to-stereo converter that duplicates the channel",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nprocess = _ <: _,_;",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-30T20:32:03.217920+00:00"
+  },
+  {
+    "provider": "groq",
+    "category": "trivial",
+    "prompt": "a DC blocker that removes low-frequency offset",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nprocess = fi.dcblocker, fi.dcblocker;",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-30T20:33:02.501360+00:00"
+  },
+  {
+    "provider": "groq",
+    "category": "trivial",
+    "prompt": "a polarity inverter with a bypass switch",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nbypass = hslider(\"Bypass\",0,0,1,1) : si.smoo;\nprocess = ba.bypass1(bypass, _ * -1);",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-30T20:34:01.183503+00:00"
+  },
+  {
+    "provider": "groq",
+    "category": "filters",
+    "prompt": "a warm analog-style low-pass filter with cutoff and resonance",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\ncutoff = hslider(\"Cutoff [unit:Hz]\", 1000, 20, 20000, 1) : si.smoo;\nres = hslider(\"Resonance\", 0.5, 0, 1, 0.01) : si.smoo;\nprocess = par(i, 2, ve.moog_vcf(res, cutoff));",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-30T20:34:30.042662+00:00"
+  },
+  {
+    "provider": "groq",
+    "category": "filters",
+    "prompt": "a high-pass filter with a gentle 12dB per octave slope",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nprocess = par(i, 2, hp) with {\n  cutoff = hslider(\"Cutoff [unit:Hz]\", 1000, 20, 20000, 1) : si.smoo;\n  hp = fi.highpass(1, cutoff);\n};",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-30T20:35:29.269209+00:00"
+  },
+  {
+    "provider": "groq",
+    "category": "filters",
+    "prompt": "a band-pass filter with adjustable center frequency and Q",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nprocess = par(i,2,bp) with {\n    fc = hslider(\"Center Frequency [unit:Hz]\", 1000, 20, 20000, 1) : si.smoo;\n    q  = hslider(\"Q\", 1, 0.1, 20, 0.01) : si.smoo;\n    bw = fc / q;\n    fl = max(0, fc - bw/2);\n    fu = min(20000, fc + bw/2);\n    bp = fi.bandpass(2, fl, fu);\n};",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-30T20:36:28.868347+00:00"
+  },
+  {
+    "provider": "groq",
+    "category": "filters",
+    "prompt": "a notch filter for removing 60Hz hum, with a width control",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nprocess = par(i, 2, filt) with {\n    width = hslider(\"Width [unit:Hz]\", 10, 1, 100, 0.1) : si.smoo;\n    filt = fi.notchw(width, 60);\n};",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-30T20:37:28.769509+00:00"
+  },
+  {
+    "provider": "groq",
+    "category": "filters",
+    "prompt": "a high-shelf filter for adding air to vocals",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nprocess = par(i,2,hp) with {\n    cutoff = hslider(\"Cutoff [unit:Hz]\", 8000, 20, 20000, 1) : si.smoo;\n    gain   = hslider(\"Air [unit:dB]\", 3, -12, 12, 0.1) : si.smoo;\n    hp = fi.highshelf(2, gain, cutoff);\n};",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-30T20:38:29.299286+00:00"
+  },
+  {
+    "provider": "groq",
+    "category": "time-based",
+    "prompt": "a stereo delay with time, feedback, and dry/wet",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nMAXD = 192000;\ndtime = hslider(\"Delay Time [unit:ms]\", 300, 1, 2000, 1) : si.smoo\n        : *(ma.SR/1000.0) : min(MAXD-1) : max(1);\nfb = hslider(\"Feedback\", 0.4, 0, 0.95, 0.01) : si.smoo;\nmix = hslider(\"Dry/Wet\", 0.5, 0, 1, 0.01) : si.smoo;\nechoCh(x) = x * (1 - mix) + (x : (+ : de.fdelay(MAXD, dtime)) ~ *(fb)) * mix;\nprocess = echoCh, echoCh;",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-30T20:38:41.699038+00:00"
+  },
+  {
+    "provider": "groq",
+    "category": "time-based",
+    "prompt": "a ping-pong delay that bounces between left and right",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nMAXD = 96000;\ndtime = hslider(\"Delay Time [unit:ms]\", 250, 10, 1000, 1) : si.smoo\n        : *(ma.SR/1000.0) : min(MAXD-1) : max(1);\nfb    = hslider(\"Feedback\", 0.4, 0, 0.95, 0.01) : si.smoo;\nmix   = hslider(\"Dry/Wet\", 0.5, 0, 1, 0.01) : si.smoo;\nprocess = _,_ <: dry, wet :> _,_ with {\n    cross(fbL, fbR) = fbL + fb*fbR, fbR + fb*fbL;\n    dry = par(i, 2, _ * (1 - mix));\n    wet = (cross ~ (de.fdelay(MAXD, dtime), de.fdelay(MAXD, dtime))) : par(i, 2, _ * mix);\n};",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-30T20:39:41.728164+00:00"
+  },
+  {
+    "provider": "groq",
+    "category": "time-based",
+    "prompt": "a subtle chorus effect with rate and depth",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nrate = hslider(\"Rate [unit:Hz]\", 0.5, 0.01, 5, 0.01) : si.smoo;\ndepth = hslider(\"Depth\", 0.2, 0, 1, 0.01) : si.smoo;\nmix = hslider(\"Mix\", 0.3, 0, 1, 0.01) : si.smoo;\nmaxDel = 4096;\nlfo(f) = os.lf_triangle(f) * 0.5 + 0.5;\nvoice(f, x) = de.fdelay(maxDel, ((10.0 + depth*10.0 * lfo(f)) * ma.SR * 0.001), x);\nchorusCh(f, x) = x * (1 - mix) + voice(f, x) * mix;\nprocess = chorusCh(rate), chorusCh(rate*1.13);",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-30T20:39:56.145262+00:00"
+  },
+  {
+    "provider": "groq",
+    "category": "time-based",
+    "prompt": "a tape-style flanger with feedback",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nrate  = hslider(\"Rate [unit:Hz]\", 0.5, 0.01, 10, 0.01);\ndepth = hslider(\"Depth\", 0.7, 0, 1, 0.01) : si.smoo;\nfb    = hslider(\"Feedback\", 0.3, 0, 0.95, 0.01) : si.smoo;\nmaxDel = 2048;\ncurdel = 2.0 + 4.0 * (os.lf_triangle(rate) * 0.5 + 0.5);\nprocess = pf.flanger_mono(maxDel, curdel, depth, fb, 0), pf.flanger_mono(maxDel, curdel, depth, fb, 0);",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-30T20:40:33.581244+00:00"
+  },
+  {
+    "provider": "groq",
+    "category": "time-based",
+    "prompt": "a simple plate reverb with decay time and damping",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\ndecay = hslider(\"Decay [unit:0-1]\", 0.7, 0, 0.99, 0.01) : si.smoo;\ndamp = hslider(\"Damping [unit:0-1]\", 0.5, 0, 0.99, 0.01) : si.smoo;\nprocess = _,_ <: re.stereo_freeverb(decay, decay, damp, 0.5);",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-30T20:40:46.010798+00:00"
+  },
+  {
+    "provider": "groq",
+    "category": "dynamics",
+    "prompt": "a compressor with threshold, ratio, attack, and release",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nthresh = hslider(\"Threshold [unit:dB]\", -20, -60, 0, 0.1) : si.smoo;\nratio  = hslider(\"Ratio\", 4, 1, 20, 0.1) : si.smoo;\natt    = hslider(\"Attack [unit:ms]\", 10, 0.1, 200, 0.1) : si.smoo : *(0.001);\nrel    = hslider(\"Release [unit:ms]\", 100, 1, 1000, 1) : si.smoo : *(0.001);\ncomp   = co.compressor_mono(ratio, thresh, att, rel);\nprocess = par(i, 2, comp);",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-30T20:40:59.664207+00:00"
+  },
+  {
+    "provider": "groq",
+    "category": "dynamics",
+    "prompt": "a brick-wall limiter for mastering",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nthreshold = hslider(\"Threshold [unit:dB]\", 0, -12, 0, 0.1) : ba.db2linear : si.smoo;\nlim(x) = min(x, threshold);\nprocess = lim, lim;",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-30T20:41:30.776520+00:00"
+  },
+  {
+    "provider": "groq",
+    "category": "dynamics",
+    "prompt": "a noise gate with threshold and hold time",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nthreshold = hslider(\"Threshold [unit:dB]\", -40, -80, 0, 0.1) : si.smoo;\nattack    = hslider(\"Attack [unit:ms]\", 10, 1, 200, 1) : si.smoo : *(0.001);\nhold      = hslider(\"Hold [unit:ms]\", 100, 1, 1000, 1) : si.smoo : *(0.001);\nrelease   = hslider(\"Release [unit:ms]\", 100, 1, 500, 1) : si.smoo : *(0.001);\nprocess = ef.gate_stereo(threshold, attack, hold, release, _, _);",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-30T20:41:56.210971+00:00"
+  },
+  {
+    "provider": "groq",
+    "category": "dynamics",
+    "prompt": "an upward expander to bring out quiet details",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nthresh = hslider(\"Threshold [unit:dB]\", -40, -80, 0, 0.1) : si.smoo;\nratio  = hslider(\"Ratio\", 2.0, 1.0, 10.0, 0.01) : si.smoo;\natt    = hslider(\"Attack [unit:ms]\", 10, 1, 200, 1) : si.smoo : *(ma.SR/1000.0);\nrel    = hslider(\"Release [unit:ms]\", 100, 1, 500, 1) : si.smoo : *(ma.SR/1000.0);\nmakeup = hslider(\"Makeup Gain [unit:dB]\", 0, -20, 20, 0.1) : si.smoo;\nexpander(x) = x * gain with {\n    env    = x : an.amp_follower_ar(att, rel);\n    lvldb  = env : ba.linear2db;\n    gainDb = select2(lvldb < thresh, 0, (thresh - lvldb)*(ratio-1));\n    gain   = gainDb : ba.db2linear : *(makeup : ba.db2linear);\n};\nprocess = expander, expander;",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-30T20:42:31.995693+00:00"
+  },
+  {
+    "provider": "groq",
+    "category": "dynamics",
+    "prompt": "a sidechain-capable compressor",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nratio   = hslider(\"Ratio\", 4, 1, 20, 0.1) : si.smoo;\nthresh  = hslider(\"Threshold [unit:dB]\", -20, -60, 0, 0.1) : si.smoo;\nmix     = hslider(\"Mix\", 1, 0, 1, 0.01) : si.smoo;\natt     = hslider(\"Attack [unit:ms]\", 10, 0.1, 200, 0.1) : si.smoo : *(0.001);\nrel     = hslider(\"Release [unit:ms]\", 100, 1, 500, 0.1) : si.smoo : *(0.001);\ncomp(main, side) = main * gainLin with {\n    env      = side : an.amp_follower_ar(att, rel);\n    envDb    = env : ba.linear2db;\n    gainDb   = (envDb > thresh) : select2(envDb, thresh + (envDb - thresh)/ratio);\n    gainLin  = gainDb : ba.db2linear;\n    gainLin  = gainLin * mix + (1 - mix);\n};\nprocess = comp;",
+    "first_try_compiles": false,
+    "error": "ERROR : [file /tmp/tmp6i3ypdtd.dsp : 13] : multiple definitions of symbol 'gainLin'\ngainLin = gainDb : ba.db2linear;\ngainLin = (gainLin,mix : *),(1,mix : -) : +;",
+    "timestamp": "2026-07-30T20:42:47.459949+00:00"
+  },
+  {
+    "provider": "groq",
+    "category": "generative",
+    "prompt": "a pure sine wave oscillator with frequency and amplitude",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nfreq = hslider(\"Frequency [unit:Hz]\", 440, 20, 20000, 0.1) : si.smoo;\namp = hslider(\"Amplitude\", 0.5, 0, 1, 0.01);\nprocess = os.osc(freq) * amp;",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-30T20:43:47.576755+00:00"
+  },
+  {
+    "provider": "groq",
+    "category": "generative",
+    "prompt": "a sawtooth synth with an ADSR envelope",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nfreq   = hslider(\"Frequency [unit:Hz]\", 440, 20, 20000, 0.1) : si.smoo;\ngate   = hslider(\"Gate\", 0, 0, 1, 1) : si.smoo;\nattack = hslider(\"Attack [unit:ms]\", 10, 1, 5000, 1) : si.smoo : *0.001;\ndecay  = hslider(\"Decay [unit:ms]\", 100, 1, 5000, 1) : si.smoo : *0.001;\nsustain= hslider(\"Sustain\", 0.7, 0, 1, 0.01) : si.smoo;\nrelease= hslider(\"Release [unit:ms]\", 200, 1, 5000, 1) : si.smoo : *0.001;\nenv    = en.adsr(attack, decay, sustain, release, gate);\nsaw    = os.sawtooth(freq);\nsig    = saw * env;\nprocess = par(i, 2, sig) with {};",
+    "first_try_compiles": false,
+    "error": "/tmp/tmpjsbfr0xq.dsp:4 : ERROR : syntax error, unexpected FLOAT",
+    "timestamp": "2026-07-30T20:44:28.538402+00:00"
+  },
+  {
+    "provider": "groq",
+    "category": "generative",
+    "prompt": "a 2-operator FM synth with ratio and modulation index",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\ncarrierFreq = hslider(\"Carrier Frequency [unit:Hz]\", 440, 20, 20000, 1) : si.smoo;\nratio = hslider(\"Ratio\", 2.0, 0.1, 10.0, 0.01) : si.smoo;\nindex = hslider(\"Modulation Index\", 1.0, 0.0, 10.0, 0.01) : si.smoo;\nmodFreq = carrierFreq * ratio;\nmod = os.osc(modFreq);\nsynth = os.osc(carrierFreq + index * mod);\nprocess = synth, synth;",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-30T20:45:18.475147+00:00"
+  },
+  {
+    "provider": "groq",
+    "category": "generative",
+    "prompt": "a white noise generator with a tone control",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\ncutoff = hslider(\"Cutoff [unit:Hz]\", 2000, 20, 20000, 1) : si.smoo;\nnoise = no.noise : fi.lowpass(2, cutoff);\nprocess = noise, noise;",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-30T20:45:30.469582+00:00"
+  },
+  {
+    "provider": "groq",
+    "category": "generative",
+    "prompt": "a Karplus-Strong plucked string synthesizer",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nMAXD = 48000;\nfreq = hslider(\"Frequency [unit:Hz]\", 440, 20, 2000, 0.1) : si.smoo;\ndtime = (1/freq) : ba.sec2samp : min(MAXD-1) : max(1);\nfb = hslider(\"Feedback\", 0.99, 0, 0.999, 0.001) : si.smoo;\ndamp = hslider(\"Damping [unit:Hz]\", 2000, 20, 20000, 1) : si.smoo;\npluck = hslider(\"Pluck\", 0, 0, 1, 1);\nenv = en.adsr(0.001, 0.01, 0, 0.2, pluck);\nexcite = no.noise * env;\nks = (excite + (ks * fb) : fi.lowpass(2, damp)) ~ de.delay(MAXD, dtime);\nprocess = ks, ks;",
+    "first_try_compiles": false,
+    "error": "ERROR : after 400 evaluation steps, the compiler has detected an endless evaluation cycle of 8 steps",
+    "timestamp": "2026-07-30T20:46:03.959460+00:00"
+  }
+]

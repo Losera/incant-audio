@@ -168,7 +168,25 @@ jobs:
       # its first green run — the editor's unconditional default-seeding was
       # overwriting every value a state restore had just put back.
       - name: Build behavioural test harnesses
-        run: cmake --build build-ci --target OfflineRenderTest PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim
+        run: cmake --build build-ci --target OfflineRenderTest PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim OutputGuardTest ParamMapTest StatePersistenceTest
+
+      # OutputGuardTest / ParamMapTest / StatePersistenceTest — 96 checks that had
+      # CMake targets and were run by NOTHING until 2026-07-30. PF-029 inverted:
+      # there CI ran what the ladder did not, here neither ran them. All three are
+      # pure and fast — no display, no network, no JIT for two of the three — so
+      # the omission never had a cost justification.
+      - name: Run the pure harnesses (OutputGuard, ParamMap, StatePersistence)
+        run: |
+          for t in OutputGuardTest ParamMapTest StatePersistenceTest; do
+            BIN="$(find build-ci -type f -name "$t" | head -n 1)"
+            if [ -z "$BIN" ]; then
+              echo "$t binary not found" >&2
+              exit 1
+            fi
+            echo "::group::$t"
+            LD_PRELOAD="$PF_LD_PRELOAD" timeout 300 "$BIN"
+            echo "::endgroup::"
+          done
 
       # ── PF-036: pin the JIT's target CPU for every harness that JITs ────────
       # GitHub's hosted fleet mixes EPYC 7763 (Zen 3, no AVX-512), Xeon 8573C

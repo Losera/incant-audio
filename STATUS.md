@@ -11,87 +11,61 @@ behind HEAD.
 
 ## Works — and how we know
 
-**This session's finding is that a cautious conclusion was flattened into a confident wrong
-one, and the summary outlived the investigation that contradicted it.** CI was red at HEAD
-with a SIGILL that PF-027 had closed two days earlier as "never the CPU." It was the CPU.
-PF-027's own detail entry in `docs/BUGS.md` had said so — it declined to exonerate the
-runner, named the missing evidence, and said to wait for the next red run's post-mortem.
-That post-mortem arrived and nobody had read it. See PF-036; the correction is worth more
-than the fix.
+**This session measured the instrument instead of the thing, and the instrument was the
+problem.** A three-prong health check (DSP / AI / UI) produced
+`artifacts/health/health_20260730.md`. The headline is not any of the rates. It is that
+**run-to-run instability is large enough that most per-class claims this project has made
+were reading sampling noise** — see PF-031 below, which is the most consequential closure
+here.
 
-Each closure below was verified by reading the cited code at HEAD, or by a named artifact.
-
-- **CI's SIGILL is diagnosed, fixed, and the diagnosis is reproducible on this box.**
-  *(PF-036, pending commit.)* libfaust's LLVM picks its target CPU **by name** and enables
-  that name's default feature set without rechecking CPUID. Azure's EPYC 9V74 reports as
-  `znver4` — whose defaults include AVX-512 — while the hypervisor masks AVX-512 out of the
-  guest, so the JIT emits `kmovd`/EVEX and dies. Runner CPU predicts outcome perfectly over
-  the last twelve runs: both failures on 9V74, every success on EPYC 7763 or Xeon 8573C. A
-  ~1-in-5 draw, which is why one green run read as a fix.
-  **The documented fix does not work**: `createDSPFactoryFromString`'s `target` parameter is
-  inert on the JIT path — asking for `:i486` still emitted 28 VEX-prefixed AVX instructions,
-  and `totally-bogus-triple:nonexistent-cpu` was accepted without error. The working lever is
-  an `LD_PRELOAD` shim over `llvm::sys::getHostCPUName()`, which libfaust leaves undefined and
-  resolves from libLLVM. **CI-only**; the product path stays host-native deliberately.
-- **The shim is proven to have teeth, without waiting on a lucky runner draw.**
-  `host/tests/JitTargetTest.cpp` disassembles the JIT'd pages under two CPU names: `x86-64`
-  emits zero AVX-512 (and zero AVX) across the corpus; `znver4` emits it, which is what stops
-  the green arm being vacuous. Run without the preload it fails on its first assertion rather
-  than passing empty — checked, exit 1. `tremolo` is the patch that was crashing: 1 EVEX + 2
-  opmask refs under `znver4`, and `os.osc`'s phasor wrap is the `vroundss $0x9` sitting right
-  after the faulting `kmovd` in the CI backtrace.
-- **The CI wiring cannot silently rot.** `TestJitTargetIsPinnedInCI` asserts every JIT-ing
-  step still carries the preload and that the sanitizer runtime leads it (an ASan binary
-  aborts outright if anything precedes libasan — found the hard way). Mutation-tested against
-  four breakages; each caught by the intended assertion, green again after restore.
-- **The knobs say what they mean, and fixing that exposed a real bug underneath.**
-  *(PF-037 + PF-040, pending commit.)* `ParamMap::formatZone`/`parseZone` installed on each
-  slider's `textFromValueFunction` — plugin UI only, the slot stays 0..1 and the parameter is
-  untouched. Order matters: JUCE's attachment assigns that function itself
-  (`juce_ParameterAttachments.cpp:118-119`), so ours has to land after it.
-  **Then the new test failed on 819 Hz.** `AudioParameterFloat`'s bare min/max constructor
-  hardcodes `interval 0.01` (`juce_AudioParameterFloat.cpp:76`), so all 64 slots have had
-  **101 positions** for the project's whole life and an 800 Hz default landed on 819.
-  Measured directly: writing 0.039039 to the parameter read back 0.040000. Both fixed;
-  `StatePersistenceTest` still passes.
-- **The other two UI observations are defects with IDs.** *(PF-038/039.)* They had been
-  sitting in this file's prose with no ID, one rewrite away from vanishing.
-- **The editor is driven by something, at last.** *(`81fc75b`.)*
-  `host/tests/EditorSessionTest.cpp` — 61 checks over 11 scenarios against the real
-  `PluginForgeProcessor` + `PluginForgeEditor`. Each writes a PNG via `createComponentSnapshot`
-  to `artifacts/images/`; CI uploads them. Nothing had ever constructed this class.
-- **Reopening a saved project no longer wipes every knob.** *(PF-033, `81fc75b`.)* A patch
-  saved with slots at 0.95 and 0.05 came back at **0.250 and 0.750** — exactly those slots'
-  declared defaults. `StatePersistenceTest` round-trips 33/33 and cannot see this, because it
-  never constructs an editor.
-- **The harness's own timing race is closed, and CI is what found it.** *(PF-034, `10c27e2`.)*
-- **Fresh vs Refine is reachable from the UI.** *(PF-020's residual, `3106cd9`.)*
-- **The generated Faust is visible.** *(ux_roadmap Phase 3a, `7e8de50`.)* `CodeEditorPanel` was
-  a 13-line empty stub; it now shows the live source read-only behind a "Show code" disclosure.
-- **A listening pass is now one command plus ears.** *(`5430dcc`, built and dry-run, NOT
-  fired.)* `bench/p6_capture.py` runs the 14-prompt battery and emits WAVs plus a scorecard
-  with one empty column, rendered through the **shipping** path.
-- **The digest reports CI and cannot go quiet.** *(PF-026, `ff74d5c`.)*
-- **The ladder runs what CI runs.** *(PF-029, `558ac96`.)* Now including `JitTargetTest`, which
-  the workflow-parsing guard demanded automatically the moment CI started building it — the
-  relation did its job without anyone updating a list.
-- **The benchmark harness cannot destroy its own evidence.** *(PF-025, `ff74d5c`.)*
-- **The prompt is measured — but see the caveat below.** *(PF-009 + PF-010.)* 25 prompts,
-  groq/`gpt-oss-120b`: **22/25 = 88%**, archived at `bench/results/results_20260728_groq.json`.
-  Per class: `routing_arity` 2→0, `unbound_variable` 1→0, while `syntax:EXTRA` and
-  `syntax:FLOAT` each went 0→1. **The aggregate move is inside the noise**; the per-class
-  result is the evidence. Noise floor unmeasured — PF-031.
-- **Generated DSP is measured as audio.** `bench/render_oracle.py`, calibrated against physics.
-  Last run 2026-07-28 against the 07-28 corpus: **16 passed, 2 FAILED, 4 unsupported.**
-- **The audio path itself.** Editor generate thread owned and joined (PF-006); the 120s timeout
-  cliff closed (PF-019); Fresh/Iterate load modes (PF-020); source-of-record commits only on
-  compile success (PF-022); stale errors clear on submit (PF-021); `prepare()` re-inits a live
-  DSP on rate change (PF-018); `process()` null guard (PF-023); the RT-safety hook covers all
-  four audio-thread functions (PF-015); state persistence (PF-002, format human-confirmed);
-  params denormalize into real units (PF-001); all 64 params reach the editor (PF-005);
-  JIT swap is TSan-clean; the system prompt is grounded in the real stdlib.
-- **Python suite: 445 passed, 12 deselected.** `tools/check.sh full` all green, including all
-  four behavioural harnesses.
+- **The noise floor exists, and it retires several standing claims.** *(PF-031, pending
+  commit.)* Two back-to-back 25-prompt runs, same prompt, same corpus, unchanged tree:
+  **88%** and **84%**. Rate spread **4 points — one prompt**. Worse, of five prompts that
+  failed at all, **exactly one failed both times with the same class**. So a per-class count
+  read off a single run is mostly a draw, and `--compare` between two single runs compares
+  two draws. The replacement rule: *a defect is evidenced when the same prompt fails across
+  repeated runs with the same class.* On today's data that is **one** — Karplus-Strong's
+  `recursion_cycle`, stable across four archives.
+- **The `a4f942e` prompt edit is measured at last, and it half-worked.** *(PF-024/PF-032.)*
+  The Tier-2 benchmark statement owed since 2026-07-29 is paid. **Fixed:** the Hz unit
+  contract (PF-032's warm low-pass has not recurred; oracle over the fresh corpora reports
+  18/1/3 and **17/0/4** against 07-28's 16/2/4), `select2` (the sidechain compressor no
+  longer emits a ternary — it fails later and differently), and ping-pong, which compiled in
+  both runs. **Not fixed:** the dB contract — the noise gate still renders at rms *exactly*
+  0.0 — and Karplus-Strong.
+- **PF-036 is confirmed end to end.** CI run `30577386079` is **green on an `AMD EPYC 9V74`**,
+  the exact CPU whose masked AVX-512 caused the SIGILL. That was named in advance as the only
+  acceptable proof, and it arrived unsought two pushes later. The mechanism had already been
+  reproduced on the CI toolchain; this closes the other end.
+- **96 assertions that ran nowhere now run.** `OutputGuardTest` (17), `ParamMapTest` (46) and
+  `StatePersistenceTest` (33) had CMake targets and appeared in neither `check.sh` nor the
+  workflow. This is PF-029 inverted — there CI ran what the ladder did not, here *nothing*
+  ran them. All three are green, and `StatePersistenceTest` needed adding to the PF-036
+  preload list because it JITs.
+- **The health check is one command and emits an artifact.** `tools/health_report.py` runs
+  three lanes and writes `artifacts/health/health_<date>.{json,md}`. Every C++ harness now
+  prints one `PF_SUMMARY harness=… checks=… failures=…` line, which turns 289 existing
+  boolean assertions into countable numbers. **A harness that did not run is recorded as
+  ABSENT, never as zero** — `--strict` makes absence an error, because a silent zero reads as
+  health and that is this project's signature defect.
+- **Today's totals: 289 assertions, 0 failures.** DSP 211 (`OfflineRenderTest` 106,
+  `ParamMapTest` 46, `StatePersistenceTest` 33, `OutputGuardTest` 17, `JitTargetTest` 9) plus
+  TSan clean; UI 78 (`EditorSessionTest` 69 over 12 scenarios, `PromptPanelThreadingTest` 9).
+- **PF-038 has a number instead of a log line.** The knob order the harness had been printing
+  as an unasserted fact is now captured and flagged: `Bypass, Cutoff, Level, Trigger, Voices`,
+  **lexicographic: true**.
+- **The knobs say what they mean, and it exposed PF-040.** *(`9509963`.)* `ParamMap::formatZone`
+  on each slider's `textFromValueFunction`. The new test then failed on 819 Hz:
+  `AudioParameterFloat`'s bare min/max ctor hardcodes `interval 0.01`
+  (`juce_AudioParameterFloat.cpp:76`), so every slot had **101 positions** for the project's
+  whole life. Both fixed.
+- **The audio path.** Editor generate thread owned and joined (PF-006); timeout cliff closed
+  (PF-019); Fresh/Iterate modes (PF-020); source-of-record commits only on compile success
+  (PF-022); stale errors clear on submit (PF-021); `prepare()` re-inits on rate change
+  (PF-018); `process()` null guard (PF-023); RT-safety hook covers all four audio-thread
+  functions (PF-015); state persistence (PF-002); params denormalize (PF-001); all 64 params
+  reach the editor (PF-005); JIT swap TSan-clean; prompt grounded in the real stdlib.
+- **Python suite: 445 passed, 4 skipped, 12 deselected.** `tools/check.sh full` green.
 
 ---
 
@@ -99,79 +73,73 @@ Each closure below was verified by reading the cited code at HEAD, or by a named
 
 Registry with IDs, severity and discovery dates: `docs/BUGS.md`.
 
-**1. Generation quality is unmeasured since the prompt changed.** *(PF-024 + PF-032, high,
-in-progress.)* `a4f942e` rewrote the constructs both defects blame — stereo dry/wet across a
-multi-output block, `select2`, and the two unit contracts (frequencies in Hz unless the doc
-says normalised; never pre-convert dB for a function documenting a dB parameter). **No
-generation has run against it.** Every number in this file describes the *previous* prompt.
-The Tier-2 benchmark statement is unpaid, and per PF-031 the honest form is per-class, not
-aggregate. `check.sh audio` will stay red regardless — it renders the stored 07-28 corpus,
-which a prompt edit cannot retroactively change.
+**1. One generation defect is actually evidenced; the rest is sampling.** *(PF-024/PF-032,
+high.)* Karplus-Strong's `recursion_cycle` is the only failure reproducing prompt *and* class
+across runs — four archives now. The sidechain compressor fails every run with a *different*
+error each time, so it is evidenced as unreliable with no stable signature. **Fixing anything
+else on the strength of one run is fixing noise.**
 
-**2. The benchmark's noise floor is unmeasured.** *(PF-031, medium, open.)* It has never been
-run twice on an unchanged prompt, so no delta can be called significant — including
-80%→88%.
+**2. The noise gate still renders silent.** *(PF-032's surviving half, high.)* rms exactly 0.0
+in the fresh corpus. The dB unit contract — double `ba.db2linear` — is the standing
+hypothesis; `a4f942e` closed the Hz contract and not this one.
 
 **3. The DAW still sees raw slots.** *(follow-up to PF-037, open, unfiled.)* The plugin's own
-knobs now read `800 Hz`; the host's automation lane still reads `Macro 7: 0.04`. Closing it
-means a `stringFromValue` lambda fed per-patch metadata the host may call from any thread
-while the compile thread republishes it — a concurrency change next to the
-"parameters are declared once" invariant, deliberately not taken on inside a readout fix.
+knobs read `800 Hz`; the host's automation lane still reads `Macro 7: 0.04`. Closing it needs
+per-patch metadata reachable from a `stringFromValue` lambda the host may call from any
+thread — a concurrency change next to the "parameters are declared once" invariant.
 
-**4. Knob ordering and a dead widget arm.** *(PF-038 low, PF-039 low, open.)* Knobs sort
-lexicographically (`P0, P1, P10, P11 … P2`); the rotary fallback is unreachable while
-`docs/ui_design_plan.md` still describes it as the fallback widget.
+**4. Knob ordering and a dead widget arm.** *(PF-038 low, PF-039 low.)* Lexicographic ordering
+now mechanically confirmed; the rotary fallback is unreachable while `docs/ui_design_plan.md`
+still calls it the fallback widget.
 
-**5. A per-call output budget cannot be expressed.** *(PF-035, low, open.)*
+**5. A per-call output budget cannot be expressed.** *(PF-035, low.)*
+
+**6. `score_efficacy.py --judge` spends quota and takes no lock.** *(unfiled.)* It can
+interleave with a live benchmark into the same TPM bucket — PF-030's hazard, in the scorer.
 
 ---
 
 ## Assumed, never checked
 
-**Three claims, unchanged.** This session did not move the number. Every closure above is a
-code or infrastructure defect; all three remaining claims need generation runs, and the
-blocking item is authorization, not work.
+**Three claims, and this session did not move the number.** Stating that plainly because it is
+the project's one metric and the temptation is to count the health check as progress against
+it. It is not: 289 assertions and a noise floor are evidence *about instruments*, and all
+three claims below need generation volume that does not fit in one day's quota.
 
-- **The efficacy pilot generalizes to nothing.** *(PF-011)* 50 records, 2 of 5 categories, on
-  the paid `claude` provider, dated 2026-07-20 — i.e. the deleted prompt. The full grid is
-  25 effects × 5 tiers = **125 generations**, free on groq.
-- **No cross-model comparison exists.** *(PF-012)* **Partially answered.** Over the 20 prompts
-  both models completed: `gpt-oss-120b` 18/20, `llama-3.3-70b` 17/20, with three disagreements
-  running in *both* directions. The llama arm was truncated at 21/25 by throttling.
-- **Semantic fidelity is unmeasured.** *(PF-013)* `--judge` has never executed.
+- **The efficacy pilot generalizes to nothing.** *(PF-011)* The full grid is 25 effects × 5
+  tiers = 125 generations ≈ 437k tokens ≈ **2.2 days** on groq. Needs sharding across days.
+- **No cross-model comparison exists.** *(PF-012)* **The partial answer on record is now known
+  to be worthless.** It read `gpt-oss-120b` 18/20 against `llama-3.3-70b` 17/20 — a
+  one-prompt difference, which today's measured noise floor says is exactly one resample.
+- **Semantic fidelity is unmeasured.** *(PF-013)* `--judge` has never executed and **cannot
+  today**: it must use a model independent of the generator, ollama is not installed, and
+  gemini allows 20 requests/day. **Installing ollama is the unlock** — local, unmetered, and
+  independent of groq.
 
 ## Next three things
 
-1. **Watch for a green run on a 9V74.** Pushed as `5037a7b`; run `30574593504` is green but
-   drew an EPYC 7763, so its conclusion says nothing about the bug. What it *did* establish is
-   stronger than that: `JitTargetTest` reproduced the red case **on the runner image**
-   (Ubuntu Faust 2.70.3) — `tremolo` 1 EVEX / 2 opmask and `toggle` 24 EVEX under `znver4`,
-   zero under `x86-64` — so both halves of the causal chain hold on CI's own toolchain,
-   independent of runner draw. The one remaining link is end-to-end: a green run whose `lscpu`
-   line says `AMD EPYC 9V74`. The workflow still prints that line. **Until then, do not read
-   any green run as confirmation** — that inference is what closed PF-027 early.
-2. *(evidence)* **Fire `bench/p6_capture.py` live, then the efficacy grid.** 14 generations on
-   groq closes the objective half and hands over WAVs; then 125 more closes PF-011, then
-   `score_efficacy.py --judge` closes PF-013. Sequential, not parallel — PF-030. This is also
-   what pays PF-024/PF-032's outstanding benchmark statement.
-3. **Look at `artifacts/images/session_12_readout.png`.** PF-037's test asserts the grid
-   reports the right *strings*; whether it now *looks* right is a human's two seconds and
-   nothing else's. Same class of judgement as the listening pass, at a much smaller scale.
+1. **Fix Karplus-Strong's `recursion_cycle`.** It is the only generation defect with evidence
+   of being real rather than sampled. `.claude/skills/faust-idioms/SKILL.md` already carries a
+   compiled pattern for the recursion case and it has never been folded into the prompt.
+2. **Fix the noise gate's dB contract** (PF-032's surviving half), and verify with the oracle
+   over a fresh corpus rather than the compile rate — a silent render is a property of the
+   patch, not of the draw, so the oracle is the firmer instrument here.
+3. *(evidence)* **Install ollama and run `--judge`.** It is the single cheapest way to move
+   the `assumed` number: it unblocks PF-013 outright and makes PF-011's grid affordable by
+   removing the judge from the groq budget entirely.
 
 ## Waiting on you
 
-**Three items. The third is still the one that matters.**
+1. **`bench/results/.prompt_baseline.json` is still untouched**, deliberately. It records
+   `0.88` for the deleted pre-unification prompt. Now that the noise floor is known, replacing
+   it should record a *spread*, not a point — a single number there is what made
+   `0.84 → 0.88` readable as movement in the first place.
 
-1. **Overwriting `bench/results/.prompt_baseline.json`** once new numbers exist. Replacing the
-   stored 0.88 destroys the only record of the pre-unification prompt. Not yet asked.
+2. **A P6 listening pass.** `bench/p6_capture.py --i-authorize-spend` is built and dry-run;
+   it costs 14 generations and hands over WAVs plus a scorecard with one empty column. Per
+   COLLABORATION.md §1 this is the one judgement with no instrument: the oracle proves a patch
+   is not broken and cannot tell you the filter is musical. Not fired today — the quota went
+   to the noise floor.
 
-2. **Authorizing the live capture run.** `python bench/p6_capture.py --i-authorize-spend`
-   spends 14 free-tier generations ($0 on groq) and produces `artifacts/p6_<date>/` — 14 WAVs
-   and a scorecard. Built and dry-run, deliberately not fired. Worth doing **after** item 1.
-
-3. **A second P6 listening pass.** Per COLLABORATION.md §1 this is the one judgement in the
-   project with no instrument: the oracle proves a patch is not broken and cannot tell you the
-   filter is musical, or that the fuzz is the fuzz the prompt described. The ask is now "play
-   fourteen files and fill in one column," not "drive the Standalone for forty minutes."
-   Everything around the listening is machine work and the machine does it. The listening is
-   yours, and is not delegable to a hook, a harness or a model.
+3. **Two seconds on `artifacts/images/session_12_readout.png`.** The readout is asserted to
+   report the right strings; whether the grid *looks* right is not measurable here.

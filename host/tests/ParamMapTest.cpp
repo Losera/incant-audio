@@ -18,9 +18,11 @@
 namespace
 {
 int failures = 0;
+int checks   = 0;
 
 void check(bool condition, const char* what)
 {
+    ++checks;
     std::printf("  [%s] %s\n", condition ? " OK " : "FAIL", what);
     if (! condition)
         ++failures;
@@ -28,6 +30,7 @@ void check(bool condition, const char* what)
 
 void checkNear(float actual, float expected, float tolerance, const char* what)
 {
+    ++checks;
     const bool ok = std::fabs(actual - expected) <= tolerance;
     std::printf("  [%s] %s (got %.4f, expected %.4f +/- %.4f)\n",
                 ok ? " OK " : "FAIL", what, actual, expected, tolerance);
@@ -319,5 +322,10 @@ int main()
 
     std::printf("\n%s (%d failure%s)\n", failures == 0 ? "PASSED" : "FAILED",
                 failures, failures == 1 ? "" : "s");
+    // One machine-readable line for tools/health_report.py. The `checks` total is
+    // the point: every harness here already carried an exact `failures` int and
+    // threw the denominator away, so "0 failures" was indistinguishable from
+    // "ran nothing". Format is fixed and shared by all seven harnesses.
+    std::printf("PF_SUMMARY harness=%s checks=%d failures=%d\n", "ParamMapTest", checks, failures);
     return failures == 0 ? 0 : 1;
 }

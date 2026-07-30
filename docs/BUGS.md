@@ -66,10 +66,10 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-028 | COLLABORATION.md §7's hook table named two hooks retired six days earlier and omitted the one that was running | medium | fixed | S4 Testing | `COLLABORATION.md` §7 | 2026-07-28 | pending commit |
 | PF-029 | `tools/check.sh` never builds or runs `OfflineRenderTest` or `PromptPanelThreadingTest` — CI is the only thing that does | high | fixed | S4 Testing | `tools/check.sh` `level_full` | 2026-07-28 | `558ac96` |
 | PF-030 | `run_efficacy_study.py` takes no PF-025 lock — it can run concurrently with `run_benchmark.py` and share one free-tier rate limit | medium | fixed | S4 Testing | `bench/run_efficacy_study.py:299-322` | 2026-07-28 | `e867483` (2026-07-29) |
-| PF-031 | The 25-prompt benchmark's noise floor is unmeasured — it has never been run twice on an unchanged prompt, so no delta can be called significant | medium | open | S4 Testing | `bench/run_benchmark.py` | 2026-07-28 | — |
+| PF-031 | The 25-prompt benchmark's noise floor is unmeasured — no delta can be called significant. **Measured: 4pp rate spread, and only 1 of 5 failing prompts reproduces its class** | medium | fixed | S4 Testing | `bench/run_benchmark.py` | 2026-07-28 | pending commit |
 | PF-033 | Reopening a saved project resets every knob to the patch defaults — the editor's seeding overwrites the restore | high | fixed | S3 Plugin UX | `ParamGridPanel.cpp` `refreshParamKnobs` | 2026-07-28 | `81fc75b` |
 | PF-034 | `EditorSessionTest` scenario 6 raced the message thread — green locally, red on the runner | medium | fixed | S4 Testing | `host/tests/EditorSessionTest.cpp` `loadAndSettle` | 2026-07-28 | pending commit |
-| PF-032 | 2 of 22 compiling patches render SILENT — a warm lowpass at rms 2.5e-08 and a noise gate at 0.0; the compile rate overstates working output | high | in-progress | S1 Backend | `tools/gen_stdlib_block.py` curated notes | 2026-07-28 | `a4f942e` prompt-side; unmeasured |
+| PF-032 | 2 of 22 compiling patches render SILENT — a warm lowpass and a noise gate. **Measured 07-30: the lowpass (Hz contract) is fixed; the noise gate is not** | high | in-progress | S1 Backend | `llm/prompts/system_prompt.txt` | 2026-07-28 | lowpass closed `a4f942e`; gate open |
 | PF-035 | `min_max_tokens` makes a per-call output budget unenforceable — the judge asks for 300 and silently gets 4096 | low | open | S4 Testing | `bench/score_efficacy.py:465`, `providers.py` `make_generator` | 2026-07-29 | — |
 | PF-036 | libfaust's JIT emits AVX-512 on CI runners that name the ISA but cannot execute it — SIGILL in `computemydsp`. It **was** the CPU; PF-027 closed that hypothesis wrongly | high | fixed | S4 Testing | `host/tools/pf_cpu_shim.cpp`, `.github/workflows/test.yml` | 2026-07-30 | pending commit |
 | PF-037 | Every parameter displays as a raw 0–1 slot number — 800 Hz reads `0.04`. `ParamMap` denormalizes into the DSP and nothing denormalizes for the display | medium | fixed | S3 Plugin UX | `ParamMap.h` `formatZone`, `ParamGridPanel.cpp` `applyPresentation` | 2026-07-28 | pending commit |
@@ -501,8 +501,30 @@ now folds constant programs and reads the surviving literal from the generated C
 that file's self-declared blind spot (bare-expression claims with no quoted error) for these
 three constructs. Both tests were seen red first.
 
-**What this does NOT establish.** That generation improved. No generation has run against the
-new prompt. `check.sh audio` still reports PF-032's two silent patches because it renders the
+**2026-07-30 — the benchmark statement is now PAID, and it is a mixed result.**
+Two runs, 50 generations, first measurement of any kind against `a4f942e`.
+
+*What the prompt edit fixed, with evidence:*
+- **The Hz unit contract.** PF-032's warm low-pass (`moog_vcf` fed a normalised cutoff) has
+  not recurred in either fresh corpus. The render oracle over run 1 reports **18 passed /
+  1 failed / 3 unsupported** against 07-28's 16/2/4, and over run 2 **17 / 0 / 4** — zero
+  silent patches in the second corpus.
+- **`select2`.** The sidechain compressor no longer emits a C-style ternary. It now fails
+  *later* and differently (`duplicate_symbol`, then `unbound_variable`), which is progress
+  that a compile-rate metric cannot show.
+- **The stereo dry/wet few-shot.** Ping-pong delay compiled in both fresh runs.
+
+*What it did not fix:*
+- **The dB unit contract.** PF-032's noise gate is still silent at rms **exactly 0.0** in run
+  1 (it failed to compile at all in run 2, so the gate is unhealthy in both runs, differently).
+  The double `ba.db2linear` remains the standing hypothesis; the prompt edit did not close it.
+- **`recursion_cycle` on Karplus-Strong**, unchanged across all four archives on record.
+
+*The honest caveat, which PF-031 supplies:* run-to-run instability is large enough that only
+Karplus-Strong reproduces both prompt and class. So "ping-pong is fixed" and "`select2`
+worked" are **single-observation claims repeated twice**, which is better than the one
+observation they replace and is not proof. The oracle results are firmer, because a silent
+render is a property of the emitted patch rather than of the sampling. `check.sh audio` still reports PF-032's two silent patches because it renders the
 **stored** 07-28 corpus, which a prompt edit cannot retroactively change — expect it to stay
 red until the benchmark re-runs. The Tier-2 benchmark statement is **unpaid**, and per PF-031
 it must be per-class rather than aggregate.
@@ -689,14 +711,22 @@ So both halves of the causal chain now hold on CI's own toolchain: libfaust *doe
 AVX-512 when it believes the host is znver4, and the shim *does* suppress it. That is
 independent of runner draw, which is what makes it worth more than a green run.
 
-**Still not verified.** The final end-to-end link: that a 9V74 runner executes the shimmed
-code without SIGILL. No workflow can request a CPU model, so it cannot be demonstrated on
-demand. **Do not read a green run as confirmation** — that inference is what closed PF-027
-early, and at a ~1-in-5 failure rate four of five green runs were always going to happen
-anyway. What closes it is a green run whose `lscpu` line says 9V74; the workflow still prints
-that line. `ParamPoolTsanTest` also JITs and is covered by the same preload, but has never
-been observed failing this way, so its coverage is precautionary rather than a fix for an
-observed symptom.
+**CONFIRMED END-TO-END 2026-07-30, run `30577386079`: green on an `AMD EPYC 9V74`.**
+
+That is the exact condition named as the only acceptable proof — a pass on the hazard CPU
+itself, not on one of the four-in-five safe draws. It arrived two pushes later without being
+sought. Before the shim, that CPU produced SIGILL every time it was drawn (`30501160287`,
+`30411209139`); with the shim it runs the full harness set clean. The hypothesis is now
+closed at both ends: the mechanism was reproduced on the CI toolchain, and the fix is
+observed working on the machine that exhibited the fault.
+
+Recorded because the discipline is the point: this bug was mis-closed once (PF-027) by
+reading a lucky green run as evidence. The rule that a green run on a *safe* CPU proves
+nothing remains correct — it is simply no longer the only evidence available.
+
+**Still not verified.** `ParamPoolTsanTest` and `StatePersistenceTest` also JIT and are
+covered by the same preload, but neither has been *observed* failing this way, so their
+coverage is precautionary rather than a fix for an observed symptom.
 
 ---
 
@@ -1237,6 +1267,51 @@ prompts as unresolved.
 **Why it was not done in the session that found it:** the same session was already spending
 its quota window on PF-009/PF-010 (25), PF-012 (25) and PF-011 (125). Sequencing, not
 disagreement — the runs share one rate limit and PF-030 means they cannot safely overlap.
+
+**CLOSED 2026-07-30. Measured, and the answer is worse than the arithmetic predicted.**
+Two back-to-back 25-prompt runs, same prompt file, same corpus, unchanged tree, 50 groq
+generations: `results_20260730_groq.json` **88%**, `results_20260730_groq_2.json` **84%**.
+
+**Rate spread: 4 percentage points — one prompt.** That alone retires the historical claims:
+`80%→88%` was two prompts, i.e. half a spread above noise, and the `.prompt_baseline.json`
+note reporting `0.84→0.88` as movement was reporting exactly one resample.
+
+**But the rate spread understates it badly, and this is the finding worth keeping.** Two runs
+can reach a similar rate through entirely different failures, and these did. Of the prompts
+that failed at all across the two runs:
+
+| prompt | failed | classes seen |
+|---|---|---|
+| a sidechain-capable compressor | 2/2 | `duplicate_symbol`, `unbound_variable` |
+| a Karplus-Strong plucked string synthesizer | 2/2 | `recursion_cycle`, `recursion_cycle` |
+| a sawtooth synth with an ADSR envelope | 1/2 | `syntax:FLOAT` |
+| a simple plate reverb with decay time and damping | 1/2 | `delay_range` |
+| a noise gate with threshold and hold time | 1/2 | `syntax:ENDDEF` |
+
+**Exactly one prompt failed both times with the same class.** One more failed both times with
+a *different* class each time. Three failed once and passed once.
+
+So the project's standing reporting rule — "lead with the per-class table" — was **only half
+right**. Per-class is the right unit, but a per-class count read off a *single run* is mostly
+sampling. `classify_failures --compare` between two single runs compares two draws, not two
+prompts. Every historical per-class delta on record, including this month's
+`routing_arity 2→0, unbound_variable 1→0`, was computed that way.
+
+**The rule that replaces it:** a defect is evidenced when the same prompt fails across
+repeated runs *with the same class*. On today's data that is **one** defect — Karplus-Strong's
+`recursion_cycle`, which has now held across four archives (07-27, 07-28, and both 07-30
+runs). The sidechain compressor is evidenced as *unreliable* but has no stable signature.
+
+**Not verified.** n=2 is the minimum that can detect instability at all, and it cannot
+estimate the spread's own precision — a third and fourth run would tighten it. 50 generations
+was the day's budget (groq admits ~57: 200k TPD ÷ ~3.5k per generation). Also unmeasured:
+whether instability is model temperature (pinned to 0.0 here, so this is *not* sampling
+temperature — it is provider-side non-determinism) or corpus-specific.
+
+**Cost note for whoever runs this next.** Wall-clock is set by TPM, not TPD: each request
+admits `prompt_tokens + max_tokens` = 3,283 + 4,096 = **7,379 against an 8,000/min bucket**,
+so roughly one request per minute gets through and a 25-prompt run takes ~18-30 minutes
+regardless of any client-side pacing. `PLUGINFORGE_MIN_INTERVAL` is not the binding pacer.
 
 ---
 

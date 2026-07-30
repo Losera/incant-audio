@@ -842,5 +842,10 @@ int main()
 
     std::printf("\n%s (%d checks, %d failures)\n",
                 failures == 0 ? "PASS" : "FAIL", checks, failures);
+    // One machine-readable line for tools/health_report.py. The `checks` total is
+    // the point: every harness here already carried an exact `failures` int and
+    // threw the denominator away, so "0 failures" was indistinguishable from
+    // "ran nothing". Format is fixed and shared by all seven harnesses.
+    std::printf("PF_SUMMARY harness=%s checks=%d failures=%d\n", "EditorSessionTest", checks, failures);
     return failures == 0 ? 0 : 1;
 }

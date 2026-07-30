@@ -16,9 +16,11 @@
 namespace
 {
 int failures = 0;
+int checks   = 0;
 
 void check(bool condition, const char* what)
 {
+    ++checks;
     std::printf("  [%s] %s\n", condition ? " OK " : "FAIL", what);
     if (! condition)
         ++failures;
@@ -178,5 +180,10 @@ int main()
 
     std::printf("\n%s (%d failure%s)\n", failures == 0 ? "PASSED" : "FAILED",
                 failures, failures == 1 ? "" : "s");
+    // One machine-readable line for tools/health_report.py. The `checks` total is
+    // the point: every harness here already carried an exact `failures` int and
+    // threw the denominator away, so "0 failures" was indistinguishable from
+    // "ran nothing". Format is fixed and shared by all seven harnesses.
+    std::printf("PF_SUMMARY harness=%s checks=%d failures=%d\n", "OutputGuardTest", checks, failures);
     return failures == 0 ? 0 : 1;
 }

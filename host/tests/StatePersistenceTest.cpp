@@ -34,9 +34,11 @@ extern "C" const char* __lsan_default_suppressions()
 namespace
 {
 int failures = 0;
+int checks   = 0;
 
 void check(bool condition, const char* what)
 {
+    ++checks;
     std::printf("  [%s] %s\n", condition ? " OK " : "FAIL", what);
     if (! condition)
         ++failures;
@@ -44,6 +46,7 @@ void check(bool condition, const char* what)
 
 void checkNear(float actual, float expected, const char* what)
 {
+    ++checks;
     const bool ok = std::fabs(actual - expected) <= 1.0e-4f;
     std::printf("  [%s] %s (got %.5f, expected %.5f)\n",
                 ok ? " OK " : "FAIL", what, actual, expected);
@@ -321,5 +324,10 @@ int main()
 
     std::printf(failures == 0 ? "\nAll StatePersistence checks passed.\n"
                               : "\n%d StatePersistence check(s) FAILED.\n", failures);
+    // One machine-readable line for tools/health_report.py. The `checks` total is
+    // the point: every harness here already carried an exact `failures` int and
+    // threw the denominator away, so "0 failures" was indistinguishable from
+    // "ran nothing". Format is fixed and shared by all seven harnesses.
+    std::printf("PF_SUMMARY harness=%s checks=%d failures=%d\n", "StatePersistenceTest", checks, failures);
     return failures == 0 ? 0 : 1;
 }
