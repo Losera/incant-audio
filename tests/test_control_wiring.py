@@ -883,3 +883,130 @@ class TestCaptureHarnessTakesTheLock:
                 "Either the transcription drifted or the document changed. Fix the "
                 "JSON from the document, never the other way round."
             )
+
+
+class TestJitTargetIsPinnedInCI:
+    """Every CI step that JITs Faust must preload the PF-036 CPU shim.
+
+    PF-036, found 2026-07-30. libfaust's LLVM picks its target CPU by NAME
+    (`llvm::sys::getHostCPUName()`, CPUID family/model) and enables that CPU's
+    DEFAULT feature set without rechecking whether the guest can execute it. On
+    GitHub's AMD EPYC 9V74 runners -- Azure Genoa, which reports as znver4 while
+    the hypervisor masks AVX-512 out of the guest -- that emits `kmovd`/EVEX and
+    the harness dies with SIGILL inside `computemydsp`.
+
+    GitHub's fleet mixes that CPU with EPYC 7763 (no AVX-512, safe) and Xeon
+    8573C (AVX-512 enabled, safe), so the failure is a ~1-in-5 runner draw. That
+    is why three readings produced three causes, and why PF-027 was closed on a
+    single green run against a hypothesis that was half right.
+
+    The guarded property is WIRING, not behaviour: that the preload is still
+    attached to every step that runs a JIT-ing binary. Whether the shim actually
+    changes the emitted instruction set is host/tests/JitTargetTest.cpp's job,
+    and that binary refuses to pass at all when the preload is missing.
+
+    NOT COVERED: that CI passes on a 9V74. No workflow can request a CPU model,
+    so that remains unobservable on demand -- which is exactly why the local
+    disassembly test exists and why a green run must never be read as proof.
+    """
+
+    #: Steps whose binaries reach FaustEngine::compile() and therefore JIT.
+    JIT_STEPS = (
+        "Run OfflineRenderTest",
+        "Run PromptPanelThreadingTest",
+        "Run EditorSessionTest",
+        "Run ParamPoolTsanTest",
+    )
+
+    @staticmethod
+    def _step_bodies() -> dict[str, str]:
+        """Split the workflow into `- name: ...` blocks, keyed by step name."""
+        text = WORKFLOW.read_text()
+        blocks: dict[str, str] = {}
+        parts = re.split(r"\n\s*-\s*name:\s*", text)
+        for part in parts[1:]:
+            name, _, body = part.partition("\n")
+            blocks[name.strip()] = body
+        return blocks
+
+    def test_the_shim_is_built(self):
+        # Must be in the cmake --target list, not merely mentioned. A comment
+        # naming the shim satisfies a substring search and builds nothing --
+        # this project's recurring defect is precisely a control that reads as
+        # present while doing no work.
+        m = re.search(
+            r"name:\s*Build behavioural test harnesses\s*\n\s*run:\s*(.+)",
+            WORKFLOW.read_text(),
+        )
+        assert m, "the 'Build behavioural test harnesses' step is gone"
+        assert "pf_cpu_shim" in m.group(1).split("--target", 1)[-1], (
+            "the workflow no longer BUILDS pf_cpu_shim. Without it every "
+            "LD_PRELOAD below resolves to a missing file and the JIT goes back "
+            "to trusting getHostCPUName() -- PF-036."
+        )
+
+    def test_step_names_still_exist(self):
+        # Guards the guard: if the workflow renamed these steps, every assertion
+        # below would pass vacuously by matching nothing.
+        bodies = self._step_bodies()
+        for prefix in self.JIT_STEPS:
+            assert any(n.startswith(prefix) for n in bodies), (
+                f"no workflow step starts with {prefix!r}. If it was renamed, "
+                "repoint this test; if it was deleted, PF-036 needs rethinking, "
+                "not this list quietly shrinking."
+            )
+
+    def test_every_jit_step_preloads_the_shim(self):
+        bodies = self._step_bodies()
+        missing = []
+        for prefix in self.JIT_STEPS:
+            for name, body in bodies.items():
+                if name.startswith(prefix) and "LD_PRELOAD" not in body:
+                    missing.append(name)
+        assert not missing, (
+            f"these CI steps JIT Faust without the PF-036 preload: {missing}. "
+            "On an EPYC 9V74 runner they will SIGILL in computemydsp, and on the "
+            "other ~4 in 5 draws they will pass -- so this cannot be left to be "
+            "caught by a red run."
+        )
+
+    def test_the_sanitizer_runtime_leads_the_preload(self):
+        """libasan/libtsan must come FIRST in LD_PRELOAD.
+
+        Not stylistic. An ASan-instrumented binary aborts at startup with
+        "ASan runtime does not come first in initial library list" if anything
+        precedes it -- observed locally 2026-07-30 while wiring this. Putting the
+        shim first would turn a 1-in-5 SIGILL into a 5-in-5 abort.
+        """
+        text = WORKFLOW.read_text()
+
+        # The workflow composes these from shell variables rather than literal
+        # paths (libasan's location is a compiler question, not a constant), so
+        # match the composition, then check what those variables are bound to.
+        for var, runtime in (("PF_LD_PRELOAD", "ASAN_LIB"), ("PF_LD_PRELOAD_TSAN", "TSAN_LIB")):
+            m = re.search(rf'{var}=(\S+)', text)
+            assert m, f"{var} is no longer set in the workflow"
+            value = m.group(1)
+            first = value.split(":", 1)[0]
+            assert runtime in first, (
+                f"{var} starts with {first!r}, not ${runtime}; the sanitizer "
+                "runtime must lead or the instrumented harnesses abort before "
+                "they run."
+            )
+            assert "$SHIM" in value, f"{var} does not include $SHIM"
+
+        # ...and $SHIM must actually be the shim.
+        m = re.search(r'SHIM="([^"]+)"', text)
+        assert m and "libpf_cpu_shim.so" in m.group(1), (
+            "SHIM is not bound to libpf_cpu_shim.so; the preload would be inert."
+        )
+        for runtime, lib in (("ASAN_LIB", "libasan.so"), ("TSAN_LIB", "libtsan.so")):
+            m = re.search(rf'{runtime}="([^"]+)"', text)
+            assert m and lib in m.group(1), f"{runtime} is not bound to {lib}"
+
+    def test_the_ladder_runs_the_shim_test(self):
+        assert "JitTargetTest" in CHECK_SH.read_text(), (
+            "tools/check.sh does not run JitTargetTest. The shim would be free to "
+            "rot until the next unlucky runner draw -- PF-029's lesson applied to "
+            "PF-036."
+        )

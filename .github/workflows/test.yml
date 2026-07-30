@@ -168,7 +168,63 @@ jobs:
       # its first green run — the editor's unconditional default-seeding was
       # overwriting every value a state restore had just put back.
       - name: Build behavioural test harnesses
-        run: cmake --build build-ci --target OfflineRenderTest PromptPanelThreadingTest EditorSessionTest
+        run: cmake --build build-ci --target OfflineRenderTest PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim
+
+      # ── PF-036: pin the JIT's target CPU for every harness that JITs ────────
+      # GitHub's hosted fleet mixes EPYC 7763 (Zen 3, no AVX-512), Xeon 8573C
+      # (AVX-512 present and enabled) and EPYC 9V74 (Azure Genoa: names itself
+      # znver4, but the hypervisor masks AVX-512 out of the guest). libfaust's
+      # LLVM picks its target CPU by NAME and enables that CPU's default feature
+      # set without rechecking CPUID, so on the 9V74 it emits `kmovd`/EVEX that
+      # SIGILLs. That is a ~1-in-5 runner draw, which is why this presented as
+      # flake and why a single green run proved nothing.
+      #
+      # The documented `target` argument to createDSPFactoryFromString is INERT
+      # on the JIT path (measured — see docs/BUGS.md PF-036), so the lever is
+      # LD_PRELOAD over llvm::sys::getHostCPUName(). host/tools/pf_cpu_shim.cpp
+      # has the full derivation.
+      #
+      # libasan MUST come first in LD_PRELOAD: the harnesses are ASan-built and
+      # abort with "ASan runtime does not come first in initial library list" if
+      # anything precedes it. Computed from the compiler rather than hardcoded.
+      - name: Pin the JIT target CPU (PF-036)
+        run: |
+          ASAN_LIB="$(gcc -print-file-name=libasan.so)"
+          if [ ! -e "$ASAN_LIB" ]; then
+            echo "libasan.so not found via gcc -print-file-name" >&2
+            exit 1
+          fi
+          SHIM="$PWD/build-ci/libpf_cpu_shim.so"
+          if [ ! -e "$SHIM" ]; then
+            echo "pf_cpu_shim not built at $SHIM" >&2
+            exit 1
+          fi
+          echo "PF_LD_PRELOAD=$ASAN_LIB:$SHIM" >> "$GITHUB_ENV"
+          echo "PLUGINFORGE_FAUST_CPU=x86-64" >> "$GITHUB_ENV"
+
+          # ParamPoolTsanTest also drives FaustEngine::compile(), so it JITs and
+          # carries the same exposure — it has simply never drawn a 9V74 while
+          # failing visibly. Same rule, different sanitizer runtime.
+          TSAN_LIB="$(gcc -print-file-name=libtsan.so)"
+          if [ ! -e "$TSAN_LIB" ]; then
+            echo "libtsan.so not found via gcc -print-file-name" >&2
+            exit 1
+          fi
+          echo "PF_LD_PRELOAD_TSAN=$TSAN_LIB:$SHIM" >> "$GITHUB_ENV"
+
+      # Proves the shim above is not a placebo, by disassembling the JIT'd pages
+      # under two CPU names. Runs BEFORE the harnesses so that a broken shim
+      # fails here, where the message says so, rather than as a mystery SIGILL
+      # one step later. No sanitizers on this binary, so it preloads the shim
+      # alone.
+      - name: Run JitTargetTest (PF-036 regression)
+        run: |
+          BIN="$(find build-ci -type f -name JitTargetTest | head -n 1)"
+          if [ -z "$BIN" ]; then
+            echo "JitTargetTest binary not found" >&2
+            exit 1
+          fi
+          LD_PRELOAD="$PWD/build-ci/libpf_cpu_shim.so" timeout 300 "$BIN"
 
       # The audio path's own gate. No network, no API key, no quota: the corpus is
       # hand-written Faust, so this measures the AUDIO path, never generation
@@ -210,7 +266,7 @@ jobs:
           export ASAN_OPTIONS=abort_on_error=1
 
           set +e
-          timeout 300 "$BIN"
+          LD_PRELOAD="$PF_LD_PRELOAD" timeout 300 "$BIN"
           rc=$?
           set -e
 
@@ -243,7 +299,7 @@ jobs:
             echo "PromptPanelThreadingTest binary not found" >&2
             exit 1
           fi
-          timeout 300 xvfb-run -a "$BIN"
+          timeout 300 xvfb-run -a env LD_PRELOAD="$PF_LD_PRELOAD" "$BIN"
 
       # Same display requirement, same reasoning as the step above: it constructs
       # juce::Components and pumps the message loop. The PNG snapshots it writes
@@ -261,7 +317,7 @@ jobs:
             echo "EditorSessionTest binary not found" >&2
             exit 1
           fi
-          timeout 300 xvfb-run -a "$BIN"
+          timeout 300 xvfb-run -a env LD_PRELOAD="$PF_LD_PRELOAD" "$BIN"
 
       - name: Upload editor snapshots
         if: always()
@@ -303,7 +359,10 @@ jobs:
           fi
           # timeout: harness has no hard bound if a JIT compile hangs; 300 s is
           # ~10x the expected wall time.
-          TSAN_OPTIONS="halt_on_error=1" timeout 300 "$BIN"
+          # LD_PRELOAD: PF-036, same reasoning as the ASan harnesses above —
+          # this one JITs too. libtsan must lead for the same reason libasan
+          # must.
+          TSAN_OPTIONS="halt_on_error=1" LD_PRELOAD="$PF_LD_PRELOAD_TSAN" timeout 300 "$BIN"
 
 # TODO: VERIFY (first real push — none of these are checkable from the Arch dev
 # box):

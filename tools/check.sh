@@ -100,7 +100,26 @@ level_full() {
     run "build the host and every test harness" \
         cmake --build host/build --target PluginForgeHost PluginForgeHost_Standalone \
               PluginForgeHost_VST3 ParamPoolTsanTest OfflineRenderTest \
-              PromptPanelThreadingTest EditorSessionTest
+              PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim
+
+    # ── PF-036: the JIT's target CPU ─────────────────────────────────────────
+    # CI preloads host/tools/pf_cpu_shim.cpp over llvm::sys::getHostCPUName() so
+    # libfaust does not emit AVX-512 on runners that name the ISA but cannot
+    # execute it. The ladder does NOT preload it for the harnesses below: this
+    # box's CPU detection is honest, and running them host-native is the more
+    # faithful rehearsal of what a user gets. What the ladder does run is the
+    # test that the shim still works, because a silently-dead shim would put CI
+    # back on a 1-in-5 coin flip with nothing saying so.
+    local jittarget shim
+    jittarget="$(find host/build -type f -name JitTargetTest 2>/dev/null | head -n1)"
+    shim="$(find host/build -type f -name 'libpf_cpu_shim.so' 2>/dev/null | head -n1)"
+    if [[ -n "$jittarget" && -n "$shim" ]]; then
+      run "JitTargetTest (PF-036: the CPU shim still has teeth)" \
+          env LD_PRELOAD="$shim" timeout 300 "$jittarget"
+    else
+      skip "JitTargetTest" "binary or pf_cpu_shim not built"
+    fi
+
     local tsan
     tsan="$(find host/build/ParamPoolTsanTest_artefacts -type f -name ParamPoolTsanTest 2>/dev/null | head -n1)"
     if [[ -n "$tsan" ]]; then

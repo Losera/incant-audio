@@ -378,3 +378,45 @@ target_link_libraries(EditorSessionTest PRIVATE
     juce::juce_recommended_config_flags
     ${LIBFAUST_LIB}
 )
+
+# ---------------------------------------------------------------------------
+# pf_cpu_shim -- LD_PRELOAD interposer for llvm::sys::getHostCPUName().
+#
+# CI-ONLY, and never linked into anything: it is loaded via LD_PRELOAD by the
+# workflow's JIT-running harness steps so libfaust's LLVM does not emit AVX-512
+# on runners that name the ISA but cannot execute it (PF-036, docs/BUGS.md).
+#
+# Built as a bare shared library with no JUCE and no libfaust: it defines one
+# mangled LLVM symbol and a presence marker, and must NOT pull libLLVM in itself
+# or it would resolve the symbol it is trying to interpose.
+#
+# -fno-rtti/-fno-exceptions keep it minimal; it runs inside every process it is
+# preloaded into, including ones under ASan.
+# ---------------------------------------------------------------------------
+add_library(pf_cpu_shim SHARED tools/pf_cpu_shim.cpp)
+target_compile_features(pf_cpu_shim PRIVATE cxx_std_17)
+target_compile_options(pf_cpu_shim PRIVATE -fno-rtti -fno-exceptions -O1)
+set_target_properties(pf_cpu_shim PROPERTIES
+    OUTPUT_NAME pf_cpu_shim
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
+)
+
+# ---------------------------------------------------------------------------
+# JitTargetTest -- the PF-036 regression (host/tests/JitTargetTest.cpp).
+#
+# Asserts that pf_cpu_shim actually changes the instruction set libfaust's JIT
+# emits, by disassembling the JIT'd pages. Deliberately does NOT link JUCE: it
+# never constructs a processor, and the property under test is entirely between
+# libfaust, LLVM and the CPU.
+#
+# NO SANITIZERS, unlike the other harnesses. This test reads /proc/self/maps and
+# copies raw bytes out of executable mappings it does not own; ASan's own
+# allocator and shadow mappings change which regions appear and would make the
+# "new executable mapping" diff report ASan's runtime rather than the JIT.
+#
+# Needs libdl for the dlsym() presence check on the preloaded shim.
+# ---------------------------------------------------------------------------
+add_executable(JitTargetTest tests/JitTargetTest.cpp)
+target_compile_features(JitTargetTest PRIVATE cxx_std_17)
+target_compile_options(JitTargetTest PRIVATE -fno-rtti -g -O1)
+target_link_libraries(JitTargetTest PRIVATE ${LIBFAUST_LIB} ${CMAKE_DL_LIBS})

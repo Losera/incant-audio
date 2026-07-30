@@ -59,18 +59,22 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-021 | Stale error persists in PromptPanel across a new Generate (never cleared on submit) | medium | fixed | S2 Prompting UX | `PromptPanel.cpp:195-200` | 2026-07-24 | `18e862e` (2026-07-25) |
 | PF-022 | `currentFaustSource`/`currentPrompt` committed before compile success — a failed generate poisons the source-of-record and any later save/restore | high | fixed | S1 Backend | `PluginProcessor.cpp:148,180-181` | 2026-07-24 | `4a84c1c` (2026-07-25) |
 | PF-023 | `FaustEngine::process()` has no `activeDSP` null guard (latent audio-thread segfault; defense-in-depth) | medium | fixed | S1 Backend | `FaustEngine.cpp` `process()` | 2026-07-24 | `4a84c1c` (2026-07-25) |
-| PF-024 | Generation produces invalid Faust for stereo routing / unbounded delays / ping-pong / artist-reference prompts (P6 #2,#6,#9,#10) | high | open | S1 Backend | `llm/prompts/system_prompt.txt` | 2026-07-24 | — |
+| PF-024 | Generation produces invalid Faust for stereo routing / unbounded delays / ping-pong / artist-reference prompts (P6 #2,#6,#9,#10) | high | in-progress | S1 Backend | `llm/prompts/system_prompt.txt` | 2026-07-24 | `a4f942e` prompt-side; unmeasured |
 | PF-025 | Benchmark harness has no concurrency guard and overwrites `results.json` unconditionally — two runs destroy each other's evidence and share one rate limit | high | fixed | S4 Testing | `bench/run_benchmark.py:32-115,296-322` | 2026-07-27 | pending commit |
 | PF-026 | CI red on four consecutive pushes and no artifact in the loop reported it — the digest, the Broken list and `check.sh` were all silent | high | fixed | S4 Testing | `tools/status_digest.sh` | 2026-07-28 | pending commit |
-| PF-027 | `OfflineRenderTest` dies with SIGILL (exit 132) on the CI runner — it was the missing MessageManager, not the CPU | high | fixed | S4 Testing | `host/tests/OfflineRenderTest.cpp` `main()` | 2026-07-28 | `144e023` (green run `30409357504`) |
+| PF-027 | `OfflineRenderTest` dies with SIGILL (exit 132) on the CI runner — missing MessageManager. **Its "not the CPU" conclusion was wrong; see PF-036** | high | fixed | S4 Testing | `host/tests/OfflineRenderTest.cpp` `main()` | 2026-07-28 | `144e023` (green run `30409357504`) |
 | PF-028 | COLLABORATION.md §7's hook table named two hooks retired six days earlier and omitted the one that was running | medium | fixed | S4 Testing | `COLLABORATION.md` §7 | 2026-07-28 | pending commit |
 | PF-029 | `tools/check.sh` never builds or runs `OfflineRenderTest` or `PromptPanelThreadingTest` — CI is the only thing that does | high | fixed | S4 Testing | `tools/check.sh` `level_full` | 2026-07-28 | `558ac96` |
-| PF-030 | `run_efficacy_study.py` takes no PF-025 lock — it can run concurrently with `run_benchmark.py` and share one free-tier rate limit | medium | open | S4 Testing | `bench/run_efficacy_study.py` (no `acquire_lock`) | 2026-07-28 | — |
+| PF-030 | `run_efficacy_study.py` takes no PF-025 lock — it can run concurrently with `run_benchmark.py` and share one free-tier rate limit | medium | fixed | S4 Testing | `bench/run_efficacy_study.py:299-322` | 2026-07-28 | `e867483` (2026-07-29) |
 | PF-031 | The 25-prompt benchmark's noise floor is unmeasured — it has never been run twice on an unchanged prompt, so no delta can be called significant | medium | open | S4 Testing | `bench/run_benchmark.py` | 2026-07-28 | — |
 | PF-033 | Reopening a saved project resets every knob to the patch defaults — the editor's seeding overwrites the restore | high | fixed | S3 Plugin UX | `ParamGridPanel.cpp` `refreshParamKnobs` | 2026-07-28 | `81fc75b` |
 | PF-034 | `EditorSessionTest` scenario 6 raced the message thread — green locally, red on the runner | medium | fixed | S4 Testing | `host/tests/EditorSessionTest.cpp` `loadAndSettle` | 2026-07-28 | pending commit |
-| PF-032 | 2 of 22 compiling patches render SILENT — a warm lowpass at rms 2.5e-08 and a noise gate at 0.0; the compile rate overstates working output | high | open | S1 Backend | `bench/results/results.json`, `bench/render_oracle.py` | 2026-07-28 | — |
+| PF-032 | 2 of 22 compiling patches render SILENT — a warm lowpass at rms 2.5e-08 and a noise gate at 0.0; the compile rate overstates working output | high | in-progress | S1 Backend | `tools/gen_stdlib_block.py` curated notes | 2026-07-28 | `a4f942e` prompt-side; unmeasured |
 | PF-035 | `min_max_tokens` makes a per-call output budget unenforceable — the judge asks for 300 and silently gets 4096 | low | open | S4 Testing | `bench/score_efficacy.py:465`, `providers.py` `make_generator` | 2026-07-29 | — |
+| PF-036 | libfaust's JIT emits AVX-512 on CI runners that name the ISA but cannot execute it — SIGILL in `computemydsp`. It **was** the CPU; PF-027 closed that hypothesis wrongly | high | fixed | S4 Testing | `host/tools/pf_cpu_shim.cpp`, `.github/workflows/test.yml` | 2026-07-30 | pending commit |
+| PF-037 | Every parameter displays as a raw 0–1 slot number — 800 Hz reads `0.04`. `ParamMap` denormalizes into the DSP and nothing denormalizes for the display | medium | open | S3 Plugin UX | `ParamGridPanel.cpp` `refreshParamKnobs` | 2026-07-28 | — |
+| PF-038 | Knobs appear alphabetically, not in declaration order — a 40-param patch lists `P0, P1, P10, P11 … P2` | low | open | S3 Plugin UX | `ParamGridPanel.cpp` `refreshParamKnobs` | 2026-07-28 | — |
+| PF-039 | The rotary fallback in `refreshParamKnobs` is unreachable dead code; `docs/ui_design_plan.md` still describes it as the fallback widget | low | open | S3 Plugin UX | `ParamGridPanel.cpp`, `docs/ui_design_plan.md` | 2026-07-28 | — |
 
 ---
 
@@ -466,6 +470,46 @@ references only. A control that extracts every construct the prompt *recommends*
 would have caught `let` the day it was written. That is a new enforcement mechanism — route it
 through `/architecture-planning`.
 
+**2026-07-29 — the prompt side is done, and one recorded fact was wrong.** `a4f942e` addresses
+the two syntax classes remaining in the 07-28 run. Both were the `let` pattern repeating:
+**a construct invented because the prompt named no alternative.**
+
+| class | prompt | generated | why |
+|---|---|---|---|
+| `syntax:FLOAT` | ping-pong | `outL = _.0*(1-mix) + wet.0*mix;` | no channel indexing exists; `.0` lexes as FLOAT |
+| `syntax:EXTRA` | sidechain compressor | `(env > thresh) ? (...) : 1` | C-style ternary; `select2` was **absent from the prompt** |
+
+`select2` appeared nowhere in `llm/prompts/system_prompt.txt` while
+`bench/prompts/tiered_prompts.json:62` lists it as an expected primitive — the benchmark
+expected a construct the prompt never taught.
+
+**The correction.** STATUS.md and this file both said the verified ping-pong few-shot had
+never been folded into the prompt. **It had**, and its `USER:` line matches the failing
+benchmark prompt *verbatim*. The model was handed a matching example and failed anyway, so
+"add the few-shot" was never the fix. The real gap was narrower: **every dry/wet in the prompt
+was on a mono function taking `x`** (`echoCh(x)` at what is now `:181`, `chorusCh(f, x)` at
+`:224`), so mixing across a **multi-output** block was undemonstrated — and ping-pong is
+inherently multi-output. The model needed a stereo dry/wet, had no pattern for one, and
+invented indexing to get it. The few-shot now shows `_,_ <: dry, wet :> _,_`.
+
+**Why the new claims are checked and not asserted.** `select2`'s argument order and which side
+`(_ , !)` keeps are semantic; **both orders compile and have identical arity**, so the existing
+compile gate could not see them. Teaching either backwards would ship plugins that compile,
+load, run, and invert every conditional — PF-032's shape exactly. `tests/test_prompt_claims.py`
+now folds constant programs and reads the surviving literal from the generated C++, closing
+that file's self-declared blind spot (bare-expression claims with no quoted error) for these
+three constructs. Both tests were seen red first.
+
+**What this does NOT establish.** That generation improved. No generation has run against the
+new prompt. `check.sh audio` still reports PF-032's two silent patches because it renders the
+**stored** 07-28 corpus, which a prompt edit cannot retroactively change — expect it to stay
+red until the benchmark re-runs. The Tier-2 benchmark statement is **unpaid**, and per PF-031
+it must be per-class rather than aggregate.
+
+**Cost, recorded because it constrains the next edit.** Prompt headroom fell 457 → **185
+tokens**; the stdlib block now needs only **10.8%** growth (was ~29%) to 413 every groq
+request. The calibration anchor is 7.9% stale and a re-measure is due — one live generation.
+
 ---
 
 ### PF-035 — a per-call output budget cannot be expressed. *(open, found 2026-07-29)*
@@ -515,6 +559,147 @@ five call sites (`llm/generate.py:110`, `bench/run_benchmark.py:193`,
 default) and none does, but "none does" is a statement about today's tree. The judge has
 never executed (PF-013), so its behaviour under the 4096 cap is unobserved rather than
 observed-fine.
+
+---
+
+### PF-036 — libfaust's JIT emits AVX-512 the CI runner cannot execute. *(fixed 2026-07-30)*
+
+**high · S4 Testing · found by reading the CI log at HEAD, not by any control**
+
+CI was red at `a4f942e` (run `30501160287`) with the same SIGILL PF-027 had closed two days
+earlier. **PF-027's fix was real and PF-027's conclusion was wrong.** There were two
+independent SIGILLs. The missing `ScopedJuceInitialiser_GUI` was one. This is the other, and
+it is the one PF-027's CLOSED paragraph explicitly ruled out:
+
+> The `AMD EPYC` / libfaust-LLVM / instruction-set hypothesis was never tested and was never
+> evidence.
+
+Half of that sentence is true — it was never *tested*. The other half is not: it was correct.
+
+**The evidence that settles it.** Runner CPU predicts the outcome perfectly across the last
+twelve runs on `main`:
+
+| run | conclusion | runner CPU |
+|---|---|---|
+| `30501160287` (HEAD) | failure | AMD EPYC 9V74 |
+| `30500293013` | success | AMD EPYC 7763 |
+| `30499723334` | success | AMD EPYC 7763 |
+| `30412830839` | success | Intel Xeon Platinum 8573C |
+| `30412033722` | success | AMD EPYC 7763 |
+| `30411209139` | failure | AMD EPYC 9V74 |
+| `30409357504` — *the run PF-027 was closed on* | success | AMD EPYC 7763 |
+
+Both failures are 9V74. No success is. And the gdb post-mortem the PF-027 work itself added
+names the instruction:
+
+```
+Thread 1 "OfflineRenderTe" received signal SIGILL, Illegal instruction.
+0x00007ffff6a7e27d in computemydsp ()
+=> 0x7ffff6a7e27d <computemydsp+93>:   kmovd  %r9d,%k1
+   0x7ffff6a7e288 <computemydsp+104>:  vmovss %xmm2,%xmm2,%xmm2{%k1}{z}
+   0x7ffff6a7e28e <computemydsp+110>:  vroundss $0x9,%xmm2,%xmm2,%xmm3
+```
+
+`kmovd` and `{%k1}{z}` are AVX-512 opmask instructions, inside JIT'd Faust, not inside our
+C++.
+
+**Why those three CPUs behave differently.** EPYC 7763 is Zen 3 — no AVX-512 exists, LLVM
+knows `znver3` has none, nothing is emitted. Xeon 8573C is Emerald Rapids — AVX-512 is
+present *and enabled*, so the emitted code runs. EPYC 9V74 is Azure's custom Genoa: it
+reports as `znver4`, whose LLVM default feature set includes AVX-512, while the hypervisor
+masks AVX-512 out of the guest. libfaust asks LLVM for the host CPU **by name** and takes
+that name's default features without rechecking CPUID. So the JIT emits instructions the
+guest traps on.
+
+That is a ~1-in-5 runner draw, which is the whole reason three readings produced three causes
+and why one green run read as a fix. **A green CI run is not evidence about this bug.**
+
+**The documented knob is inert, and pinning it would have been a placebo.**
+`createDSPFactoryFromString` takes a `target` parameter documented at
+`/usr/include/faust/dsp/llvm-dsp.h:226-228` as *"the LLVM machine target ... and
+`i386-apple-macosx10.6.0:generic` kind of syntax for a generic processor"*. Measured against
+libfaust 2.85.5 on 2026-07-30, by JITting a patch and disassembling the resulting executable
+mapping:
+
+| target passed | result |
+|---|---|
+| `""` (host-native) | 28 VEX-prefixed AVX instructions |
+| `x86_64-pc-linux-gnu:x86-64` | 28 — byte-identical mnemonic stream |
+| `x86_64-pc-linux-gnu:i486` | 28 — a CPU with no SSE at all |
+| `totally-bogus-triple:nonexistent-cpu` | accepted without error, 28 |
+
+`writeDSPFactoryToObjectcodeFile` and `writeDSPFactoryToMachine` are equally unhelpful: they
+emit target-independent baseline code, so neither is a window into JIT codegen. This was
+found the hard way, and it is recorded because the first plan for this bug was to pin that
+parameter — a fix that would have "worked" only by runner luck and been indistinguishable
+from a real one for weeks.
+
+**The lever that does work.** libfaust leaves the symbol UNDEFINED and resolves it from
+libLLVM at load time, so it is interposable:
+
+```
+$ nm -D --undefined-only /usr/lib/libfaust.so.2.85.5 | grep -i hostcpu
+                 U _ZN4llvm3sys14getHostCPUNameEv@LLVM_22.1
+```
+
+`host/tools/pf_cpu_shim.cpp` is an `LD_PRELOAD` shim returning a conservative CPU name. It is
+**CI-only** and is never loaded by the shipping plugin: on a user's machine the detection is
+honest, and real-time DSP should have the best ISA available. The residual risk — a user
+running a DAW inside a VM with a masked ISA — is real, unreported, and deliberately not paid
+for with a permanent performance cost.
+
+**Which patch was actually crashing.** `tremolo`, from `OfflineRenderTest`'s `kWellBehaved`.
+Under `znver4` it emits 1 EVEX instruction and 2 opmask references; `os.osc`'s phasor wrap is
+the `vroundss $0x9` sitting immediately after the faulting `kmovd` in the backtrace above.
+`toggle blend` emits 9 EVEX. Under `x86-64`, all seven corpus patches emit zero — and zero
+VEX as well. The workflow comment written on 2026-07-27 had already guessed `tremolo` and
+already guessed "the JIT emits an instruction this runner's CPU lacks", labelling it *"That
+is a guess."* The guess was right for three days.
+
+**Seen failing before being believed** (CLAUDE.md's rule), at three levels:
+
+1. `host/tests/JitTargetTest.cpp` run **without** the preload fails loudly on its first
+   assertion rather than passing vacuously — checked, exit 1.
+2. Its red arm (`znver4` → AVX-512 present) is what stops the green arm being empty. If the
+   shim silently died, both arms would produce identical host-native code and that assertion
+   is the one that fails.
+3. `tests/test_control_wiring.py::TestJitTargetIsPinnedInCI` was mutation-tested against four
+   breakages — preload dropped from a step, shim ordered before libasan, shim dropped from
+   the `--target` list, `$SHIM` rebound — each caught by the intended assertion, green again
+   after restore.
+
+**A detail worth keeping.** `libasan`/`libtsan` must lead `LD_PRELOAD`. An ASan-instrumented
+binary aborts with *"ASan runtime does not come first in initial library list"* if anything
+precedes it — observed locally while wiring this, which is why the ordering has its own test.
+
+**Not verified.** That CI passes on an EPYC 9V74. No workflow can request a CPU model, so
+this cannot be demonstrated on demand — it is precisely why the regression test disassembles
+JIT output on the dev box instead. **Do not read the next green run as confirmation**; that
+inference is what closed PF-027 early. What *would* confirm it is a green run whose
+`lscpu` line says 9V74, and the workflow still prints that line. `ParamPoolTsanTest` also
+JITs and is covered by the same preload, but has never been observed failing this way, so its
+coverage is precautionary rather than a fix for an observed symptom.
+
+---
+
+### PF-037 / PF-038 / PF-039 — the parameter grid, as the harness photographed it.
+**medium / low / low · open · S3 Plugin UX · observed 2026-07-28, filed 2026-07-30**
+
+All three were recorded in STATUS.md under *"Two things the harness measured that were
+nobody's claim either way"* and had no IDs, which means they were one STATUS.md rewrite away
+from disappearing. Visible in `artifacts/images/session_*.png`.
+
+- **PF-037 — every value displays as a raw 0–1 slot number.** A cutoff of 800 Hz reads
+  `0.04`; a voice count of 2 reads `0.14`. `ParamMap.h` denormalizes into the DSP correctly
+  (that is PF-001) and *nothing* denormalizes for the display. STATUS.md declined to file
+  this as "a design question, not a bug." It is a bug: the DSP is right, the readout is
+  unreadable, and no user can tell what any knob is set to.
+- **PF-038 — knobs are ordered lexicographically, not by declaration.** A 40-param patch
+  lists `P0, P1, P10, P11 … P2`.
+- **PF-039 — the rotary fallback is dead code.** `FaustEngine::Kind` has five values and
+  `refreshParamKnobs` handles all five explicitly, so the `default:` arm is unreachable.
+  `docs/ui_design_plan.md` still describes it as the fallback widget, so the doc describes a
+  widget no generated plugin has ever shown.
 
 ---
 
@@ -709,7 +894,7 @@ pre-fix behaviour, `test_red_ci_is_announced` fails and the other 14 still pass.
 
 ---
 
-### PF-027 — `OfflineRenderTest` dies with SIGILL on the CI runner. *(open, found 2026-07-28)*
+### PF-027 — `OfflineRenderTest` dies with SIGILL on the CI runner. *(fixed 2026-07-28; second cause split out as PF-036, 2026-07-30)*
 
 The defect PF-026 was hiding — and it is **not** what the first draft of this entry said it
 was. Correcting that misreading is most of the value here.
@@ -749,6 +934,25 @@ gdb post-mortem has nothing benign to trap on and should finally reach the SIGIL
 same binary passes locally on this machine (Arch, LLVM 22.1.6) at every patch including
 tremolo. Nothing here has been proven about the runner. The next red run's post-mortem is
 the evidence to wait for.
+
+**CLOSED 2026-07-30, and this entry was right while the summaries were wrong.** The
+paragraph immediately above called it: it declined to claim the CPU was exonerated, named
+the missing evidence, and said to wait for the next red run's post-mortem. That post-mortem
+arrived at run `30501160287` and is diagnosed as **PF-036** — the JIT emits AVX-512 on
+Azure's EPYC 9V74, which names `znver4` while the hypervisor masks the ISA out of the guest.
+
+What went wrong was the *summarising*, not the investigation. This entry said "still open,
+unproven." The registry row said "it was the missing MessageManager, **not the CPU**," and
+STATUS.md's Works section repeated that as settled fact, adding that the instruction-set
+hypothesis "was never evidence." A cautious finding was flattened into a confident one in
+the two places anyone actually reads, on the strength of one green run — which, at a 1-in-5
+failure rate, was 80% likely regardless of the fix.
+
+This is a new shape of the project's signature defect. The prior instances were controls
+that did not run. This is a control that ran, reported honestly, and had its finding
+overwritten by a more quotable summary one layer up. The MessageManager fix in `144e023`
+remains correct and necessary; it was simply never the whole story, and this entry never
+claimed it was.
 
 **Not covered.** Whether the tremolo patch is special or merely fourth. Whether the fault is
 in JIT-compiled code at all. Both need the backtrace that does not exist yet.
