@@ -48,7 +48,7 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-010 | Prompt rewrite is unmeasured — verified *correct*, not *better* | medium | fixed | S4 Testing | `llm/prompts/system_prompt.txt` | 2026-07-23 | before/after measured 2026-07-28 |
 | PF-011 | Efficacy pilot generalizes to nothing (N=50, 1 model, 2/5 categories) | medium | open | S4 Testing | `bench/run_efficacy_study.py` | 2026-07-23 | — |
 | PF-012 | No cross-model comparison exists (ADR-008 "Under evaluation") | low | open | S4 Testing | `docs/architectural_decisions/` (ADR-008) | 2026-07-23 | partial 2026-07-28, run throttled |
-| PF-013 | Semantic fidelity unmeasured — `--judge` rubric off by default, never run | medium | open | S4 Testing | `bench/score_efficacy.py` | 2026-07-23 | — |
+| PF-013 | Semantic fidelity unmeasured. **Judge EXECUTED 2026-07-30 (44 graded, 0 errors) — that half closed; measurement now blocked on PF-041/PF-042, not quota** | medium | open | S4 Testing | `bench/score_efficacy.py` | 2026-07-23 | — |
 | PF-014 | No real user prompt has ever been recorded (`generate.py` logs nothing) | low | fixed | S1 Backend | `llm/generate.py` `log_user_prompt` | 2026-07-23 | pending commit |
 | PF-015 | `check_rt_safety.py` scopes only 2 functions; `pushToFaust` (now RT) uncovered | medium | fixed | S1 Backend | `.claude/hooks/check_rt_safety.py:57,65` | 2026-07-23 | `fed704e` (2026-07-26) |
 | PF-016 | CI has never run green with the new prompt steps (5 unchecked Ubuntu-Faust TODOs) | medium | fixed | S4 Testing | `.github/workflows/test.yml` | 2026-07-23 | green `30181544354` (2026-07-26) |
@@ -76,6 +76,9 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-038 | Knobs appear alphabetically, not in declaration order — a 40-param patch lists `P0, P1, P10, P11 … P2` | low | open | S3 Plugin UX | `ParamGridPanel.cpp` `refreshParamKnobs` | 2026-07-28 | — |
 | PF-039 | The rotary fallback in `refreshParamKnobs` is unreachable dead code; `docs/ui_design_plan.md` still describes it as the fallback widget | low | open | S3 Plugin UX | `ParamGridPanel.cpp`, `docs/ui_design_plan.md` | 2026-07-28 | — |
 | PF-040 | Every macro slot was quantised to 100 positions — JUCE's `AudioParameterFloat` min/max convenience ctor hardcodes `interval 0.01`, so a patch default usually could not be represented (800 Hz became 819 Hz) | high | fixed | S1 Backend | `PluginProcessor.cpp` `createParameterLayout` | 2026-07-30 | pending commit |
+| PF-041 | The semantic judge grades L4 against a ground truth **byte-identical to the L4 generation prompt** (10/10), so L4 scores 2.00/2.00 tautologically and the tier gradient is confounded | high | open | S4 Testing | `bench/score_efficacy.py` `JUDGE_RUBRIC`, `run_judge` | 2026-07-30 | — |
+| PF-042 | The judge's 0/1/2 rubric collapses to binary in practice — score `1` used **once in 44** gradings, so "partially implements" is not a category the instrument actually returns | medium | open | S4 Testing | `bench/score_efficacy.py:434-446` | 2026-07-30 | — |
+| PF-043 | ollama's stock 4096-token context cannot hold the ~3.3k system prompt plus the 4096 output floor (PF-035), leaving ~480 tokens of generation headroom on the repo's own declared default model | medium | open | S4 Testing | `llm/providers.py:330-343` | 2026-07-30 | — |
 
 ---
 
@@ -246,6 +249,27 @@ ADR-008 has been "Under evaluation" since 2026-04-29. No data comparing model ch
 Every metric on record is compile rate. `bench/score_efficacy.py`'s `--judge` rubric — the only
 fidelity signal in the project — is **off by default** and has never run. Compile-rate says the
 Faust builds, not that it does what the words asked.
+
+**2026-07-30 — half closed, and the other half got a prerequisite.** ollama was installed,
+which supplies a judge model independent of the generator at zero quota cost, and the judge
+was run for the first time: 50 pilot records, **44 graded, 0 errors**.
+
+- ✅ *"`--judge` has never executed"* — **closed.** It executes and parses cleanly.
+- ❌ *"Semantic fidelity is unmeasured"* — **still open**, now for two reasons rather than one:
+  1. The only gradeable records are the 2026-07-20 pilot: **the deleted pre-unification
+     prompt**, paid `claude`, 2 of 5 categories. Judging them measures a system that no longer
+     exists — the PF-007/PF-009 trap. This half stays downstream of PF-011 as always.
+  2. **The instrument is not yet interpretable** — PF-041 (L4 grades against a ground truth
+     identical to its own prompt, 10/10) and PF-042 (the 0/1/2 scale returns `1` once in 44).
+
+**So the ordering has changed.** This entry used to be blocked purely on quota. It is now
+blocked on *fixing the judge first*: running it against a fresh corpus before PF-041 is fixed
+would produce authoritative-looking tier numbers that are partly tautological. That is a worse
+outcome than having no numbers, and it is exactly the failure this registry exists to prevent.
+
+Recorded scores, for the archive only, **not** to be cited as fidelity:
+`L4 2.00 · L3 1.22 · L2 0.44 · L1 0.50 · L0 0.89` (n=9,9,9,8,9), mean 1.02/2.
+`bench/results/efficacy/pilot_20260720_judged.json`.
 
 ### PF-014 — No real user prompt has ever been recorded.
 **low · open · S1 Backend · STATUS "Assumed, never checked"**
@@ -831,6 +855,65 @@ adding one, so no previously-saved value becomes unrepresentable.
 increment behaviour. No host has been driven; only the plugin's own editor.
 
 ---
+
+---
+
+### PF-041 / PF-042 / PF-043 — the judge ran for the first time, and it has two design defects.
+**high / medium / medium · open · S4 Testing · found 2026-07-30 by executing the control**
+
+`bench/score_efficacy.py --judge` has been described since 2026-07-20 as *"the only fidelity
+signal in the project"* and had **never been executed** (PF-013). It was unblocked by
+installing ollama, which supplies a judge model independent of the generator at no quota cost.
+
+**It runs.** 50 pilot records, 44 gradeable (6 never compiled), **0 judge errors**, digits
+parsed cleanly. Mechanically the control is sound. That much is now known rather than assumed.
+
+**PF-041 — L4 grading is tautological.** The rubric hands the judge
+`effect["tiers"]["L4"]` as "expert-level specification of the target effect"
+(`score_efficacy.py:439`). For L4 records, that string **is the generation prompt** — verified
+byte-identical for **10 of 10**:
+
+```
+L4 generation prompt : A stereo resonant low-pass filter: 24 dB/oct ladder-style response, …
+L4 judge ground truth: A stereo resonant low-pass filter: 24 dB/oct ladder-style response, …
+```
+
+So L4 scores 2.00/2.00 across the board by construction — the judge is asked whether code
+written from instruction X satisfies instruction X. That is not an independent standard, and
+it poisons the tier gradient: the apparent decline (L4 2.00 → L3 1.22 → L2 0.44) mixes "vaguer
+prompts produce worse code" with "the ground truth exactly matches L4's prompt and diverges
+progressively from the others." **The tier comparison cannot be read until this is separated.**
+A fix needs a ground truth that is not any tier's prompt — an independent spec per effect.
+
+**PF-042 — the middle of the rubric is unused.** Over 44 gradings: `0` → 21, `2` → 22,
+**`1` → 1**. The documented category "partially implements the effect (missing key behavior or
+parameters)" is returned 2.3% of the time. Whether that is the judge model (a 7B local model
+is a blunt grader) or the rubric's phrasing is untested, but as it stands the instrument
+returns a boolean while claiming three levels, and any mean computed from it is a proportion
+wearing a 0-2 costume.
+
+**PF-043 — the declared ollama model cannot hold the prompt plus the output floor.**
+`providers.py:333` declares `default_model="qwen2.5-coder:7b"`, and ollama loads it with a
+stock **4096-token** context. The system prompt measures **3,614 tokens** as sent, and
+`min_max_tokens=4096` (PF-035) floors every request's output budget at 4096 — so the arithmetic
+is 3,614 + 4,096 against a 4,096 window. Anyone following the repo's own instructions gets
+~480 tokens of generation headroom and silent truncation beyond it.
+**This is PF-035 acquiring a real cost.** That entry was filed `low` on the reasoning that the
+floor "costs nothing measurable today"; on a 4k-context local model it costs the entire
+generation budget. Worked around here by deriving `qwen2.5-coder:7b-16k` with
+`PARAMETER num_ctx 16384`; the durable fix is to raise the declared default's context or
+document the requirement in the spec's `notes`.
+
+**Verified by canary, not assumed.** A token planted at the head of the system prompt was
+echoed back intact at 3,614 prompt tokens, which is how the no-truncation claim above is
+known rather than inferred from ollama's silence.
+
+**What this does and does not close.** PF-013 had two halves. *"`--judge` has never executed"*
+is closed. *"Semantic fidelity is unmeasured"* is **not**, for two independent reasons: the
+scores above grade the **deleted** pre-unification prompt on the paid `claude` provider across
+2 of 5 categories (PF-011), and PF-041/PF-042 mean the instrument's output is not yet
+interpretable. Fixing the rubric is now a **prerequisite** for the measurement, not a
+follow-up to it.
 
 ---
 

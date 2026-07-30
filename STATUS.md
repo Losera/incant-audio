@@ -94,8 +94,17 @@ still calls it the fallback widget.
 
 **5. A per-call output budget cannot be expressed.** *(PF-035, low.)*
 
-**6. `score_efficacy.py --judge` spends quota and takes no lock.** *(unfiled.)* It can
+**6. The only fidelity instrument is not interpretable.** *(PF-041 high, PF-042 medium.)* The
+judge grades L4 against its own generation prompt (10/10 byte-identical) and returns the
+middle of its three-point scale once in 44. Both found by running it for the first time.
+
+**7. The declared ollama model cannot hold its own prompt.** *(PF-043, medium.)* 3,614-token
+system prompt + a 4,096 output floor against a 4,096-token context. This is **PF-035 acquiring
+a real cost** — that entry was filed `low` on "costs nothing measurable today."
+
+**8. `score_efficacy.py --judge` spends quota and takes no lock.** *(unfiled.)* It can
 interleave with a live benchmark into the same TPM bucket — PF-030's hazard, in the scorer.
+Now more pressing: the judge is no longer hypothetical.
 
 ---
 
@@ -111,10 +120,15 @@ three claims below need generation volume that does not fit in one day's quota.
 - **No cross-model comparison exists.** *(PF-012)* **The partial answer on record is now known
   to be worthless.** It read `gpt-oss-120b` 18/20 against `llama-3.3-70b` 17/20 — a
   one-prompt difference, which today's measured noise floor says is exactly one resample.
-- **Semantic fidelity is unmeasured.** *(PF-013)* `--judge` has never executed and **cannot
-  today**: it must use a model independent of the generator, ollama is not installed, and
-  gemini allows 20 requests/day. **Installing ollama is the unlock** — local, unmetered, and
-  independent of groq.
+- **Semantic fidelity is unmeasured.** *(PF-013)* **Half of this closed 2026-07-30.** ollama
+  was installed and the judge ran for the first time in the project's history — 44 records
+  graded, 0 errors. It works. But the measurement is still absent, and the reason changed:
+  it is **no longer blocked on quota, it is blocked on the instrument.** Running it exposed
+  **PF-041** (L4 is graded against a ground truth byte-identical to its own generation prompt,
+  10/10, so it scores 2.00/2.00 tautologically and the tier gradient is confounded) and
+  **PF-042** (the 0/1/2 rubric returns `1` once in 44 — a boolean wearing a three-point
+  costume). Producing fresh tier numbers before fixing those would ship authoritative-looking
+  figures that are partly tautology.
 
 ## Next three things
 
@@ -124,9 +138,12 @@ three claims below need generation volume that does not fit in one day's quota.
 2. **Fix the noise gate's dB contract** (PF-032's surviving half), and verify with the oracle
    over a fresh corpus rather than the compile rate — a silent render is a property of the
    patch, not of the draw, so the oracle is the firmer instrument here.
-3. *(evidence)* **Install ollama and run `--judge`.** It is the single cheapest way to move
-   the `assumed` number: it unblocks PF-013 outright and makes PF-011's grid affordable by
-   removing the judge from the groq budget entirely.
+3. *(evidence)* **Fix the judge before using it — PF-041 first.** ollama is installed and the
+   judge demonstrably runs, so the remaining obstacle is the rubric, not the budget. PF-041
+   needs a ground truth per effect that is **not** any tier's prompt; PF-042 needs the middle
+   score to become reachable. Only then is a fresh efficacy run worth its generations. This is
+   still the cheapest route to the `assumed` number — it is just one step longer than it
+   looked this morning.
 
 ## Waiting on you
 
