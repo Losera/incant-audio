@@ -266,6 +266,15 @@ def run(providers_list: list[str], dry_run: bool = False, prompts_file: Path = P
 
         record = {
             "provider":            prov,
+            # PF-044. model_for()'s own docstring says "benchmark numbers are only
+            # comparable per model" -- and until 2026-07-30 the model was resolved,
+            # used, and then thrown away. Every archive said `provider: "groq"` and
+            # nothing about WHICH groq model, so a cross-model study (PF-012) could
+            # not identify its own subject from its own evidence. run_efficacy_study
+            # has recorded this since it was written; this harness did not.
+            # Found while running PF-012: the only way to tell which model produced
+            # results_20260730_ollama.json was `ollama ps`, which is ephemeral.
+            "model":               model_for(prov),
             "category":            category,
             "prompt":              prompt,
             "dsl":                 dsl,

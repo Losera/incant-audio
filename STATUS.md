@@ -18,6 +18,21 @@ problem.** A three-prong health check (DSP / AI / UI) produced
 were reading sampling noise** — see PF-031 below, which is the most consequential closure
 here.
 
+- **The cross-model comparison exists, and it found a prompt defect the big model was
+  masking.** *(PF-012 closed, pending commit.)* Two runs each: groq `gpt-oss-120b` 88%/84%,
+  local `ollama/qwen2.5-coder:7b` **80%/80%**. A 7B CPU model lands within one prompt of a
+  120B cloud model. **The profiles are disjoint and the small one is diagnostic:** four of
+  ollama's five failures are `sequential composition` arity errors, two of them on
+  *trivial*-category prompts (a mute toggle, a polarity inverter). That is PF-024's 07-27
+  root cause confirmed from a new angle — the prompt teaches no routing algebra (`<:`/`:>`
+  appear nowhere), a 120B model infers it, a 7B model does not. **The prompt's routing
+  instruction has been carried by model capability all along.**
+- **The benchmark noise is provider-side, not inherent.** *(PF-031 amendment.)* The same two
+  ollama runs were byte-identical in **20 of 25 generations**, with identical failure sets and
+  classes; groq's two runs overlapped on 2 prompts. So "temperature 0 is not reproducible" is
+  a fact about groq, not about LLMs. **Consequence:** prompt-regression testing need not be
+  statistical — a local provider answers "did this edit change the output?" exactly, for free,
+  by byte-diff. `check_prompt_regression.py` spends 9 groq generations to answer that badly.
 - **The noise floor exists, and it retires several standing claims.** *(PF-031, pending
   commit.)* Two back-to-back 25-prompt runs, same prompt, same corpus, unchanged tree:
   **88%** and **84%**. Rate spread **4 points — one prompt**. Worse, of five prompts that
@@ -65,7 +80,7 @@ here.
   (PF-018); `process()` null guard (PF-023); RT-safety hook covers all four audio-thread
   functions (PF-015); state persistence (PF-002); params denormalize (PF-001); all 64 params
   reach the editor (PF-005); JIT swap TSan-clean; prompt grounded in the real stdlib.
-- **Python suite: 445 passed, 4 skipped, 12 deselected.** `tools/check.sh full` green.
+- **Python suite: 449 passed, 12 deselected.** `tools/check.sh full` green.
 
 ---
 
@@ -110,16 +125,11 @@ Now more pressing: the judge is no longer hypothetical.
 
 ## Assumed, never checked
 
-**Three claims, and this session did not move the number.** Stating that plainly because it is
-the project's one metric and the temptation is to count the health check as progress against
-it. It is not: 289 assertions and a noise floor are evidence *about instruments*, and all
-three claims below need generation volume that does not fit in one day's quota.
+**Two claims. The number moved from 3 to 2** — PF-012 closed, on real data with error bars.
 
 - **The efficacy pilot generalizes to nothing.** *(PF-011)* The full grid is 25 effects × 5
-  tiers = 125 generations ≈ 437k tokens ≈ **2.2 days** on groq. Needs sharding across days.
-- **No cross-model comparison exists.** *(PF-012)* **The partial answer on record is now known
-  to be worthless.** It read `gpt-oss-120b` 18/20 against `llama-3.3-70b` 17/20 — a
-  one-prompt difference, which today's measured noise floor says is exactly one resample.
+  tiers = 125 generations ≈ 437k tokens ≈ **2.2 days** on groq. Needs sharding across days —
+  **or ollama**, which is unmetered and, per PF-012, near-deterministic.
 - **Semantic fidelity is unmeasured.** *(PF-013)* **Half of this closed 2026-07-30.** ollama
   was installed and the judge ran for the first time in the project's history — 44 records
   graded, 0 errors. It works. But the measurement is still absent, and the reason changed:

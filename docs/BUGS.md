@@ -47,7 +47,7 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-009 | Every benchmark number on record is void (measured on the deleted prompt) | medium | fixed | S4 Testing | `bench/results/results_20260728_groq.json` | 2026-07-23 | 22/25 measured 2026-07-28 |
 | PF-010 | Prompt rewrite is unmeasured — verified *correct*, not *better* | medium | fixed | S4 Testing | `llm/prompts/system_prompt.txt` | 2026-07-23 | before/after measured 2026-07-28 |
 | PF-011 | Efficacy pilot generalizes to nothing (N=50, 1 model, 2/5 categories) | medium | open | S4 Testing | `bench/run_efficacy_study.py` | 2026-07-23 | — |
-| PF-012 | No cross-model comparison exists (ADR-008 "Under evaluation") | low | open | S4 Testing | `docs/architectural_decisions/` (ADR-008) | 2026-07-23 | partial 2026-07-28, run throttled |
+| PF-012 | No cross-model comparison exists (ADR-008 "Under evaluation"). **Closed 2026-07-30: groq/gpt-oss-120b vs ollama/qwen2.5-coder:7b, 2 runs each, with error bars** | low | fixed | S4 Testing | `bench/results/results_20260730_*` | 2026-07-23 | pending commit |
 | PF-013 | Semantic fidelity unmeasured. **Judge EXECUTED 2026-07-30 (44 graded, 0 errors) — that half closed; measurement now blocked on PF-041/PF-042, not quota** | medium | open | S4 Testing | `bench/score_efficacy.py` | 2026-07-23 | — |
 | PF-014 | No real user prompt has ever been recorded (`generate.py` logs nothing) | low | fixed | S1 Backend | `llm/generate.py` `log_user_prompt` | 2026-07-23 | pending commit |
 | PF-015 | `check_rt_safety.py` scopes only 2 functions; `pushToFaust` (now RT) uncovered | medium | fixed | S1 Backend | `.claude/hooks/check_rt_safety.py:57,65` | 2026-07-23 | `fed704e` (2026-07-26) |
@@ -79,6 +79,7 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-041 | The semantic judge grades L4 against a ground truth **byte-identical to the L4 generation prompt** (10/10), so L4 scores 2.00/2.00 tautologically and the tier gradient is confounded | high | open | S4 Testing | `bench/score_efficacy.py` `JUDGE_RUBRIC`, `run_judge` | 2026-07-30 | — |
 | PF-042 | The judge's 0/1/2 rubric collapses to binary in practice — score `1` used **once in 44** gradings, so "partially implements" is not a category the instrument actually returns | medium | open | S4 Testing | `bench/score_efficacy.py:434-446` | 2026-07-30 | — |
 | PF-043 | ollama's stock 4096-token context cannot hold the ~3.3k system prompt plus the 4096 output floor (PF-035), leaving ~480 tokens of generation headroom on the repo's own declared default model | medium | open | S4 Testing | `llm/providers.py:330-343` | 2026-07-30 | — |
+| PF-044 | `run_benchmark.py` recorded `provider` but never `model`, so a cross-model study could not identify its own subject from its own archives — while `model_for()`'s docstring says numbers are "only comparable per model" | medium | fixed | S4 Testing | `bench/run_benchmark.py:267` | 2026-07-30 | pending commit |
 
 ---
 
@@ -1396,9 +1397,76 @@ admits `prompt_tokens + max_tokens` = 3,283 + 4,096 = **7,379 against an 8,000/m
 so roughly one request per minute gets through and a 25-prompt run takes ~18-30 minutes
 regardless of any client-side pacing. `PLUGINFORGE_MIN_INTERVAL` is not the binding pacer.
 
+**AMENDMENT, same day, from PF-012: the noise is PROVIDER-SIDE, not inherent to LLM
+generation.** Two ollama runs of the identical corpus at temperature 0, hours after the groq
+pair:
+
+| | run-to-run behaviour |
+|---|---|
+| groq `gpt-oss-120b` | rates 88%/84%; failure sets overlap on **2** prompts |
+| ollama `qwen2.5-coder:7b` | rates 80%/80%; failure sets **identical**, classes identical, and **20 of 25 generations byte-identical** |
+
+So "temperature 0 does not mean reproducible" is a statement about **groq**, not about language
+models. A local model at temperature 0 is very nearly deterministic, and the 4-point spread
+measured this morning is a property of the hosted provider — batching, hardware variation,
+whatever it is — rather than of the task.
+
+**This has a direct methodological consequence.** Prompt-regression testing does not have to
+be statistical. A deterministic local provider can answer *"did this prompt edit change the
+generated code?"* exactly and for free, in one run, with a byte-diff — which is a far sharper
+instrument than a compile rate with a two-prompt error bar. groq runs then answer the
+different question of *"can the shipping model handle it"*, where repeats remain mandatory.
+`bench/check_prompt_regression.py` currently spends 9 groq generations to answer the first
+question badly; it could answer it exactly on ollama for nothing.
+
+**Not verified:** that ollama's determinism holds across model sizes, longer outputs, or GPU
+inference (this was CPU-only). 5 of 25 generations still differed, so it is *near*-deterministic,
+not deterministic.
+
 ---
 
-### PF-012 — a cross-model comparison was attempted and got 80% of the way. *(still open, 2026-07-28)*
+### PF-012 — CLOSED 2026-07-30. The comparison exists, and it found a prompt defect.
+
+**Method.** Same 25-prompt corpus, same system prompt, same harness, **two runs per model** —
+because the 07-28 attempt's 18/20-vs-17/20 was, by today's measured noise floor (PF-031), a
+one-prompt difference and therefore worthless. Models: shipping `groq/openai/gpt-oss-120b`
+against local `ollama/qwen2.5-coder:7b-16k` (CPU, temperature 0, unmetered).
+
+| model | run 1 | run 2 | failure classes |
+|---|---|---|---|
+| groq gpt-oss-120b | 88% | 84% | shuffle completely between runs |
+| ollama qwen2.5-coder 7B | **80%** | **80%** | `routing_arity` ×4, `unclassified` ×1 — *identical* |
+
+**Finding 1 — a 7B local model is within one prompt of a 120B cloud model on compile rate.**
+80% against 84–88%. Given a 4-point noise floor, that gap is one to two prompts. Nobody
+expected this; the working assumption was that a small local model would be far behind.
+
+**Finding 2, and the important one — the failure profiles are disjoint and the small model's
+is diagnostic.** Four of ollama's five failures are `sequential composition` arity errors, and
+**two are on `trivial`-category prompts**: *"a mute toggle with one boolean parameter"* and
+*"a polarity inverter with a bypass switch"*. Those are the easiest items in the corpus and
+groq passes them without difficulty.
+
+That is PF-024's original diagnosis confirmed from a new direction. The 2026-07-27 root-cause
+note said the prompt *"barely teaches Faust's routing algebra"* — `<:` and `:>` appear nowhere
+in it. **A 120B model infers the routing; a 7B model does not.** So the prompt's routing
+instruction has been carried by model capability rather than by the prompt, and the large model
+has been masking a real prompt defect for the entire life of the benchmark. That is actionable
+in a way no aggregate rate is: it names a specific missing section.
+
+**Finding 3 — the noise is provider-side, not inherent.** See the PF-031 amendment below.
+
+**Not verified.** One model per side, two runs each. The 7B result is a single model's
+behaviour, not "small models generally". Quantisation, CPU-only inference, and the
+`num_ctx 16384` override (PF-043) are all uncontrolled. ADR-008 can move off "Under
+evaluation", but on the strength of a two-point comparison, not a survey.
+
+**Bookkeeping:** the archives for this comparison are the first to record which model produced
+them — see PF-044, found while running it.
+
+---
+
+### PF-012 — a cross-model comparison was attempted and got 80% of the way. *(superseded, see above)*
 
 **Method.** The same 25-prompt corpus, the same prompt file, the same harness, one variable:
 `PLUGINFORGE_MODEL=llama-3.3-70b-versatile` against the pinned default
