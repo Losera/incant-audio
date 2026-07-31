@@ -39,6 +39,15 @@ from pathlib import Path
 BENCH_DIR = Path(__file__).resolve().parent
 DEFAULT_PROMPTS_FILE = BENCH_DIR / "prompts" / "tiered_prompts.json"
 
+# PF-025/PF-030 — one lock, every harness that spends provider quota. Imported
+# lazily-but-at-module-scope the same way run_efficacy_study.py:56-60 does it, so
+# there is exactly one implementation of the lock in the tree. Only --judge takes
+# it; the offline report below must stay runnable during a live benchmark.
+sys.path.insert(0, str(BENCH_DIR))
+from run_benchmark import (  # noqa: E402
+    BenchmarkLockHeld, acquire_lock, release_lock,
+)
+
 # ── Error-class taxonomy ───────────────────────────────────────────────────────
 # Keyword rules mapped to docs/benchmark_analysis.md's taxonomy. Order matters:
 # first matching class wins. Examples the wording is drawn from:
@@ -527,11 +536,37 @@ def main(argv=None) -> int:
         make_chart(scores, Path(args.chart))
 
     if args.judge:
-        print(f"\nRunning fidelity judge ({JUDGE_PROVIDER})...", file=sys.stderr)
-        judged_records = run_judge(records, dataset)
-        judged_path = results_path.with_name(results_path.stem + "_judged.json")
-        judged_path.write_text(json.dumps(judged_records, indent=2))
-        print(f"Judged results written to: {judged_path}", file=sys.stderr)
+        # ── PF-025 lock, added 2026-07-30 ────────────────────────────────────
+        # Everything above this line is offline arithmetic over a JSON file.
+        # --judge is not: it makes one provider call per compiled record, up to
+        # 125 on a full grid, and until now it took no lock at all. It could
+        # therefore interleave with a live run_benchmark or run_efficacy_study
+        # into the SAME per-minute token bucket -- which is PF-030's hazard
+        # exactly, reappearing in the scorer six days after PF-030 closed it in
+        # the study. The failure mode is the worst kind: the collided run's 429s
+        # are filed by classify_failures as `transport`, i.e. a corrupted
+        # measurement that looks like data.
+        #
+        # Held only around the judge, not the whole program, because the offline
+        # report must stay runnable while a benchmark is in flight -- that is the
+        # normal way anyone reads yesterday's numbers.
+        #
+        # Exit 2 on conflict matches run_benchmark.py:372 and
+        # run_efficacy_study.py:313 so a caller can distinguish "someone else is
+        # running" from "it failed" without parsing text.
+        try:
+            acquire_lock()
+        except BenchmarkLockHeld as exc:
+            print(f"Refusing to judge:\n  ✗ {exc}", file=sys.stderr)
+            return 2
+        try:
+            print(f"\nRunning fidelity judge ({JUDGE_PROVIDER})...", file=sys.stderr)
+            judged_records = run_judge(records, dataset)
+            judged_path = results_path.with_name(results_path.stem + "_judged.json")
+            judged_path.write_text(json.dumps(judged_records, indent=2))
+            print(f"Judged results written to: {judged_path}", file=sys.stderr)
+        finally:
+            release_lock()
 
     return 0
 

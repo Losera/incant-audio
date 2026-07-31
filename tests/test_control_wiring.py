@@ -831,7 +831,13 @@ class TestCaptureHarnessTakesTheLock:
     not mechanically checkable from here.
     """
 
-    HARNESSES = ["p6_capture.py", "run_efficacy_study.py"]
+    # score_efficacy.py joined 2026-07-30. It reads as an offline scorer and is one
+    # everywhere except behind --judge, which makes one provider call per compiled
+    # record -- up to 125 on a full grid -- and took no lock at all until the judge
+    # was run for the first time and the hole became visible. That is PF-030's
+    # hazard reappearing in the scorer six days after PF-030 closed it in the study,
+    # which is why this list is a list and not two names.
+    HARNESSES = ["p6_capture.py", "run_efficacy_study.py", "score_efficacy.py"]
 
     @pytest.mark.parametrize("harness", HARNESSES)
     def test_harness_acquires_and_releases_the_lock(self, harness):

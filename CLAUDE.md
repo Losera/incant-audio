@@ -20,16 +20,27 @@ Pipeline: Natural language prompt → LLM → Faust DSL → LLVM JIT → VST3/AU
 - CMake + Ninja — build system
 
 ## The machine this is built on
-Verified 2026-07-27. These are the versions the JIT, the oracle and the prompt's stdlib
-block are all pinned to in practice — when a version here moves, expect the generated
-Faust and the measured audio to move with it.
+**Re-verified 2026-07-30 and four of these had drifted** — the block below had said Faust
+2.85.5, LLVM 22.1.6, CMake 4.3.3, Python 3.14.5 since 2026-07-27, while the box had been
+upgraded underneath it. Every number here is read from the installed tool, not recalled.
+These are the versions the JIT, the oracle and the prompt's stdlib block are pinned to in
+practice — when a version here moves, expect the generated Faust and the measured audio to
+move with it, which is exactly why silent drift matters.
 
-- **Arch Linux**, kernel 7.0.10-arch1-1 (Omarchy). Primary and only dev target.
-- **Faust 2.85.5**, stdlib at `/usr/share/faust/` (53 `.lib` files). This is the
-  ground truth `tools/gen_stdlib_block.py` generates the prompt's stdlib block from, and
-  what `check_prompt_invariants.py` resolves every `ns.func` against.
-- **LLVM 22.1.6** — backs the libfaust JIT inside the host plugin.
-- **JUCE** vendored at `host/JUCE`. CMake 4.3.3, Ninja 1.13.2, Python 3.14.5,
+- **Arch Linux** (Omarchy). Kernel **7.0.10-arch1-1 running**, **7.1.4.arch1-1 installed** —
+  the box has not rebooted since the upgrade. That gap is also why `nvidia-smi` fails
+  (`NVML: Driver/library version mismatch`): the loaded module is 610.43.02 against 610.43.03
+  userspace, so **ollama runs CPU-only** until a reboot. Primary and only dev target.
+- **Faust 2.85.9**, stdlib at `/usr/share/faust/`. This is the ground truth
+  `tools/gen_stdlib_block.py` generates the prompt's stdlib block from, and what
+  `check_prompt_invariants.py` resolves every `ns.func` against.
+  ⚠️ The block in `llm/prompts/system_prompt.txt:71` is still stamped
+  `Faust version at generation: 2.85.5`. That is **not** a defect: `--check` validates the
+  entry *names*, which are version-independent by design (`gen_stdlib_block.py:300-308`), and
+  it passes. Regenerating under 2.85.9 would rewrite signatures and spend prompt headroom
+  there are only ~124 tokens of, so it is a deliberate deferral, not an oversight.
+- **LLVM 22.1.8** — backs the libfaust JIT inside the host plugin.
+- **JUCE** vendored at `host/JUCE`. CMake 4.4.0, Ninja 1.13.2, Python 3.14.6,
   libsndfile 1.2.2 (the render oracle's static-link closure).
 - **Wayland session under Hyprland.** The Standalone runs here, so UI capture is
   compositor-specific: `tools/screenshot_ui.sh` drives `hyprctl` + `grim` and cannot be

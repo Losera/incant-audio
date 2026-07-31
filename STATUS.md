@@ -18,15 +18,23 @@ problem.** A three-prong health check (DSP / AI / UI) produced
 were reading sampling noise** — see PF-031 below, which is the most consequential closure
 here.
 
-- **The cross-model comparison exists, and it found a prompt defect the big model was
-  masking.** *(PF-012 closed, pending commit.)* Two runs each: groq `gpt-oss-120b` 88%/84%,
-  local `ollama/qwen2.5-coder:7b` **80%/80%**. A 7B CPU model lands within one prompt of a
-  120B cloud model. **The profiles are disjoint and the small one is diagnostic:** four of
-  ollama's five failures are `sequential composition` arity errors, two of them on
-  *trivial*-category prompts (a mute toggle, a polarity inverter). That is PF-024's 07-27
-  root cause confirmed from a new angle — the prompt teaches no routing algebra (`<:`/`:>`
-  appear nowhere), a 120B model infers it, a 7B model does not. **The prompt's routing
-  instruction has been carried by model capability all along.**
+- **The cross-model comparison exists, and the small model located a real prompt gap.**
+  *(PF-012 closed, pending commit.)* Two runs each: groq `gpt-oss-120b` 88%/84%, local
+  `ollama/qwen2.5-coder:7b` **80%/80%**. A 7B CPU model lands within one prompt of a 120B
+  cloud model. **The profiles are disjoint and the small one is diagnostic:** four of ollama's
+  five failures are `sequential composition` arity errors, two on *trivial*-category prompts
+  (a mute toggle, a polarity inverter).
+  **A first reading of this — committed, then corrected the same evening — said the prompt
+  teaches no routing algebra. It does** (`system_prompt.txt:37-47`, all five operators plus
+  the `_,_ : E` warning); that claim was quoted from PF-024's July 27 description of a prompt
+  `a4f942e` has since changed. Reading the generated code instead gives a better answer:
+  `ba.bypass2(mute, _ , _)` and `ef.gate_stereo(t,a,h,r,_,_)` both write the **signal into the
+  argument list** of a stdlib effect whose signal arrives by composition
+  (`misceffects.lib:159`). **One root cause, two models, three failures** — including PF-032's
+  last silent render — and genuinely untaught. **A prompt rule targeting it was then written
+  and measured as NOT working** (ollama 80% → 80%, both target cases byte-unchanged): the
+  model was told in the imperative, with a worked example, and did it anyway. That reads as a
+  7B instruction-following limit rather than a prompt gap. Retained only pending a groq run.
 - **The benchmark noise is provider-side, not inherent.** *(PF-031 amendment.)* The same two
   ollama runs were byte-identical in **20 of 25 generations**, with identical failure sets and
   classes; groq's two runs overlapped on 2 prompts. So "temperature 0 is not reproducible" is
@@ -80,7 +88,7 @@ here.
   (PF-018); `process()` null guard (PF-023); RT-safety hook covers all four audio-thread
   functions (PF-015); state persistence (PF-002); params denormalize (PF-001); all 64 params
   reach the editor (PF-005); JIT swap TSan-clean; prompt grounded in the real stdlib.
-- **Python suite: 449 passed, 12 deselected.** `tools/check.sh full` green.
+- **Python suite: 450 passed, 12 deselected.** `tools/check.sh full` green.
 
 ---
 
@@ -94,9 +102,15 @@ across runs — four archives now. The sidechain compressor fails every run with
 error each time, so it is evidenced as unreliable with no stable signature. **Fixing anything
 else on the strength of one run is fixing noise.**
 
-**2. The noise gate still renders silent.** *(PF-032's surviving half, high.)* rms exactly 0.0
-in the fresh corpus. The dB unit contract — double `ba.db2linear` — is the standing
-hypothesis; `a4f942e` closed the Hz contract and not this one.
+**2. The noise gate still renders silent, and the dB hypothesis is now disproved.**
+*(PF-032's surviving half, high.)* rms exactly 0.0 in the fresh corpus — but today's gate
+passes `threshold` raw in dB, which is **correct**; the prompt's unit rule worked and the
+double-`ba.db2linear` bug is gone. The real cause is
+`ef.gate_stereo(threshold, attack, hold, release, _, _)` — the signal written into the
+argument list where `misceffects.lib:159` documents `_,_ : gate_stereo(t,a,h,r) : _,_`.
+A prompt rule targeting exactly this was added and **measured as not working on ollama**
+(80% → 80%, the two target cases unchanged); it is retained only pending a groq run, and
+must be reverted if that shows nothing. See PF-024.
 
 **3. The DAW still sees raw slots.** *(follow-up to PF-037, open, unfiled.)* The plugin's own
 knobs read `800 Hz`; the host's automation lane still reads `Macro 7: 0.04`. Closing it needs

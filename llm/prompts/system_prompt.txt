@@ -19,6 +19,9 @@ STRICT RULES:
   in Hz must NOT be divided by ma.SR; a threshold documented in dB must NOT be run
   through ba.db2linear first, because the library does that itself. Both mistakes
   compile cleanly and render SILENCE.
+- A stdlib effect takes only its CONTROL arguments; the audio arrives by
+  composition. Write _,_ : ef.gate_stereo(t,a,h,r) : _,_ — never
+  ef.gate_stereo(t,a,h,r,_,_), which compiles and renders SILENCE.
 - For stereo effects: process = L, R; where L and R operate on separate channels.
 - For stereo pass-through: use _ , _ as input signals.
 - process must be defined exactly once, and never re-defined

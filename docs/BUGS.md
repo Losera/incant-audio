@@ -560,6 +560,45 @@ request. The calibration anchor is 7.9% stale and a re-measure is due — one li
 
 ---
 
+**2026-07-30 — a prompt rule was added, measured, and DID NOT WORK. Recorded because a
+negative result nobody writes down gets re-attempted.**
+
+Reading the failing code across both models suggested one shared root cause: the signal
+written into a stdlib effect's argument list rather than arriving by composition —
+`ba.bypass2(mute, _ , _)` on ollama and `ef.gate_stereo(t,a,h,r,_,_)` on groq, the latter
+being PF-032's surviving silent render. A rule was added to STRICT RULES stating it in plain
+terms with a correct/wrong example pair, costing **61 tokens** (slack 185 → 124).
+
+**Result on ollama, one run against a two-run identical baseline: no improvement.** 80% → 80%.
+
+| case | before | after |
+|---|---|---|
+| mute toggle | `ba.bypass2(mute, _ , _)` | `ba.bypass2(mute, _, _)` — **unchanged** |
+| polarity inverter | `ba.bypass2(bypass, _ * -1)` | `ba.bypass2(bypass, _ : *(-1))` — better form, still mono-into-stereo |
+| sidechain compressor | `routing_arity` | compiles |
+| Karplus-Strong | compiles | emits prose, `syntax:IDENT` |
+
+**What this actually shows.** The model was told, in the imperative, with a worked example,
+not to write trailing `_` arguments — and wrote them anyway, byte-identically. That is an
+instruction-following limit, not a prompt gap, and it is the conclusion PF-012's data
+supported all along: a 7B model fails where a 120B one does not, on material the prompt
+already covers. One case fixed and one broken is inside the 5-in-25 run-to-run variation
+ollama shows even at temperature 0, so **neither the fix nor the regression is attributable.**
+
+**Two things the attempt got right and are worth keeping.** The polarity case now fails
+purely on mono-vs-stereo — which is precisely the `bypass1`/`bypass2` sentence that was cut
+from the rule to fit the headroom budget, so the budget shaped the outcome. And the headroom
+guard (`tests/test_prompt_headroom.py`) refused the first, larger draft and its docstring
+pre-registered the correct response — *"do NOT widen these bounds, buy headroom back"* —
+which is a control behaving exactly as designed under pressure to tune it away.
+
+**Status of the rule:** retained **pending a groq run**, not because it is proven but because
+it is unproven on the model that ships and groq's `ef.gate_stereo(...,_,_)` is its exact
+target. If a groq run shows no benefit it must be **reverted** — 61 tokens of a 185-token
+budget is not payable by a rule that only might work.
+
+---
+
 ### PF-035 — a per-call output budget cannot be expressed. *(open, found 2026-07-29)*
 
 **low · open · S4 Testing · noticed while auditing `max_tokens` call sites for the groq
@@ -1447,12 +1486,46 @@ is diagnostic.** Four of ollama's five failures are `sequential composition` ari
 *"a polarity inverter with a bypass switch"*. Those are the easiest items in the corpus and
 groq passes them without difficulty.
 
-That is PF-024's original diagnosis confirmed from a new direction. The 2026-07-27 root-cause
-note said the prompt *"barely teaches Faust's routing algebra"* — `<:` and `:>` appear nowhere
-in it. **A 120B model infers the routing; a 7B model does not.** So the prompt's routing
-instruction has been carried by model capability rather than by the prompt, and the large model
-has been masking a real prompt defect for the entire life of the benchmark. That is actionable
-in a way no aggregate rate is: it names a specific missing section.
+**CORRECTION, same evening, before any fix was attempted.** The paragraph that stood here
+said this confirmed PF-024's 2026-07-27 note that the prompt *"barely teaches Faust's routing
+algebra — `<:` and `:>` appear nowhere in it"*, and concluded the large model had been masking
+a missing prompt section.
+
+**That was wrong, and wrong in this registry's signature way.** The July 27 note described the
+prompt *as it was then*; `a4f942e` changed it. At HEAD `llm/prompts/system_prompt.txt:37-47`
+carries a full SIGNAL ROUTING section — all five operators, `par(i,N,E)`, `si.bus(N)`, and an
+explicit warning that `_,_ : E` is a "2 outputs must equal 1 input" error. The claim was
+written by quoting the registry instead of re-reading the artifact, which is the third recorded
+instance of exactly that mistake and the first committed by the same session that was
+documenting the other two.
+
+**What the failing code actually shows.** Reading it, rather than the error label:
+
+```faust
+process = ba.bypass2(mute, _ , _);      // signals written into the argument list
+process = ba.bypass2(bypass, _ * -1);   // mono effect handed to the stereo bypass
+```
+
+Both misuse a stdlib function's **argument contract**, not the routing operators. And the same
+shape explains groq's surviving silent render (PF-032):
+
+```faust
+process = ef.gate_stereo(threshold, attack, hold, release, _, _);
+```
+
+`misceffects.lib:159` documents the usage as `_,_ : gate_stereo(thresh,att,hold,rel) : _,_` —
+four control arguments, signal by composition. All three generations wrote the signal into the
+argument list instead. **One root cause, two models, three failures**, and it is genuinely
+untaught: the prompt covers routing operators and unit contracts but never says where the
+audio enters a stdlib effect.
+
+`classify_failures` labels the ollama cases `routing_arity` because the composition does fail
+on arity. The label is accurate about the symptom and is what led the first reading astray —
+noted under PF-024 as a taxonomy concern, not fixed here.
+
+**What survives from Finding 2:** a 7B model fails where a 120B model does not, on the
+corpus's easiest prompts, reproducibly. That remains the useful result. Only the inference
+about *why* was wrong.
 
 **Finding 3 — the noise is provider-side, not inherent.** See the PF-031 amendment below.
 

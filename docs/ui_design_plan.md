@@ -137,6 +137,17 @@ human authoring) for the prompt text itself.
 - toggle-kind widgets render as `juce::ToggleButton` instead of rotary
 - N > ~24: sections become tabs or a scrollable viewport
 
+> **Correction, 2026-07-30 (PF-039). Rotary is not the fallback widget, and never renders.**
+> This section, and the table at `:22`, describe a rotary default that the shipped code does
+> not have. `FaustEngine::Kind` has exactly five values and
+> `ParamGridPanel::applyPresentation` handles all five explicitly (HSlider → horizontal,
+> VSlider → vertical, NumEntry → inc/dec, Button/CheckButton → ToggleButton), so the
+> `default:` rotary arm is **unreachable for any real Faust parameter**. `EditorSessionTest`
+> scenario 2 asserts it: no control ever reports `WidgetKind::Rotary`.
+> The `MAX_KNOBS = 8` fixed 4×2 grid in the `:22` table is likewise gone — PF-005 replaced it
+> with the sqrt-derived scrolling grid described above. Both are kept rather than deleted
+> because they record what the design *proposed*; neither describes what ships.
+
 **Insertion point.** `refreshParamKnobs()` (`PluginEditor.cpp:273-303`) is already the
 single place the UI reacts to a compile — it receives the full `ParamList` on the message
 thread via `onFaustCompileSuccess`. Auto-layout replaces its fixed `MAX_KNOBS` loop and
