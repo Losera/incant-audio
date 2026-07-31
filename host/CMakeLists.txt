@@ -8,6 +8,23 @@ if(NOT EXISTS "${JUCE_PATH}/CMakeLists.txt")
 endif()
 add_subdirectory(${JUCE_PATH} JUCE)
 
+# The shared source set behind every target in this file. Named once so the two
+# plugin targets below cannot drift apart -- they are the SAME plugin compiled
+# with different JUCE plugin traits (effect vs instrument), not two codebases.
+# The test harnesses still list their sources explicitly; folding them in here
+# too is a worthwhile cleanup, but it would touch ten targets at once and is not
+# this change's job.
+set(PF_CORE_SOURCES
+    Source/PluginProcessor.cpp
+    Source/PluginEditor.cpp
+    Source/PromptPanel.cpp
+    Source/CodeEditorPanel.cpp
+    Source/ParamGridPanel.cpp
+    Source/FaustEngine.cpp
+    Source/ParamPool.cpp
+    Source/OutputGuard.cpp
+)
+
 juce_add_plugin(PluginForgeHost
     PLUGIN_MANUFACTURER_CODE Pfge
     PLUGIN_CODE Pfh1
@@ -24,16 +41,7 @@ juce_add_plugin(PluginForgeHost
     NEEDS_CURL FALSE
 )
 
-target_sources(PluginForgeHost PRIVATE
-    Source/PluginProcessor.cpp
-    Source/PluginEditor.cpp
-    Source/PromptPanel.cpp
-    Source/CodeEditorPanel.cpp
-    Source/ParamGridPanel.cpp
-    Source/FaustEngine.cpp
-    Source/ParamPool.cpp
-    Source/OutputGuard.cpp
-)
+target_sources(PluginForgeHost PRIVATE ${PF_CORE_SOURCES})
 
 target_compile_features(PluginForgeHost PRIVATE cxx_std_17)
 
@@ -63,6 +71,66 @@ find_library(LIBFAUST_LIB faust REQUIRED
 message(STATUS "Found libfaust: ${LIBFAUST_LIB}")
 
 target_link_libraries(PluginForgeHost PRIVATE
+    juce::juce_audio_utils
+    juce::juce_dsp
+    juce::juce_gui_extra
+    juce::juce_recommended_config_flags
+    juce::juce_recommended_warning_flags
+    ${LIBFAUST_LIB}
+)
+
+# ── PluginForgeSynth — the same plugin, declared as an instrument ─────────────
+# A generated synth is 0-in/N-out and needs note input, which an Fx-category
+# plugin cannot get: the host has no reason to route MIDI to it, and this
+# plugin's input bus is REQUIRED, so a DAW will not even instantiate it on an
+# instrument track. Those are JUCE *plugin traits*, fixed at build time and
+# baked into the VST3 metadata -- they cannot be switched at runtime, which is
+# why this is a second target rather than a flag.
+#
+# Two targets rather than one instrument-that-also-takes-audio: making
+# PluginForgeHost an instrument would move it in every DAW's browser and change
+# what already-saved FX sessions load. The cost is build time -- JUCE recompiles
+# its modules per target, and this tree already has twelve.
+#
+# Everything the two share lives in PF_CORE_SOURCES and in the source itself;
+# the ONLY differences are the four traits below. PluginProcessor keys its bus
+# layout and acceptsMidi() off JucePlugin_IsSynth, which JUCE defines from
+# IS_SYNTH -- so there is no PluginForge-specific build flag to keep in sync.
+#
+# Standalone is built for the same reason the Fx target builds it: the VST3 is
+# never installed to a scan path (COPY_PLUGIN_AFTER_BUILD FALSE), so the
+# Standalone is the only way to play a generated instrument from a MIDI
+# keyboard without a DAW -- which is the listening pass this whole effort is for.
+juce_add_plugin(PluginForgeSynth
+    PLUGIN_MANUFACTURER_CODE Pfge
+    PLUGIN_CODE Pfs1               # MUST differ from the Fx target's Pfh1 --
+                                   # hosts identify a plugin by this code, and a
+                                   # collision makes one shadow the other.
+    FORMATS VST3 Standalone
+    PRODUCT_NAME "PluginForge Synth"
+    IS_SYNTH TRUE
+    NEEDS_MIDI_INPUT TRUE
+    NEEDS_MIDI_OUTPUT FALSE
+    IS_MIDI_EFFECT FALSE
+    EDITOR_WANTS_KEYBOARD_FOCUS TRUE
+    VST3_CATEGORIES Instrument
+    COPY_PLUGIN_AFTER_BUILD FALSE
+    NEEDS_WEB_BROWSER FALSE
+    NEEDS_CURL FALSE
+)
+
+target_sources(PluginForgeSynth PRIVATE ${PF_CORE_SOURCES})
+
+target_compile_features(PluginForgeSynth PRIVATE cxx_std_17)
+
+# Same rationale as the Fx target's block above.
+target_compile_definitions(PluginForgeSynth PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_VST3_CAN_REPLACE_VST2=0
+)
+
+target_link_libraries(PluginForgeSynth PRIVATE
     juce::juce_audio_utils
     juce::juce_dsp
     juce::juce_gui_extra

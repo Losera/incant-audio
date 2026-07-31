@@ -267,6 +267,77 @@ ChannelStats renderPerChannel(PluginForgeProcessor& p, double sampleRate,
     return cs;
 }
 
+// Renders with a MIDI note held for the first `noteOnBlocks` blocks, then
+// released. Sibling of render() rather than a parameter on it, so the 124
+// existing checks keep calling exactly the code they always did.
+//
+// The note-on is placed at sample 0 of block 0 and the note-off at sample 0 of
+// block `noteOnBlocks`. processBlock applies events at block granularity in this
+// phase (see PluginProcessor.cpp), so a finer offset would be a fiction.
+struct MidiRender
+{
+    ChannelStats held;      // statistics while the note is sounding
+    float        tailRms = 0.0f;   // RMS of the last block, after release
+};
+
+MidiRender renderWithMidi(PluginForgeProcessor& p, double sampleRate, int blockSize,
+                          int blocks, int noteOnBlocks, int note, int velocity)
+{
+    juce::AudioBuffer<float> buffer(2, blockSize);
+    TestSignal signal;
+    signal.prepare(sampleRate);
+
+    MidiRender mr;
+    double sumSq[2] = { 0.0, 0.0 };
+    int    n = 0;
+
+    for (int b = 0; b < blocks; ++b)
+    {
+        juce::MidiBuffer midi;
+        if (b == 0)
+            midi.addEvent(juce::MidiMessage::noteOn(1, note, (juce::uint8) velocity), 0);
+        else if (b == noteOnBlocks)
+            midi.addEvent(juce::MidiMessage::noteOff(1, note), 0);
+
+        signal.fill(buffer);
+        p.processBlock(buffer, midi);
+
+        const float* l = buffer.getReadPointer(0);
+        const float* r = buffer.getReadPointer(1);
+
+        // Accumulate only while the note is held. Including the release tail
+        // would drag the RMS toward zero and make "did it sound" ambiguous.
+        if (b < noteOnBlocks)
+        {
+            for (int i = 0; i < blockSize; ++i)
+            {
+                if (std::isfinite(l[i]) && std::isfinite(r[i]))
+                {
+                    sumSq[0] += static_cast<double>(l[i]) * l[i];
+                    sumSq[1] += static_cast<double>(r[i]) * r[i];
+                    mr.held.maxAbsDiff = std::max(mr.held.maxAbsDiff, std::abs(l[i] - r[i]));
+                    ++n;
+                }
+            }
+        }
+
+        if (b == blocks - 1)
+        {
+            double tailSq = 0.0;
+            for (int i = 0; i < blockSize; ++i)
+                if (std::isfinite(l[i]))
+                    tailSq += static_cast<double>(l[i]) * l[i];
+            mr.tailRms = (float) std::sqrt(tailSq / blockSize);
+        }
+    }
+
+    if (n > 0)
+        for (int ch = 0; ch < 2; ++ch)
+            mr.held.rms[ch] = (float) std::sqrt(sumSq[ch] / n);
+
+    return mr;
+}
+
 struct Patch
 {
     const char* name;
@@ -471,6 +542,61 @@ const std::vector<ArityPatch> kArity = {
     { "one in, two out", "aliasing: input 0 shares storage with output 0",
       "import(\"stdfaust.lib\");\n"
       "process = _ <: fi.lowpass(2,800), fi.highpass(2,2000);", true, false },
+};
+
+// ── Instrument corpus ───────────────────────────────────────────────────────
+// A patch is an instrument when it declares Faust's voice contract: controls
+// named exactly "gate", "freq" (or "key") and "gain" (or "vel"). FaustEngine
+// detects that from the compiled DSP, withholds those three from ParamPool, and
+// drives them from MIDI note events.
+//
+// What these pin, and why each is a separate case:
+//  - a gated synth is SILENT until a note arrives, and sounds when one does.
+//    Before the MIDI walk existed the gate sat at its declared default forever,
+//    so the patch was either permanently silent or a permanent drone.
+//  - the three voice controls do NOT appear as knobs. If they stayed mapped,
+//    ParamPool::pushToFaust would rewrite them every block and stomp the note.
+//  - an ordinary effect with a "freq" slider and no gate is NOT an instrument
+//    and keeps every one of its knobs. This is the case that makes the
+//    detection safe for the existing corpus.
+struct InstrumentPatch
+{
+    const char* name;
+    const char* category;
+    const char* source;
+    bool        isInstrument;   // does it declare the full voice contract?
+    int         expectedParams; // knobs the user should see (voice controls excluded)
+};
+
+const std::vector<InstrumentPatch> kInstruments = {
+    { "gated saw synth", "the full voice contract",
+      "import(\"stdfaust.lib\");\n"
+      "freq = hslider(\"freq\",440,20,2000,0.01);\n"
+      "gain = hslider(\"gain\",0.5,0,1,0.01);\n"
+      "gate = button(\"gate\");\n"
+      "cutoff = hslider(\"Cutoff\",1200,50,8000,1);\n"
+      "process = os.sawtooth(freq) * gain * en.adsr(0.01,0.1,0.7,0.2,gate)\n"
+      "          : fi.resonlp(cutoff,2,1) <: _,_;", true, 1 },
+
+    // "key"/"vel" spelling: same contract, different units. Faust hands /key the
+    // raw note number and /vel the raw 0-127 velocity (poly-dsp.h:243-251), so a
+    // patch using these must convert for itself -- and this pins that we pass the
+    // right one.
+    { "key/vel spelling", "the alternate contract, raw units",
+      "import(\"stdfaust.lib\");\n"
+      "key = hslider(\"key\",69,0,127,1);\n"
+      "vel = hslider(\"vel\",100,0,127,1);\n"
+      "gate = button(\"gate\");\n"
+      "process = os.osc(ba.midikey2hz(key)) * (vel/127.0)\n"
+      "          * en.ar(0.01,0.2,gate) <: _,_;", true, 0 },
+
+    // The safety case: a generator with a "freq" slider and NO gate. Not an
+    // instrument, so nothing is withheld and it drones as it always did.
+    { "sine with a freq knob", "freq alone is NOT the contract",
+      "import(\"stdfaust.lib\");\n"
+      "freq = hslider(\"freq\",440,20,2000,0.01);\n"
+      "amp = hslider(\"amp\",0.3,0,1,0.01);\n"
+      "process = os.osc(freq) * amp <: _,_;", false, 2 },
 };
 
 constexpr double kSampleRate = 48000.0;
@@ -822,6 +948,74 @@ int main(int argc, char** argv)
                                    "aliasing collapse (max |L-R| ")
                           + juce::String(cs.maxAbsDiff, 5) + ")");
             }
+
+            check(! p.isOutputMuted(), "OutputGuard did NOT need to mute this patch");
+            std::printf("\n");
+        }
+    }
+
+    // ── Instruments: MIDI must reach the DSP ─────────────────────────────────
+    {
+        std::printf("  --- instruments: the voice contract and MIDI ---\n\n");
+        for (const auto& patch : kInstruments)
+        {
+            std::printf("  %s  (%s)\n", patch.name, patch.category);
+
+            PluginForgeProcessor p;
+            p.prepareToPlay(kSampleRate, kBlockSize);
+
+            if (! loadAndAwait(p, patch.source))
+            {
+                check(false, juce::String(patch.name) + ": JIT compile succeeded");
+                std::printf("\n");
+                continue;
+            }
+            check(true, "JIT compiled and a DSP went live");
+
+            // The three voice controls must not be knobs. This is the assertion
+            // that keeps ParamPool from overwriting every note.
+            const int knobs = p.currentLabelsForTest().size();
+            check(knobs == patch.expectedParams,
+                  juce::String("user knobs exclude the voice controls (expected ")
+                      + juce::String(patch.expectedParams) + ", mapped "
+                      + juce::String(knobs) + ")");
+
+            if (! patch.isInstrument)
+            {
+                // Not an instrument: it should drone with no MIDI at all, and
+                // keep every knob it declared.
+                const auto s = render(p, kSampleRate, kBlockSize, 40);
+                check(s.rms > 1.0e-4f,
+                      juce::String("sounds WITHOUT any MIDI, as an effect should (rms ")
+                          + juce::String(s.rms, 5) + ")");
+                std::printf("\n");
+                continue;
+            }
+
+            // Silent until played. 40 blocks (~0.43 s) of no MIDI at all.
+            const auto quiet = render(p, kSampleRate, kBlockSize, 40);
+            check(quiet.rms < 1.0e-4f,
+                  juce::String("SILENT with no note held (rms ")
+                      + juce::String(quiet.rms, 7) + ")");
+
+            // Now play one. Held for 40 blocks, then released, 60 blocks total.
+            const auto mr = renderWithMidi(p, kSampleRate, kBlockSize, 60, 40, 69, 100);
+
+            check(mr.held.rms[0] > 1.0e-3f,
+                  juce::String("SOUNDS while a note is held (rms ")
+                      + juce::String(mr.held.rms[0], 5) + ")");
+            check(mr.held.rms[1] > 1.0e-3f,
+                  juce::String("reaches both channels (right rms ")
+                      + juce::String(mr.held.rms[1], 5) + ")");
+
+            // Release. The envelope must actually let go -- this is the
+            // gate-driven sibling of the render oracle's never_decays gate, and
+            // it is what would catch an ADSR whose release is mis-scaled
+            // (PF-045: seconds vs samples turns a 200 ms release into 2.7 hours).
+            check(mr.tailRms < mr.held.rms[0] * 0.1f,
+                  juce::String("DECAYS after note-off (tail rms ")
+                      + juce::String(mr.tailRms, 7) + " vs held "
+                      + juce::String(mr.held.rms[0], 5) + ")");
 
             check(! p.isOutputMuted(), "OutputGuard did NOT need to mute this patch");
             std::printf("\n");

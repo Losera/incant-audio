@@ -110,7 +110,8 @@ level_full() {
     # parity test as having approved it.
     run "build the host and every test harness" \
         cmake --build host/build --target PluginForgeHost PluginForgeHost_Standalone \
-              PluginForgeHost_VST3 ParamPoolTsanTest OfflineRenderTest \
+              PluginForgeHost_VST3 PluginForgeSynth PluginForgeSynth_Standalone \
+              PluginForgeSynth_VST3 ParamPoolTsanTest OfflineRenderTest \
               PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim \
               OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery
 

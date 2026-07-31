@@ -1,4 +1,5 @@
 #include "FaustEngine.h"
+#include <cmath>
 #include <thread>
 #include <faust/dsp/llvm-dsp.h>
 #include <faust/gui/UI.h>
@@ -176,6 +177,126 @@ struct ParamCapture : public UI
 };
 
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Voice-control extraction.
+//
+// Mirrors dsp_voice::extractPaths (/usr/include/faust/dsp/poly-dsp.h:233-254),
+// which matches on the SUFFIX of a control's full path: endsWith(path,"/gate"),
+// "/freq", "/key", "/gain", "/vel", "/velocity". ParamInfo::label is exactly
+// that last path component (ParamCapture records the widget label Faust hands
+// it, with the group path kept separately), so comparing the whole label is the
+// same test.
+//
+// Exact and case-sensitive, matching Faust. See the VoiceControls comment in
+// FaustEngine.h for why leniency here would be a trap rather than a kindness.
+// ---------------------------------------------------------------------------
+namespace
+{
+FaustEngine::VoiceControls extractVoiceControls(const FaustEngine::ParamList& params)
+{
+    FaustEngine::VoiceControls vc;
+
+    for (const auto& p : params)
+    {
+        if (p.zone == nullptr)
+            continue;
+
+        // First match wins per role. Faust collects EVERY matching path into a
+        // vector and drives them all; a patch with two "gate" controls is
+        // pathological, and taking the first keeps this phase simple. Phase 1
+        // hands the job to dsp_poly, which does the vector properly.
+        if (p.label == "gate")            { if (!vc.gate) vc.gate = p.zone; }
+        else if (p.label == "freq")       { if (!vc.freq) { vc.freq = p.zone; vc.freqIsKey = false; } }
+        else if (p.label == "key")        { if (!vc.freq) { vc.freq = p.zone; vc.freqIsKey = true;  } }
+        else if (p.label == "gain")       { if (!vc.gain) { vc.gain = p.zone; vc.gainIsVel = false; } }
+        else if (p.label == "vel"
+              || p.label == "velocity")   { if (!vc.gain) { vc.gain = p.zone; vc.gainIsVel = true;  } }
+    }
+
+    return vc;
+}
+
+// The parameters the USER controls: everything except the three the voice owns.
+//
+// This matters for correctness, not tidiness. ParamPool::pushToFaust writes
+// every mapped slot into its zone on EVERY block. If "gate" stayed mapped, that
+// write would land after noteOn's and clamp the gate to whatever the slider
+// says -- so a note would either never start or never stop, depending on the
+// slider. Same for freq: the pitch would be the knob's, not the note's.
+//
+// Only applied when the patch is a full instrument, so an effect that happens to
+// have a slider named "freq" (a sine oscillator, say) is untouched.
+FaustEngine::ParamList withoutVoiceControls(const FaustEngine::ParamList& params)
+{
+    FaustEngine::ParamList out;
+    out.reserve(params.size());
+
+    for (const auto& p : params)
+    {
+        if (p.label == "gate" || p.label == "freq" || p.label == "key"
+            || p.label == "gain" || p.label == "vel" || p.label == "velocity")
+            continue;
+
+        out.push_back(p);
+    }
+
+    return out;
+}
+} // namespace
+
+void FaustEngine::noteOn(int note, int velocity)
+{
+    FAUSTFLOAT* freq = voiceFreq.load(std::memory_order_relaxed);
+    FAUSTFLOAT* gain = voiceGain.load(std::memory_order_relaxed);
+    FAUSTFLOAT* gate = voiceGate.load(std::memory_order_relaxed);
+
+    if (freq == nullptr || gain == nullptr || gate == nullptr)
+        return;
+
+    // Same conversions Faust applies (poly-dsp.h:163-166, :240-251): "/freq"
+    // wants Hz via the equal-tempered formula, "/key" the raw note number;
+    // "/gain" wants velocity normalised to 0-1, "/vel" the raw 0-127.
+    *freq = voiceFreqIsKey.load(std::memory_order_relaxed)
+                ? static_cast<FAUSTFLOAT>(note)
+                : static_cast<FAUSTFLOAT>(440.0 * std::pow(2.0, (note - 69) / 12.0));
+
+    *gain = voiceGainIsVel.load(std::memory_order_relaxed)
+                ? static_cast<FAUSTFLOAT>(velocity)
+                : static_cast<FAUSTFLOAT>(velocity / 127.0);
+
+    // Gate LAST. The envelope triggers on this edge, and it must not fire until
+    // the pitch and level it should sound at are already in place -- otherwise
+    // the attack is a sample or more of the PREVIOUS note.
+    *gate = static_cast<FAUSTFLOAT>(1);
+
+    currentNote = note;
+}
+
+void FaustEngine::noteOff(int note)
+{
+    FAUSTFLOAT* gate = voiceGate.load(std::memory_order_relaxed);
+    if (gate == nullptr)
+        return;
+
+    // Last-note-priority: release only if this is the note that is actually
+    // sounding. Without the check, releasing a note the player already replaced
+    // by a newer one would cut the newer note short -- the classic monosynth
+    // legato bug, and very audible when trills overlap by a few samples.
+    if (note != currentNote)
+        return;
+
+    *gate = static_cast<FAUSTFLOAT>(0);
+    currentNote = -1;
+}
+
+void FaustEngine::allNotesOff()
+{
+    if (FAUSTFLOAT* gate = voiceGate.load(std::memory_order_relaxed))
+        *gate = static_cast<FAUSTFLOAT>(0);
+
+    currentNote = -1;
+}
 
 FaustEngine::~FaustEngine()
 {
@@ -506,6 +627,17 @@ void FaustEngine::runCompile(const std::string& code, const CompileCallback& cb)
         ParamCapture capture;
         dsp->buildUserInterface(&capture);
 
+        // Does this patch declare the voice contract? Decided here, once, from
+        // the compiled DSP itself -- no metadata, no prompt cooperation, nothing
+        // for the model to forget. See VoiceControls in FaustEngine.h.
+        const VoiceControls vc = extractVoiceControls(capture.params);
+
+        // What ParamPool and the editor see. For an instrument the three voice
+        // controls are withheld: they belong to note events, not to knobs, and
+        // leaving them mapped would let pushToFaust overwrite every note.
+        const ParamList publishedParams =
+            vc.valid() ? withoutVoiceControls(capture.params) : capture.params;
+
         // Build the MapUI for audio-thread parameter writes.
         // SUBTLE: newUI holds raw float* pointers into dsp's internal memory.
         // It becomes invalid the moment dsp is deleted — they are always swapped together.
@@ -533,6 +665,22 @@ void FaustEngine::runCompile(const std::string& code, const CompileCallback& cb)
         // Step 7) and releases the new value to the audio thread.
         llvm_dsp* old = activeDSP.exchange(dsp, std::memory_order_acq_rel);
 
+        // Step 3a: publish the voice contract WITH the DSP it describes. Same
+        // ordering argument as the arity below: written here, while ready is
+        // false and no audio-thread section is in flight, and made visible by
+        // Step 6's release store.
+        //
+        // Cleared first so a patch that is NOT an instrument cannot inherit the
+        // previous patch's zones -- which would be a use-after-free, since those
+        // point into the DSP deleted in Step 7.
+        voiceGate.store(vc.gate, std::memory_order_relaxed);
+        voiceFreq.store(vc.freq, std::memory_order_relaxed);
+        voiceGain.store(vc.gain, std::memory_order_relaxed);
+        voiceFreqIsKey.store(vc.freqIsKey, std::memory_order_relaxed);
+        voiceGainIsVel.store(vc.gainIsVel, std::memory_order_relaxed);
+        voiceValid.store(vc.valid(), std::memory_order_relaxed);
+        currentNote = -1;   // the old note belongs to a DSP that is about to die
+
         // Step 3b: publish the new DSP's arity WITH it. relaxed is sufficient —
         // these are read on the audio thread only after the acquire on `ready`
         // (Step 6's release store), which orders every write in this block. They
@@ -553,7 +701,7 @@ void FaustEngine::runCompile(const std::string& code, const CompileCallback& cb)
         // mismatch that caused the setParamValue-not-found spam.
         llvm_dsp_factory* oldFactory = factory;
         factory = f;
-        cb(capture.params, "");
+        cb(publishedParams, "");
 
         // Step 6: mark ready. store-release pairs with load-acquire in enterAudio()/
         // process(): all writes above (activeDSP, activeUI, factory, labels) are

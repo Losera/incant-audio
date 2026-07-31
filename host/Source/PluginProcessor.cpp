@@ -2,9 +2,20 @@
 #include "PluginEditor.h"
 #include "ParamMap.h"   // mapZoneToSlot, for LoadMode::Fresh (PF-020)
 
+// SUBTLE: the input bus is REQUIRED for the effect target and OPTIONAL for the
+// instrument target, and that single boolean is what decides whether a DAW will
+// instantiate this on an instrument track at all. A synth has nothing to
+// process; demanding a stereo input means the host must find something to feed
+// it, and most will simply refuse to load the plugin there.
+//
+// The bus stays *declared* on the instrument rather than being removed, so a
+// generated patch that does take input (a 1-in/2-out voice, which the arity
+// gate permits) still works when the host happens to supply one. FaustEngine's
+// arity routing already handles the 0-in case by computing into scratch, so
+// nothing downstream cares whether the input is connected.
 PluginForgeProcessor::PluginForgeProcessor()
     : AudioProcessor(BusesProperties()
-          .withInput ("Input",  juce::AudioChannelSet::stereo(), true)
+          .withInput ("Input",  juce::AudioChannelSet::stereo(), PF_IS_SYNTH == 0)
           .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       apvts(*this, nullptr, "STATE", createParameterLayout()),
       paramPool(apvts)
@@ -89,7 +100,7 @@ void PluginForgeProcessor::releaseResources()
 }
 
 void PluginForgeProcessor::processBlock(juce::AudioBuffer<float>& buffer,
-                                         juce::MidiBuffer&)
+                                         juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
 
@@ -101,9 +112,63 @@ void PluginForgeProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     {
         // No DSP live: input passes through untouched; still feed the meter so
         // the editor shows the dry signal (audio-path-alive indicator).
+        //
+        // NOTE: MIDI arriving in this block is DROPPED, deliberately. The voice
+        // zones belong to a DSP that is mid-swap, so writing them is a
+        // use-after-free; buffering the events until the new DSP lands would
+        // sound the note against an envelope it was not meant for. A compile
+        // swap is already an audible discontinuity — losing a note inside one is
+        // the smaller of the two wrongs, and it is bounded by one compile.
         outputLevel.store(buffer.getMagnitude(0, buffer.getNumSamples()),
                           std::memory_order_relaxed);
         return;
+    }
+
+    // ── MIDI → voice ────────────────────────────────────────────────────────
+    // Inside the bracket, because these writes touch DSP zones exactly as
+    // pushToFaust does. Unconditional: an empty buffer costs one iterator
+    // construction, the effect target simply never receives events, and the
+    // offline harnesses drive processBlock directly with no plugin wrapper —
+    // so gating this on PF_IS_SYNTH would make the tests exercise a path the
+    // product does not have.
+    //
+    // LIMITATION, stated rather than discovered: events are applied at BLOCK
+    // granularity, not at their sample offsets — up to ~10.7 ms of timing jitter
+    // at 48 kHz with a 512-sample block. Sample-accurate timing means splitting
+    // the compute() call at each event offset, which is worth doing once the
+    // pitch and polyphony gates exist to prove the split changed nothing else.
+    if (faustEngine.isInstrument())
+    {
+        for (const auto meta : midi)
+        {
+            // getMessage() constructs a juce::MidiMessage, which OWNS its bytes
+            // -- so on the audio thread the question is whether that allocates.
+            // It does not for anything we handle here: MidiMessage stores up to
+            // sizeof(uint8*) == 8 bytes inline in a union and heap-allocates
+            // only above that (juce_MidiMessage.h:981-992,
+            // `isHeapAllocated() { return size > (int) sizeof (packedData); }`).
+            // Note-on, note-off and CC are 3 bytes. SysEx would allocate, and is
+            // not touched here.
+            //
+            // Checked rather than assumed, and pinned rather than hand-rolling a
+            // byte decoder: the velocity-0 convention below is easy to get
+            // wrong, and JUCE already gets it right.
+            const auto msg = meta.getMessage();
+
+            // SUBTLE: the default arguments carry the running-status convention
+            // and must not be "simplified" away. isNoteOn() defaults to
+            // returnTrueForVelocity0=false and isNoteOff() to
+            // returnTrueForNoteOnVelocity0=true (juce_MidiMessage.h:239, :266),
+            // so a note-on with velocity 0 -- which is how many keyboards and
+            // DAWs spell note-off -- falls through to the release branch. Pass
+            // either flag explicitly the other way and held notes never stop.
+            if (msg.isNoteOn())
+                faustEngine.noteOn(msg.getNoteNumber(), msg.getVelocity());
+            else if (msg.isNoteOff())
+                faustEngine.noteOff(msg.getNoteNumber());
+            else if (msg.isAllNotesOff() || msg.isAllSoundOff())
+                faustEngine.allNotesOff();
+        }
     }
 
     paramPool.pushToFaust(faustEngine);

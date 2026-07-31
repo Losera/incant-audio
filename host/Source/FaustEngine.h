@@ -97,6 +97,54 @@ public:
     using ParamList = std::vector<ParamInfo>;
     using CompileCallback = std::function<void(const ParamList&, const std::string& error)>;
 
+    // ── The voice contract ──────────────────────────────────────────────────
+    // Faust's polyphony layer identifies an instrument by the SUFFIX of a
+    // control's path (dsp_voice::extractPaths, /usr/include/faust/dsp/poly-dsp.h
+    // :233-254): "/gate", "/freq" or "/key", "/gain" or "/vel"|"/velocity".
+    // A patch is an instrument only when all THREE roles are present -- Faust's
+    // own predicate (MidiUI.h:115-132, has_freq && has_gate && has_gain).
+    //
+    // Requiring all three is what keeps this safe for the existing corpus: a
+    // sine-oscillator effect with a slider literally named "freq" and no gate is
+    // NOT an instrument, so nothing about it changes.
+    //
+    // ⚠️ Matched case-sensitively against the exact lowercase names, deliberately.
+    // Being lenient here would make more generated patches playable TODAY and
+    // then silently diverge in phase 1, when Faust's own dsp_poly does the
+    // binding and ignores anything it does not recognise. Our detection and
+    // Faust's must agree; the prompt is the place to teach the spelling.
+    //
+    // The two flags record which spelling was used, because the UNITS differ:
+    // "/freq" wants Hz and "/key" the raw note number; "/gain" wants 0-1 and
+    // "/vel" the raw 0-127 velocity.
+    struct VoiceControls
+    {
+        FAUSTFLOAT* gate = nullptr;
+        FAUSTFLOAT* freq = nullptr;
+        FAUSTFLOAT* gain = nullptr;
+        bool freqIsKey = false;
+        bool gainIsVel = false;
+
+        bool valid() const { return gate != nullptr && freq != nullptr && gain != nullptr; }
+    };
+
+    // True when the LIVE DSP declares the full voice contract. Safe to call from
+    // the audio thread inside the enterAudio()/exitAudio() bracket.
+    bool isInstrument() const { return voiceValid.load(std::memory_order_relaxed); }
+
+    // ⚠️ AUDIO THREAD ONLY, and only inside the enterAudio()/exitAudio() bracket.
+    // These write DSP zones directly -- the same memory pushToFaust writes and
+    // compute() reads -- so they carry exactly the same rules: no allocation, no
+    // locks, and never while a swap could be in flight. The bracket is what makes
+    // that true; calling these from the message thread races the compile worker.
+    //
+    // Monophonic in this phase: one note at a time, last-note-priority. Phase 1
+    // replaces the bodies with dsp_poly voice allocation, and processBlock's MIDI
+    // walk does not change.
+    void noteOn(int note, int velocity);
+    void noteOff(int note);
+    void allNotesOff();
+
     void setParamValue(const std::string& label, float value);
 
     FaustEngine()  = default;
@@ -191,6 +239,28 @@ private:
     // a data race under TSan when a compile is parked mid-swap.
     std::atomic<int> dspNumIns  { 0 };
     std::atomic<int> dspNumOuts { 0 };
+
+    // ── Voice-control zones of the LIVE DSP ─────────────────────────────────
+    // Published in the swap alongside activeDSP, read on the audio thread under
+    // the same acquire on `ready`, so relaxed is correct on both sides (see the
+    // dspNumIns/dspNumOuts note above). Atomic rather than plain so the read is
+    // not a data race under TSan when a compile is parked mid-swap.
+    //
+    // ⚠️ LIFETIME: these point into the live DSP instance, exactly like
+    // ParamInfo::zone, and dangle the moment it is deleted. The drain in the
+    // swap is what makes reading them safe.
+    std::atomic<FAUSTFLOAT*> voiceGate { nullptr };
+    std::atomic<FAUSTFLOAT*> voiceFreq { nullptr };
+    std::atomic<FAUSTFLOAT*> voiceGain { nullptr };
+    std::atomic<bool>        voiceFreqIsKey { false };
+    std::atomic<bool>        voiceGainIsVel { false };
+    std::atomic<bool>        voiceValid     { false };
+
+    // Which note is sounding, for last-note-priority release. Audio thread only:
+    // it is written and read solely inside noteOn/noteOff, which the header
+    // above restricts to the enterAudio() bracket. Not atomic because no other
+    // thread may touch it.
+    int currentNote = -1;
 
     // Output staging for patches whose arity does not match the host's. Faust
     // only contracts compute() for in-place use (inputs == outputs) when the two

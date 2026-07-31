@@ -6,6 +6,30 @@
 #include <atomic>
 #include <mutex>
 
+// Is this build the instrument target?
+//
+// host/CMakeLists.txt declares the SAME sources twice: PluginForgeHost
+// (IS_SYNTH FALSE, VST3 category Fx) and PluginForgeSynth (IS_SYNTH TRUE,
+// NEEDS_MIDI_INPUT TRUE, category Instrument). JUCE turns IS_SYNTH into the
+// JucePlugin_IsSynth macro -- but ONLY for plugin targets. The console-app
+// harnesses (OfflineRenderTest, EditorSessionTest, ParamPoolTsanTest, ...)
+// compile this same file through juce_add_console_app, which emits no
+// JucePlugin_* definitions at all: verified, OfflineRenderTest's generated
+// Defs.txt contains zero JucePlugin_ symbols.
+//
+// So testing JucePlugin_IsSynth directly would be a bare undefined identifier
+// in eight targets. This derives from JUCE where JUCE provides it, defaults to
+// "effect" everywhere else, and stays overridable from the command line so a
+// future harness can compile an instrument-configured processor without a
+// plugin wrapper.
+#ifndef PF_IS_SYNTH
+  #if defined(JucePlugin_IsSynth)
+    #define PF_IS_SYNTH JucePlugin_IsSynth
+  #else
+    #define PF_IS_SYNTH 0
+  #endif
+#endif
+
 class PluginForgeProcessor : public juce::AudioProcessor
 {
 public:
@@ -20,9 +44,21 @@ public:
     bool hasEditor() const override { return true; }
 
     const juce::String getName() const override { return "PluginForge Host"; }
-    bool acceptsMidi() const override  { return false; }
+    // The instrument target must advertise MIDI input or no host will route
+    // notes to it. The Fx target deliberately still says false: processBlock's
+    // MIDI walk is unconditional (an empty buffer costs nothing, and the test
+    // harnesses drive processBlock directly with no plugin wrapper), but
+    // claiming MIDI input on an effect changes how DAWs present it for no gain.
+    bool acceptsMidi() const override  { return PF_IS_SYNTH != 0; }
     bool producesMidi() const override { return false; }
-    double getTailLengthSeconds() const override { return 0.0; }
+
+    // An instrument's sound outlives the note that started it -- a release tail
+    // is the whole point of an envelope. Reporting 0 here lets a host stop
+    // calling processBlock the moment the last note ends, truncating the
+    // release. Effects keep 0: nothing in the Fx path rings on after silence.
+    // TODO(phase-1): derive this from the patch's declared release time once
+    // envelopes are captured; 2 s is a placeholder that covers typical pads.
+    double getTailLengthSeconds() const override { return PF_IS_SYNTH ? 2.0 : 0.0; }
 
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
