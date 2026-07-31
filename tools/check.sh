@@ -235,8 +235,27 @@ level_audio() {
   # The driver lives in render_oracle.py, not here: this used to be a 24-line
   # heredoc that recomputed gate logic tools/health_report.py also recomputed, and
   # the two were free to drift apart with nothing to notice.
-  run "render oracle over benchmark corpus" \
-      python bench/render_oracle.py --corpus bench/results/results.json
+  #
+  # PF-046: this gates on a FROZEN corpus, not on bench/results/results.json.
+  # It used to read results.json -- the same file `level_quota` overwrites on
+  # every benchmark run -- so the rung's verdict was a property of the last
+  # nondeterministic model draw rather than of the change under test. Measured
+  # 2026-07-31, same command and same code, two corpora: HEAD's results.json
+  # failed 3 (runaway gain, two silent), the working tree's failed 1, with
+  # DISJOINT failure sets. At an ~80% first-try compile rate a broken-but-
+  # compiling patch is near-certain in every draw, so the rung was red
+  # essentially always for reasons unrelated to the diff -- which is how a rung
+  # stops being run.
+  #
+  # What this rung can control is the render path and the oracle; generation
+  # quality belongs to `quota`, which still writes results.json and still
+  # surfaces it. bench/ladder_corpus.json is real model output, frozen: 19
+  # records taken from the 2026-07-31 ollama run, every one hand-checked to
+  # render clean at the time it was committed. It changes only deliberately.
+  # The oracle's own gates keep their teeth via the deterministic red cases in
+  # `--self-test` (dead_delay, never_decays), which `full` already runs.
+  run "render oracle over frozen ladder corpus" \
+      python bench/render_oracle.py --corpus bench/ladder_corpus.json
 }
 
 level_quota() {

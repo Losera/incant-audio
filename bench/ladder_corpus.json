@@ -1,0 +1,211 @@
+[
+  {
+    "provider": "ollama",
+    "model": "qwen2.5-coder:7b-16k",
+    "category": "trivial",
+    "prompt": "a simple stereo gain control with a dB slider",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\ngain = hslider(\"Gain [unit:dB]\", 0, -60, 12, 0.1) : ba.db2linear : si.smoo;\nprocess = _ * gain, _ * gain;",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-31T18:09:08.595314+00:00"
+  },
+  {
+    "provider": "ollama",
+    "model": "qwen2.5-coder:7b-16k",
+    "category": "trivial",
+    "prompt": "a mono-to-stereo converter that duplicates the channel",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nprocess = _, _ : (_, !);",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-31T18:10:32.012246+00:00"
+  },
+  {
+    "provider": "ollama",
+    "model": "qwen2.5-coder:7b-16k",
+    "category": "trivial",
+    "prompt": "a DC blocker that removes low-frequency offset",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nprocess = fi.dcblocker;",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-31T18:10:34.973712+00:00"
+  },
+  {
+    "provider": "ollama",
+    "model": "qwen2.5-coder:7b-16k",
+    "category": "filters",
+    "prompt": "a warm analog-style low-pass filter with cutoff and resonance",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\ncutoff = hslider(\"Cutoff [unit:Hz]\", 1000, 20, 20000, 1) : si.smoo;\nq      = hslider(\"Resonance\", 1.0, 0.5, 20, 0.01) : si.smoo;\nprocess = fi.resonlp(cutoff, q, 1.0), fi.resonlp(cutoff, q, 1.0);",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-31T18:10:44.971445+00:00"
+  },
+  {
+    "provider": "ollama",
+    "model": "qwen2.5-coder:7b-16k",
+    "category": "filters",
+    "prompt": "a high-pass filter with a gentle 12dB per octave slope",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\ncutoff = hslider(\"Cutoff [unit:Hz]\", 1000, 20, 20000, 1) : si.smoo;\nprocess = fi.highpass(2, cutoff);",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-31T18:11:02.139014+00:00"
+  },
+  {
+    "provider": "ollama",
+    "model": "qwen2.5-coder:7b-16k",
+    "category": "filters",
+    "prompt": "a notch filter for removing 60Hz hum, with a width control",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nhumFreq = hslider(\"Hum Frequency [unit:Hz]\", 60, 40, 80, 1) : si.smoo;\nwidth   = hslider(\"Width [unit:Hz]\", 2, 1, 5, 0.1) : si.smoo;\nprocess = fi.notchw(width, humFreq);",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-31T18:11:54.585986+00:00"
+  },
+  {
+    "provider": "ollama",
+    "model": "qwen2.5-coder:7b-16k",
+    "category": "filters",
+    "prompt": "a high-shelf filter for adding air to vocals",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\ncutoff = hslider(\"Cutoff [unit:Hz]\", 500, 20, 8000, 1) : si.smoo;\ngain   = hslider(\"Gain [unit:dB]\", 3, -60, 6, 0.1) : ba.db2linear : si.smoo;\nprocess = fi.highshelf(2, gain, cutoff), fi.highshelf(2, gain, cutoff);",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-31T18:12:06.068385+00:00"
+  },
+  {
+    "provider": "ollama",
+    "model": "qwen2.5-coder:7b-16k",
+    "category": "time-based",
+    "prompt": "a stereo delay with time, feedback, and dry/wet",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nMAXD  = 192000;\ndtime = hslider(\"Delay Time [unit:ms]\", 300, 1, 2000, 1) : si.smoo * (ma.SR/1000.0) : min(MAXD-1) : max(1);\nfb    = hslider(\"Feedback\", 0.4, 0, 0.95, 0.01) : si.smoo;\nmix   = hslider(\"Dry/Wet\", 0.5, 0, 1, 0.01) : si.smoo;\nechoCh(x) = x * (1 - mix) + (x : (+ : de.fdelay(MAXD, dtime)) ~ *(fb)) * mix;\nprocess = echoCh, echoCh;",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-31T18:12:20.211998+00:00"
+  },
+  {
+    "provider": "ollama",
+    "model": "qwen2.5-coder:7b-16k",
+    "category": "time-based",
+    "prompt": "a ping-pong delay that bounces between left and right",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nMAXD  = 96000;\ndtime = hslider(\"Time [unit:ms]\", 250, 10, 1000, 1) : si.smoo\n        : *(ma.SR/1000.0) : min(MAXD-1) : max(1);\nfb    = hslider(\"Feedback\", 0.4, 0, 0.95, 0.01);\nmix   = hslider(\"Dry/Wet\", 0.5, 0, 1, 0.01) : si.smoo;\nprocess = _,_ <: dry, wet :> _,_\nwith {\n  cross(fbL, fbR, inL, inR) = inL + fbR*fb, inR + fbL*fb;\n  dry = par(i, 2, _ * (1 - mix));\n  wet = (cross ~ (de.fdelay(MAXD, dtime), de.fdelay(MAXD, dtime))) : par(i, 2, _ * mix);\n};",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-31T18:12:45.580090+00:00"
+  },
+  {
+    "provider": "ollama",
+    "model": "qwen2.5-coder:7b-16k",
+    "category": "time-based",
+    "prompt": "a subtle chorus effect with rate and depth",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nrate  = hslider(\"Rate [unit:Hz]\", 0.5, 0.01, 2, 0.01) : si.smoo;\ndepth = hslider(\"Depth\", 0.3, 0, 1, 0.01) : si.smoo;\nmix   = hslider(\"Mix\", 0.5, 0, 1, 0.01);\nmaxDel = 4096;\nlfo(f) = os.lf_triangle(f) * 0.5 + 0.5;\nvoice(f, x) = de.fdelay(maxDel, (10.0 + 15.0 * depth * lfo(f)) * ma.SR * 0.001, x);\nchorusCh(f, x) = x * (1 - mix) + voice(f, x) * mix;\nprocess = chorusCh(rate), chorusCh(rate * 1.13);",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-31T18:13:17.668568+00:00"
+  },
+  {
+    "provider": "ollama",
+    "model": "qwen2.5-coder:7b-16k",
+    "category": "time-based",
+    "prompt": "a tape-style flanger with feedback",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nrate  = hslider(\"Rate [unit:Hz]\", 0.5, 0.01, 10, 0.01);\ndepth = hslider(\"Depth\", 0.7, 0, 1, 0.01);\nfb    = hslider(\"Feedback\", 0.3, 0, 0.95, 0.01);\nmaxDel = 2048;\ncurdel = 2.0 + 4.0 * (os.lf_triangle(rate) * 0.5 + 0.5);\nflangerCh(x) = pf.flanger_mono(maxDel, curdel, depth, fb, 0);\nprocess = flangerCh, flangerCh;",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-31T18:13:49.049013+00:00"
+  },
+  {
+    "provider": "ollama",
+    "model": "qwen2.5-coder:7b-16k",
+    "category": "dynamics",
+    "prompt": "a compressor with threshold, ratio, attack, and release",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nthresh = hslider(\"Threshold [unit:dB]\", -20, -60, 0, 1) : ba.db2linear;\nratio = hslider(\"Ratio\", 4, 1, 20, 1);\nattack = hslider(\"Attack [unit:ms]\", 50, 1, 1000, 1) : si.smoo : *(ma.SR/1000.0);\nrelease = hslider(\"Release [unit:ms]\", 300, 1, 2000, 1) : si.smoo : *(ma.SR/1000.0);\nprocess = co.compressor_mono(ratio, thresh, attack, release), co.compressor_mono(ratio, thresh, attack, release);",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-31T18:14:33.592437+00:00"
+  },
+  {
+    "provider": "ollama",
+    "model": "qwen2.5-coder:7b-16k",
+    "category": "dynamics",
+    "prompt": "a brick-wall limiter for mastering",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nthreshold = hslider(\"Threshold [unit:dB]\", -20, -80, 0, 1) : ba.db2linear;\nratio = hslider(\"Ratio\", 10.0, 1.0, 40.0, 1);\nattack = hslider(\"Attack [unit:ms]\", 50, 1, 300, 1) : si.smoo : *(ma.SR/1000.0);\nrelease = hslider(\"Release [unit:ms]\", 200, 1, 1000, 1) : si.smoo : *(ma.SR/1000.0);\nprocess = co.compressor_mono(ratio, threshold, attack, release);",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-31T18:15:00.472560+00:00"
+  },
+  {
+    "provider": "ollama",
+    "model": "qwen2.5-coder:7b-16k",
+    "category": "dynamics",
+    "prompt": "a noise gate with threshold and hold time",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nthresh = hslider(\"Threshold [unit:dB]\", -60, -120, 0, 1) : si.smoo;\nhold   = hslider(\"Hold Time [unit:ms]\", 50, 1, 1000, 1) : si.smoo\n        : *(ma.SR/1000.0);\nprocess = ef.gate_mono(thresh, 20, hold, 100);",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-31T18:15:24.097688+00:00"
+  },
+  {
+    "provider": "ollama",
+    "model": "qwen2.5-coder:7b-16k",
+    "category": "dynamics",
+    "prompt": "an upward expander to bring out quiet details",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nthreshold = hslider(\"Threshold [unit:dB]\", -60, -120, 0, 1) : ba.db2linear;\nratio = hslider(\"Ratio\", 4.0, 1.0, 8.0, 0.1);\nattack = hslider(\"Attack [unit:ms]\", 50, 1, 1000, 1) : si.smoo : *(ma.SR/1000.0);\nrelease = hslider(\"Release [unit:ms]\", 200, 1, 2000, 1) : si.smoo : *(ma.SR/1000.0);\nprocess = co.compressor_mono(ratio, threshold, attack, release), _;",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-31T18:15:40.631874+00:00"
+  },
+  {
+    "provider": "ollama",
+    "model": "qwen2.5-coder:7b-16k",
+    "category": "generative",
+    "prompt": "a pure sine wave oscillator with frequency and amplitude",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\nfreq = hslider(\"Frequency [unit:Hz]\", 440, 20, 20000, 1) : si.smoo;\namp = hslider(\"Amplitude\", 0.5, 0, 1, 0.01);\nprocess = amp * os.osc(freq);",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-31T18:16:51.593567+00:00"
+  },
+  {
+    "provider": "ollama",
+    "model": "qwen2.5-coder:7b-16k",
+    "category": "generative",
+    "prompt": "a 2-operator FM synth with ratio and modulation index",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\n\nratio = hslider(\"Ratio\", 5.0, 1.0, 20.0, 0.1) : si.smoo;\nindex = hslider(\"Index\", 10.0, 0.0, 100.0, 0.1) : si.smoo;\n\nfmOsc(f, r, i) = os.osc(f * (1 + i * sin(2 * ma.PI * f / r)));\n\nprocess = fmOsc(os.osc(440), ratio, index), fmOsc(os.osc(880), ratio, index);",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-31T18:17:39.865845+00:00"
+  },
+  {
+    "provider": "ollama",
+    "model": "qwen2.5-coder:7b-16k",
+    "category": "generative",
+    "prompt": "a white noise generator with a tone control",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\ntone = hslider(\"Tone [unit:Hz]\", 440, 20, 20000, 1) : si.smoo;\nprocess = no.noise * os.osc(tone);",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-31T18:18:01.060178+00:00"
+  },
+  {
+    "provider": "ollama",
+    "model": "qwen2.5-coder:7b-16k",
+    "category": "generative",
+    "prompt": "a Karplus-Strong plucked string synthesizer",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\n\n// Parameters\nstringLength = hslider(\"String Length [unit:ms]\", 20, 5, 100, 1) : si.smoo;\npluckPos = hslider(\"Pluck Position\", 0.5, 0, 1, 0.01);\ngain = hslider(\"Gain\", 0.5, 0, 1, 0.01);\n\n// Constants\nMAXD = 48000; // Maximum delay for Karplus-Strong algorithm\n\n// Delay line and feedback\ndelayLine(x) = de.fdelay(MAXD, stringLength * ma.SR / 1000.0, x);\nfeedback = delayLine : *(pluckPos);\n\n// Karplus-Strong synthesis\nkarplusStrong(x) = (x + feedback) * gain;\n\n// Process\nprocess = karplusStrong, karplusStrong;",
+    "first_try_compiles": true,
+    "error": "",
+    "timestamp": "2026-07-31T18:18:09.230140+00:00"
+  }
+]

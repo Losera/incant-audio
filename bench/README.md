@@ -114,6 +114,35 @@ credit, so 0.88 is not currently re-measurable, and the ADR-009 verdict rests on
 | `bench/results/results.json` | One record per generation — prompt, DSL, code, compile result, error |
 | `bench/results/results_dryrun.json` | `--dry-run` output only (gitignored) — kept separate so a 1-record smoke test never overwrites a full run |
 | `bench/results/benchmark_chart.png` | Bar charts: per-category rates + overall comparison |
+| `bench/ladder_corpus.json` | **Frozen.** What `tools/check.sh audio` gates on — see below |
+
+### ladder_corpus.json — why the audio rung does not read results.json
+
+`tools/check.sh audio` used to render `bench/results/results.json`, the same file
+`run_benchmark.py` **overwrites**. Its verdict was therefore a property of the last
+nondeterministic model draw, not of the change under test (PF-046). Measured 2026-07-31,
+same command and same code: one corpus failed 3, another failed 1, with disjoint failure
+sets. At an ~80% first-try compile rate a broken-but-compiling patch appears in almost
+every draw, so the rung was red for reasons unrelated to the diff — which is how a rung
+stops being run.
+
+`ladder_corpus.json` is the same record schema, so the oracle takes either file. It holds
+19 records from the 2026-07-31 ollama run: 15 that render clean and the 4 zero-input
+generators the oracle structurally cannot render (`UnsupportedPatch`), kept deliberately so
+every run prints a standing reminder that the generative category is outside the gate.
+
+**One record was excluded, on purpose:** *"a sawtooth synth with an ADSR envelope"*, which
+fails `dc_offset` and `never_decays` because the generated patch passes
+`releaseTime * ma.SR / 1000.0` to `en.adsr`, whose times are in seconds
+(`/usr/share/faust/envelopes.lib:192-202`). That is **PF-045, a real generation defect, and
+it stays open in `docs/BUGS.md`** — it is excluded here because this rung gates the render
+path and the oracle, which is what it can control, while generation quality belongs to
+`check.sh quota`. Excluding it from the ladder does not hide it; the benchmark still
+surfaces it on every run.
+
+The oracle's gates keep their teeth independently, through the deterministic red cases in
+`render_oracle.py --self-test` (`dead_delay`, `never_decays`), which `check.sh full` and CI
+both run.
 
 ### results.json record schema
 
