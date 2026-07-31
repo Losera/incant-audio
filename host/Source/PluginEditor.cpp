@@ -28,6 +28,26 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
     addAndMakeVisible(codeToggle);
     codeToggle.onClick = [this] { setCodeViewVisible(! codeEditorPanel.isVisible()); };
 
+    addAndMakeVisible(styleToggle);
+    styleToggle.onClick = [this] { cycleControlStyle(); };
+
+    // Come up in whatever style is stored, not the default -- a project reopened
+    // with rotaries must not snap back to sliders. Applied before any compile, so
+    // the first refreshParamKnobs already styles correctly.
+    applyControlStyle(processor.uiStyle());
+
+    // Keep a second open editor, and this one after a project load, in sync.
+    // setStateInformation fires this before its restore recompile.
+    processor.onUiStyleChanged = [safeThis = juce::Component::SafePointer<PluginForgeEditor>(this)]
+        (const juce::String& styleName)
+    {
+        juce::MessageManager::callAsync([safeThis, styleName]
+        {
+            if (safeThis == nullptr) return;
+            safeThis->applyControlStyle(styleName);
+        });
+    };
+
     startTimerHz(30);   // level-meter repaint tick (see timerCallback)
 
     // ── Route the processor's compile callbacks to the child panels ──────────
@@ -78,6 +98,42 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
             safeThis->updateWindowSizeForParams();
         });
     };
+}
+
+void PluginForgeEditor::applyControlStyle(const juce::String& styleName)
+{
+    const auto s = ParamGridPanel::controlStyleFromName(styleName);
+    paramGridPanel.setControlStyle(s);
+
+    switch (s)
+    {
+        case ParamGridPanel::ControlStyle::Rotary:     styleToggle.setButtonText("Knobs: rotary"); break;
+        case ParamGridPanel::ControlStyle::Horizontal: styleToggle.setButtonText("Knobs: sliders"); break;
+        case ParamGridPanel::ControlStyle::Faithful:   styleToggle.setButtonText("Knobs: auto"); break;
+    }
+
+    // The two styles want different content heights, so the window follows.
+    updateWindowSizeForParams();
+}
+
+void PluginForgeEditor::cycleControlStyle()
+{
+    using CS = ParamGridPanel::ControlStyle;
+    const auto next = [cur = paramGridPanel.controlStyle()]
+    {
+        switch (cur)
+        {
+            case CS::Faithful:   return CS::Rotary;
+            case CS::Rotary:     return CS::Horizontal;
+            case CS::Horizontal: break;
+        }
+        return CS::Faithful;
+    }();
+
+    // Write through the PROCESSOR, not straight to the panel: the processor owns
+    // the stored value and its callback is what applies it here. One direction of
+    // data flow, so the button, the state blob and a second editor cannot diverge.
+    processor.setUiStyle(ParamGridPanel::controlStyleName(next));
 }
 
 void PluginForgeEditor::setCodeViewVisible(bool shouldBeVisible)
@@ -149,6 +205,11 @@ ParamGridPanel::WidgetKind PluginForgeEditor::gridControlKindForTest(int i) cons
 juce::String PluginForgeEditor::gridControlLabelForTest(int i) const
 {
     return paramGridPanel.controlLabelForTest(i);
+}
+
+juce::String PluginForgeEditor::gridControlGroupForTest(int i) const
+{
+    return paramGridPanel.controlGroupForTest(i);
 }
 
 double PluginForgeEditor::gridControlValueForTest(int i) const
@@ -248,6 +309,8 @@ void PluginForgeEditor::resized()
     {
         auto row = area.removeFromTop(c.rowH);
         codeToggle.setBounds(row.removeFromRight(110));
+        row.removeFromRight(6);
+        styleToggle.setBounds(row.removeFromRight(120));
         area.removeFromTop(c.gapGrid);
     }
 

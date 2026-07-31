@@ -31,7 +31,16 @@ ParamGridPanel::ParamGridPanel(PluginForgeProcessor& p)
 
 int ParamGridPanel::contentHeightForCurrentMode() const
 {
-    return ParamGridLayout::rowsFor(static_cast<int>(controls.size())) * kCellH;
+    const int n = static_cast<int>(controls.size());
+
+    // Horizontal stacks one full-width control per row. A horizontal slider needs
+    // WIDTH, not height, and the sqrt grid actively fights it: at 5 or 6 columns
+    // the track ends up shorter than its own value box, which is unusable. One
+    // per row trades a taller window for a track you can actually aim with.
+    if (style == ControlStyle::Horizontal)
+        return n * kRowH;
+
+    return ParamGridLayout::rowsFor(n) * kCellH;
 }
 
 int ParamGridPanel::preferredContentHeight() const
@@ -136,6 +145,14 @@ void ParamGridPanel::refreshParamKnobs(const FaustEngine::ParamList& params)
 
 void ParamGridPanel::applyPresentation(Control& c)
 {
+    // The name label follows the geometry, not the widget type, so it is set
+    // BEFORE the Slider early-return -- a toggle in Horizontal style needs its
+    // label left-aligned too.
+    if (c.label != nullptr)
+        c.label->setJustificationType(style == ControlStyle::Horizontal
+                                          ? juce::Justification::centredLeft
+                                          : juce::Justification::centred);
+
     // Anything that is not a Slider has no style to apply. A ToggleButton returns
     // here, which is why no rotary code below can ever reach a toggle-kind param.
     auto* sl = dynamic_cast<juce::Slider*>(c.widget.get());
@@ -174,6 +191,40 @@ void ParamGridPanel::applyPresentation(Control& c)
     // updateText() re-renders it now (juce_Slider.h:844).
     sl->updateText();
 
+    // ── Style override ──────────────────────────────────────────────────────
+    // Rotary and Horizontal are user view choices and win over the Faust Kind.
+    // Reaching here at all means the widget is a Slider, so the toggle kinds are
+    // already excluded by the early return above — a Button/CheckButton is a
+    // ToggleButton and is structurally unreachable from this code path, which is
+    // what keeps PF-005's promise unconditional rather than style-dependent.
+    if (style == ControlStyle::Rotary)
+    {
+        sl->setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+        sl->setTextBoxStyle(juce::Slider::TextBoxBelow, false, 64, 16);
+        // Set explicitly rather than inheriting: JUCE's default arc is
+        // 0 .. 2pi with no gap, which reads as a full ring and makes the
+        // pointer position ambiguous at the extremes (juce_Slider.h:398-407).
+        // 7 o'clock to 5 o'clock is the hardware convention.
+        sl->setRotaryParameters(juce::MathConstants<float>::pi * 1.2f,
+                                juce::MathConstants<float>::pi * 2.8f,
+                                true);
+        // Consistent drag feel between styles: without this a rotary maps
+        // absolute vertical position, so switching style changes how far the
+        // same gesture moves the value.
+        sl->setVelocityBasedMode(true);
+        return;
+    }
+
+    if (style == ControlStyle::Horizontal)
+    {
+        sl->setSliderStyle(juce::Slider::LinearHorizontal);
+        sl->setTextBoxStyle(juce::Slider::TextBoxRight, false, 56, 16);
+        sl->setVelocityBasedMode(false);
+        return;
+    }
+
+    // ControlStyle::Faithful — the widget follows the DSL, not taste.
+    sl->setVelocityBasedMode(false);
     switch (c.meta.kind)
     {
         case FaustEngine::Kind::HSlider:   // juce_Slider.h:63/96
@@ -195,6 +246,45 @@ void ParamGridPanel::applyPresentation(Control& c)
             sl->setTextBoxStyle(juce::Slider::TextBoxBelow, false, 64, 16);
             break;
     }
+}
+
+const char* ParamGridPanel::controlStyleName(ControlStyle s)
+{
+    switch (s)
+    {
+        case ControlStyle::Rotary:     return "rotary";
+        case ControlStyle::Horizontal: return "horizontal";
+        case ControlStyle::Faithful:   break;
+    }
+    return "faithful";
+}
+
+ParamGridPanel::ControlStyle ParamGridPanel::controlStyleFromName(const juce::String& name)
+{
+    if (name == "rotary")     return ControlStyle::Rotary;
+    if (name == "horizontal") return ControlStyle::Horizontal;
+    return ControlStyle::Faithful;   // unknown/absent degrades to the shipped layout
+}
+
+void ParamGridPanel::setControlStyle(ControlStyle s)
+{
+    if (s == style)
+        return;                       // idempotent: no needless relayout or repaint
+
+    style = s;
+
+    // Restyle in place. Note what is NOT here: no widget is destroyed, no
+    // attachment is rebuilt, no APVTS value is written. Each Slider keeps the
+    // SliderAttachment it was born with, so the parameter never sees the style
+    // change at all -- which is the entire point. A rebuild here would push
+    // values back through the attachments and thrash every slot.
+    for (auto& c : controls)
+        applyPresentation(c);
+
+    // Geometry differs per style (grid cells vs full-width rows), so the content
+    // height changes and the shell may want a different window height. resized()
+    // re-runs layoutControls() against the new mode.
+    resized();
 }
 
 void ParamGridPanel::layoutControls()
@@ -223,6 +313,25 @@ void ParamGridPanel::layoutControls()
 
     if (n == 0 || cols == 0 || viewW == 0)
         return;
+
+    // ── Horizontal: one full-width row per control ──────────────────────────
+    // Label on the left at a fixed width so the tracks all start at the same x
+    // and read as a column; the slider takes the rest of the row.
+    if (style == ControlStyle::Horizontal)
+    {
+        constexpr int kNameW = 96;
+        for (int i = 0; i < n; ++i)
+        {
+            auto& c = controls[static_cast<size_t>(i)];
+            auto row = juce::Rectangle<int>(0, i * kRowH, viewW, kRowH).reduced(4, 3);
+            c.label->setBounds(row.removeFromLeft(juce::jmin(kNameW, row.getWidth() / 2)));
+            if (c.buttonAtt != nullptr)
+                c.widget->setBounds(row.withWidth(juce::jmin(row.getWidth(), 90)));
+            else
+                c.widget->setBounds(row);
+        }
+        return;
+    }
 
     const int cellW = viewW / cols;
     for (int i = 0; i < n; ++i)
@@ -288,6 +397,13 @@ juce::String ParamGridPanel::controlLabelForTest(int index) const
         return {};
     auto* l = controls[static_cast<size_t>(index)].label.get();
     return l != nullptr ? l->getText() : juce::String();
+}
+
+juce::String ParamGridPanel::controlGroupForTest(int index) const
+{
+    if (index < 0 || index >= static_cast<int>(controls.size()))
+        return {};
+    return juce::String(controls[static_cast<size_t>(index)].meta.group);
 }
 
 double ParamGridPanel::controlValueForTest(int index) const

@@ -62,6 +62,37 @@ public:
         Rotary, HorizontalSlider, VerticalSlider, IncDec, Toggle, Unknown
     };
 
+    // ── Control style (purely visual) ───────────────────────────────────────
+    // Which widget a CONTINUOUS parameter renders as. This is a view choice and
+    // touches nothing below the editor: no DSP, no zone write, no parameter
+    // declaration. The Slider and its SliderAttachment are created once per
+    // compile in refreshParamKnobs and stay alive across every style change --
+    // setControlStyle only restyles and relayouts them. Rebuilding attachments
+    // on a style flip would thrash parameter values and flicker.
+    //
+    // Toggle-kind params (Faust Button / CheckButton) are DELIBERATELY EXEMPT and
+    // stay ToggleButtons in every style. PF-005's promise is that a boolean never
+    // renders as a continuous control; making it style-dependent would turn a
+    // structural guarantee into a conditional one.
+    enum class ControlStyle
+    {
+        Faithful,    // widget follows the Faust Kind: hslider→horizontal,
+                     // vslider→vertical, nentry→inc/dec. The shipped behaviour.
+        Rotary,      // every continuous param is a rotary
+        Horizontal   // every continuous param is a horizontal slider
+    };
+
+    // Restyle + relayout in place. Cheap and idempotent; safe to call when the
+    // style has not actually changed (it early-outs).
+    void setControlStyle(ControlStyle s);
+    ControlStyle controlStyle() const { return style; }
+
+    static const char* controlStyleName(ControlStyle s);
+    // Parses controlStyleName()'s output back. Unknown text yields Faithful, so a
+    // corrupt or future state blob degrades to the shipped layout rather than
+    // refusing to open.
+    static ControlStyle controlStyleFromName(const juce::String& name);
+
     int          controlCountForTest() const { return static_cast<int>(controls.size()); }
     // Bumped once per refreshParamKnobs. A test cannot reliably wait for "the
     // grid caught up" by watching the control COUNT, because loading a 1-param
@@ -73,6 +104,12 @@ public:
     int          refreshCountForTest() const { return refreshCount; }
     WidgetKind   controlKindForTest(int index) const;
     juce::String controlLabelForTest(int index) const;
+    // The enclosing hgroup/vgroup path Faust reported, slash-joined and
+    // outermost-first; empty for a param declared outside any group. Read
+    // straight off the retained ParamInfo, so it is what FaustEngine captured
+    // rather than anything this panel derived. Nothing lays out by it yet --
+    // it is the input a sectioned surface (demo Variant C) needs.
+    juce::String controlGroupForTest(int index) const;
     // The widget's OWN value, not the APVTS slot's — so a test can catch an
     // attachment that silently stopped tracking its parameter.
     double       controlValueForTest(int index) const;
@@ -126,6 +163,17 @@ private:
     int contentHeightForCurrentMode() const;
 
     PluginForgeProcessor& processor;
+
+    // Current view style. Not persisted here — PluginForgeProcessor owns the
+    // stored value (it rides the state blob alongside faustSource/prompt) and
+    // pushes it in. The panel is the renderer, not the record.
+    ControlStyle style = ControlStyle::Faithful;
+
+    // Row height for the Horizontal style, which lays one full-width control per
+    // row instead of a grid cell. Deliberately much shorter than kCellH: a
+    // horizontal slider needs width, not height, and stacking them at 95px
+    // wastes most of the window.
+    static constexpr int kRowH = 34;
 
     // The grid lives inside a Viewport so N can exceed what the window shows.
     // `content` is the scrolled surface; the control widgets are ITS children.

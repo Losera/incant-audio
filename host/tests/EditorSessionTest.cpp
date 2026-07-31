@@ -59,6 +59,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <functional>
+#include <map>
 
 // libfaust leaks its parser buffers on every compile (FAUST_scan_buffer, inside
 // libfaust.so): third-party, not reachable from anything this repo can free.
@@ -647,10 +648,20 @@ void scenario10_stateRoundTrip()
             rp->setValueNotifyingHost(0.95f);       // Beta: 0.25 -> 0.95
         if (auto* rp = s.processor.apvts.getParameter(ParamPool::slotId(3)))
             rp->setValueNotifyingHost(0.05f);       // Gamma: 0.75 -> 0.05
+        // Also move the control style off its default before saving. It rides
+        // the same blob (PluginProcessor.cpp:307, kUiStyleId) and its restore
+        // path fires onUiStyleChanged BEFORE the recompile, so it belongs in the
+        // scenario that owns the round trip rather than in a second one. Without
+        // this the persistence half of the style feature had no assertion at all
+        // — only the in-session flip did (scenario 13).
+        s.processor.setUiStyle("rotary");
         pump(100);
-        std::printf("      saved with slot1=%.3f slot3=%.3f\n",
+        check(s.editor.controlStyleForTest() == "rotary",
+              "the session was saved in the rotary style");
+        std::printf("      saved with slot1=%.3f slot3=%.3f style=%s\n",
                     s.editor.gridControlValueForTest(1),
-                    s.editor.gridControlValueForTest(3));
+                    s.editor.gridControlValueForTest(3),
+                    s.processor.uiStyle().toRawUTF8());
         s.processor.getStateInformation(blob);
         check(blob.getSize() > 0, "the session serialised to a non-empty blob");
         snapshot(s.editor, "10a_before_save");
@@ -687,6 +698,25 @@ void scenario10_stateRoundTrip()
     check(got3 < 0.2,
           juce::String("slot 3 came back at its SAVED 0.05, not the patch default 0.75 "
                        "(got ") + juce::String(got3, 3) + ")");
+
+    // The style came back too, and — the part that is easy to get wrong — it is
+    // the PANEL that is in it, not merely the processor's stored string. The
+    // restore fires onUiStyleChanged before the recompile precisely so the
+    // rebuilt widgets are styled on their first frame; asserting the panel is
+    // what distinguishes that from a value that persisted but never applied.
+    check(s2.processor.uiStyle() == "rotary",
+          juce::String("the processor restored the saved style -- got '")
+              + s2.processor.uiStyle() + "'");
+    const bool styled = pumpUntil([&] {
+        return s2.editor.controlStyleForTest() == juce::String("rotary");
+    });
+    check(styled,
+          juce::String("the reopened editor's grid is actually in rotary -- got '")
+              + s2.editor.controlStyleForTest() + "'");
+    check(s2.editor.styleButtonTextForTest() == "Knobs: rotary",
+          juce::String("the reopened button caption matches -- got '")
+              + s2.editor.styleButtonTextForTest() + "'");
+
     snapshot(s2.editor, "10b_after_restore");
 }
 
@@ -742,6 +772,138 @@ void scenario11_codeView()
 }
 
 // 12 — What the knobs actually SAY.
+// 13 — Flipping the control style is PURELY visual: no rebuild, no value moves.
+//
+// The claim is that a style change restyles the existing widgets in place rather
+// than recreating them, so the SliderAttachments survive and the parameters never
+// see the change. That is easy to assert badly. Two traps this deliberately
+// avoids:
+//
+//   * Asserting only that values are unchanged. A style switch that silently did
+//     NOTHING would pass that. So the widget KINDS are asserted to have changed
+//     in the same pass — the test fails if the restyle did not happen at all.
+//   * Leaving every slot at its default. A rebuild resets slots to patch defaults
+//     (that is what refreshParamKnobs' sibling path does), and a default-valued
+//     slot is indistinguishable before and after such a reset. So every slot is
+//     moved OFF its default first; only then is a rebuild detectable by value.
+void scenario13_styleSwitchDoesNotThrash()
+{
+    scenario("13. changing control style does not rebuild or move anything",
+             "one Slider + one SliderAttachment survive the flip; DSP untouched");
+
+    Session s;
+    check(loadAndSettle(s, kEveryKindPatch, 5), "the 5-param patch compiled");
+    if (s.editor.gridControlCountForTest() != 5) return;
+
+    const int n = s.editor.gridControlCountForTest();
+
+    // ── Move every slot off its default ─────────────────────────────────────
+    // Written through the APVTS, the way a DAW or a user gesture would, so the
+    // attachments carry them to the widgets. Distinct per slot so a mix-up
+    // between controls cannot pass.
+    for (int i = 0; i < n; ++i)
+        s.processor.apvts.getParameterAsValue(ParamPool::slotId(i))
+            .setValue(0.3f + 0.07f * static_cast<float>(i));
+
+    // Let the attachments propagate to the widgets before snapshotting.
+    pump(60);
+
+    struct Snap { juce::String label, text; double value; ParamGridPanel::WidgetKind kind; };
+    std::vector<Snap> before;
+    std::vector<float> beforeSlots;
+    for (int i = 0; i < n; ++i)
+    {
+        before.push_back({ s.editor.gridControlLabelForTest(i),
+                           s.editor.gridControlTextForTest(i),
+                           s.editor.gridControlValueForTest(i),
+                           s.editor.gridControlKindForTest(i) });
+        beforeSlots.push_back(
+            s.processor.apvts.getParameter(ParamPool::slotId(i))->getValue());
+    }
+    const int refreshBefore = s.editor.gridRefreshCountForTest();
+
+    check(s.editor.controlStyleForTest() == "faithful",
+          "starts in the shipped style (faithful)");
+
+    // ── Flip through every style and back ───────────────────────────────────
+    // Driven through the PROCESSOR, which is the real path: setUiStyle stores
+    // and notifies, the editor's callback applies it after a callAsync hop.
+    // Waiting on the panel's own style is what makes this deterministic.
+    const char* cycle[] = { "rotary", "horizontal", "faithful" };
+    for (const auto* want : cycle)
+    {
+        s.processor.setUiStyle(want);
+        const bool landed = pumpUntil([&] {
+            return s.editor.controlStyleForTest() == juce::String(want);
+        });
+        check(landed, juce::String("the panel reached style '") + want + "'");
+        if (! landed) return;
+
+        check(s.processor.uiStyle() == juce::String(want),
+              juce::String("the processor stored '") + want + "' as the record");
+
+        // The style must actually have taken effect somewhere, or every value
+        // assertion below is vacuous. In rotary EVERY continuous control is a
+        // Rotary; in horizontal every one is a HorizontalSlider.
+        if (juce::String(want) != "faithful")
+        {
+            const auto expectKind = juce::String(want) == "rotary"
+                                        ? ParamGridPanel::WidgetKind::Rotary
+                                        : ParamGridPanel::WidgetKind::HorizontalSlider;
+            int continuous = 0, matching = 0, togglesKept = 0;
+            for (int i = 0; i < n; ++i)
+            {
+                const auto k = s.editor.gridControlKindForTest(i);
+                if (k == ParamGridPanel::WidgetKind::Toggle) { ++togglesKept; continue; }
+                ++continuous;
+                if (k == expectKind) ++matching;
+            }
+            check(continuous > 0 && matching == continuous,
+                  juce::String("every continuous control restyled to ")
+                      + ParamGridPanel::widgetKindName(expectKind)
+                      + " (" + juce::String(matching) + "/" + juce::String(continuous) + ")");
+            // PF-005's promise, now under a style that could plausibly break it.
+            // kEveryKindPatch declares one button and one checkbox.
+            check(togglesKept == 2,
+                  juce::String("both toggle-kind params stayed toggles, got ")
+                      + juce::String(togglesKept));
+        }
+
+        // ── The actual no-thrash claim ──────────────────────────────────────
+        check(s.editor.gridRefreshCountForTest() == refreshBefore,
+              juce::String("no grid rebuild: refresh count still ")
+                  + juce::String(refreshBefore));
+        check(s.editor.gridControlCountForTest() == n,
+              "control count unchanged");
+
+        bool valuesHeld = true, slotsHeld = true, labelsHeld = true, textHeld = true;
+        for (int i = 0; i < n; ++i)
+        {
+            if (std::abs(s.editor.gridControlValueForTest(i) - before[(size_t) i].value) > 1.0e-9)
+                valuesHeld = false;
+            if (std::abs(s.processor.apvts.getParameter(ParamPool::slotId(i))->getValue()
+                         - beforeSlots[(size_t) i]) > 1.0e-9f)
+                slotsHeld = false;
+            if (s.editor.gridControlLabelForTest(i) != before[(size_t) i].label)
+                labelsHeld = false;
+            if (s.editor.gridControlTextForTest(i) != before[(size_t) i].text)
+                textHeld = false;
+        }
+        check(valuesHeld, juce::String("every widget value survived the flip to ") + want);
+        check(slotsHeld,  juce::String("every APVTS slot survived the flip to ") + want);
+        check(labelsHeld, juce::String("every label survived the flip to ") + want);
+        // The readout is denormalised through ParamMap; a rebuilt attachment
+        // would reinstall JUCE's default text function and print raw slots again
+        // (PF-037's exact regression), so this catches that specifically.
+        check(textHeld,   juce::String("every real-unit readout survived the flip to ") + want);
+    }
+
+    check(s.editor.styleButtonTextForTest() == "Knobs: auto",
+          "the button caption tracked the round trip back to faithful");
+
+    snapshot(s.editor, "13_style_round_trip");
+}
+
 void scenario12_readout()
 {
     scenario("12. the readout shows real units, not slot numbers",
@@ -811,6 +973,99 @@ void scenario12_readout()
     snapshot(s.editor, "12_readout");
 }
 
+// 14 — The enclosing group path Faust reports is captured, not dropped.
+//
+// ParamCapture's four box callbacks were empty bodies until 2026-07-31, so every
+// parameter arrived as a flat list. They now maintain a groupStack
+// (FaustEngine.cpp:15-42) and stamp ParamInfo::group (:105). Nothing LAYS OUT by
+// that field yet -- it is the input a sectioned surface needs -- so without this
+// scenario the capture had no assertion anywhere: tools/ui_iterate.sh records the
+// groups into its manifest but makes no claims about them by design, which is
+// exactly the shape of a control that is believed to run and does not.
+//
+// The expected values are not guessed. They are read off `faust -lang cpp` for
+// this exact patch, whose buildUserInterface emits:
+//     openVerticalBox("<filename>");     <- dropped: a filename, not a section
+//       openVerticalBox("Amp");
+//         addHorizontalSlider("Level", ...);        -> "Amp"
+//       closeBox();
+//       addHorizontalSlider("Loose", ...);          -> ""   (no enclosing group)
+//       openVerticalBox("Osc");
+//         openHorizontalBox("Tune");
+//           addHorizontalSlider("Fine", ...);       -> "Osc/Tune"
+//         closeBox();
+//       closeBox();
+//     closeBox();
+// Note the ORDER: Faust sorts alphabetically at each level, which interleaves the
+// ungrouped param between the two groups. That is Faust's ordering and not
+// anything the grid does -- see the note on ParamInfo::group about PF-038.
+void scenario14_groupCapture()
+{
+    scenario("14. the Faust group path is captured",
+             "nesting joins outermost-first; the filename wrapper is dropped; "
+             "an ungrouped param reports empty");
+
+    // Three params spanning the three cases in one patch, so the ungrouped case
+    // is exercised ALONGSIDE grouped ones rather than in a patch that has no
+    // groups at all -- an implementation that dropped the stack entirely would
+    // pass the latter.
+    const char* kGroupedPatch = R"(import("stdfaust.lib");
+loose = hslider("Loose", 0.5, 0, 1, 0.01);
+inner = vgroup("Osc", hgroup("Tune", hslider("Fine", 0, -1, 1, 0.01)));
+outer = vgroup("Amp", hslider("Level", 0.5, 0, 1, 0.01));
+amt = (loose + inner + outer) * 0.3;
+process = _ * amt, _ * amt;
+)";
+
+    Session s;
+    check(loadAndSettle(s, kGroupedPatch, 3), "the 3-param grouped patch compiled");
+    if (s.editor.gridControlCountForTest() != 3) return;
+
+    // Keyed by LABEL, not by index: index order is Faust's alphabetical ordering,
+    // and this scenario is about the group field, not about ordering. Asserting
+    // positionally would make it fail for an unrelated reason if that ordering
+    // ever changed.
+    std::map<juce::String, juce::String> byLabel;
+    for (int i = 0; i < 3; ++i)
+        byLabel[s.editor.gridControlLabelForTest(i)] = s.editor.gridControlGroupForTest(i);
+
+    const auto groupOf = [&byLabel](const char* label) -> juce::String
+    {
+        auto it = byLabel.find(juce::String(label));
+        return it == byLabel.end() ? juce::String("<no such control>") : it->second;
+    };
+
+    check(groupOf("Level") == "Amp",
+          juce::String("'Level' reports its enclosing vgroup -- got '")
+              + groupOf("Level") + "'");
+    check(groupOf("Fine") == "Osc/Tune",
+          juce::String("'Fine' joins nested groups outermost-first -- got '")
+              + groupOf("Fine") + "'");
+    // The two cases most likely to regress together: the wrapper leaking in would
+    // turn this into the .dsp filename rather than the empty string.
+    check(groupOf("Loose").isEmpty(),
+          juce::String("'Loose' is outside every group and reports empty -- got '")
+              + groupOf("Loose") + "'");
+    bool wrapperLeaked = false;
+    for (const auto& kv : byLabel)
+        if (kv.second.startsWith("pluginforge") || kv.second.contains(".dsp"))
+            wrapperLeaked = true;
+    check(! wrapperLeaked,
+          "Faust's outermost filename box never appears in any path");
+
+    // A patch with NO groups must report empty for every param -- the fallback a
+    // sectioned layout has to handle, and the state every patch was in before the
+    // callbacks were implemented.
+    check(loadAndSettle(s, kFourParamPatch, 4), "an ungrouped 4-param patch compiled");
+    int nonEmpty = 0;
+    for (int i = 0; i < s.editor.gridControlCountForTest(); ++i)
+        if (s.editor.gridControlGroupForTest(i).isNotEmpty())
+            ++nonEmpty;
+    check(nonEmpty == 0,
+          juce::String("a patch with no groups reports no groups -- ")
+              + juce::String(nonEmpty) + " non-empty");
+}
+
 } // namespace
 
 int main()
@@ -837,6 +1092,8 @@ int main()
     scenario10_stateRoundTrip();
     scenario11_codeView();
     scenario12_readout();
+    scenario13_styleSwitchDoesNotThrash();
+    scenario14_groupCapture();
 
     tmp.deleteRecursively();
 

@@ -420,3 +420,68 @@ add_executable(JitTargetTest tests/JitTargetTest.cpp)
 target_compile_features(JitTargetTest PRIVATE cxx_std_17)
 target_compile_options(JitTargetTest PRIVATE -fno-rtti -g -O1)
 target_link_libraries(JitTargetTest PRIVATE ${LIBFAUST_LIB} ${CMAKE_DL_LIBS})
+
+# ---------------------------------------------------------------------------
+# UiDesignGallery -- the design instrument for docs/ui_design_plan.md §3
+# (host/tests/UiDesignGallery.cpp). Renders the real editor against the fixture
+# matrix in tests/ui_fixtures/*.dsp and writes artifacts/ui_gallery/{*.png,
+# manifest.json}. Driven by tools/ui_iterate.sh.
+#
+# NOT A TEST, and deliberately absent from tools/health_report.py's lanes: it
+# makes no assertions, so a PF_SUMMARY line from it would report a lane of zero
+# checks as healthy. See the header comment for why it exits 0 on layout drift.
+#
+# Same source set, display requirement and sanitizer flags as EditorSessionTest
+# -- it constructs the same processor and editor, so it inherits the same
+# constraints, including -fno-sanitize=vptr for libfaust's -fno-rtti build.
+#
+# Leak detection is ON, like every other harness here. A comment used to sit at
+# this spot claiming "NO ASAN LEAK CHECK ... a 5-fixture loop trips
+# LeakSanitizer on JUCE-internal statics" -- and the target below never
+# contained such a setting. The only place it existed was an env var in
+# tools/ui_iterate.sh, whose own comment said "See host/CMakeLists.txt", so the
+# two pointed at each other and the property held only when the binary was
+# launched through that one script. Measured 2026-07-31: five fixtures, leak
+# detection on, exit 0, no LeakSanitizer report. Both the comment and the env
+# var are gone. If LSan ever does fire here, the fix is a
+# __lsan_default_options hook in UiDesignGallery.cpp -- it travels with the
+# binary and survives direct invocation, which the env var did not -- shipped
+# with the failing output beside it.
+# ---------------------------------------------------------------------------
+juce_add_console_app(UiDesignGallery
+    PRODUCT_NAME "UI Design Gallery"
+)
+
+target_sources(UiDesignGallery PRIVATE
+    tests/UiDesignGallery.cpp
+    Source/PluginProcessor.cpp
+    Source/PluginEditor.cpp
+    Source/PromptPanel.cpp
+    Source/CodeEditorPanel.cpp
+    Source/ParamGridPanel.cpp
+    Source/FaustEngine.cpp
+    Source/ParamPool.cpp
+    Source/OutputGuard.cpp
+)
+
+target_compile_features(UiDesignGallery PRIVATE cxx_std_17)
+
+target_compile_definitions(UiDesignGallery PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_VST3_CAN_REPLACE_VST2=0
+    # runDispatchLoopUntil lives inside `#if JUCE_MODAL_LOOPS_PERMITTED`
+    # (juce_MessageManager.h:82-88), same as the two harnesses above.
+    JUCE_MODAL_LOOPS_PERMITTED=1
+)
+
+target_compile_options(UiDesignGallery PRIVATE -fsanitize=address,undefined -fno-sanitize=vptr -g -O1)
+target_link_options(UiDesignGallery PRIVATE -fsanitize=address,undefined -fno-sanitize=vptr)
+
+target_link_libraries(UiDesignGallery PRIVATE
+    juce::juce_audio_utils
+    juce::juce_dsp
+    juce::juce_gui_extra
+    juce::juce_recommended_config_flags
+    ${LIBFAUST_LIB}
+)

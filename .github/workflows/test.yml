@@ -167,8 +167,12 @@ jobs:
       # PluginForgeEditor, which nothing had ever constructed. It found PF-033 on
       # its first green run — the editor's unconditional default-seeding was
       # overwriting every value a state restore had just put back.
+      # UiDesignGallery is built but not run: it makes no assertions, so there is
+      # nothing to assert on here. It is compiled because it reaches into editor
+      # internals (PluginEditor.h:42-48, ParamGridPanel.h:91) and a rename there
+      # would otherwise break the design instrument silently with CI green.
       - name: Build behavioural test harnesses
-        run: cmake --build build-ci --target OfflineRenderTest PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim OutputGuardTest ParamMapTest StatePersistenceTest
+        run: cmake --build build-ci --target OfflineRenderTest PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery
 
       # OutputGuardTest / ParamMapTest / StatePersistenceTest — 96 checks that had
       # CMake targets and were run by NOTHING until 2026-07-30. PF-029 inverted:

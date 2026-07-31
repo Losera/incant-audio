@@ -43,6 +43,7 @@ public:
     int          gridRefreshCountForTest() const;
     ParamGridPanel::WidgetKind gridControlKindForTest(int i) const;
     juce::String gridControlLabelForTest(int i) const;
+    juce::String gridControlGroupForTest(int i) const;
     double       gridControlValueForTest(int i) const;
     juce::String gridControlTextForTest(int i) const;
     // Drives the 30Hz meter/mute tick directly. The Timer fires on wall-clock, so a
@@ -53,6 +54,15 @@ public:
     void         setRefineForTest(bool on) { promptPanel.setRefineForTest(on); }
     bool         refineEnabledForTest() const { return promptPanel.refineEnabledForTest(); }
     // The code-view disclosure, and what the view is actually showing.
+    // The style the PANEL is actually rendering, not the one the processor
+    // stored — so a test can wait for the callAsync hop to have landed rather
+    // than sleeping, and can catch the two drifting apart.
+    juce::String controlStyleForTest() const
+    {
+        return ParamGridPanel::controlStyleName(paramGridPanel.controlStyle());
+    }
+    juce::String styleButtonTextForTest() const { return styleToggle.getButtonText(); }
+
     void         setCodeVisibleForTest(bool on) { setCodeViewVisible(on); }
     bool         codeVisibleForTest() const { return codeEditorPanel.isVisible(); }
     juce::String codeTextForTest() const { return codeEditorPanel.displayedSourceForTest(); }
@@ -131,6 +141,16 @@ private:
     // Disclosure for the read-only Faust view. Off by default: the code is for
     // the user who wants it, and a no-code tool must not open on a wall of DSL.
     juce::TextButton codeToggle { "Show code" };
+
+    // Control-style selector. A view control, not a parameter — it never reaches
+    // the DSP (see PluginForgeProcessor::setUiStyle). Cycles rather than opening a
+    // menu: three options is below the threshold where a popup earns its click.
+    juce::TextButton styleToggle { "Knobs: auto" };
+    void cycleControlStyle();
+    // Push a stored style name into the panel and refresh the button caption.
+    // Called from the processor's onUiStyleChanged and on construction, so a
+    // reopened project and a second editor both come up in the chosen style.
+    void applyControlStyle(const juce::String& styleName);
 
     // ── Level meter (shell-owned) ────────────────────────────────────────────
     juce::Rectangle<int> meterBounds;      // set in resized(), painted in paint()

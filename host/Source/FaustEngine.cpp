@@ -11,6 +11,39 @@ struct ParamCapture : public UI
 {
     FaustEngine::ParamList params;
 
+    // ── Group nesting state ─────────────────────────────────────────────────
+    // Every open*Box pushes, every closeBox pops, so the stack is exactly the
+    // chain of groups enclosing whatever widget arrives next. openedBoxes counts
+    // pushes so the OUTERMOST box (Faust's filename wrapper) can be identified
+    // by position rather than by name -- a patch is free to contain a real group
+    // whose name matches the file, and dropping that one by name would be wrong.
+    std::vector<std::string> groupStack;
+    int openedBoxes = 0;
+    int closedBoxes = 0;
+
+    void pushGroup(const char* label)
+    {
+        groupStack.emplace_back(label ? label : "");
+        ++openedBoxes;
+    }
+
+    // Slash-joined, outermost first, with Faust's filename wrapper dropped.
+    // Empty for a parameter declared outside any group -- the fallback case a
+    // sectioned layout has to handle.
+    std::string currentGroup() const
+    {
+        std::string out;
+        for (size_t i = 1; i < groupStack.size(); ++i)   // i = 1 skips the wrapper
+        {
+            if (groupStack[i].empty())
+                continue;                                // unnamed box adds no level
+            if (! out.empty())
+                out += '/';
+            out += groupStack[i];
+        }
+        return out;
+    }
+
     // ── Pending declare() metadata ──────────────────────────────────────────
     // Faust emits metadata as declare(zone, key, value) calls immediately
     // BEFORE the widget they describe, all carrying that widget's zone pointer:
@@ -68,7 +101,8 @@ struct ParamCapture : public UI
                                    FaustEngine::Kind kind)
     {
         FaustEngine::ParamInfo info { label ? label : "", init, fmin, fmax, step, kind };
-        info.zone = zone;
+        info.zone  = zone;
+        info.group = currentGroup();
 
         if (zone != nullptr && zone == pendingZone)
         {
@@ -115,10 +149,30 @@ struct ParamCapture : public UI
     void addHorizontalBargraph(const char*, FAUSTFLOAT*, FAUSTFLOAT, FAUSTFLOAT) override {}
     void addVerticalBargraph(const char*, FAUSTFLOAT*, FAUSTFLOAT, FAUSTFLOAT) override {}
     void addSoundfile(const char*, const char*, Soundfile**) override {}
-    void openTabBox(const char*) override {}
-    void openHorizontalBox(const char*) override {}
-    void openVerticalBox(const char*) override {}
-    void closeBox() override {}
+
+    // ── Group nesting ───────────────────────────────────────────────────────
+    // These four were empty bodies until 2026-07-31, so every parameter arrived
+    // as a flat list and a sectioned layout was impossible. The information was
+    // always here -- Faust interleaves these calls with the widget adds -- it was
+    // simply dropped. See ParamInfo::group for the verified call sequence.
+    //
+    // The outermost box is skipped: Faust wraps the entire UI in one box named
+    // after the .dsp file, which is a filename, not a section. Tracking depth
+    // rather than testing the name keeps that robust when a patch happens to
+    // name a real group the same thing as the file.
+    void openTabBox(const char* label) override        { pushGroup(label); }
+    void openHorizontalBox(const char* label) override { pushGroup(label); }
+    void openVerticalBox(const char* label) override   { pushGroup(label); }
+
+    void closeBox() override
+    {
+        // Defensive: a malformed UI tree could close more boxes than it opened.
+        // Faust does not do this, but ParamCapture must not corrupt memory if a
+        // future libfaust ever did.
+        if (! groupStack.empty())
+            groupStack.pop_back();
+        ++closedBoxes;
+    }
 };
 
 // ---------------------------------------------------------------------------

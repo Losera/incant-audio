@@ -51,6 +51,35 @@ public:
                                           // default curve when scale == None
         bool        isMenu = false;       // [style:menu{...}] -- discrete indices
 
+        // ── Enclosing group path ────────────────────────────────────────────
+        // Slash-joined names of the hgroup/vgroup/tgroup boxes this parameter
+        // sits inside, OUTERMOST FIRST, with the compiler-inserted outermost box
+        // dropped -- Faust always wraps the whole UI in one box named after the
+        // .dsp file, which is a filename and not a section heading. A parameter
+        // declared outside any group therefore has an EMPTY path, and that is
+        // the case a sectioned layout must fall back on.
+        //
+        // Faust reports this through openVerticalBox/openHorizontalBox/openTabBox
+        // and closeBox, interleaved with the widget adds. Verified against
+        // `faust -lang cpp` output for host/tests/ui_fixtures/04_generator_grouped.dsp,
+        // which emits (generated C++, buildUserInterface):
+        //     openVerticalBox("04_generator_grouped");
+        //       openVerticalBox("Env");
+        //         addHorizontalSlider("Attack", ...);   -> group == "Env"
+        //       closeBox();
+        //     ...
+        //     closeBox();
+        // Note this needs NO [group:...] metadata: ordinary vgroup()/hgroup() in
+        // the DSL is enough, so a model that writes idiomatic Faust already
+        // produces it.
+        //
+        // Ordering note: Faust emits the groups ALPHABETICALLY, and the widgets
+        // alphabetically inside each. The editor does not sort -- it preserves
+        // this order exactly. What has been recorded as "lexicographic knob
+        // ordering" (PF-038) is therefore Faust's own path ordering, not
+        // anything ParamGridPanel does.
+        std::string group;
+
         // Direct pointer into the owning DSP instance's memory, captured during
         // buildUserInterface. This is what makes pushToFaust RT-safe: writing
         // *zone replaces a string-keyed MapUI lookup (up to three std::map

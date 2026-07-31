@@ -97,11 +97,22 @@ level_full() {
     # four consecutive pushes read as green locally while CI died at exit 132 in
     # OfflineRenderTest: the ladder was making a true statement about a smaller set
     # of tests than the remote gate runs, and the two never met (PF-026).
+    #
+    # UiDesignGallery is BUILD-ONLY here, and that is deliberate rather than an
+    # oversight: it makes no assertions (host/CMakeLists.txt:430-432), so there is
+    # nothing for the ladder to run. It is built because it reaches into editor
+    # internals -- PluginEditor.h:42-48, ParamGridPanel.h:91 -- and a rename there
+    # would otherwise break it silently with every gate green, which is PF-029
+    # mirrored. Note that TestLadderRunsWhatCIRuns cannot vet this: its "also run
+    # it, do not just compile it" relation is implemented as a name filter,
+    # endswith("Test") (tests/test_control_wiring.py:770), and this target does not
+    # match. So the exemption is real but unenforced -- do not read the green
+    # parity test as having approved it.
     run "build the host and every test harness" \
         cmake --build host/build --target PluginForgeHost PluginForgeHost_Standalone \
               PluginForgeHost_VST3 ParamPoolTsanTest OfflineRenderTest \
               PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim \
-              OutputGuardTest ParamMapTest StatePersistenceTest
+              OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery
 
     # ── Three harnesses that existed and ran nowhere ─────────────────────────
     # Found 2026-07-30 while surveying the measurement surface: OutputGuardTest

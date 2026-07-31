@@ -269,6 +269,31 @@ static const juce::Identifier kStateRootTag    ("PluginForgeState");
 static const juce::Identifier kSchemaVersionId ("schemaVersion");
 static const juce::Identifier kFaustSourceId   ("faustSource");
 static const juce::Identifier kPromptId        ("prompt");
+// Added 2026-07-31. A v1 AMENDMENT, not a schema bump, by the same argument the
+// dropped <SlotLabels> node used above: an old blob simply lacks the attribute and
+// getProperty's default supplies "faithful", which is the behaviour those blobs
+// were saved under anyway. Nothing has to migrate.
+static const juce::Identifier kUiStyleId       ("uiStyle");
+
+juce::String PluginForgeProcessor::uiStyle() const
+{
+    std::lock_guard<std::mutex> lock(metaMutex);
+    return currentUiStyle;
+}
+
+void PluginForgeProcessor::setUiStyle(const juce::String& styleName)
+{
+    {
+        std::lock_guard<std::mutex> lock(metaMutex);
+        if (currentUiStyle == styleName)
+            return;                       // idempotent; no spurious notification
+        currentUiStyle = styleName;
+    }
+    // Fired OUTSIDE the lock: a listener will call back into the editor, and
+    // holding metaMutex across arbitrary UI work is how a deadlock gets built.
+    if (onUiStyleChanged)
+        onUiStyleChanged(styleName);
+}
 
 void PluginForgeProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
@@ -279,6 +304,7 @@ void PluginForgeProcessor::getStateInformation(juce::MemoryBlock& destData)
         std::lock_guard<std::mutex> lock(metaMutex);
         root.setProperty(kFaustSourceId, currentFaustSource, nullptr);
         root.setProperty(kPromptId,      currentPrompt,      nullptr);
+        root.setProperty(kUiStyleId,     currentUiStyle,     nullptr);
     }
 
     // copyState() flushes pending parameter updates and returns a thread-safe copy
@@ -318,12 +344,23 @@ void PluginForgeProcessor::setStateInformation(const void* data, int sizeInBytes
 
     const juce::String source = root.getProperty(kFaustSourceId, juce::String());
     const juce::String prompt = root.getProperty(kPromptId,      juce::String());
+    // Absent in a pre-2026-07-31 blob; the default is the behaviour those blobs
+    // were saved under, so an old session reopens looking exactly as it did.
+    const juce::String style  = root.getProperty(kUiStyleId,     "faithful");
 
     {
         std::lock_guard<std::mutex> lock(metaMutex);
         currentFaustSource = source;
         currentPrompt      = prompt;
+        currentUiStyle     = style;
     }
+
+    // Tell any open editor before the restore recompile below: the compile will
+    // rebuild every widget, and applyPresentation reads the panel's style, so the
+    // panel must already know the restored choice or the first frame after a
+    // project load renders in the wrong style and only corrects on the next flip.
+    if (onUiStyleChanged)
+        onUiStyleChanged(style);
 
     if (source.isEmpty())
         return;   // param values restored; no source to recompile.

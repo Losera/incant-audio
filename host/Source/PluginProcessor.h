@@ -113,6 +113,20 @@ public:
     // keep (the vector lives on the compile thread's stack).
     std::function<void(const FaustEngine::ParamList& params)> onFaustCompileSuccess;
 
+    // ── UI control style — a VIEW property, not a parameter ─────────────────
+    // Deliberately NOT an AudioParameterChoice: that would add an entry to the
+    // host's automation lane and to a parameter count that is already dynamic
+    // per generated patch. It is also deliberately not reachable from anything
+    // that can recompile — setUiStyle() has no handle on FaustEngine, so a style
+    // change is structurally incapable of touching the DSP.
+    //
+    // Message-thread only, like the rest of the meta block. Fires
+    // onUiStyleChanged so a second open editor (or one reopened after a project
+    // load) picks up the stored choice instead of snapping back to the default.
+    juce::String uiStyle() const;
+    void         setUiStyle(const juce::String& styleName);
+    std::function<void(const juce::String& styleName)> onUiStyleChanged;
+
     juce::AudioProcessorValueTreeState apvts;
 
     // The Faust source currently live, or empty if nothing has compiled. Product
@@ -167,6 +181,18 @@ private:
     mutable std::mutex metaMutex;
     juce::String       currentFaustSource;
     juce::String       currentPrompt;
+    // The user's chosen control style, by name (see ParamGridPanel::ControlStyleName).
+    // Stored as a string rather than an int so the state blob stays readable and a
+    // future style can be added without renumbering an enum that is already on disk.
+    //
+    // NOT on apvts.state, which would have been the obvious home: replaceState()
+    // is `state = newState` (juce_AudioProcessorValueTreeState.cpp:391), a plain
+    // ValueTree assignment that rebinds the object — so any ValueTree::Listener
+    // registered on apvts.state is silently dropped the first time a project is
+    // reloaded. A style stored there would persist but stop notifying, which is
+    // the failure mode this project keeps re-learning. This member plus an
+    // explicit callback cannot rot that way.
+    juce::String       currentUiStyle { "faithful" };
     juce::StringArray  currentLabels;
 
     // A restore blob can arrive (setStateInformation) before the host has called
