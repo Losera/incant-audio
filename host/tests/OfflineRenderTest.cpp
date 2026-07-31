@@ -217,6 +217,56 @@ Stats render(PluginForgeProcessor& p, double sampleRate, int blockSize, int bloc
     return s;
 }
 
+// Per-channel view of a render. The aggregate Stats above sums across channels,
+// which is exactly the wrong instrument for an arity defect: a mono patch whose
+// output reaches ONE channel while the other carries the dry input has a healthy
+// aggregate RMS and is broken. What separates those two cases is whether the
+// channels are IDENTICAL, so that is what this measures.
+struct ChannelStats
+{
+    float rms[2]     = { 0.0f, 0.0f };
+    float maxAbsDiff = 0.0f;   // max |L-R| over the render
+};
+
+ChannelStats renderPerChannel(PluginForgeProcessor& p, double sampleRate,
+                              int blockSize, int blocks)
+{
+    juce::AudioBuffer<float> buffer(2, blockSize);
+    juce::MidiBuffer midi;
+    TestSignal signal;
+    signal.prepare(sampleRate);
+
+    ChannelStats cs;
+    double sumSq[2] = { 0.0, 0.0 };
+    int    n = 0;
+
+    for (int b = 0; b < blocks; ++b)
+    {
+        signal.fill(buffer);
+        p.processBlock(buffer, midi);
+
+        const float* l = buffer.getReadPointer(0);
+        const float* r = buffer.getReadPointer(1);
+
+        for (int i = 0; i < blockSize; ++i)
+        {
+            if (std::isfinite(l[i]) && std::isfinite(r[i]))
+            {
+                sumSq[0] += static_cast<double>(l[i]) * l[i];
+                sumSq[1] += static_cast<double>(r[i]) * r[i];
+                cs.maxAbsDiff = std::max(cs.maxAbsDiff, std::abs(l[i] - r[i]));
+                ++n;
+            }
+        }
+    }
+
+    if (n > 0)
+        for (int ch = 0; ch < 2; ++ch)
+            cs.rms[ch] = (float) std::sqrt(sumSq[ch] / n);
+
+    return cs;
+}
+
 struct Patch
 {
     const char* name;
@@ -356,6 +406,73 @@ const std::vector<Patch> kPathological = {
       "process = +~*(1.0005), +~*(1.0005);", -1, OutputGuard::Trip::Runaway },
 };
 
+// ── Arity corpus ────────────────────────────────────────────────────────────
+// Every other corpus in this file is 2-in/2-out, so nothing here has ever
+// exercised a patch whose channel count disagrees with the host's. The bus
+// layout is fixed stereo (PluginProcessor.cpp:6-8), and FaustEngine::process
+// hands JUCE's channel array straight to dsp->compute with no bounds check:
+//
+//     float** io = const_cast<float**>(buffer.getArrayOfWritePointers());
+//     dsp->compute(buffer.getNumSamples(), io, io);
+//
+// juce_AudioSampleBuffer.h:342 returns the raw `channels` array, and :441
+// null-terminates it at `channels[numChannels]`. So for a 2-channel buffer
+// io[2] is NULLPTR and io[3] onward is past the end of the allocation. Faust's
+// generated compute lifts every output pointer into a local before the sample
+// loop (faust/dsp/dsp.h:192 is the contract; the codegen shape is visible in
+// `faust -lang cpp` output), so a 3-output patch dereferences null and a
+// 4-output patch also reads out of bounds — both on the AUDIO THREAD.
+//
+// The generator cases are subtler and worse to diagnose, because they do not
+// crash: a 1-output patch writes channel 0 and leaves channel 1 holding the dry
+// input. Aggregate RMS looks healthy. What proves it is the two channels being
+// identical, which is why these use renderPerChannel and not render.
+struct ArityPatch
+{
+    const char* name;
+    const char* category;
+    const char* source;
+    bool        mustCompile;   // false = FaustEngine must REJECT it, not render it
+    bool        mustBeMono;    // true  = both channels must be sample-identical
+};
+
+const std::vector<ArityPatch> kArity = {
+    // Rejected: more outputs than the host has channels.
+    { "three outputs", "io[2] is JUCE's null terminator",
+      "import(\"stdfaust.lib\");\n"
+      "process = _,_,_;", false, false },
+
+    { "four outputs", "io[3] is past the end of the allocation",
+      "import(\"stdfaust.lib\");\n"
+      "process = _,_,_,_;", false, false },
+
+    // Rejected: more inputs than the host has channels. Faust READS io[2] here,
+    // which is the null pointer, before it writes anything.
+    // 3-in/2-out. Written as `+, _` rather than an explicit routing expression
+    // because `_,_,_ :> _,_` is rejected by the Faust compiler itself (3 is not
+    // a multiple of 2), which would have made this case assert that Faust
+    // validates arity rather than that WE do.
+    { "three inputs", "reads io[2] — the null terminator",
+      "import(\"stdfaust.lib\");\n"
+      "process = +, _;", false, false },
+
+    // Accepted, and must reach BOTH channels.
+    { "mono generator", "0-in/1-out — the shape every synth prompt produces",
+      "import(\"stdfaust.lib\");\n"
+      "process = os.osc(220) * hslider(\"Level\",0.3,0,1,0.01);", true, true },
+
+    { "mono effect", "1-in/1-out — trivially reachable from a careless prompt",
+      "import(\"stdfaust.lib\");\n"
+      "process = *(hslider(\"Gain\",0.5,0,1,0.01));", true, true },
+
+    // Accepted, and must NOT be corrupted by in-place aliasing. Faust only
+    // contracts compute() for inputs == outputs when the arities match; with
+    // 1-in/2-out the single input shares storage with output 0.
+    { "one in, two out", "aliasing: input 0 shares storage with output 0",
+      "import(\"stdfaust.lib\");\n"
+      "process = _ <: fi.lowpass(2,800), fi.highpass(2,2000);", true, false },
+};
+
 constexpr double kSampleRate = 48000.0;
 constexpr int    kBlockSize  = 512;
 constexpr int    kBlocks     = 200;   // ~2.1s at 48k — long enough for LFOs/decay
@@ -487,8 +604,8 @@ int main(int argc, char** argv)
     juce::ScopedJuceInitialiser_GUI juceInit;
 
     std::printf("OfflineRenderTest — objective half of the P6 battery\n");
-    std::printf("  %d well-behaved patches, %d pathological controls\n",
-                (int) kWellBehaved.size(), (int) kPathological.size());
+    std::printf("  %d well-behaved patches, %d pathological controls, %d arity cases\n",
+                (int) kWellBehaved.size(), (int) kPathological.size(), (int) kArity.size());
     std::printf("  %.0f Hz, %d-sample blocks, %d blocks (~%.1fs) per patch\n\n",
                 kSampleRate, kBlockSize, kBlocks,
                 kBlocks * kBlockSize / kSampleRate);
@@ -630,6 +747,83 @@ int main(int argc, char** argv)
             std::printf("      NOTE: to a user who just clicked Generate this is\n"
                         "      indistinguishable from a dead patch. The objective\n"
                         "      battery cannot tell them apart — silence is correct here.\n");
+            std::printf("\n");
+        }
+    }
+
+    // ── Arity: the host is stereo, and the patch may not be ──────────────────
+    {
+        std::printf("  --- arity: the patch's channel count vs the host's ---\n\n");
+        for (const auto& patch : kArity)
+        {
+            std::printf("  %s  (%s)\n", patch.name, patch.category);
+
+            PluginForgeProcessor p;
+            p.prepareToPlay(kSampleRate, kBlockSize);
+
+            const bool compiled = loadAndAwait(p, patch.source);
+
+            if (! patch.mustCompile)
+            {
+                // The assertion is on the REJECTION, and the patch is deliberately
+                // not rendered even when it slips through: a patch with more
+                // channels than the host dereferences JUCE's null terminator on
+                // the audio thread, and a test binary that segfaults reports
+                // nothing about the eleven checks after it. A readable FAIL is
+                // worth more here than a demonstration.
+                check(! compiled,
+                      "REJECTED at compile, before it could reach the audio thread");
+                if (compiled)
+                    std::printf("      NOTE: this patch is LIVE with an arity the host\n"
+                                "      cannot serve. Not rendered on purpose — see above.\n");
+                std::printf("\n");
+                continue;
+            }
+
+            if (! compiled)
+            {
+                check(false, juce::String(patch.name) + ": JIT compile succeeded");
+                std::printf("\n");
+                continue;
+            }
+            check(true, "JIT compiled and a DSP went live");
+
+            const auto cs = renderPerChannel(p, kSampleRate, kBlockSize, kBlocks);
+
+            check(cs.rms[0] > 1.0e-4f,
+                  juce::String("left channel carries signal (rms ")
+                      + juce::String(cs.rms[0], 5) + ")");
+            check(cs.rms[1] > 1.0e-4f,
+                  juce::String("right channel carries signal (rms ")
+                      + juce::String(cs.rms[1], 5) + ")");
+
+            if (patch.mustBeMono)
+            {
+                // The load-bearing one. Both channels being non-silent is NOT
+                // evidence the mono output was duplicated — before the arity fix
+                // channel 1 held the untouched dry input, which is non-silent and
+                // wrong. Only sample-identity distinguishes the two.
+                // NOTE: juce::String(const char*) asserts the literal is ASCII
+                // (juce_String.cpp:315, CharPointer_ASCII::isValidString) -- an
+                // em dash here fires a JUCE assertion mid-run. Punctuation in
+                // check() messages stays ASCII; std::printf is unaffected.
+                check(cs.maxAbsDiff < 1.0e-6f,
+                      juce::String("both channels are IDENTICAL - the mono output was "
+                                   "duplicated, not left holding dry input (max |L-R| ")
+                          + juce::String(cs.maxAbsDiff, 7) + ")");
+            }
+            else
+            {
+                // A 1-in/2-out patch splitting into a lowpass and a highpass must
+                // NOT come out identical; if it does, one branch overwrote the
+                // other through the aliased input pointer.
+                check(cs.maxAbsDiff > 1.0e-4f,
+                      juce::String("the two outputs are genuinely different - no "
+                                   "aliasing collapse (max |L-R| ")
+                          + juce::String(cs.maxAbsDiff, 5) + ")");
+            }
+
+            check(! p.isOutputMuted(), "OutputGuard did NOT need to mute this patch");
             std::printf("\n");
         }
     }

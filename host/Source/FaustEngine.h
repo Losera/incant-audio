@@ -163,6 +163,12 @@ public:
 
     void exitAudio() { audioBusy.fetch_sub(1, std::memory_order_release); }
 
+    // The host's channel count, and therefore the most a patch may declare in
+    // either direction. The bus layout is fixed stereo and the input is required
+    // (PluginProcessor.cpp:6-8), so this is not a tunable — it is a statement
+    // about what processBlock can actually serve.
+    static constexpr int kMaxChannels = 2;
+
 private:
     double              sr     = 44100.0;
     int                 block  = 512;
@@ -172,6 +178,26 @@ private:
     llvm_dsp_factory*      factory   = nullptr;
     std::atomic<llvm_dsp*> activeDSP { nullptr };
     MapUI                  activeUI;
+
+    // ── Arity of the LIVE DSP ───────────────────────────────────────────────
+    // Faust's process may declare any channel count; the host has exactly
+    // kMaxChannels. These are published in the swap alongside activeDSP and read
+    // on the audio thread, so process() can route rather than assume.
+    //
+    // SUBTLE: relaxed is correct on both sides for the same reason activeDSP is
+    // read relaxed — the acquire on `ready` (enterAudio, then process) already
+    // synchronises every write the compile thread made before its release store
+    // in Step 6. They are atomic rather than plain ints so that the read is not
+    // a data race under TSan when a compile is parked mid-swap.
+    std::atomic<int> dspNumIns  { 0 };
+    std::atomic<int> dspNumOuts { 0 };
+
+    // Output staging for patches whose arity does not match the host's. Faust
+    // only contracts compute() for in-place use (inputs == outputs) when the two
+    // arities agree (faust/dsp/dsp.h:192); a 1-in/2-out patch would otherwise
+    // have output 0 sharing storage with input 0. Sized in prepare() — never in
+    // process(), which is the audio thread.
+    juce::AudioBuffer<float> scratch;
 
     // SUBTLE: compileMutex is held only on the compile thread, never on the audio thread.
     // createDSPFactoryFromString is not thread-safe per faust/dsp/llvm-dsp.h —

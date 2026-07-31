@@ -212,6 +212,18 @@ void FaustEngine::prepare(double sampleRate, int blockSize)
     sr    = sampleRate;
     block = blockSize;
 
+    // Output staging for arity mismatches, sized HERE because process() is the
+    // audio thread and setSize allocates. Deliberately above the !rateChanged
+    // early return: a host may change the block size while keeping the sample
+    // rate (device buffer-size change is the common case), and a scratch buffer
+    // sized for the old block would be overrun by the new one.
+    //
+    // Not guarded by the drain below. JUCE contracts prepareToPlay and
+    // processBlock as non-concurrent, which is the same assumption the sr/block
+    // stores above already make.
+    scratch.setSize(kMaxChannels, blockSize, /*keepExistingContent*/ false,
+                    /*clearExtraSpace*/ true, /*avoidReallocating*/ false);
+
     // PF-018. Storing the members was ALL this used to do. If the host changed
     // sample rate after a patch went live, the DSP kept running at the rate it was
     // instanceInit'd with — every rate-dependent constant wrong, so a 1 kHz filter
@@ -302,10 +314,67 @@ void FaustEngine::process(juce::AudioBuffer<float>& buffer)
     if (dsp == nullptr)
         return;
 
-    // In-place: write pointers serve as both input and output.
-    // const_cast removes the pointer-level const from float* const* → float**.
-    float** io = const_cast<float**>(buffer.getArrayOfWritePointers());
-    dsp->compute(buffer.getNumSamples(), io, io);
+    const int n        = buffer.getNumSamples();
+    const int bufChans = buffer.getNumChannels();
+
+    // relaxed for the same reason as activeDSP above: the acquire on `ready`
+    // already published these together with the DSP they describe (Step 3b).
+    const int numIns  = dspNumIns.load(std::memory_order_relaxed);
+    const int numOuts = dspNumOuts.load(std::memory_order_relaxed);
+
+    // Fast path: the patch's arity matches the host's exactly. In-place, no copy.
+    // This is the overwhelmingly common case — every stereo effect — and it is
+    // byte-for-byte what this function did before the arity work, deliberately:
+    // the routing below must not cost the common case anything.
+    if (numIns == bufChans && numOuts == bufChans)
+    {
+        // const_cast removes the pointer-level const from float* const* → float**.
+        float** io = const_cast<float**>(buffer.getArrayOfWritePointers());
+        dsp->compute(n, io, io);
+        return;
+    }
+
+    // ── Mismatched arity ────────────────────────────────────────────────────
+    // The compile-time gate in runCompile guarantees numIns <= kMaxChannels and
+    // 1 <= numOuts <= kMaxChannels, so the only cases reaching here are a patch
+    // with fewer channels than the host: mono in, mono out, or a split.
+    //
+    // Compute into `scratch` rather than in place. Faust's compute() is only
+    // safe with inputs == outputs when the arities agree; with 1-in/2-out,
+    // output 0 would share storage with input 0 and the second output would read
+    // an input the first had already overwritten.
+    //
+    // Defensive: a block larger than prepare() was told about would overrun the
+    // staging buffer. Passing the dry signal through is the safe failure — and
+    // it is silent, which is why prepare() sizes from the host's own blockSize
+    // rather than a guess.
+    if (scratch.getNumSamples() < n || scratch.getNumChannels() < numOuts)
+        return;
+
+    float* const* bufChannels = buffer.getArrayOfWritePointers();
+    float* const* outChannels = scratch.getArrayOfWritePointers();
+
+    // Stack arrays, not vectors: this is the audio thread and kMaxChannels is a
+    // compile-time bound.
+    float* ins [kMaxChannels] = { nullptr, nullptr };
+    float* outs[kMaxChannels] = { nullptr, nullptr };
+
+    for (int ch = 0; ch < numIns; ++ch)
+        ins[ch] = bufChannels[ch < bufChans ? ch : bufChans - 1];
+
+    for (int ch = 0; ch < numOuts; ++ch)
+        outs[ch] = outChannels[ch];
+
+    dsp->compute(n, ins, outs);
+
+    // Fan the patch's outputs back across the host's channels. A mono patch
+    // (numOuts == 1) is DUPLICATED to both, which is the whole point: before
+    // this, channel 1 kept the untouched dry input, so a generated sine came out
+    // of the left speaker with the dry signal still on the right.
+    for (int ch = 0; ch < bufChans; ++ch)
+        juce::FloatVectorOperations::copy(bufChannels[ch],
+                                          outChannels[ch < numOuts ? ch : numOuts - 1],
+                                          n);
 }
 
 void FaustEngine::compile(const juce::String& faustCode, CompileCallback cb)
@@ -376,6 +445,48 @@ void FaustEngine::runCompile(const std::string& code, const CompileCallback& cb)
 
         dsp->init(static_cast<int>(sr));
 
+        // ── Arity gate ───────────────────────────────────────────────────────
+        // Faust will happily compile a process with any channel count; the host
+        // is fixed stereo. Before this gate, process() handed JUCE's channel
+        // array straight to compute() with no bounds check, so a patch declaring
+        // more channels than the host indexed past the end of that array ON THE
+        // AUDIO THREAD.
+        //
+        // Primary sources for the failure mode:
+        //  - juce_AudioSampleBuffer.h:342 — getArrayOfWritePointers() returns the
+        //    raw `channels` array;
+        //  - juce_AudioSampleBuffer.h:441 — `channels[numChannels] = nullptr`, so
+        //    the array is null-TERMINATED at index numChannels;
+        //  - faust/dsp/dsp.h:192 — compute(count, inputs, outputs) is the contract;
+        //    `faust -lang cpp` on `process = _,_,_;` emits
+        //    `FAUSTFLOAT* output2 = outputs[2];` followed by `output2[i0] = ...`.
+        //
+        // So for a 2-channel buffer io[2] is the null terminator (a null deref)
+        // and io[3] onward is past the allocation (a genuine out-of-bounds read,
+        // then a write through whatever it finds). Rejecting here converts both
+        // into a compile error the user can read — and which the generate.py
+        // retry loop could later feed back to the model as stderr.
+        //
+        // Rejected, not clamped: silently dropping channels 3+ of a patch the
+        // model meant to be quadraphonic would produce plausible-sounding wrong
+        // audio, which is harder to diagnose than a refusal.
+        const int numIns  = dsp->getNumInputs();
+        const int numOuts = dsp->getNumOutputs();
+
+        if (numOuts < 1 || numOuts > kMaxChannels || numIns > kMaxChannels)
+        {
+            delete dsp;
+            deleteDSPFactory(f);
+            cb({}, "This patch declares " + std::to_string(numIns) + " input(s) and "
+                   + std::to_string(numOuts) + " output(s), which this plugin cannot "
+                   "route: it is stereo, so process must have at most "
+                   + std::to_string(kMaxChannels) + " inputs and 1 or "
+                   + std::to_string(kMaxChannels) + " outputs. "
+                   "Write `process = <left>, <right>;` for stereo, or a single "
+                   "expression for mono.");
+            return;
+        }
+
         // Bail out before publishing if shutdown began while libfaust was working.
         // Past this point the protocol calls cb(), which reaches into ParamPool and
         // the processor's handlers — the very objects a teardown is dismantling.
@@ -421,6 +532,14 @@ void FaustEngine::runCompile(const std::string& code, const CompileCallback& cb)
         // Step 3: swap the DSP pointer. acq_rel acquires the old value (deleted in
         // Step 7) and releases the new value to the audio thread.
         llvm_dsp* old = activeDSP.exchange(dsp, std::memory_order_acq_rel);
+
+        // Step 3b: publish the new DSP's arity WITH it. relaxed is sufficient —
+        // these are read on the audio thread only after the acquire on `ready`
+        // (Step 6's release store), which orders every write in this block. They
+        // must not be written anywhere else: an arity that disagreed with
+        // activeDSP would route audio into the wrong channel count.
+        dspNumIns.store(numIns, std::memory_order_relaxed);
+        dspNumOuts.store(numOuts, std::memory_order_relaxed);
 
         // Step 4: swap the MapUI. Plain move is safe now — the drain in Step 2
         // proved no audio-thread call is inside setParamValue() on the old one
