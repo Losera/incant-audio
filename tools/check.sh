@@ -223,37 +223,20 @@ level_audio() {
   level_full
   step "audio — does the generated DSP actually produce usable sound? (\$0, no quota)"
   if ! have faust2sndfile; then
-    skip "render oracle over corpus" "faust2sndfile not on PATH"
+    skip "render oracle over corpus (incl. tail check)" "faust2sndfile not on PATH"
     return
   fi
   # Renders every compiling patch in the benchmark corpus offline and asserts no
-  # NaN/Inf, no silence, no DC runaway, no runaway gain. This is the automatable
-  # half of the P6 battery. The subjective half still needs ears.
-  run "render oracle over benchmark corpus" python - <<'PY'
-import json, sys
-sys.path.insert(0, "bench")
-import render_oracle as ro
-
-recs = [r for r in json.load(open("bench/results/results.json")) if r["first_try_compiles"]]
-bad, unsupported, passed = [], 0, 0
-for r in recs:
-    a = ro.analyse(r["code"])
-    if not a["rendered"]:
-        if a.get("unsupported"):
-            unsupported += 1          # zero-input generators: cannot measure, not broken
-        else:
-            bad.append((r["prompt"][:60], a["error"][:80]))
-        continue
-    if a["measurement"]["ok"]:
-        passed += 1
-    else:
-        bad.append((r["prompt"][:60], "; ".join(a["measurement"]["reasons"])))
-
-print(f"{passed} passed, {len(bad)} failed, {unsupported} unsupported (0-input generators)")
-for p, why in bad:
-    print(f"  FAIL {p} -- {why}")
-sys.exit(1 if bad else 0)
-PY
+  # NaN/Inf, no silence, no DC runaway, no runaway gain, and no never-decaying
+  # feedback. Also reports, per category, patches whose output stops the instant
+  # the input does where the prompt implies a tail -- see TAIL_EXPECT_MS. This is
+  # the automatable half of the P6 battery. The subjective half still needs ears.
+  #
+  # The driver lives in render_oracle.py, not here: this used to be a 24-line
+  # heredoc that recomputed gate logic tools/health_report.py also recomputed, and
+  # the two were free to drift apart with nothing to notice.
+  run "render oracle over benchmark corpus" \
+      python bench/render_oracle.py --corpus bench/results/results.json
 }
 
 level_quota() {

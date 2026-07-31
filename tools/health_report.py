@@ -265,10 +265,14 @@ def run_oracle_corpus(results_path: Path | None = None) -> dict:
         "started": _now(),
         "patches": [],
         "passed": 0, "failed": 0, "unsupported": 0, "errored": 0,
+        "expectation_unmet": 0,
     }
     for r in compiling:
         try:
-            a = ro.analyse(r["code"])
+            # analyse_record, not analyse: it applies the record's own tail
+            # expectation from render_oracle.TAIL_EXPECT_MS. The expectation table
+            # lives there so this file and tools/check.sh cannot drift apart on it.
+            a = ro.analyse_record(r)
         except Exception as exc:
             out["errored"] += 1
             out["patches"].append({"prompt": r.get("prompt"),
@@ -284,6 +288,9 @@ def run_oracle_corpus(results_path: Path | None = None) -> dict:
             out["passed"] += 1
         else:
             out["failed"] += 1
+        exp = a.get("expectation")
+        if exp and not exp["met"]:
+            out["expectation_unmet"] += 1
     out["finished"] = _now()
     return out
 
@@ -496,7 +503,8 @@ def render_markdown(r: dict) -> str:
     orc = r["lanes"]["dsp"].get("oracle") or {}
     if orc.get("status") == "ran":
         L.append(f"- **Render oracle:** {orc['passed']} passed / {orc['failed']} failed "
-                 f"/ {orc['unsupported']} unsupported / {orc['errored']} errored, over "
+                 f"/ {orc['unsupported']} unsupported / {orc['errored']} errored "
+                 f"/ {orc.get('expectation_unmet', 0)} tail expectation unmet, over "
                  f"{orc['compiling_records']} compiling patches.")
     ai = r["lanes"]["ai"]
     sc = (ai.get("scored") or {}).get("per_run") or {}
@@ -535,7 +543,9 @@ def render_markdown(r: dict) -> str:
                       f"| passed | {o['passed']} |",
                       f"| failed | {o['failed']} |",
                       f"| unsupported (zero-input) | {o['unsupported']} |",
-                      f"| errored | {o['errored']} |", ""]
+                      f"| errored | {o['errored']} |",
+                      # .get(): re-rendering a pre-2026-07-31 archive has no such key.
+                      f"| tail expectation unmet | {o.get('expectation_unmet', 0)} |", ""]
                 bad = [p for p in o["patches"]
                        if p["analysis"].get("rendered")
                        and not p["analysis"]["measurement"]["ok"]]

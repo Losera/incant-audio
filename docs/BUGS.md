@@ -80,6 +80,10 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-042 | The judge's 0/1/2 rubric collapses to binary in practice — score `1` used **once in 44** gradings, so "partially implements" is not a category the instrument actually returns | medium | open | S4 Testing | `bench/score_efficacy.py:434-446` | 2026-07-30 | — |
 | PF-043 | ollama's stock 4096-token context cannot hold the ~3.3k system prompt plus the 4096 output floor (PF-035), leaving ~480 tokens of generation headroom on the repo's own declared default model | medium | open | S4 Testing | `llm/providers.py:330-343` | 2026-07-30 | — |
 | PF-044 | `run_benchmark.py` recorded `provider` but never `model`, so a cross-model study could not identify its own subject from its own archives — while `model_for()`'s docstring says numbers are "only comparable per model" | medium | fixed | S4 Testing | `bench/run_benchmark.py:267` | 2026-07-30 | pending commit |
+| PF-045 | Generated envelopes convert ms→samples for `en.*`, whose time arguments are in **seconds** — a 1000 ms release becomes 48000 s, so the patch holds sustain forever as DC | medium | open | S2 Prompt | `bench/results/results.json` (sawtooth+ADSR record) | 2026-07-31 | — |
+| PF-046 | `check.sh audio` gates on `bench/results/results.json`, which every benchmark run overwrites — so the level goes red on whatever the model last happened to emit, not on the change under test | medium | open | S4 Testing | `tools/check.sh` `level_audio` | 2026-07-31 | — |
+| PF-047 | `scenario13_styleSwitchDoesNotThrash` was defined and never called; the control-style feature's only test did not run, and every gate was green | medium | fixed | S3 Plugin UX | `host/tests/EditorSessionTest.cpp:971` | 2026-07-31 | pending commit |
+| PF-048 | `UiDesignGallery` printed each record's `groups:` line before its own header, so the design loop's console attributed every fixture's group structure to the previous record | low | fixed | S3 Plugin UX | `host/tests/UiDesignGallery.cpp:229` | 2026-07-31 | pending commit |
 
 ---
 
@@ -1765,3 +1769,130 @@ dB for a function that documents a dB parameter. A prompt edit owes a benchmark 
 **Not covered.** Whether these two are representative. Two patches out of 22 is a diagnosis of
 two patches; the claim that *unit contracts* are a general failure class is a hypothesis this
 supports and does not establish. The efficacy grid (PF-011) is what would size it.
+
+---
+
+### PF-045 — `en.*` envelope times are in seconds, and the model converts to samples.
+**medium · open · S2 Prompt · found 2026-07-31 by the render oracle's first tail run**
+
+The corpus record for *"a sawtooth synth with an ADSR envelope"* compiles, JITs, and is not
+silent. It fails two objective gates at once — `DC offset 1.000` and the new
+`never_decays` — and the mechanism is one expression:
+
+```faust
+adsrEnv = en.adsr(attackTime * ma.SR / 1000.0, decayTime * ma.SR / 1000.0,
+                  sustainLevel, releaseTime * ma.SR / 1000.0);
+```
+
+`en.adsr`'s time arguments are **seconds**. The patch converts milliseconds to *samples*,
+so a declared 1000 ms release is passed as 48000 — a forty-eight-thousand-second release.
+The envelope reaches sustain and stays there for the entire render, which is why the output
+is a DC level rather than a decaying tail.
+
+**This is the same class as PF-032, not a new one.** PF-032 was `ba.db2linear` applied to a
+parameter that already documents itself in dB. This is a time unit instead of a level unit,
+and the same root cause: `tools/gen_stdlib_block.py` emits names and arities, and the units
+live in the `//` doc blocks it does not read (see the PF-032 detail above, "Why the existing
+controls could not prevent it"). The prompt teaches a vocabulary and none of the grammar of
+units.
+
+**Why it was invisible until now.** Every pre-2026-07-31 gate is computed from a *continuous*
+probe, and nothing decays while the input is still going. The DC gate would have caught this
+one, but only because sustain happens to be non-zero; the general shape — an envelope or
+feedback path whose time constant is wrong by three orders of magnitude — needs the burst
+probe. See `bench/render_oracle.py`'s `tail()` header for what that check still cannot see,
+including that every `generative` patch is outside it (zero-input patches raise
+`UnsupportedPatch`); this record is reachable only because the patch takes an input.
+
+**Not verified.** Whether this generalises. It is one record from one ollama run. The
+strong version of the claim — that unit contracts are *the* dominant semantic failure class —
+is what PF-011's efficacy grid would size, and it remains unsized. No prompt edit was made:
+that owes a benchmark statement per `.claude/rules/tier2-evidence.md`, and the last two
+prompt rules aimed at this model measurably did nothing (`c50855b`, `a451350`).
+
+---
+
+### PF-046 — the audio gate measures the last benchmark draw, not the change under test.
+**medium · open · S4 Testing · filed 2026-07-31**
+
+`tools/check.sh audio` runs the oracle over `bench/results/results.json`, which is the file
+every benchmark run overwrites. So the level's verdict is a property of whatever the model
+last happened to emit. Measured 2026-07-31, same command, two corpora:
+
+| corpus | result |
+|---|---|
+| `results.json` at HEAD `a451350` | 15 passed, **3 failed** (runaway gain; two silent) |
+| `results.json` in the working tree (ollama run 2) | 16 passed, **1 failed** (PF-045) |
+
+Both are red, with disjoint failure sets, from the same harness and the same code. At an 80%
+compile rate a broken-but-compiling patch is near-certain in every draw, so this level is red
+essentially always, for reasons unrelated to the diff being gated.
+
+**This is the argument `corpus_main` already accepted, applied one step further.** Its own
+docstring makes the case for keeping *tail expectations* non-enforcing: an expectation miss is
+a joint property of the patch, the model's chosen defaults, and a threshold table, "and the
+corpus is regenerated by a nondeterministic model on every benchmark run. Breaking the ladder
+on that would make check.sh audio fail for reasons unrelated to the change under test, which
+is how ladders come to be skipped." Every clause of that applies to `measurement.ok` too. The
+asymmetry is that a gate failure names a real defect in a real patch — which is worth *seeing*,
+just not worth wiring to the exit code of the level developers run before every push.
+
+**Fix shape (not done — deliberately left to the human).** Point the level at a small
+committed corpus that changes only when someone decides it should, and keep the mutable
+`results.json` as a separate reporting run. That makes the level a statement about the
+harness and the DSP path, which is what a ladder rung should be, and leaves generation
+quality to the benchmark where it belongs.
+
+**Consequence today.** `tools/check.sh audio` exits 1 on this tree and on HEAD. `fast` and
+`full` are green. Do not read a green `full` as covering the audio path.
+
+---
+
+### PF-047 / PF-048 — a test that never ran, and an instrument that mislabelled its own output.
+**both fixed 2026-07-31 · S3 Plugin UX**
+
+**PF-047 — `scenario13_styleSwitchDoesNotThrash` was defined and never called.** The
+control-style selector shipped with exactly one test, asserting the load-bearing claim that a
+style flip restyles widgets in place rather than rebuilding them (so the `SliderAttachment`s
+survive and no parameter moves). It sat at `EditorSessionTest.cpp:759` while the runner's last
+call was `scenario12_readout()`. `tools/check.sh full` was green, CI was green, and
+`EditorSessionTest` reported `PASS (68 checks, 0 failures)` — all of which were true and none
+of which said anything about the feature.
+
+This is the fourth recorded instance of the same shape: PAIR mode, the ADR-009 sync hook, the
+five `PreToolUse` hooks with the wrongly-nested `settings.json`, and now this. The first three
+were *configuration* believed to be running; this one is *code*, in the harness whose own
+`PF_SUMMARY` line exists because "0 failures" was indistinguishable from "ran nothing". The
+denominator was doing its job — 68 was visibly not 100 — and nobody was reading it.
+
+Wired in; 32 checks, all green. Note what the existing parity control could not do:
+`TestLadderRunsWhatCIRuns` compares *targets*, not scenario registration, so nothing
+mechanical would have caught this. An uncalled scenario is invisible to every gate this repo
+has.
+
+**PF-048 — the design gallery attributed each fixture's groups to the previous record.**
+`UiDesignGallery.cpp:229` printed `groups:` before the record's own header line, which cannot
+be printed until `writeSnapshot` supplies the pixel dimensions. Read literally, the loop's
+console said `03_effect_grouped__horizontal` had 04's sections (`Env, Filter, Fx, Osc`) and
+`04_generator_grouped__horizontal` had none — while `manifest.json`, written from the same
+`rec` in the same run, had all fifteen records correct.
+
+Cosmetic in the sense that no captured data was wrong, and not cosmetic at all in the sense
+that this is a *design instrument*: its entire purpose is that a human reads its output and
+judges. An instrument that misattributes its own evidence is worse than one that omits it,
+because the reader cannot tell. Moved below the header; `tools/ui_iterate.sh` re-run,
+15 rendered, 0 broken, layout diff `no change` — confirming the fix touched only stdout.
+
+**Also closed here, without a defect number:** group capture (`ParamInfo::group`) and style
+persistence across `getStateInformation`/`setStateInformation` were both new behaviour with no
+assertion anywhere. Group capture was read only by the gallery, which asserts nothing by
+design. Both now have one: `scenario14_groupCapture` (expectations read off `faust -lang cpp`
+for the exact patch, not guessed) and an extension to `scenario10_stateRoundTrip` that asserts
+the reopened *panel* is in the restored style rather than merely that the processor stored the
+string. Scenario 14 was seen failing — stubbing `info.group` to `""` turns it red on exactly
+the two grouped cases and leaves both fallback cases green.
+
+**Not verified.** Two editors open on one processor — the case `onUiStyleChanged`'s `callAsync`
+hop exists for — is still untested. Scenario 14 pins Faust 2.85.9's box-emission order; if a
+future libfaust changes how the filename wrapper is emitted, it will fail and will read as a
+capture bug rather than a version change.
