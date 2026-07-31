@@ -164,41 +164,52 @@ class TestTheGuardCanActuallyFail:
     def test_a_realistic_stdlib_block_growth_trips_the_guard(self):
         """The concrete predicted failure, pinned so the docstring cannot rot.
 
-        Growth is applied to the STDLIB BLOCK's share of the file (46%), not to the
+        Growth is applied to the STDLIB BLOCK's share of the file (39%), not to the
         file, because those differ by more than 2x and conflating them is the error
         this test was written to stop repeating.
 
-        THE BOUNDS MOVED ON 2026-07-29 AND THAT IS THE POINT. They were 20% (must
-        not trip) / 50% (must trip), bracketing a measured threshold of ~29%. The
+        THE BOUNDS HAVE NOW MOVED TWICE, IN BOTH DIRECTIONS, AND THAT IS THE POINT.
+        Originally 20% / 50%, bracketing a measured threshold of ~29%. The
         PF-024/PF-032 prompt edit spent 909 characters and the threshold fell to
-        **10.8%**, so the old lower bound started failing — correctly. It was
-        reporting that the guard had become more sensitive than the file claimed.
+        **10.8%**, so on 2026-07-29 they were re-bracketed to 5% / 20%.
 
-        Re-bracketed to 5% / 20% around the new measured 10.8%. This is the one
-        edit in this file that could be mistaken for tuning a test until it passes,
-        so: the assertion did not change, the file did. Confirm with
+        On 2026-07-31 they moved back to 20% / 50%, because the threshold rose to
+        **35.7%**. This is the case the old 20% assertion message named in advance —
+        "either the prompt shrank a lot or the limits moved" — and the prompt shrank
+        a lot: tools/gen_stdlib_block.py's curated list lost 13 entries and the block
+        went 5737 -> 4505 chars, the file 12619 -> 11419, slack 124 -> 483 tokens.
+
+        That is the sanctioned action, not a workaround. The 2026-07-29 note said: if
+        a future edit pushes the threshold under 5%, do NOT widen the bounds — buy
+        headroom back by trimming the curated list. The threshold was heading there
+        (36 chars of drift room remained), the list was trimmed on evidence, and
+        these bounds follow the file rather than leading it.
+
+        So, for the reader who suspects a test tuned until it passed: the assertion
+        did not change, the file did, and it moved in the direction that makes the
+        guard LESS likely to fire, which is the direction that costs safety. Confirm
+        with
 
             python tests/test_prompt_headroom.py
 
-        which prints the live slack, and recompute 10.8% as slack_chars/block_chars.
-        If a future edit pushes the threshold under 5%, do NOT widen these bounds
-        again — buy headroom back instead, by trimming the curated list in
-        tools/gen_stdlib_block.py or by revisiting MAX_OUTPUT_TOKENS.
+        which prints the live slack; recompute 35.7% as slack_chars/block_chars. If a
+        future edit pushes the threshold under 20%, buy headroom back again — do not
+        widen these bounds.
         """
         text = PROMPT_PATH.read_text()
-        stdlib_chars = 5737          # measured 2026-07-29; the generated block today
+        stdlib_chars = 4505          # measured 2026-07-31; the generated block today
 
-        mild = text + "y" * int(stdlib_chars * 0.05)
+        mild = text + "y" * int(stdlib_chars * 0.20)
         assert headroom_tokens(mild, providers.MAX_OUTPUT_TOKENS) > 0, (
-            "A 5% stdlib growth now trips the guard. Headroom is under ~290 chars, "
-            "which is less than one added function entry — the prompt is effectively "
-            "full. Buy room back (trim tools/gen_stdlib_block.py's curated list) "
-            "rather than widening this bound."
+            "A 20% stdlib growth now trips the guard. Headroom is under ~900 chars, "
+            "which is a handful of function entries — the prompt is filling up again. "
+            "Buy room back (trim tools/gen_stdlib_block.py's curated list) rather "
+            "than widening this bound."
         )
 
-        severe = text + "y" * int(stdlib_chars * 0.20)
+        severe = text + "y" * int(stdlib_chars * 0.50)
         assert headroom_tokens(severe, providers.MAX_OUTPUT_TOKENS) < 0, (
-            "A 20% growth in the generated stdlib block no longer trips this "
+            "A 50% growth in the generated stdlib block no longer trips this "
             "guard — either the prompt shrank a lot or the limits moved. Re-measure."
         )
 

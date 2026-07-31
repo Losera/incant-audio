@@ -57,6 +57,28 @@ END_MARKER = "# END GENERATED STDLIB REFERENCE"
 # script re-verifies on every run. Descriptions are editorial and are the only
 # free text here -- a wrong description misleads, a wrong signature does not
 # compile, which is why only the latter is mechanically enforced.
+#
+# TRIMMED 2026-07-31 to buy prompt headroom for the `~` arity rule. The prompt had
+# 36 characters before tests/test_prompt_headroom.py's drift assertion and 407
+# before the real groq TPM guard, so the rule could not be written without paying
+# for it first. Thirteen entries were removed on evidence, not taste: they appear
+# in ZERO of ~134,000 characters of generated code across every archive in
+# bench/results/ and bench/results/efficacy/ (22 entries met that test) AND each
+# had a sibling still listed that demonstrates the same call shape --
+#   ve.korg35LPF, ve.diodeLadder      (ve.moogLadder keeps the normalised-vs-Hz contrast)
+#   de.sdelay                          (de.delay, de.fdelay)
+#   pf.flanger_stereo, pf.phaser2_stereo  (the _mono siblings)
+#   ef.softclipQuadratic, ef.wavefold  (ef.cubicnl)
+#   re.mono_freeverb, re.zita_rev1_stereo (re.stereo_freeverb)
+#   ef.stereo_width                    (trivially hand-written as M/S)
+#   os.lf_saw                          (os.lf_triangle)
+#   no.pink_noise                      (no.noise)
+#   en.asr                             (en.adsr is a superset)
+# Unused-in-corpus is NOT sufficient on its own: ve.moog_vcf, ef.transpose and
+# ba.midikey2hz were kept despite never appearing, because nothing else here shows
+# their shape and an absent entry invites an invented one. ef.echo was kept because
+# the prose rule at system_prompt.txt:55 names it.
+# Re-check the evidence before trimming further; do not extend this list by feel.
 CURATED: list[tuple[str, list[tuple[str, str, str]]]] = [
     ("Filters", [
         ("fi", "lowpass",   "Butterworth low-pass; order is a constant"),
@@ -77,19 +99,14 @@ CURATED: list[tuple[str, list[tuple[str, str, str]]]] = [
         # (:184,:326,:391). The distinction is the whole trap, so it is stated.
         ("ve", "moog_vcf",   "Moog ladder VCF; fr in Hz, res normalised 0-1"),
         ("ve", "moogLadder", "Moog ladder; normFreq is 0-1, NOT Hz"),
-        ("ve", "korg35LPF",  "Korg 35 low-pass; normFreq is 0-1, NOT Hz"),
-        ("ve", "diodeLadder", "diode-ladder (TB-303); normFreq is 0-1, NOT Hz"),
     ]),
     ("Delays", [
         ("de", "delay",  "integer-sample delay; first arg is the MAXIMUM delay"),
         ("de", "fdelay", "fractional-sample delay (interpolated) -- use for modulated delays"),
-        ("de", "sdelay", "crossfaded delay, click-free when the delay time changes"),
     ]),
     ("Modulation effects", [
         ("pf", "flanger_mono",   "mono flanger -- NOTE the pf. namespace, not ef."),
-        ("pf", "flanger_stereo", "stereo flanger"),
         ("pf", "phaser2_mono",   "mono phaser"),
-        ("pf", "phaser2_stereo", "stereo phaser"),
         ("pf", "vibrato2_mono",  "vibrato"),
     ]),
     ("Dynamics", [
@@ -107,18 +124,13 @@ CURATED: list[tuple[str, list[tuple[str, str, str]]]] = [
     ]),
     ("Distortion / saturation", [
         ("ef", "cubicnl",            "cubic nonlinearity -- soft saturation / drive"),
-        ("ef", "softclipQuadratic",  "quadratic soft clipper"),
-        ("ef", "wavefold",           "wavefolder"),
     ]),
     ("Reverb", [
-        ("re", "mono_freeverb",     "Freeverb, mono"),
         ("re", "stereo_freeverb",   "Freeverb, stereo"),
-        ("re", "zita_rev1_stereo",  "high-quality FDN reverb"),
     ]),
     ("Echo / utility effects", [
         ("ef", "echo",         "feedback echo; first arg is the MAXIMUM duration"),
         ("ef", "dryWetMixer",  "wraps an effect with a dry/wet control"),
-        ("ef", "stereo_width", "stereo width control"),
         ("ef", "transpose",    "pitch shifter (windowed)"),
     ]),
     ("Oscillators and noise", [
@@ -126,14 +138,11 @@ CURATED: list[tuple[str, list[tuple[str, str, str]]]] = [
         ("os", "sawtooth",  "band-limited sawtooth"),
         ("os", "square",    "band-limited square"),
         ("os", "triangle",  "band-limited triangle"),
-        ("os", "lf_saw",    "low-frequency saw -- use for LFOs, not audio"),
         ("os", "lf_triangle", "low-frequency triangle -- use for LFOs"),
         ("no", "noise",     "white noise; no arguments"),
-        ("no", "pink_noise", "pink noise; no arguments"),
     ]),
     ("Envelopes", [
         ("en", "ar",   "attack/release envelope"),
-        ("en", "asr",  "attack/sustain/release envelope"),
         ("en", "adsr", "full ADSR envelope"),
     ]),
     ("Conversions and helpers", [
