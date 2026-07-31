@@ -1,4 +1,4 @@
-# PluginForge — Status  (2026-07-31, session 2)
+# PluginForge — Status  (2026-07-31)
 
 Rewritten each session per COLLABORATION.md §5. Single writer, no merge conflicts.
 Narrative history lives in git.
