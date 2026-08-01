@@ -214,8 +214,13 @@ class TestTypedReason:
         with patch.object(generate, "generate_faust", return_value=FAUST), \
              patch.object(generate, "validate_faust", return_value=(True, "")):
             payload = generate.generate_json({"prompt": "x"})
+        # `kind` joined the schema with the instrument prompt (2026-08-01),
+        # additively — same treatment `reason` got under PF-019. The equality is
+        # deliberately EXACT rather than a subset check: this is the ADR-011
+        # contract, and a field appearing unannounced is exactly what it is here
+        # to catch. "x" carries no instrument words, so the router says effect.
         assert payload == {"success": True, "faust_code": FAUST, "attempts": 1,
-                           "error": None, "reason": "ok"}
+                           "error": None, "reason": "ok", "kind": "effect"}
 
     def test_every_response_carries_a_reason(self):
         """The host switches on this field; it must never be absent."""

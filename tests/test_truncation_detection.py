@@ -209,5 +209,6 @@ class TestGenerateHandlesTruncation:
         with patch.object(generate, "_call_api", return_value=FAUST), \
              patch.object(generate, "validate_faust", return_value=(True, "")):
             payload = generate.generate_json({"prompt": "a filter"})
+        # `kind` is additive, 2026-08-01; "a filter" routes to the effects prompt.
         assert payload == {"success": True, "faust_code": FAUST, "attempts": 1,
-                           "error": None, "reason": "ok"}
+                           "error": None, "reason": "ok", "kind": "effect"}

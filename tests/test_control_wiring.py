@@ -856,9 +856,22 @@ class TestEveryPromptIsGuarded:
             "decoration for them while passing for their siblings."
         )
 
+    @pytest.mark.skipif(
+        not Path("/usr/share/faust/stdfaust.lib").exists(),
+        reason="Faust standard library not installed (the CI Python job has no "
+               "compiler by design -- see .github/workflows/test.yml)",
+    )
     def test_verify_prompt_covers_every_prompt_file(self):
         # The ladder runs `--verify-prompt` with no argument; that invocation must
         # reach every prompt, or check.sh full is green about a subset.
+        #
+        # ⚠️ NEEDS FAUST, and the skip above is not optional. Written without it,
+        # this test passed locally and failed CI run 30687159048: it shells out to
+        # gen_stdlib_block.py, which reads the REAL library by design, while the
+        # CI Python job installs no compiler ("no API key or faust compiler
+        # required"). That is PF-029 in the direction the ladder cannot see -- a
+        # green local gate making a claim the remote gate cannot evaluate. The
+        # sibling assertions above need no compiler and stay unguarded.
         import subprocess
 
         out = subprocess.run(

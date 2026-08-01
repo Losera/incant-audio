@@ -25,14 +25,32 @@ installed library no longer provides something the prompt promises the model.
 import shutil
 import subprocess
 import sys
+import json
 import tempfile
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-PROMPT_FILE = ROOT / "llm" / "prompts" / "system_prompt.txt"
+PROMPT_DIR = ROOT / "llm" / "prompts"
+PROMPT_FILE = PROMPT_DIR / "system_prompt.txt"
 FAUST_LIB_DIR = Path("/usr/share/faust")
+
+# Which curated set each prompt's generated block is rendered from, and the
+# minimum few-shot count that proves the extractor did not silently fail.
+#
+# ⚠️ A prompt missing from here FAILS test_every_prompt_has_a_profile rather than
+# being skipped. That is the point: a new prompt file must be declared, not
+# quietly excluded from the guards -- which is how llm/prompts/ ended up with one
+# hard-coded path in every control in the first place.
+PROFILE_FOR = {
+    "system_prompt.txt":     ("effect",     4),
+    "instrument_prompt.txt": ("instrument", 3),
+}
+
+
+def _prompt_paths() -> list:
+    return sorted(PROMPT_DIR.glob("*.txt"))
 
 sys.path.insert(0, str(ROOT / "tools"))
 
@@ -46,9 +64,34 @@ needs_faust_binary = pytest.mark.skipif(
 )
 
 
+@pytest.fixture(scope="module", params=_prompt_paths(), ids=lambda p: p.name)
+def prompt_path(request):
+    return request.param
+
+
 @pytest.fixture(scope="module")
-def prompt_text() -> str:
-    return PROMPT_FILE.read_text()
+def prompt_text(prompt_path) -> str:
+    return prompt_path.read_text()
+
+
+@pytest.fixture(scope="module")
+def prompt_profile(prompt_path) -> str:
+    return PROFILE_FOR[prompt_path.name][0]
+
+
+@pytest.fixture(scope="module")
+def prompt_min_examples(prompt_path) -> int:
+    return PROFILE_FOR[prompt_path.name][1]
+
+
+def test_every_prompt_has_a_profile():
+    """A prompt file nobody declared is a prompt nobody's guards are shaped for."""
+    undeclared = [p.name for p in _prompt_paths() if p.name not in PROFILE_FOR]
+    assert not undeclared, (
+        f"{undeclared} exist in llm/prompts/ but are not in PROFILE_FOR, so the "
+        "block-currency and few-shot checks do not know what to expect of them. "
+        "Declare the profile rather than letting the file skip the guards."
+    )
 
 
 @needs_faust_libs
@@ -67,18 +110,19 @@ def test_every_curated_entry_resolves():
 
 
 @needs_faust_libs
-def test_generated_block_is_current(prompt_text):
+def test_generated_block_is_current(prompt_text, prompt_profile, prompt_path):
     """The checked-in block drifted from what the generator produces."""
-    from gen_stdlib_block import BEGIN_MARKER, END_MARKER, render, resolve_all
+    from gen_stdlib_block import (BEGIN_MARKER, END_MARKER, PROFILES, render,
+                                  resolve_all)
 
-    groups, errors = resolve_all()
+    groups, errors = resolve_all(PROFILES[prompt_profile])
     assert not errors, "resolve failed; see test_every_curated_entry_resolves"
 
     expected = render(groups)
     start = prompt_text.find(BEGIN_MARKER)
     end = prompt_text.find(END_MARKER)
     assert start != -1 and end != -1, (
-        f"generated-block markers missing from {PROMPT_FILE.name}; "
+        f"generated-block markers missing from {prompt_path.name}; "
         "the block must stay delimited so the generator can splice it"
     )
     actual = prompt_text[start:end + len(END_MARKER)]
@@ -137,15 +181,16 @@ def test_no_fabricated_stdlib_references(prompt_text):
 
 
 @needs_faust_libs
-def test_prompt_has_few_shot_examples(prompt_text):
+def test_prompt_has_few_shot_examples(prompt_text, prompt_min_examples):
     """Guards the extractor itself — a silent parse failure would make the
     compile test below vacuously pass."""
     from gen_stdlib_block import iter_prompt_examples
 
     examples = iter_prompt_examples(prompt_text)
-    assert len(examples) >= 4, (
-        f"expected at least 4 few-shot examples, extracted {len(examples)}. "
-        "If the prompt's USER:/FAUST: layout changed, update iter_prompt_examples()."
+    assert len(examples) >= prompt_min_examples, (
+        f"expected at least {prompt_min_examples} few-shot examples, extracted "
+        f"{len(examples)}. If the prompt's USER:/FAUST: layout changed, update "
+        "iter_prompt_examples()."
     )
     for idx, code in examples:
         assert 'import("stdfaust.lib")' in code, (
@@ -180,3 +225,68 @@ def test_every_few_shot_example_compiles(prompt_text):
             Path(tmp).unlink(missing_ok=True)
 
     assert not failures, "Few-shot examples do not compile:\n  " + "\n  ".join(failures)
+
+
+@needs_faust_binary
+@needs_faust_libs
+def test_instrument_few_shots_declare_the_voice_contract(prompt_text, prompt_profile):
+    """An instrument few-shot that does not satisfy the voice contract teaches the
+    model to write a synth that cannot be played.
+
+    ⚠️ COMPILING IS NOT ENOUGH, and this test exists because that gap bit during
+    authoring. The percussive example declared `freq` and never used it; Faust
+    ELIMINATES a control nothing reads, so the compiled UI had only gain and gate.
+    It compiled cleanly, it was 0-in/1-out, and `FaustEngine::isInstrument()` would
+    have returned false for it forever -- a silent, permanently mute patch, taught
+    to the model as the way to write percussion.
+
+    So this asserts the property the host actually keys on -- the three controls
+    present in the COMPILED UI (Faust's own predicate, MidiUI.h:115-132) -- rather
+    than their presence in the source text, which is what misled in the first place.
+    """
+    if prompt_profile != "instrument":
+        pytest.skip("voice contract applies to the instrument prompt only")
+
+    from gen_stdlib_block import iter_prompt_examples
+
+    failures = []
+    for idx, code in iter_prompt_examples(prompt_text):
+        with tempfile.TemporaryDirectory() as d:
+            dsp = Path(d) / "ex.dsp"
+            dsp.write_text(code)
+            result = subprocess.run(
+                ["faust", "-json", str(dsp), "-o", "/dev/null"],
+                capture_output=True, text=True, timeout=30, cwd=d,
+            )
+            if result.returncode != 0:
+                failures.append(f"example {idx}: did not compile")
+                continue
+
+            meta = json.loads((Path(d) / "ex.dsp.json").read_text())
+
+            labels = []
+
+            def walk(items):
+                for item in items:
+                    if "items" in item:
+                        walk(item["items"])
+                    elif "label" in item:
+                        labels.append(item["label"])
+
+            walk(meta.get("ui", []))
+
+            missing = [n for n in ("freq", "gain", "gate") if n not in labels]
+            if missing:
+                failures.append(
+                    f"example {idx}: compiled UI is missing {missing} -- declared "
+                    f"but unused controls are deleted by Faust. Present: {labels}"
+                )
+            if meta["inputs"] != 0:
+                failures.append(
+                    f"example {idx}: has {meta['inputs']} audio inputs; an "
+                    "instrument generates sound and must have 0"
+                )
+
+    assert not failures, (
+        "Instrument few-shots break the voice contract:\n  " + "\n  ".join(failures)
+    )

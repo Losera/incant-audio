@@ -132,14 +132,23 @@ def registry_name(provider: str) -> str:
 # (ef.chorus, ef.flanger, ef.ping_pong) named functions that do not exist -- see
 # tools/gen_stdlib_block.py. One file, one measurement.
 SYSTEM_PROMPT_FILE = BENCH_DIR.parent / "llm" / "prompts" / "system_prompt.txt"
+INSTRUMENT_PROMPT_FILE = BENCH_DIR.parent / "llm" / "prompts" / "instrument_prompt.txt"
 
 
 def _load_prompt(path: Path) -> str:
     return path.read_text()
 
 
+# ⚠️ The benchmark still sends EVERY prompt through the effects system prompt,
+# including the five `generative` entries, and that is deliberate for now: the
+# recorded baselines were measured that way, and silently re-routing five of 25
+# prompts would change what the number means without changing its name. The
+# instrument prompt gets its own measurement when the routed run is authorised —
+# a prompt edit owes a benchmark statement (.claude/rules/tier2-evidence.md), and
+# comparing a routed run against an unrouted baseline would not be one.
 SYSTEM_PROMPTS = {
     "faust": _load_prompt(SYSTEM_PROMPT_FILE),
+    "faust_instrument": _load_prompt(INSTRUMENT_PROMPT_FILE),
 }
 
 

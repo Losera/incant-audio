@@ -21,6 +21,7 @@ from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).parent))
 import providers  # noqa: E402
+import router  # noqa: E402
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 
@@ -40,6 +41,38 @@ DEFAULT_PROVIDER = providers.resolve_provider()
 DEFAULT_MODEL = providers.resolve_model(DEFAULT_PROVIDER)
 
 SYSTEM_PROMPT = (Path(__file__).parent / "prompts" / "system_prompt.txt").read_text()
+
+# The instrument prompt, and the router that chooses between them.
+#
+# Two prompts rather than one because the shared file cannot hold both: it is
+# 12,006 chars against groq's per-request `prompt_tokens + max_tokens <= 8000`
+# ceiling, leaving ~300 tokens of slack, and it mandates hslider() while its
+# stdlib block contains no button() -- so a model following it has NO LEGAL WAY
+# to emit the `gate` that makes a patch playable. Splitting also buys budget
+# rather than spending it: the ceiling is per REQUEST, so these are two
+# independent 8,000-token budgets.
+#
+# SYSTEM_PROMPT keeps its name and its meaning. Every existing caller that reads
+# it gets the effects prompt exactly as before.
+INSTRUMENT_PROMPT = (Path(__file__).parent / "prompts" / "instrument_prompt.txt").read_text()
+
+SYSTEM_PROMPTS_BY_KIND = {
+    router.EFFECT: SYSTEM_PROMPT,
+    router.INSTRUMENT: INSTRUMENT_PROMPT,
+}
+
+
+def select_prompt(user_prompt: str, kind: str | None = None) -> tuple[str, str]:
+    """Choose the system prompt for a request. Returns (kind, prompt_text).
+
+    `kind` is an explicit override -- the UI's instrument/effect toggle, or a
+    benchmark pinning one side. When absent the router decides from the text.
+    An unrecognised override falls back to the router rather than raising: a bad
+    value on the wire should degrade to today's behaviour, not fail the request.
+    """
+    if kind not in SYSTEM_PROMPTS_BY_KIND:
+        kind = router.classify(user_prompt)
+    return kind, SYSTEM_PROMPTS_BY_KIND[kind]
 
 # Default Anthropic client — kept at module level so existing tests can mock it.
 # Verified 2026-07-20: anthropic.Anthropic() does not raise when no API key is
@@ -105,10 +138,15 @@ _TRUNCATION_HINT = (
 
 
 def _call_api(content: str, provider: str, model: str | None = None,
-              budget: "providers.Budget | None" = None) -> str:
-    """Single API dispatch point — delegates to the llm/providers.py registry."""
+              budget: "providers.Budget | None" = None,
+              system_prompt: str | None = None) -> str:
+    """Single API dispatch point — delegates to the llm/providers.py registry.
+
+    `system_prompt` defaults to the EFFECTS prompt, so any caller that predates
+    the instrument split behaves exactly as it did.
+    """
     generate = providers.make_generator(
-        provider, system_prompt=SYSTEM_PROMPT, model=model,
+        provider, system_prompt=system_prompt or SYSTEM_PROMPT, model=model,
         max_tokens=MAX_OUTPUT_TOKENS, budget=budget,
     )
     return generate(content)
@@ -118,20 +156,29 @@ def generate_faust(user_prompt: str, error_context: str = "",
                    provider: str = DEFAULT_PROVIDER,
                    model: str | None = None,
                    budget: "providers.Budget | None" = None,
-                   truncated: bool = False) -> str:
+                   truncated: bool = False,
+                   kind: str | None = None) -> str:
     """One generation attempt.
 
     `truncated` and `error_context` are mutually exclusive repair signals, and the
     caller must not send both: code that was cut off mid-token never reached the
     compiler, so any stderr in hand belongs to an earlier attempt and would
     misdirect the model.
+
+    `kind` pins the system prompt; without it the router reads `user_prompt`.
+    ⚠️ Every attempt in a retry loop must pass the SAME kind. Re-routing on the
+    repair text -- which is compiler stderr, not a user request -- would let a
+    retry silently switch prompts mid-generation and repair the code against
+    rules the first attempt never saw.
     """
     content = user_prompt
     if truncated:
         content += _TRUNCATION_HINT
     elif error_context:
         content += f"\n\nYour previous output had this compiler error — fix it:\n{error_context}"
-    return _call_api(content, provider, model, budget)
+
+    _, system_prompt = select_prompt(user_prompt, kind)
+    return _call_api(content, provider, model, budget, system_prompt)
 
 
 def validate_faust(faust_code: str,
@@ -233,13 +280,18 @@ def generate_json(request: dict) -> dict:
     max_retries = request.get("max_retries", 3)
     budget = request.get("budget") or generation_budget()
 
+    # Routed ONCE, before the loop, from the user's text. Every retry then reuses
+    # the same kind — see generate_faust's note on why re-routing per attempt
+    # would repair code against rules the first attempt never saw.
+    kind, _ = select_prompt(prompt, request.get("kind"))
+
     error_ctx = ""
     truncated = False
     attempt = 0
     for attempt in range(1, max_retries + 1):
         try:
             code = generate_faust(prompt, error_ctx, provider, model, budget,
-                                  truncated=truncated)
+                                  truncated=truncated, kind=kind)
         except providers.RateLimited as exc:
             return _failure(attempt, "rate_limited", str(exc))
         except providers.BudgetExhausted as exc:
@@ -258,8 +310,17 @@ def generate_json(request: dict) -> dict:
         truncated = False
         valid, error = validate_faust(code, budget)
         if valid:
+            # `kind` is ADDITIVE, same treatment as `reason` under PF-019: every
+            # existing consumer reads success/faust_code/error and is unaffected
+            # by an extra key. It tells the host which prompt produced this patch,
+            # which is what a UI needs to show the routing decision and let the
+            # user override a misroute.
+            #
+            # NOT on the failure path yet — _failure() is shared by six call sites
+            # and threading it through is a separate change. A failed instrument
+            # request is currently indistinguishable from a failed effect one.
             return {"success": True, "faust_code": code, "attempts": attempt,
-                    "error": None, "reason": "ok"}
+                    "error": None, "reason": "ok", "kind": kind}
         error_ctx = error
 
         # Don't start an attempt there is no time to finish — returning the last
