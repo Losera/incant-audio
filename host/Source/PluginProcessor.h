@@ -45,6 +45,21 @@ public:
     // gate stays 1 and the patch drones with no MIDI able to stop it.
     void reset() override;
 
+    // Which bus layouts a host may negotiate.
+    //
+    // There was no override at all until now, so JUCE's default applied —
+    // juce_AudioProcessor.h:1329, `return true` for ANY layout. That is not a
+    // safe default here: FaustEngine::kMaxChannels is 2 and its `scratch` buffer
+    // is sized to it, so a host offering 5.1 would be accepted and then hit the
+    // defensive bail in FaustEngine::process, which silently passes the DRY input
+    // through. A plugin that accepts a layout and then does nothing is worse than
+    // one that declines it, because the host has no way to know.
+    //
+    // The instrument target additionally accepts a DISABLED input bus — a synth
+    // has nothing to process, and refusing that is what keeps a plugin off an
+    // instrument track.
+    bool isBusesLayoutSupported(const BusesLayout& layouts) const override;
+
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
 

@@ -277,8 +277,22 @@ ChannelStats renderPerChannel(PluginForgeProcessor& p, double sampleRate,
 struct MidiRender
 {
     ChannelStats held;      // statistics while the note is sounding
-    float        tailRms = 0.0f;   // RMS of the last block, after release
+    float        tailRms = 0.0f;   // RMS of the last kTailBlocks, after release
 };
+
+// How many trailing blocks the tail RMS averages over.
+//
+// It was ONE, and that was a latent flake rather than a passing test. With
+// note-off at block 40 and a 0.2 s release, the single-block window at block 59
+// covered 0.1963-0.2072 s after note-off -- its LEADING EDGE 3.7 ms BEFORE the
+// release finished, so a good fraction of the samples it averaged still carried
+// signal. It passed only because an ADSR's final milliseconds are near zero, and
+// any change to block size, sample rate, or the corpus's release time would have
+// flipped it with no code change.
+//
+// Callers now run well past the release and average the last four blocks, which
+// makes both a tighter threshold and a stable one possible.
+constexpr int kTailBlocks = 4;
 
 MidiRender renderWithMidi(PluginForgeProcessor& p, double sampleRate, int blockSize,
                           int blocks, int noteOnBlocks, int note, int velocity)
@@ -290,6 +304,8 @@ MidiRender renderWithMidi(PluginForgeProcessor& p, double sampleRate, int blockS
     MidiRender mr;
     double sumSq[2] = { 0.0, 0.0 };
     int    n = 0;
+    double tailSq = 0.0;
+    int    tailN  = 0;
 
     for (int b = 0; b < blocks; ++b)
     {
@@ -321,19 +337,21 @@ MidiRender renderWithMidi(PluginForgeProcessor& p, double sampleRate, int blockS
             }
         }
 
-        if (b == blocks - 1)
+        if (b >= blocks - kTailBlocks)
         {
-            double tailSq = 0.0;
             for (int i = 0; i < blockSize; ++i)
                 if (std::isfinite(l[i]))
                     tailSq += static_cast<double>(l[i]) * l[i];
-            mr.tailRms = (float) std::sqrt(tailSq / blockSize);
+            tailN += blockSize;
         }
     }
 
     if (n > 0)
         for (int ch = 0; ch < 2; ++ch)
             mr.held.rms[ch] = (float) std::sqrt(sumSq[ch] / n);
+
+    if (tailN > 0)
+        mr.tailRms = (float) std::sqrt(tailSq / tailN);
 
     return mr;
 }
@@ -778,6 +796,35 @@ int main(int argc, char** argv)
 
         check(! p.producesMidi(), "producesMidi() is false in both builds");
 
+        // ── Bus layouts ──────────────────────────────────────────────────────
+        // Until isBusesLayoutSupported existed, JUCE's default accepted ANY
+        // layout (juce_AudioProcessor.h:1329) while FaustEngine::kMaxChannels is
+        // 2 -- so a 5.1 host was told yes and then got its dry input back.
+        using CS = juce::AudioChannelSet;
+        auto layout = [](const CS& in, const CS& out)
+        {
+            PluginForgeProcessor::BusesLayout l;
+            l.inputBuses.add(in);
+            l.outputBuses.add(out);
+            return l;
+        };
+
+        check(p.checkBusesLayoutSupported(layout(CS::stereo(), CS::stereo())),
+              "stereo in / stereo out is accepted");
+
+        // The instrument case: nothing to process. Accepting this is what lets a
+        // DAW instantiate the plugin on an instrument track at all.
+        check(p.checkBusesLayoutSupported(layout(CS::disabled(), CS::stereo()))
+                  == (PF_IS_SYNTH != 0),
+              juce::String("a DISABLED input bus is ")
+                  + (PF_IS_SYNTH ? "accepted (instrument)" : "refused (effect)"));
+
+        // Beyond what scratch is sized for. Refused rather than silently ignored.
+        check(! p.checkBusesLayoutSupported(layout(CS::stereo(), CS::create5point1())),
+              "5.1 output is REFUSED, not silently passed through");
+        check(! p.checkBusesLayoutSupported(layout(CS::create5point1(), CS::stereo())),
+              "5.1 input is REFUSED");
+
         std::printf("\n");
     }
 
@@ -1043,8 +1090,13 @@ int main(int argc, char** argv)
                   juce::String("SILENT with no note held (rms ")
                       + juce::String(quiet.rms, 7) + ")");
 
-            // Now play one. Held for 40 blocks, then released, 60 blocks total.
-            const auto mr = renderWithMidi(p, kSampleRate, kBlockSize, 60, 40, 69, 100);
+            // Now play one. Held for 40 blocks, then released, 80 blocks total.
+            //
+            // 80 rather than 60 so the tail window sits COMFORTABLY past the
+            // release rather than straddling its end: blocks 76-79 are
+            // 0.384-0.427 s after note-off, against the corpus's longest release
+            // of 0.2 s. See kTailBlocks for what the old 60/last-one window did.
+            const auto mr = renderWithMidi(p, kSampleRate, kBlockSize, 80, 40, 69, 100);
 
             check(mr.held.rms[0] > 1.0e-3f,
                   juce::String("SOUNDS while a note is held (rms ")
@@ -1057,7 +1109,12 @@ int main(int argc, char** argv)
             // gate-driven sibling of the render oracle's never_decays gate, and
             // it is what would catch an ADSR whose release is mis-scaled
             // (PF-045: seconds vs samples turns a 200 ms release into 2.7 hours).
-            check(mr.tailRms < mr.held.rms[0] * 0.1f,
+            // 1% of held, not 10%. A correct window affords a much tighter
+            // threshold than the straddling one did, and tighter is what makes
+            // this catch a mis-scaled release (PF-045: seconds read as samples
+            // turns a 200 ms release into 2.7 hours) rather than merely notice a
+            // patch that stopped entirely.
+            check(mr.tailRms < mr.held.rms[0] * 0.01f,
                   juce::String("DECAYS after note-off (tail rms ")
                       + juce::String(mr.tailRms, 7) + " vs held "
                       + juce::String(mr.held.rms[0], 5) + ")");

@@ -105,6 +105,27 @@ void PluginForgeProcessor::releaseResources()
     faustEngine.release();
 }
 
+bool PluginForgeProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
+{
+    const auto out = layouts.getMainOutputChannelSet();
+    const auto in  = layouts.getMainInputChannelSet();
+
+    // Output is mandatory and capped at FaustEngine::kMaxChannels. A patch may
+    // declare 1 or 2 outputs (FaustEngine.cpp's arity gate), and process() fans a
+    // mono patch out to whatever the host gave us -- but it cannot serve more
+    // channels than `scratch` is sized for.
+    if (out != juce::AudioChannelSet::mono() && out != juce::AudioChannelSet::stereo())
+        return false;
+
+    // A disabled input is the instrument case, and ONLY the instrument case. The
+    // Fx target declares its input required; a host disabling it would leave
+    // every effect patch processing silence.
+    if (in.isDisabled())
+        return PF_IS_SYNTH != 0;
+
+    return in == juce::AudioChannelSet::mono() || in == juce::AudioChannelSet::stereo();
+}
+
 void PluginForgeProcessor::reset()
 {
     // Only the note is cleared. The DSP's internal state (filter memory, delay
