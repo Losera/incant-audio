@@ -47,7 +47,17 @@ from pathlib import Path
 FAUST_LIB_DIR = Path("/usr/share/faust")
 STDFAUST = FAUST_LIB_DIR / "stdfaust.lib"
 
-PROMPT_FILE = Path(__file__).resolve().parent.parent / "llm" / "prompts" / "system_prompt.txt"
+PROMPT_DIR = Path(__file__).resolve().parent.parent / "llm" / "prompts"
+
+# The prompt this operates on when --prompt is not given. Kept so every existing
+# invocation -- check.sh, the hook's advice text, the tests -- behaves exactly as
+# it did; --prompt is purely additive, for the second prompt file Phase 1 adds.
+PROMPT_FILE = PROMPT_DIR / "system_prompt.txt"
+
+
+def prompt_files() -> list[Path]:
+    """Every prompt the guards should cover, sorted for stable output."""
+    return sorted(PROMPT_DIR.glob("*.txt"))
 
 BEGIN_MARKER = "# BEGIN GENERATED STDLIB REFERENCE"
 END_MARKER = "# END GENERATED STDLIB REFERENCE"
@@ -363,13 +373,13 @@ def render(groups: list[tuple[str, list[str]]]) -> str:
     return "\n".join(out)
 
 
-def splice(prompt_text: str, block: str) -> str:
+def splice(prompt_text: str, block: str, where: Path = PROMPT_FILE) -> str:
     """Replace the region between the markers, preserving everything else."""
     start = prompt_text.find(BEGIN_MARKER)
     end = prompt_text.find(END_MARKER)
     if start == -1 or end == -1:
         raise ValueError(
-            f"markers not found in {PROMPT_FILE}. Expected {BEGIN_MARKER!r} and "
+            f"markers not found in {where}. Expected {BEGIN_MARKER!r} and "
             f"{END_MARKER!r}. Add them where the reference block should go."
         )
     return prompt_text[:start] + block + prompt_text[end + len(END_MARKER):]
@@ -428,21 +438,39 @@ def main(argv=None) -> int:
     parser.add_argument("--check", action="store_true",
                         help="Verify every curated entry resolves; exit 1 if not.")
     parser.add_argument("--verify-prompt", action="store_true",
-                        help="Verify every ns.func reference in the system prompt "
-                             "exists in the installed library; exit 1 if not.")
+                        help="Verify every ns.func reference in EVERY prompt under "
+                             "llm/prompts/ exists in the installed library; exit 1 "
+                             "if not. Narrow to one file with --prompt.")
     parser.add_argument("--write", action="store_true",
-                        help="Splice the block into llm/prompts/system_prompt.txt.")
+                        help="Splice the block into the prompt (default: "
+                             "llm/prompts/system_prompt.txt; see --prompt).")
+    parser.add_argument("--prompt", type=Path, default=None, metavar="PATH",
+                        help="Operate on this prompt file instead of the default. "
+                             "Without it, --verify-prompt covers every prompt in "
+                             "llm/prompts/ and --write targets system_prompt.txt.")
     args = parser.parse_args(argv)
 
     if args.verify_prompt:
-        problems = verify_prompt_references(PROMPT_FILE.read_text())
-        if problems:
-            print(f"FABRICATED STDLIB REFERENCES in {PROMPT_FILE}:", file=sys.stderr)
-            for p in problems:
-                print(f"  {p}", file=sys.stderr)
+        # Defaults to ALL prompts, not just system_prompt.txt. That default is the
+        # point: when Phase 1 adds instrument_prompt.txt, check.sh's existing
+        # `--verify-prompt` invocation covers it with no edit to the ladder. A
+        # guard that has to be remembered is one that will be forgotten.
+        targets = [args.prompt] if args.prompt else prompt_files()
+        if not targets:
+            print(f"no prompt files found in {PROMPT_DIR}", file=sys.stderr)
             return 1
-        print(f"OK -- every stdlib reference in {PROMPT_FILE.name} resolves")
-        return 0
+
+        failed = False
+        for target in targets:
+            problems = verify_prompt_references(target.read_text())
+            if problems:
+                failed = True
+                print(f"FABRICATED STDLIB REFERENCES in {target}:", file=sys.stderr)
+                for p in problems:
+                    print(f"  {p}", file=sys.stderr)
+            else:
+                print(f"OK -- every stdlib reference in {target.name} resolves")
+        return 1 if failed else 0
 
     groups, errors = resolve_all()
 
@@ -466,9 +494,10 @@ def main(argv=None) -> int:
     block = render(groups)
 
     if args.write:
-        text = PROMPT_FILE.read_text()
-        PROMPT_FILE.write_text(splice(text, block))
-        print(f"Wrote generated block into {PROMPT_FILE}", file=sys.stderr)
+        target = args.prompt or PROMPT_FILE
+        text = target.read_text()
+        target.write_text(splice(text, block, target))
+        print(f"Wrote generated block into {target}", file=sys.stderr)
         return 0
 
     print(block)

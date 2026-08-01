@@ -810,6 +810,72 @@ class TestLadderRunsWhatCIRuns:
 
 
 # ---------------------------------------------------------------------------
+class TestEveryPromptIsGuarded:
+    """Every file in llm/prompts/ must be covered by the prompt controls.
+
+    Both guards used to name ONE path. `.claude/hooks/check_prompt_invariants.py`
+    matched `llm/prompts/system_prompt.txt` exactly, and
+    `tools/gen_stdlib_block.py --verify-prompt` read that same constant. So the
+    day a second prompt arrived it would have been born UNGUARDED -- no ADR-009
+    duplicate-`process` check, no stdlib resolution, no foreign-construct scan --
+    while every gate stayed green and the file looked covered because its sibling
+    was.
+
+    Phase 1 adds llm/prompts/instrument_prompt.txt. This asserts the COVERAGE
+    RELATION rather than the presence of a path, so the new file is guarded by
+    existing to be found, not by someone remembering to add it.
+
+    NOT COVERED: that the guards are correct, only that they look at every file.
+    """
+
+    PROMPT_DIR = ROOT / "llm" / "prompts"
+    HOOK = ROOT / ".claude" / "hooks" / "check_prompt_invariants.py"
+
+    @classmethod
+    def _prompts(cls) -> list:
+        return sorted(cls.PROMPT_DIR.glob("*.txt"))
+
+    def test_there_is_at_least_one_prompt(self):
+        # Guards the guard: an empty glob would pass everything below vacuously.
+        assert self._prompts(), f"no *.txt found in {self.PROMPT_DIR}"
+
+    def test_the_hook_matches_every_prompt_file(self):
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("_pf_hook", self.HOOK)
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)
+
+        unmatched = [
+            p.name for p in self._prompts()
+            if not hook.PROMPT_RE.search(p.relative_to(ROOT).as_posix())
+        ]
+        assert not unmatched, (
+            f"check_prompt_invariants.py does not match {unmatched}. Those prompts "
+            "can be edited with no invariant check at all -- the hook would be "
+            "decoration for them while passing for their siblings."
+        )
+
+    def test_verify_prompt_covers_every_prompt_file(self):
+        # The ladder runs `--verify-prompt` with no argument; that invocation must
+        # reach every prompt, or check.sh full is green about a subset.
+        import subprocess
+
+        out = subprocess.run(
+            [sys.executable, str(ROOT / "tools" / "gen_stdlib_block.py"), "--verify-prompt"],
+            capture_output=True, text=True, cwd=ROOT,
+        )
+        assert out.returncode == 0, f"--verify-prompt failed:\n{out.stderr}"
+
+        missing = [p.name for p in self._prompts() if p.name not in out.stdout]
+        assert not missing, (
+            f"`gen_stdlib_block.py --verify-prompt` never mentions {missing}, so "
+            "check.sh's stdlib gate does not read them. A fabricated ns.func in "
+            "those files would reach the model unchallenged."
+        )
+
+
+# ---------------------------------------------------------------------------
 class TestBothPluginTargetsAreGated:
     """Every juce_add_plugin target must be built by BOTH the ladder and CI.
 

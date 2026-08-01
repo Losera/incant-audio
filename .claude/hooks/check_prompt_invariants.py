@@ -41,8 +41,19 @@ import re
 import sys
 from pathlib import Path
 
-PROMPT_RE = re.compile(r"(^|/)llm/prompts/system_prompt\.txt$")
-PROMPT_REL = "llm/prompts/system_prompt.txt"
+# Every prompt in llm/prompts/, not just system_prompt.txt.
+#
+# ⚠️ THIS WAS A SINGLE HARD-CODED PATH, and that made the guard a trap rather
+# than a control the moment a second prompt was added. `instrument_prompt.txt`
+# would have matched nothing here: no ADR-009 duplicate-`process` rule check, no
+# stdlib resolution, no foreign-construct scan -- while every gate stayed green
+# and the file looked guarded because its sibling was. That is exactly the class
+# check.sh's header names, "believing a control runs when it does not."
+#
+# Generalised BEFORE the second prompt exists, deliberately, so the new file is
+# born covered rather than retrofitted into coverage later.
+PROMPT_RE = re.compile(r"(^|/)llm/prompts/[A-Za-z0-9_-]+\.txt$")
+PROMPT_DIR_REL = "llm/prompts"
 
 FAUST_STDLIB = Path("/usr/share/faust/stdfaust.lib")
 
@@ -161,8 +172,8 @@ def foreign_construct_problems(content: str) -> list[str]:
 def block(message: str) -> int:
     print(
         "BLOCKED (prompt invariants): " + message + "\n\n"
-        f"{PROMPT_REL} is the single system prompt — the product and the benchmark "
-        "both load it, so an error here changes generated audio AND invalidates "
+        f"Files in {PROMPT_DIR_REL}/ are loaded by the product AND the benchmark, "
+        "so an error here changes generated audio AND invalidates "
         "every measurement. If a stdlib name was rejected, check it against the "
         "installed library rather than memory:\n"
         "    python tools/gen_stdlib_block.py --verify-prompt\n"
