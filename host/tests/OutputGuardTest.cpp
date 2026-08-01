@@ -139,6 +139,101 @@ int main()
         check(g.trippedBy() == OutputGuard::Trip::Runaway, "trip reason is Runaway");
     }
 
+    // ── 6b. kRunawaySeconds must mean the same thing at any channel count ────
+    //
+    // RED CASE for the shared-counter defect. `overScaleRun` was a single int
+    // declared OUTSIDE the `for (ch ...)` loop, incremented once per sample PER
+    // CHANNEL and zeroed by any sample below unity in ANY channel. So a stereo
+    // full-scale signal reached the threshold in half the samples a mono one
+    // did -- 0.25 s against the 0.5 s the constant advertises -- and a quiet
+    // left channel could hold off a diverging right one indefinitely.
+    //
+    // Measured before the fix: mono 47 blocks, stereo 24. After: both 47.
+    {
+        auto blocksToTrip = [](int channels)
+        {
+            OutputGuard g;
+            g.prepare(kSR);
+            for (int block = 0; block < 400; ++block)
+            {
+                juce::AudioBuffer<float> buf(channels, 512);
+                for (int ch = 0; ch < channels; ++ch)
+                    for (int i = 0; i < 512; ++i)
+                        buf.getWritePointer(ch)[i] = (i % 2 == 0) ? 4.0f : -4.0f;
+                g.process(buf);
+                if (g.isMuted())
+                    return block + 1;
+            }
+            return -1;
+        };
+
+        const int mono   = blocksToTrip(1);
+        const int stereo = blocksToTrip(2);
+
+        check(mono > 0 && stereo > 0, "sustained over-scale trips at both channel counts");
+
+        std::printf("       mono tripped at %d blocks, stereo at %d\n", mono, stereo);
+        check(mono == stereo,
+              "the runaway threshold is a TIME, not a per-channel sample count");
+    }
+
+    // ── 6c. RunawayPolicy::Report warns without muting (ADR-020) ─────────────
+    //
+    // An instrument at sustained full scale is a LOUD PATCH, not a broken one:
+    // os.square at gain 1.0 sits at |y| == 1.0 forever by construction and never
+    // dips below. Latching there mutes it permanently until the next recompile,
+    // with nothing the player can do. The limiter still bounds the output, so
+    // the audio stays safe either way -- what changes is whether it survives.
+    {
+        OutputGuard g;
+        g.prepare(kSR);
+        g.setRunawayPolicy(OutputGuard::RunawayPolicy::Report);
+
+        for (int block = 0; block < 200; ++block)
+        {
+            juce::AudioBuffer<float> buf(2, 512);
+            for (int ch = 0; ch < 2; ++ch)
+                for (int i = 0; i < 512; ++i)
+                    buf.getWritePointer(ch)[i] = (i % 2 == 0) ? 4.0f : -4.0f;
+            g.process(buf);
+        }
+
+        check(! g.isMuted(), "Report policy does NOT mute a sustained-loud patch");
+        check(g.trippedBy() == OutputGuard::Trip::Runaway,
+              "Report policy still REPORTS the runaway, so the editor can warn");
+
+        // And the audio is still there, still bounded.
+        juce::AudioBuffer<float> buf(2, 512);
+        for (int ch = 0; ch < 2; ++ch)
+            for (int i = 0; i < 512; ++i)
+                buf.getWritePointer(ch)[i] = (i % 2 == 0) ? 4.0f : -4.0f;
+        g.process(buf);
+
+        float peak = 0.0f;
+        for (int ch = 0; ch < 2; ++ch)
+            for (int i = 0; i < 512; ++i)
+                peak = std::max(peak, std::abs(buf.getReadPointer(ch)[i]));
+
+        check(peak > 0.1f, "audio still flows under Report policy");
+        check(peak <= OutputGuard::kCeiling + 1.0e-6f,
+              "and is still bounded by the limiter's ceiling");
+    }
+
+    // ── 6d. NonFinite latches regardless of policy ───────────────────────────
+    // NaN is never a loud patch. Report must not weaken this.
+    {
+        OutputGuard g;
+        g.prepare(kSR);
+        g.setRunawayPolicy(OutputGuard::RunawayPolicy::Report);
+
+        auto bad = makeBuffer(128, 0.2f);
+        bad.getWritePointer(0)[3] = std::numeric_limits<float>::quiet_NaN();
+        g.process(bad);
+
+        check(g.isMuted(), "NonFinite still latches under Report policy");
+        check(g.trippedBy() == OutputGuard::Trip::NonFinite, "trip reason is NonFinite");
+    }
+
     // ── 7. Muted output stays silent until reset ────────────────────────────
     {
         OutputGuard g;

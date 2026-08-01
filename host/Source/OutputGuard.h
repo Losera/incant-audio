@@ -70,8 +70,30 @@ public:
     bool isMuted() const { return muted.load(std::memory_order_relaxed); }
 
     // Why the guard tripped, for the UI. Valid only while isMuted().
+    // Runaway is reported even when the policy is Report, so the editor can warn
+    // without the audio having been cut.
     enum class Trip { None, NonFinite, Runaway };
     Trip trippedBy() const { return trip.load(std::memory_order_relaxed); }
+
+    // What a sustained over-scale run should DO. See ADR-020.
+    //
+    // Latch (effects): mute and stay muted. Sustained 0 dBFS from an effect is a
+    // diverging filter, and the blast is the thing being prevented.
+    //
+    // Report (instruments): set the trip flag for the UI but keep passing audio.
+    // A full-scale oscillator is a LOUD PATCH, not a broken one -- os.square at
+    // gain 1.0 sits at |y| == 1.0 forever and never dips below, so a latching
+    // guard mutes it permanently until the next recompile. The limiter still
+    // bounds the output at kCeiling either way, so nothing is unprotected.
+    //
+    // NonFinite always latches regardless of policy: NaN is never a loud patch.
+    enum class RunawayPolicy { Latch, Report };
+
+    // Set from the compile callback, where the patch's instrument-ness is known.
+    // Called on the compile thread inside the audioBusy drain window, exactly
+    // like reset() -- see the note above the reset() call in PluginProcessor.cpp.
+    void setRunawayPolicy(RunawayPolicy p) { runawayPolicy = p; }
+    RunawayPolicy runawayPolicyForTest() const { return runawayPolicy; }
 
 private:
     // Per-channel DC blocker state: y[n] = x[n] - x[n-1] + R*y[n-1].
@@ -79,8 +101,18 @@ private:
     std::array<float, MAX_CHANNELS> dcY1 {};
     float dcR = 0.9993f;                 // recomputed in prepare() for ~5 Hz
 
-    int   runawayBlocks    = 0;          // consecutive over-scale sample count
+    // Consecutive over-scale sample count, PER CHANNEL.
+    //
+    // ⚠️ This was a single shared int, and that made kRunawaySeconds mean
+    // different things at different channel counts. The counter was incremented
+    // once per sample PER CHANNEL and zeroed by any sample below unity in ANY
+    // channel, so a stereo full-scale signal reached the threshold in 0.25 s
+    // rather than 0.5 s, and a quiet left channel could hold off a diverging
+    // right one indefinitely. Per-channel makes the constant mean what it says.
+    std::array<int, MAX_CHANNELS> runawayRun {};
     int   runawayThreshold = 24000;      // recomputed in prepare()
+
+    RunawayPolicy runawayPolicy = RunawayPolicy::Latch;
 
     std::atomic<bool> muted { false };
     std::atomic<Trip> trip  { Trip::None };

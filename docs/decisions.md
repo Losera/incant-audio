@@ -371,6 +371,86 @@ Keep the native-declarative surface. Do not adopt a webview UI now.
 
 ---
 
+## ADR-020 — OutputGuard's runaway watchdog latches for effects, reports for instruments
+
+| | |
+|---|---|
+| **Status** | Accepted |
+| **Date** | 2026-08-01 |
+
+**Context**
+
+`OutputGuard` mutes the output after `kRunawaySeconds` (0.5 s) of continuous
+`|y| >= 1.0`, measured pre-limiter, and the mute **latches** until the next
+`reset()` — i.e. until the next successful compile. The rule was written when this
+project generated only effects, and for an effect it is right: sustained 0 dBFS
+without ever dipping below is a diverging filter, and the blast is the thing being
+prevented.
+
+Instruments break the premise. `os.square(f) * gain` at gain 1.0 sits at `|y| == 1.0`
+on **every sample, forever, by construction** — a square wave does not return below
+unity between transitions the way an oscillating signal that crosses zero does, and
+the 5 Hz DC blocker cannot pull it under within 0.5 s. So the first loud square-wave
+synth anyone generates is muted half a second in and stays muted, with nothing the
+player can do about it short of regenerating the patch. Effects essentially never
+produce this; synths do it the moment someone turns the level up.
+
+A second, independent defect was found in the same code and is fixed alongside
+rather than decided here: `overScaleRun` was a single `int` declared outside the
+per-channel loop, so it counted once per sample **per channel** and was zeroed by any
+sample below unity in **any** channel. Stereo therefore tripped in 0.25 s against the
+advertised 0.5 s (measured: mono 47 blocks, stereo 24), and a quiet left channel
+could hold off a diverging right one indefinitely. That is a straightforward bug —
+`kRunawaySeconds` did not denote a time — and needed no ruling.
+
+**Decision**
+
+Split the *detection* from the *response*. Detection is unchanged. The response
+becomes a policy set per compiled patch:
+
+- `RunawayPolicy::Latch` — effects. Mute and stay muted. Unchanged behaviour.
+- `RunawayPolicy::Report` — instruments. Set `Trip::Runaway` for the editor to
+  display, but keep passing audio.
+
+`Trip::NonFinite` latches under **both** policies. The policy is set from the compile
+callback, from `FaustEngine::isInstrument()` — the same voice-contract detection that
+already drives MIDI routing — inside the `audioBusy` drain window, for the same
+reason `outputGuard.reset()` is.
+
+**Reasons**
+
+- **The limiter, not the mute, is what protects the speakers.** The soft knee plus
+  hard clamp bounds output at `kCeiling` (−0.3 dBFS) on every sample regardless of
+  policy. `Report` gives up a backstop, not the guarantee. This is the load-bearing
+  argument: if muting were the only thing standing between a runaway and the
+  monitors, the answer would be different.
+- **For an instrument, sustained full scale is a statement about loudness, not
+  correctness.** The condition does not distinguish "diverging filter" from "square
+  wave at unity gain", and for a synth the second is overwhelmingly more likely.
+- **A latching mute is unrecoverable from the UI.** `reset()` is called only from
+  `prepareToPlay` and the compile callback, so a muted instrument stays muted through
+  every note the player tries. A permanently silent plugin reads as a broken plugin.
+- **Detection is still worth keeping for instruments.** A synth *can* diverge, and
+  `Trip::Runaway` remains visible in the editor. What changes is that the user is
+  told rather than cut off.
+
+**Consequences**
+
+- A genuinely diverging instrument patch is now limited rather than silenced. It will
+  be loud and bounded instead of loud and then absent. Accepted deliberately.
+- `OutputGuard` gains a mode, which is state that can be set wrongly. It is set in
+  exactly one place, from a property of the compiled DSP rather than from a build
+  flag, so a patch cannot disagree with the policy applied to it.
+- `OutputGuardTest` grew the red cases: mono and stereo must trip at the same *time*
+  (47 blocks both, was 47/24); `Report` must not mute but must still report and must
+  still bound the peak; `NonFinite` must latch under `Report`.
+- **Not settled here:** whether the editor surfaces `Trip::Runaway` differently when
+  it did not mute. Today the UI reads `isMuted()` for its warning, so a reporting
+  trip on an instrument is currently detected and **not displayed**. That is a UI
+  task, and it is the honest gap in this decision.
+
+---
+
 <details>
 <summary>ADR template</summary>
 

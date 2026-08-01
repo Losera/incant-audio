@@ -273,20 +273,43 @@ void PluginForgeProcessor::loadFaustCode(const juce::String& faustCode,
     // then failed with no DSP live. The source of record is now whatever last
     // COMPILED, which is the only version of it that can actually be restored.
     //
+    // Whether the OUTGOING patch was an instrument, read here on the message
+    // thread while it is still the live one. Inside the callback this is already
+    // the incoming patch's answer — voiceValid is published at swap step 3a,
+    // before the callback fires at step 5 — so the comparison has to straddle
+    // the compile. See the Iterate note in the callback.
+    const bool wasInstrument = faustEngine.isInstrument();
+
     // Captured by value into the callback: juce::String's copy is atomically
     // ref-counted, so handing it to the compile thread is safe.
-    faustEngine.compile(faustCode, [this, faustCode, prompt, mode]
+    faustEngine.compile(faustCode, [this, faustCode, prompt, mode, wasInstrument]
                                    (const FaustEngine::ParamList& params,
                                     const std::string& error) {
         if (error.empty())
         {
             paramPool.remap(params);
 
+            // Iterate retains slot values BY INDEX (ParamPool::remap is
+            // positional, ParamPool.cpp:33-53). Crossing the instrument boundary
+            // shifts every index, because an instrument withholds gate/freq/gain
+            // from the published list and an effect does not — so refining a
+            // synth into an effect would land the old slot 0 (say Cutoff) on the
+            // new slot 0, which for an instrument is a voice control. A wrong
+            // pitch is far more audible than a wrong cutoff, and the user did not
+            // touch the knob that appears to have moved.
+            //
+            // Forcing Fresh across that transition is a MITIGATION, not the fix.
+            // The fix is a label-keyed remap, which makes retention meaningful for
+            // every patch change rather than just this one; it is recorded in
+            // STATUS.md's "Assumed, never checked" list as unbuilt.
+            const bool crossedInstrumentBoundary =
+                wasInstrument != faustEngine.isInstrument();
+
             // PF-020. Fresh must reset in the PROCESSOR, not the editor — doing it
             // in ParamGridPanel is what made "fresh" conditional on the editor
             // being open. Ordered after remap() so the ParamInfo the conversion
             // needs is published, and before the labels/source commit below.
-            if (mode == LoadMode::Fresh)
+            if (mode == LoadMode::Fresh || crossedInstrumentBoundary)
                 resetMappedSlotsToDefaults(params);
 
             // Capture the slot->label map for persistence, and commit the source
@@ -307,7 +330,7 @@ void PluginForgeProcessor::loadFaustCode(const juce::String& faustCode,
             // one it replaces.
             //
             // SUBTLE: reset() writes non-atomic filter state (dcX1/dcY1/
-            // runawayBlocks) from the COMPILE thread, which would be a data race
+            // runawayRun) from the COMPILE thread, which would be a data race
             // against the audio thread anywhere else. It is safe at exactly this
             // point and nowhere else: this callback runs at FaustEngine::compile
             // step 5 -- after the audioBusy drain (step 2) proved no audio-thread
@@ -315,6 +338,18 @@ void PluginForgeProcessor::loadFaustCode(const juce::String& faustCode,
             // start. The same drain that makes the activeDSP/activeUI swap safe
             // covers this. Do not move this call outside the compile callback.
             outputGuard.reset();
+
+            // ADR-020: what a sustained over-scale run should DO depends on what
+            // the patch IS. An effect running at 0 dBFS without ever dipping
+            // below is a diverging filter and gets muted; an instrument doing it
+            // is a loud oscillator -- os.square at gain 1.0 sits at |y| == 1.0
+            // forever by construction -- and muting it until the next recompile
+            // is a worse outcome than the loudness. Set here for the same reason
+            // reset() is: it is the one window where writing this is not a race.
+            outputGuard.setRunawayPolicy(faustEngine.isInstrument()
+                                             ? OutputGuard::RunawayPolicy::Report
+                                             : OutputGuard::RunawayPolicy::Latch);
+
             if (onFaustCompileSuccess)
                 onFaustCompileSuccess(params);
         }

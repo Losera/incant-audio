@@ -18,7 +18,7 @@ void OutputGuard::reset()
 {
     dcX1.fill(0.0f);
     dcY1.fill(0.0f);
-    runawayBlocks = 0;
+    runawayRun.fill(0);
     muted.store(false, std::memory_order_relaxed);
     trip.store(Trip::None, std::memory_order_relaxed);
 }
@@ -37,7 +37,7 @@ void OutputGuard::process(juce::AudioBuffer<float>& buffer)
         return;
     }
 
-    int overScaleRun = runawayBlocks;
+    bool runawayFired = false;
 
     for (int ch = 0; ch < numCh; ++ch)
     {
@@ -48,6 +48,10 @@ void OutputGuard::process(juce::AudioBuffer<float>& buffer)
         // instead of round-tripping through the arrays every sample.
         float x1 = hasDcState ? dcX1[static_cast<size_t>(ch)] : 0.0f;
         float y1 = hasDcState ? dcY1[static_cast<size_t>(ch)] : 0.0f;
+
+        // Channels past MAX_CHANNELS carry no run across blocks -- they are still
+        // limited and NaN-checked, they just cannot accumulate toward a verdict.
+        int run = hasDcState ? runawayRun[static_cast<size_t>(ch)] : 0;
 
         for (int i = 0; i < numSamples; ++i)
         {
@@ -66,7 +70,7 @@ void OutputGuard::process(juce::AudioBuffer<float>& buffer)
                 // patch starts clean.
                 dcX1.fill(0.0f);
                 dcY1.fill(0.0f);
-                runawayBlocks = 0;
+                runawayRun.fill(0);
                 return;
             }
 
@@ -81,9 +85,14 @@ void OutputGuard::process(juce::AudioBuffer<float>& buffer)
             // condition we are trying to detect.
             const float mag = std::fabs(y);
             if (mag >= 1.0f)
-                ++overScaleRun;
+            {
+                if (++run >= runawayThreshold)
+                    runawayFired = true;
+            }
             else
-                overScaleRun = 0;
+            {
+                run = 0;
+            }
 
             // ── 3. Limiter: soft knee, hard ceiling ──────────────────────────
             // Continuous in value and slope at |y| == kKnee (tanh(0) == 0), so
@@ -107,16 +116,30 @@ void OutputGuard::process(juce::AudioBuffer<float>& buffer)
         {
             dcX1[static_cast<size_t>(ch)] = x1;
             dcY1[static_cast<size_t>(ch)] = y1;
+            runawayRun[static_cast<size_t>(ch)] = run;
         }
     }
 
     // ── 4b. Runaway verdict ─────────────────────────────────────────────────
-    runawayBlocks = overScaleRun;
-    if (runawayBlocks >= runawayThreshold)
+    // The trip is REPORTED either way, so the editor can warn. Whether it also
+    // mutes is the policy question ADR-020 settles: for an effect a sustained
+    // 0 dBFS run is a diverging filter and muting is the point; for an
+    // instrument it is a loud oscillator, and muting it permanently until the
+    // next recompile is a worse outcome than the loudness. The limiter above
+    // bounds the output at kCeiling in both cases, so nothing is unprotected.
+    if (runawayFired)
     {
-        muted.store(true, std::memory_order_relaxed);
         trip.store(Trip::Runaway, std::memory_order_relaxed);
-        buffer.clear();
-        runawayBlocks = 0;
+
+        if (runawayPolicy == RunawayPolicy::Latch)
+        {
+            muted.store(true, std::memory_order_relaxed);
+            buffer.clear();
+        }
+
+        // Cleared either way. Under Latch nothing more will be measured; under
+        // Report this re-arms, so a patch that stays over keeps re-asserting the
+        // flag rather than reporting once and going quiet about it.
+        runawayRun.fill(0);
     }
 }

@@ -620,6 +620,29 @@ const std::vector<InstrumentPatch> kInstruments = {
       "process = os.osc(ba.midikey2hz(key)) * (vel/127.0)\n"
       "          * en.adsr(0.01,0.1,0.7,0.2,gate) <: _,_;", true, 0 },
 
+    // ── A deliberately LOUD synth (ADR-020's motivating shape) ──────────────
+    // os.square is +/-1 by construction: it never dips below unity between
+    // transitions the way a signal crossing zero does, so it is the waveform that
+    // makes a latching runaway watchdog wrong for instruments.
+    //
+    // ⚠️ SCOPE, measured rather than assumed: this case does NOT reach the
+    // watchdog here. The note is held 40 blocks and the threshold is 47 (0.5 s at
+    // 48k/512), and the patch's level is the VOICE gain, which velocity 100 sets
+    // to 0.787 -- so it never even crosses unity. It earns its place as an
+    // integration case (a loud gated synth renders, decays and is not muted), not
+    // as the guard's red case.
+    //
+    // The authoritative red cases for ADR-020 are in OutputGuardTest, where the
+    // signal and the duration can be driven exactly: mono-vs-stereo trip timing,
+    // Report-does-not-mute, and NonFinite-still-latches.
+    { "loud square synth", "the shape behind ADR-020",
+      "import(\"stdfaust.lib\");\n"
+      "freq = hslider(\"freq\",440,20,2000,0.01);\n"
+      "gain = hslider(\"gain\",1,0,1,0.01);\n"
+      "gate = button(\"gate\");\n"
+      "process = os.square(freq) * gain * en.adsr(0.001,0.01,1.0,0.05,gate)\n"
+      "          <: _,_;", true, 0 },
+
     // The safety case: a generator with a "freq" slider and NO gate. Not an
     // instrument, so nothing is withheld and it drones as it always did.
     { "sine with a freq knob", "freq alone is NOT the contract",
