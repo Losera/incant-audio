@@ -145,6 +145,21 @@ public:
     void noteOff(int note);
     void allNotesOff();
 
+    // allNotesOff() for callers that are NOT already inside the bracket --
+    // prepareToPlay and reset(), which run on the message thread.
+    //
+    // Without this, a note held when the transport stops or the host re-prepares
+    // leaves *gate == 1 with no further MIDI able to clear it, and the patch
+    // drones forever. The MIDI walk cannot help: it only runs when events arrive.
+    //
+    // Brackets internally with enterAudio()/exitAudio(). audioBusy is a COUNTER
+    // (fetch_add/fetch_sub, :203/:212), so an extra holder from another thread is
+    // exactly what the drain guard is built to tolerate. If a compile is mid-swap
+    // enterAudio() returns false and this is a no-op -- which is correct, not a
+    // missed case: the incoming DSP's gate zone starts at its declared default
+    // and runCompile clears currentNote in the same swap.
+    void silenceVoice();
+
     void setParamValue(const std::string& label, float value);
 
     FaustEngine()  = default;
@@ -212,9 +227,11 @@ public:
     void exitAudio() { audioBusy.fetch_sub(1, std::memory_order_release); }
 
     // The host's channel count, and therefore the most a patch may declare in
-    // either direction. The bus layout is fixed stereo and the input is required
-    // (PluginProcessor.cpp:6-8), so this is not a tunable — it is a statement
-    // about what processBlock can actually serve.
+    // either direction. The output bus is fixed stereo; the INPUT bus is required
+    // on the Fx target and optional on the instrument target (PluginProcessor.cpp,
+    // `.withInput(..., PF_IS_SYNTH == 0)`). So this is not a tunable — it is a
+    // statement about what processBlock can actually serve, and it is what
+    // isBusesLayoutSupported() enforces against the host's proposed layout.
     static constexpr int kMaxChannels = 2;
 
 private:
@@ -256,10 +273,19 @@ private:
     std::atomic<bool>        voiceGainIsVel { false };
     std::atomic<bool>        voiceValid     { false };
 
-    // Which note is sounding, for last-note-priority release. Audio thread only:
-    // it is written and read solely inside noteOn/noteOff, which the header
-    // above restricts to the enterAudio() bracket. Not atomic because no other
-    // thread may touch it.
+    // Which note is sounding, for last-note-priority release.
+    //
+    // Audio thread, PLUS one write from the compile worker: runCompile clears it
+    // to -1 in the swap, because the note it names belongs to the DSP that is
+    // about to be deleted. That write is not a race and does not need an atomic,
+    // but the reason is the swap protocol rather than exclusive ownership, so it
+    // has to be stated: the clear happens after the audioBusy drain (no audio
+    // section is in flight) and before Step 6's `ready` store-release, which the
+    // audio thread acquires in enterAudio() before it may call noteOn/noteOff.
+    // That release/acquire pair is what orders the clear against every later
+    // audio-thread access.
+    //
+    // ⚠️ Moving this write outside the drain window makes it a genuine data race.
     int currentNote = -1;
 
     // Output staging for patches whose arity does not match the host's. Faust

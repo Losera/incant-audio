@@ -40,15 +40,23 @@ public:
     void releaseResources() override;
     void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
+    // Hosts call reset() to drop any sounding tail — transport stop, loop jump,
+    // bypass. For an instrument that means releasing a held note; without it the
+    // gate stays 1 and the patch drones with no MIDI able to stop it.
+    void reset() override;
+
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
 
     const juce::String getName() const override { return "PluginForge Host"; }
     // The instrument target must advertise MIDI input or no host will route
-    // notes to it. The Fx target deliberately still says false: processBlock's
-    // MIDI walk is unconditional (an empty buffer costs nothing, and the test
-    // harnesses drive processBlock directly with no plugin wrapper), but
-    // claiming MIDI input on an effect changes how DAWs present it for no gain.
+    // notes to it. The Fx target deliberately still says false: claiming MIDI
+    // input on an effect changes how DAWs present it for no gain.
+    //
+    // This flag does NOT gate processBlock's MIDI walk. That walk is gated on
+    // FaustEngine::isInstrument() -- a property of the loaded patch, not of the
+    // build -- so the console-app harnesses, which compile with PF_IS_SYNTH == 0
+    // and get no plugin wrapper, still exercise the real note path.
     bool acceptsMidi() const override  { return PF_IS_SYNTH != 0; }
     bool producesMidi() const override { return false; }
 

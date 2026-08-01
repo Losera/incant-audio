@@ -225,17 +225,26 @@ FaustEngine::VoiceControls extractVoiceControls(const FaustEngine::ParamList& pa
 // says -- so a note would either never start or never stop, depending on the
 // slider. Same for freq: the pitch would be the knob's, not the note's.
 //
+// Filtered by ZONE IDENTITY against what extractVoiceControls actually bound,
+// not by re-testing the six names. Two reasons, and the second is a real defect
+// the name-list version had:
+//   - the two functions cannot disagree, because there is only one decision;
+//   - extractVoiceControls binds FIRST MATCH PER ROLE, so a patch declaring both
+//     "freq" and "key" drives only one of them. Excluding by name withheld BOTH,
+//     leaving the unbound one invisible AND unwritten -- a control the user could
+//     not reach and nothing else moved. It now stays an ordinary knob.
+//
 // Only applied when the patch is a full instrument, so an effect that happens to
 // have a slider named "freq" (a sine oscillator, say) is untouched.
-FaustEngine::ParamList withoutVoiceControls(const FaustEngine::ParamList& params)
+FaustEngine::ParamList withoutVoiceControls(const FaustEngine::ParamList& params,
+                                            const FaustEngine::VoiceControls& vc)
 {
     FaustEngine::ParamList out;
     out.reserve(params.size());
 
     for (const auto& p : params)
     {
-        if (p.label == "gate" || p.label == "freq" || p.label == "key"
-            || p.label == "gain" || p.label == "vel" || p.label == "velocity")
+        if (p.zone == vc.gate || p.zone == vc.freq || p.zone == vc.gain)
             continue;
 
         out.push_back(p);
@@ -296,6 +305,17 @@ void FaustEngine::allNotesOff()
         *gate = static_cast<FAUSTFLOAT>(0);
 
     currentNote = -1;
+}
+
+void FaustEngine::silenceVoice()
+{
+    // The bracket is the whole point: without it this races the compile worker
+    // and writes a gate zone belonging to a DSP being deleted. See the header.
+    if (!enterAudio())
+        return;
+
+    allNotesOff();
+    exitAudio();
 }
 
 FaustEngine::~FaustEngine()
@@ -636,7 +656,7 @@ void FaustEngine::runCompile(const std::string& code, const CompileCallback& cb)
         // controls are withheld: they belong to note events, not to knobs, and
         // leaving them mapped would let pushToFaust overwrite every note.
         const ParamList publishedParams =
-            vc.valid() ? withoutVoiceControls(capture.params) : capture.params;
+            vc.valid() ? withoutVoiceControls(capture.params, vc) : capture.params;
 
         // Build the MapUI for audio-thread parameter writes.
         // SUBTLE: newUI holds raw float* pointers into dsp's internal memory.

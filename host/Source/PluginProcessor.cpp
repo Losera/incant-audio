@@ -74,6 +74,12 @@ void PluginForgeProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     faustEngine.prepare(sampleRate, samplesPerBlock);
     outputGuard.prepare(sampleRate);
 
+    // A note held across a re-prepare would otherwise stay held forever: the gate
+    // zone keeps its 1 and only MIDI can clear it, but the events that would have
+    // done so are long gone. Hosts call prepareToPlay on sample-rate and
+    // block-size changes, which can happen mid-performance.
+    faustEngine.silenceVoice();
+
     // If a session was restored before the host told us the sample rate (setState
     // can precede prepareToPlay), the restore recompile was deferred to here so the
     // DSP JITs at the real rate rather than the 44100 default. Fire it now.
@@ -97,6 +103,15 @@ void PluginForgeProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 void PluginForgeProcessor::releaseResources()
 {
     faustEngine.release();
+}
+
+void PluginForgeProcessor::reset()
+{
+    // Only the note is cleared. The DSP's internal state (filter memory, delay
+    // lines) is deliberately left alone: FaustEngine has no per-patch reset that
+    // does not also re-init the instance, and re-initialising here would discard
+    // the tail the host is asking us to stop, not stop it cleanly.
+    faustEngine.silenceVoice();
 }
 
 void PluginForgeProcessor::processBlock(juce::AudioBuffer<float>& buffer,
@@ -126,11 +141,15 @@ void PluginForgeProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 
     // ── MIDI → voice ────────────────────────────────────────────────────────
     // Inside the bracket, because these writes touch DSP zones exactly as
-    // pushToFaust does. Unconditional: an empty buffer costs one iterator
-    // construction, the effect target simply never receives events, and the
-    // offline harnesses drive processBlock directly with no plugin wrapper —
-    // so gating this on PF_IS_SYNTH would make the tests exercise a path the
-    // product does not have.
+    // pushToFaust does.
+    //
+    // Gated on isInstrument() -- a property of the LOADED PATCH -- and
+    // deliberately NOT on PF_IS_SYNTH, which is a property of the build. The
+    // offline harnesses are console apps: they compile with PF_IS_SYNTH == 0 and
+    // drive processBlock directly with no plugin wrapper, so a build-time gate
+    // would make every test exercise a path the product does not have. An
+    // effect patch never satisfies the voice contract, so it never enters here
+    // regardless of which target it is running in.
     //
     // LIMITATION, stated rather than discovered: events are applied at BLOCK
     // granularity, not at their sample offsets — up to ~10.7 ms of timing jitter

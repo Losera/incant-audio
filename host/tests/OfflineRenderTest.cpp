@@ -582,13 +582,25 @@ const std::vector<InstrumentPatch> kInstruments = {
     // raw note number and /vel the raw 0-127 velocity (poly-dsp.h:243-251), so a
     // patch using these must convert for itself -- and this pins that we pass the
     // right one.
+    // ⚠️ en.adsr, NOT en.ar. This is not a style choice.
+    //
+    // en.ar is a ONE-SHOT: envelopes.lib:85-86 says "release is triggered when
+    // the envelope value reaches 1" -- it ignores the gate's level entirely and
+    // releases on its own. This patch originally used it, which made the
+    // "DECAYS after note-off" assertion below VACUOUS: the envelope had already
+    // released by itself, so the check passed whether or not note-off worked.
+    // Measured 2026-07-31 -- with reset() deliberately broken, this patch's gate
+    // stayed at 1 and the output still fell to zero.
+    //
+    // Only en.adsr sustains while the gate is held. Any corpus patch asserting
+    // something about note-off must use it.
     { "key/vel spelling", "the alternate contract, raw units",
       "import(\"stdfaust.lib\");\n"
       "key = hslider(\"key\",69,0,127,1);\n"
       "vel = hslider(\"vel\",100,0,127,1);\n"
       "gate = button(\"gate\");\n"
       "process = os.osc(ba.midikey2hz(key)) * (vel/127.0)\n"
-      "          * en.ar(0.01,0.2,gate) <: _,_;", true, 0 },
+      "          * en.adsr(0.01,0.1,0.7,0.2,gate) <: _,_;", true, 0 },
 
     // The safety case: a generator with a "freq" slider and NO gate. Not an
     // instrument, so nothing is withheld and it drones as it always did.
@@ -1018,6 +1030,30 @@ int main(int argc, char** argv)
                       + juce::String(mr.held.rms[0], 5) + ")");
 
             check(! p.isOutputMuted(), "OutputGuard did NOT need to mute this patch");
+
+            // ── The hanging note ─────────────────────────────────────────────
+            // Hold a note and NEVER release it (noteOnBlocks past the end, so
+            // renderWithMidi emits no note-off), then do what a host does on
+            // transport stop: call reset().
+            //
+            // RED CASE: before FaustEngine::silenceVoice() existed, reset() was
+            // not overridden at all. The gate zone kept its 1, only a MIDI
+            // note-off could clear it, and there were no events left to send --
+            // so the patch droned forever. This assertion is the whole reason
+            // the override exists.
+            (void) renderWithMidi(p, kSampleRate, kBlockSize, 20, 9999, 69, 100);
+            p.reset();
+
+            // Let the release finish before measuring: 40 blocks is 0.43 s at
+            // 48k, comfortably past the corpus patches' longest release (0.2 s).
+            // Measuring ACROSS the release would fail a working fix.
+            (void) render(p, kSampleRate, kBlockSize, 40);
+
+            const auto afterReset = render(p, kSampleRate, kBlockSize, 20);
+            check(afterReset.rms < 1.0e-4f,
+                  juce::String("reset() RELEASES a held note (rms ")
+                      + juce::String(afterReset.rms, 7) + ")");
+
             std::printf("\n");
         }
     }
