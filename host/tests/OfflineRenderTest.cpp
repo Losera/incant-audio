@@ -742,11 +742,44 @@ int main(int argc, char** argv)
     juce::ScopedJuceInitialiser_GUI juceInit;
 
     std::printf("OfflineRenderTest — objective half of the P6 battery\n");
+    std::printf("  built as: %s (PF_IS_SYNTH=%d)\n",
+                PF_IS_SYNTH ? "INSTRUMENT" : "effect", (int) PF_IS_SYNTH);
     std::printf("  %d well-behaved patches, %d pathological controls, %d arity cases\n",
                 (int) kWellBehaved.size(), (int) kPathological.size(), (int) kArity.size());
     std::printf("  %.0f Hz, %d-sample blocks, %d blocks (~%.1fs) per patch\n\n",
                 kSampleRate, kBlockSize, kBlocks,
                 kBlocks * kBlockSize / kSampleRate);
+
+    // ── Build-time plugin traits ─────────────────────────────────────────────
+    // The ONLY assertions that differ between OfflineRenderTest (PF_IS_SYNTH=0)
+    // and OfflineSynthRenderTest (PF_IS_SYNTH=1), and the reason the second
+    // target exists at all. Before it, every harness compiled as an effect and
+    // the instrument build's traits were asserted by nothing -- PluginForgeSynth
+    // shipped with acceptsMidi(), its bus layout and its release tail untested.
+    //
+    // Asserted in BOTH directions rather than only under #if PF_IS_SYNTH, so the
+    // two builds cannot silently swap behaviour and still pass.
+    {
+        std::printf("  --- build-time plugin traits ---\n\n");
+
+        PluginForgeProcessor p;
+
+        // An instrument MUST advertise MIDI input or no host routes notes to it.
+        // An effect must NOT, or DAWs present it wrongly for no gain.
+        check(p.acceptsMidi() == (PF_IS_SYNTH != 0),
+              juce::String("acceptsMidi() is ") + (PF_IS_SYNTH ? "true" : "false")
+                  + " for this build");
+
+        // Reporting 0 on an instrument lets a host stop calling processBlock the
+        // moment the last note ends, truncating the release.
+        check((p.getTailLengthSeconds() > 0.0) == (PF_IS_SYNTH != 0),
+              juce::String("getTailLengthSeconds() is ")
+                  + juce::String(p.getTailLengthSeconds(), 1) + "s");
+
+        check(! p.producesMidi(), "producesMidi() is false in both builds");
+
+        std::printf("\n");
+    }
 
     // ── Well-behaved corpus ──────────────────────────────────────────────────
     for (const auto& patch : kWellBehaved)
@@ -1099,6 +1132,13 @@ int main(int argc, char** argv)
     // the point: every harness here already carried an exact `failures` int and
     // threw the denominator away, so "0 failures" was indistinguishable from
     // "ran nothing". Format is fixed and shared by all seven harnesses.
-    std::printf("PF_SUMMARY harness=%s checks=%d failures=%d\n", "OfflineRenderTest", checks, failures);
+    // The harness NAME must track the build, not the source file: this same .cpp
+    // is compiled twice, as OfflineRenderTest and as OfflineSynthRenderTest.
+    // health_report.py keys its per-lane records on this string
+    // (tools/health_report.py:99), so emitting one name from both binaries would
+    // silently collapse two lanes into one -- the second overwriting the first.
+    std::printf("PF_SUMMARY harness=%s checks=%d failures=%d\n",
+                PF_IS_SYNTH ? "OfflineSynthRenderTest" : "OfflineRenderTest",
+                checks, failures);
     return failures == 0 ? 0 : 1;
 }

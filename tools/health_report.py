@@ -84,6 +84,10 @@ HARNESSES = {
     "dsp": [
         # name,                    artefact dir,                   jits, display
         ("OfflineRenderTest",      "OfflineRenderTest",            True,  False),
+        # Same source, compiled as the instrument target (PF_IS_SYNTH=1). Its own
+        # lane because it is its own binary with its own PF_SUMMARY name -- the
+        # build-time traits it asserts exist in no other harness.
+        ("OfflineSynthRenderTest", "OfflineSynthRenderTest",       True,  False),
         ("JitTargetTest",          "JitTargetTest",                True,  False),
         ("OutputGuardTest",        "OutputGuardTest",              False, False),
         ("ParamMapTest",           "ParamMapTest",                 False, False),

@@ -147,8 +147,14 @@ jobs:
       # PluginForgeHost is the juce_add_plugin shared-code target; the two
       # format targets and the TSan console app are requested explicitly so a
       # regression in any one of the four fails the job by name.
+      # PluginForgeSynth is the instrument target (IS_SYNTH TRUE, category
+      # Instrument), added 2026-07-31. It shipped building in tools/check.sh and
+      # in NO CI job -- PF-029 inverted: the ladder green about a LARGER set than
+      # the remote gate. TestLadderRunsWhatCIRuns cannot catch that, because its
+      # relation runs CI -> ladder and its universe is filtered to names ending
+      # in "Test". TestBothPluginTargetsAreGated covers this direction.
       - name: Build host targets + TSan test
-        run: cmake --build build-ci --target PluginForgeHost PluginForgeHost_Standalone PluginForgeHost_VST3 ParamPoolTsanTest
+        run: cmake --build build-ci --target PluginForgeHost PluginForgeHost_Standalone PluginForgeHost_VST3 PluginForgeSynth PluginForgeSynth_Standalone PluginForgeSynth_VST3 ParamPoolTsanTest
 
       # The two behavioural harnesses added 2026-07-25. Both are ASan/UBSan.
       #
@@ -172,7 +178,7 @@ jobs:
       # internals (PluginEditor.h:42-48, ParamGridPanel.h:91) and a rename there
       # would otherwise break the design instrument silently with CI green.
       - name: Build behavioural test harnesses
-        run: cmake --build build-ci --target OfflineRenderTest PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery
+        run: cmake --build build-ci --target OfflineRenderTest OfflineSynthRenderTest PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery
 
       # OutputGuardTest / ParamMapTest / StatePersistenceTest — 96 checks that had
       # CMake targets and were run by NOTHING until 2026-07-30. PF-029 inverted:
@@ -309,6 +315,21 @@ jobs:
             echo "::endgroup::"
           fi
           exit $rc
+
+      # The same corpus compiled as the instrument target. Its unique payload is
+      # the build-time trait block: acceptsMidi(), the release tail and the bus
+      # layout under PF_IS_SYNTH=1, which no other harness can reach because
+      # console apps receive no JucePlugin_* defines and all compile as effects.
+      # Needs no display. No sanitizers by design (host/CMakeLists.txt), so no
+      # ASAN/UBSAN options and no gdb post-mortem here.
+      - name: Run OfflineSynthRenderTest (same battery, instrument build)
+        run: |
+          BIN="$(find build-ci/OfflineSynthRenderTest_artefacts -type f -name OfflineSynthRenderTest | head -n 1)"
+          if [ -z "$BIN" ]; then
+            echo "OfflineSynthRenderTest binary not found" >&2
+            exit 1
+          fi
+          LD_PRELOAD="$PF_LD_PRELOAD" timeout 300 "$BIN"
 
       # xvfb-run -a picks a free display number rather than a fixed :99, so two
       # concurrent jobs on the same runner cannot collide. `timeout` is not

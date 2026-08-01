@@ -389,6 +389,50 @@ target_link_libraries(OfflineRenderTest PRIVATE
     ${LIBFAUST_LIB}
 )
 
+# OfflineSynthRenderTest -- the SAME harness, compiled as the instrument target.
+#
+# WHY THIS EXISTS. PF_IS_SYNTH is derived from JucePlugin_IsSynth, which JUCE
+# defines only for plugin targets. Every console-app harness therefore compiles
+# with PF_IS_SYNTH == 0, so until this target existed the instrument build's
+# trait surface -- the optional input bus, acceptsMidi(), the release tail,
+# isBusesLayoutSupported -- was exercised by NOTHING. PluginForgeSynth compiled
+# and shipped and no assertion had ever run against it. That is the same defect
+# check.sh's header names: believing a control runs when it does not.
+#
+# The #ifndef guard in PluginProcessor.h was written to be overridable from the
+# command line for exactly this. -DPF_IS_SYNTH=1 is the whole difference.
+#
+# NO SANITIZERS HERE, deliberately. This target exists for the build-time traits;
+# the audio path it shares with OfflineRenderTest is byte-identical source and is
+# already covered under ASan/UBSan there. Building a second sanitised copy would
+# roughly double the slowest harness in the tree to re-check code that is already
+# checked. If this target ever grows assertions the Fx one does not have, revisit.
+juce_add_console_app(OfflineSynthRenderTest
+    PRODUCT_NAME "Offline Synth Render Test"
+)
+
+target_sources(OfflineSynthRenderTest PRIVATE
+    tests/OfflineRenderTest.cpp
+    ${PF_CORE_SOURCES}
+)
+
+target_compile_features(OfflineSynthRenderTest PRIVATE cxx_std_17)
+
+target_compile_definitions(OfflineSynthRenderTest PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_VST3_CAN_REPLACE_VST2=0
+    PF_IS_SYNTH=1
+)
+
+target_link_libraries(OfflineSynthRenderTest PRIVATE
+    juce::juce_audio_utils
+    juce::juce_dsp
+    juce::juce_gui_extra
+    juce::juce_recommended_config_flags
+    ${LIBFAUST_LIB}
+)
+
 # EditorSessionTest -- a simulated human session against the real editor
 # (host/tests/EditorSessionTest.cpp). Constructs PluginForgeProcessor AND
 # PluginForgeEditor and drives them through the entry points a person's clicks

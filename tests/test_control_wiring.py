@@ -810,6 +810,64 @@ class TestLadderRunsWhatCIRuns:
 
 
 # ---------------------------------------------------------------------------
+class TestBothPluginTargetsAreGated:
+    """Every juce_add_plugin target must be built by BOTH the ladder and CI.
+
+    TestLadderRunsWhatCIRuns above cannot cover this, for two independent reasons
+    -- either alone would make it a false comfort:
+
+      1. Its universe is filtered to names ending in "Test"
+         (_ci_harnesses, :770). A plugin target called PluginForgeSynth is
+         outside it by construction.
+      2. Its relation runs one way, CI -> ladder. Nothing there stops the LADDER
+         growing a target CI never builds.
+
+    Both fired at once on 2026-07-31. PluginForgeSynth -- the instrument target,
+    a whole second plugin -- shipped in tools/check.sh and in no CI job, with
+    every gate green. That is PF-029 inverted: the local ladder making a TRUE
+    statement about a LARGER set than the remote gate, which is the same defect
+    read from the other end.
+
+    NOT COVERED: that the targets link, load in a DAW, or do anything once built.
+    This asserts only that neither gate is structurally blind to them.
+    """
+
+    CMAKE = ROOT / "host" / "CMakeLists.txt"
+
+    @classmethod
+    def _plugin_targets(cls) -> set[str]:
+        return set(re.findall(r"juce_add_plugin\(\s*(\w+)", cls.CMAKE.read_text()))
+
+    def test_there_is_more_than_one_plugin_target(self):
+        # Guards the guard. If the regex breaks, every assertion below passes
+        # vacuously and this class becomes decoration -- the exact failure mode
+        # it was written to prevent.
+        targets = self._plugin_targets()
+        assert len(targets) >= 2, (
+            f"parsed {targets} out of host/CMakeLists.txt. Expected at least the Fx "
+            "and instrument targets; if a target was removed, update this test "
+            "deliberately rather than letting it pass on an empty set."
+        )
+
+    def test_the_ladder_builds_every_plugin_target(self):
+        body = CHECK_SH.read_text()
+        missing = sorted(t for t in self._plugin_targets() if t not in body)
+        assert not missing, (
+            f"host/CMakeLists.txt declares {missing} and tools/check.sh never builds "
+            "them. A plugin nobody compiles locally breaks on someone else's machine."
+        )
+
+    def test_ci_builds_every_plugin_target(self):
+        body = WORKFLOW.read_text()
+        missing = sorted(t for t in self._plugin_targets() if t not in body)
+        assert not missing, (
+            f"host/CMakeLists.txt declares {missing} and .github/workflows/test.yml "
+            "never builds them. 'Done means pushed and green' is a claim about CI, "
+            "and CI would not be looking -- PF-029 inverted."
+        )
+
+
+# ---------------------------------------------------------------------------
 class TestCaptureHarnessTakesTheLock:
     """Every harness that spends provider quota must hold the PF-025 lock.
 

@@ -112,6 +112,7 @@ level_full() {
         cmake --build host/build --target PluginForgeHost PluginForgeHost_Standalone \
               PluginForgeHost_VST3 PluginForgeSynth PluginForgeSynth_Standalone \
               PluginForgeSynth_VST3 ParamPoolTsanTest OfflineRenderTest \
+              OfflineSynthRenderTest \
               PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim \
               OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery
 
@@ -185,6 +186,20 @@ level_full() {
               timeout 300 "$render"
     else
       skip "OfflineRenderTest" "binary not built"
+    fi
+
+    # The same harness compiled as the INSTRUMENT target (PF_IS_SYNTH=1). Its
+    # extra value is the build-time trait block -- acceptsMidi(), the release
+    # tail, the bus layout -- which no other harness can reach, because console
+    # apps get no JucePlugin_* defines and so all compile as effects.
+    # No sanitizers on this one by design; see host/CMakeLists.txt.
+    local synthrender
+    synthrender="$(find host/build/OfflineSynthRenderTest_artefacts -type f -name OfflineSynthRenderTest 2>/dev/null | head -n1)"
+    if [[ -n "$synthrender" ]]; then
+      run "OfflineSynthRenderTest (same battery, instrument build)" \
+          timeout 300 "$synthrender"
+    else
+      skip "OfflineSynthRenderTest" "binary not built"
     fi
 
     local promptpanel
