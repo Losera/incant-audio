@@ -10,11 +10,30 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Matched on CLASS, not title.
+#
+# It matched `'PluginForge' in title` until 2026-08-02, and that silently
+# captured the WRONG WINDOW: a terminal sitting in ~/PluginForge has the title
+# "~/PluginForge/host/tools", which contains the string. The shot came out as a
+# picture of a shell, the script printed a success line with a plausible
+# geometry, and nothing anywhere said it had failed. Every screenshot taken with
+# a project terminal open and earlier in the window list was suspect.
+#
+# The class is set by JUCE from the Standalone's product name and is not
+# something a passing terminal can collide with. Title is kept as a fallback for
+# a compositor that does not report class, but the class match wins.
 GEO=$(hyprctl clients -j | python3 -c "
 import json, sys
-c = [w for w in json.load(sys.stdin) if 'PluginForge' in w.get('title', '')]
+ws = json.load(sys.stdin)
+c = [w for w in ws if 'PluginForge' in (w.get('class') or '')]
+if not c:
+    c = [w for w in ws if 'PluginForge' in (w.get('initialClass') or '')]
 if not c:
     sys.exit('PluginForge Host window not found — is the Standalone running?')
+if len(c) > 1:
+    names = ', '.join(repr(w.get('title')) for w in c)
+    print(f'note: {len(c)} PluginForge windows open, shooting the first: {names}',
+          file=sys.stderr)
 w = c[0]
 print(f\"{w['at'][0]},{w['at'][1]} {w['size'][0]}x{w['size'][1]}\")
 ")
