@@ -271,12 +271,52 @@ it. Edit one, and the test tells you to edit the other.
 | `check_rt_safety.py` | No allocation, locking, or I/O inside the hand-enumerated closure of `processBlock` — `enterAudio`/`exitAudio`, `ParamPool::pushToFaust`, `FaustEngine::process`, `OutputGuard::process`. Body extracted by brace counting from the qualified signature, so neighbours that legitimately allocate off-thread are excluded. Fails closed on a stale read. |
 | `check_prompt_invariants.py` | Four decidable properties of `llm/prompts/system_prompt.txt`: the ADR-009 duplicate-symbol sentence is present, the "process … exactly once" clause is present, the generated-stdlib-block markers are intact, and **every `ns.func` resolves against the installed `/usr/share/faust/*.lib`**. Skips (exit 0) when Faust is absent. |
 | `check_bash_denylist.py` | Blocks the CLAUDE.md "Do not" commands, including staging across the whole tree. |
+| `check_doc_naming.py` | Blocks a **new** `.md`/`.txt`/`.rst` file whose *filename* carries a date or a relative day word. `Write` only, and only when the file does not already exist, so the dated documents already on disk stay editable. Exempt: `docs/records/`, `bench/results/`, `logs/`, `artifacts/`. See "Naming documents" below. |
 
 **Retired, and deliberately not on disk:** `check_adr009_prompt_sync.py` (it verified one
 sentence while the two prompt files diverged substantially around it; the second prompt file
 was later deleted outright) and `protect_human_owned.py` (it gated `llm/prompts/*` and
 `docs/decisions.md` on authorship, which §1 no longer does). Both went in `cf1d8e8`. They
 are named here only so a reader of the git history knows they were removed on purpose.
+
+### Naming documents
+
+*Added 2026-08-03.*
+
+**A living document does not carry a date in its filename. It carries a session number.**
+
+The evidence is this repository's own `docs/`. `session_plan_2026-08-02.md` was written on
+08-01, planned for 08-02, and worked through on 08-03 — its name was wrong for two of the
+three days it mattered, and a reader running `ls docs/` had no way to tell whether it was
+current or abandoned. `test_plan_today_2026-07-21.md` manages to be wrong twice in one
+name: "today" is false on every day but one, and the date pins it to a day that has passed.
+This is the project's signature defect in miniature — a claim that outlives the thing it
+described — and a filename is the one place where nobody thinks to check.
+
+So:
+
+- **Living documents** — plans, designs, roadmaps, anything that will be edited again —
+  live in `docs/sessions/NNN-topic.md`. The number is the sequence; the topic is what it is
+  about. Neither goes stale.
+- **The next number is one above the highest already in `docs/sessions/`.** No date
+  arithmetic, nothing to recompute, no retroactive renumbering. Numbering began at `001`
+  when this rule landed; the ~11 sessions before it are not numbered, and `git log` is
+  their record. Inventing numbers for them would be inventing history.
+- **Point-in-time records may and should be dated**, because there the date is the
+  *content*, not the packaging: a review conducted on a day, a benchmark run, an archived
+  result. Those go under `docs/records/`, `bench/results/`, `logs/` or `artifacts/`, which
+  the hook exempts. The test is not "does this name contain a date" but **"will this
+  document be edited again"** — a plan will, a record will not.
+- **Documents already on disk keep their names.** The hook fires only on creation. Renaming
+  five historical files to satisfy a rule introduced afterwards would break every inbound
+  reference to buy nothing.
+
+The hook (`check_doc_naming.py`) is what makes this a control rather than an intention. It
+shipped with six red cases and seven green ones, and **one of the six did not block when
+first written** — the day-word pattern anchored on a separator or end-of-string, and `.md`
+is neither, so `test_plan_today.md` sailed through while `test_plan_today_2026` was caught.
+Found by running the red cases, not by reading the regex. That is the whole argument for
+running them.
 
 ### A document that describes a mechanism is checked against it
 

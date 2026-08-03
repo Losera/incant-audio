@@ -256,6 +256,25 @@ class TestHooksStillHaveTeeth:
                            "content": "Use ef.totally_fake_function for chorus.\n"},
         }) == 2
 
+    # Every form must block, because a rule that catches one spelling of a date and
+    # not another is worse than none: it teaches you the rule is enforced while
+    # letting the next variant through. The "today" case is here specifically
+    # because it did NOT block when first written -- the day-word pattern anchored
+    # on a separator or end-of-string, and ".md" is neither.
+    @pytest.mark.parametrize("name", [
+        "session_plan_2026-09-09.md",   # full date
+        "impl_plan_2026-09.md",         # year and month
+        "notes_2026_09_09.md",          # underscore separators
+        "plan_20260909.md",             # compact, no separators
+        "test_plan_today.md",           # relative day word
+        "tonight.md",                   # relative day word, whole stem
+    ])
+    def test_doc_naming_blocks_a_dated_new_document(self, name):
+        assert _run_hook("check_doc_naming.py", {
+            "tool_name": "Write", "cwd": CWD,
+            "tool_input": {"file_path": str(ROOT / "docs" / name), "content": "x"},
+        }) == 2
+
     # PF-015. The hook scoped FaustEngine::process and processBlock only, while the
     # audio thread actually runs four functions. `pushToFaust` MOVED onto the audio
     # thread with the PF-004 fix (efbb5a5) and was never added; OutputGuard::process
@@ -320,6 +339,33 @@ class TestHooksDoNotOverreach:
         assert _run_hook("check_rt_safety.py", {
             "tool_name": "Write", "cwd": CWD,
             "tool_input": {"file_path": str(path), "content": path.read_text()},
+        }) == 0
+
+    # The exemptions are the reason this hook is usable at all, so they are pinned
+    # as tightly as the blocks. A gate that refused to let you write an archived
+    # benchmark run, or to edit a dated document that already exists, would be
+    # switched off within a day -- and a switched-off gate is a dead one.
+    @pytest.mark.parametrize("relpath, why", [
+        ("docs/sessions/003-playground-shell.md", "a session-numbered doc is the prescribed form"),
+        ("docs/records/review_2026-09-09.md",     "a point-in-time record may be dated"),
+        ("bench/results/run_2026-09-09.json",     "an archived run is a record, not a document"),
+        ("docs/polyphony_design.md",              "an ordinary new doc is untouched"),
+        ("docs/adr_021_v2.md",                    "a version number is not a date"),
+    ])
+    def test_doc_naming_permits(self, relpath, why):
+        assert _run_hook("check_doc_naming.py", {
+            "tool_name": "Write", "cwd": CWD,
+            "tool_input": {"file_path": str(ROOT / relpath), "content": "x"},
+        }) == 0, why
+
+    def test_doc_naming_leaves_existing_dated_files_editable(self):
+        """Five dated documents already exist and are staying. Rewriting one must not
+        be blocked, or the historical record becomes read-only for no benefit."""
+        existing = ROOT / "docs" / "architecture_review_2026-07-21.md"
+        assert existing.exists(), "fixture moved; pick another committed dated doc"
+        assert _run_hook("check_doc_naming.py", {
+            "tool_name": "Write", "cwd": CWD,
+            "tool_input": {"file_path": str(existing), "content": "x"},
         }) == 0
 
     def test_the_real_system_prompt_passes_its_own_invariant(self):
