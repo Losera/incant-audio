@@ -178,16 +178,19 @@ jobs:
       # internals (PluginEditor.h:42-48, ParamGridPanel.h:91) and a rename there
       # would otherwise break the design instrument silently with CI green.
       - name: Build behavioural test harnesses
-        run: cmake --build build-ci --target OfflineRenderTest OfflineSynthRenderTest PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery ParamIdentityTest
+        run: cmake --build build-ci --target OfflineRenderTest OfflineSynthRenderTest PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery ParamIdentityTest NoteRingTest NoteRingTsanTest
 
       # OutputGuardTest / ParamMapTest / StatePersistenceTest — 96 checks that had
       # CMake targets and were run by NOTHING until 2026-07-30. PF-029 inverted:
       # there CI ran what the ladder did not, here neither ran them. All three are
       # pure and fast — no display, no network, no JIT for two of the three — so
       # the omission never had a cost justification.
-      - name: Run the pure harnesses (OutputGuard, ParamMap, StatePersistence, ParamIdentity)
+      # NoteRingTest joined 2026-08-03. Its TSan twin runs in its own step below,
+      # NOT here: this loop preloads the CPU shim, and NoteRingTsanTest neither
+      # JITs nor wants a non-instrumented .so preloaded into a TSan binary.
+      - name: Run the pure harnesses (OutputGuard, ParamMap, StatePersistence, ParamIdentity, NoteRing)
         run: |
-          for t in OutputGuardTest ParamMapTest StatePersistenceTest ParamIdentityTest; do
+          for t in OutputGuardTest ParamMapTest StatePersistenceTest ParamIdentityTest NoteRingTest; do
             BIN="$(find build-ci -type f -name "$t" | head -n 1)"
             if [ -z "$BIN" ]; then
               echo "$t binary not found" >&2
@@ -197,6 +200,19 @@ jobs:
             LD_PRELOAD="$PF_LD_PRELOAD" timeout 300 "$BIN"
             echo "::endgroup::"
           done
+
+      # NoteRing's release/acquire pairing under a real producer and a real
+      # consumer thread. No LD_PRELOAD: the target links libtsan directly and
+      # does not JIT, so it needs neither the shim nor the preloaded runtime that
+      # ParamPoolTsanTest does.
+      - name: Run NoteRingTsanTest under ThreadSanitizer
+        run: |
+          BIN="$(find build-ci -type f -name NoteRingTsanTest | head -n 1)"
+          if [ -z "$BIN" ]; then
+            echo "NoteRingTsanTest binary not found" >&2
+            exit 1
+          fi
+          TSAN_OPTIONS="halt_on_error=1" timeout 300 "$BIN"
 
       # ── PF-036: pin the JIT's target CPU for every harness that JITs ────────
       # GitHub's hosted fleet mixes EPYC 7763 (Zen 3, no AVX-512), Xeon 8573C

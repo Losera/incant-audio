@@ -115,7 +115,7 @@ level_full() {
               OfflineSynthRenderTest \
               PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim \
               OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery \
-              ParamIdentityTest
+              ParamIdentityTest NoteRingTest NoteRingTsanTest
 
     # ── Three harnesses that existed and ran nowhere ─────────────────────────
     # Found 2026-07-30 while surveying the measurement surface: OutputGuardTest
@@ -138,8 +138,14 @@ level_full() {
     # harnesses named above, PF-047's scenario that was defined and never called,
     # and the five hooks that were mis-nested for a week. A test wired in later is
     # a test that was unwired for however long "later" turned out to be.
+    # NoteRingTest joined on 2026-08-03 on the same principle, in the commit that
+    # created it. Note it is here TWICE in effect: this ASan/UBSan run covers the
+    # index arithmetic, and NoteRingTsanTest below covers the memory-ordering
+    # claim the header actually makes. Running only one of the two would leave
+    # half the header unchecked while printing a green line.
     local pure
-    for pure in OutputGuardTest ParamMapTest StatePersistenceTest ParamIdentityTest; do
+    for pure in OutputGuardTest ParamMapTest StatePersistenceTest ParamIdentityTest \
+                NoteRingTest; do
       local bin
       bin="$(find host/build -type f -name "$pure" 2>/dev/null | head -n1)"
       if [[ -n "$bin" ]]; then
@@ -177,6 +183,19 @@ level_full() {
           env TSAN_OPTIONS=halt_on_error=1 timeout 300 "$tsan"
     else
       skip "ThreadSanitizer" "ParamPoolTsanTest binary not built"
+    fi
+
+    # NoteRing's release/acquire pairing, under a real producer thread and a real
+    # consumer thread. This is the rung that makes NoteRing.h's ordering comment
+    # an assertion rather than a claim -- the note path from the on-screen
+    # keyboard to processBlock crosses exactly this queue.
+    local noteringtsan
+    noteringtsan="$(find host/build -type f -name NoteRingTsanTest 2>/dev/null | head -n1)"
+    if [[ -n "$noteringtsan" ]]; then
+      run "NoteRing under ThreadSanitizer" \
+          env TSAN_OPTIONS=halt_on_error=1 timeout 300 "$noteringtsan"
+    else
+      skip "NoteRing under ThreadSanitizer" "NoteRingTsanTest binary not built"
     fi
 
     # ── The two harnesses CI runs and this ladder did not (PF-029) ────────────

@@ -261,6 +261,40 @@ target_compile_features(ParamIdentityTest PRIVATE cxx_std_17)
 target_compile_options(ParamIdentityTest PRIVATE -fsanitize=address,undefined -g -O1)
 target_link_options(ParamIdentityTest PRIVATE -fsanitize=address,undefined)
 
+# ---------------------------------------------------------------------------
+# NoteRingTest / NoteRingTsanTest -- the message->audio note queue
+# (host/Source/NoteRing.h, host/tests/NoteRingTest.cpp).
+#
+# TWO TARGETS FROM ONE SOURCE, deliberately. NoteRing.h is a release/acquire
+# argument, and ASan and TSan cannot be combined in one binary, so a single
+# target would have to pick which half of the header goes unchecked:
+#
+#   NoteRingTest      ASan/UBSan -- bounds and index arithmetic over the slot
+#                     array, which is what the mask/wrap logic can get wrong.
+#   NoteRingTsanTest  TSan -- the actual memory-ordering claim. The concurrency
+#                     section runs a real producer thread against a real
+#                     consumer thread; without this target that section proves
+#                     only that the code does not crash, which is not the claim
+#                     the header makes.
+#
+# No JUCE, no libfaust, no plugin sources: the queue is index arithmetic over a
+# fixed array, and the same reasoning that factored out ParamGridLayout.h and
+# ParamIdentity.h applies -- it must be exercisable without a compiled DSP, a
+# message thread or a live editor.
+# ---------------------------------------------------------------------------
+add_executable(NoteRingTest tests/NoteRingTest.cpp)
+target_compile_features(NoteRingTest PRIVATE cxx_std_17)
+target_compile_options(NoteRingTest PRIVATE -fsanitize=address,undefined -g -O1)
+target_link_options(NoteRingTest PRIVATE -fsanitize=address,undefined)
+find_package(Threads REQUIRED)
+target_link_libraries(NoteRingTest PRIVATE Threads::Threads)
+
+add_executable(NoteRingTsanTest tests/NoteRingTest.cpp)
+target_compile_features(NoteRingTsanTest PRIVATE cxx_std_17)
+target_compile_options(NoteRingTsanTest PRIVATE -fsanitize=thread -g -O1)
+target_link_options(NoteRingTsanTest PRIVATE -fsanitize=thread)
+target_link_libraries(NoteRingTsanTest PRIVATE Threads::Threads)
+
 # StatePersistenceTest -- round-trips the P11 persisted-state blob through a real
 # PluginForgeProcessor (host/tests/StatePersistenceTest.cpp): getStateInformation ->
 # MemoryBlock -> setStateInformation on a fresh processor, asserting macro values,
