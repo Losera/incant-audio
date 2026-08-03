@@ -294,8 +294,21 @@ struct MidiRender
 // makes both a tighter threshold and a stable one possible.
 constexpr int kTailBlocks = 4;
 
+// Where the note events come from. The plugin has two note sources and they
+// must behave identically once inside processBlock -- a divergence between them
+// is exactly the kind of thing that would only show up on stage.
+//
+// Added as a defaulted parameter rather than a sibling function, deliberately
+// and against this file's usual habit: the point of the keyboard assertions is
+// that the SAME measurement code produces the same verdict for both sources.
+// Two copies of the loop could drift apart and then agree with each other about
+// the wrong thing. Every existing call site is unchanged and still runs exactly
+// the code it always did.
+enum class NoteSource { MidiBuffer, Keyboard };
+
 MidiRender renderWithMidi(PluginForgeProcessor& p, double sampleRate, int blockSize,
-                          int blocks, int noteOnBlocks, int note, int velocity)
+                          int blocks, int noteOnBlocks, int note, int velocity,
+                          NoteSource source = NoteSource::MidiBuffer)
 {
     juce::AudioBuffer<float> buffer(2, blockSize);
     TestSignal signal;
@@ -310,7 +323,19 @@ MidiRender renderWithMidi(PluginForgeProcessor& p, double sampleRate, int blockS
     for (int b = 0; b < blocks; ++b)
     {
         juce::MidiBuffer midi;
-        if (b == 0)
+
+        // The keyboard path pushes on what is, in the product, the MESSAGE
+        // thread -- here the same thread, which is fine: NoteRing's threading is
+        // exercised by NoteRingTsanTest, and what this test is asking is whether
+        // processBlock DRAINS the queue and reaches the voice at all.
+        if (source == NoteSource::Keyboard)
+        {
+            if (b == 0)
+                p.pushKeyboardNote(note, velocity, true);
+            else if (b == noteOnBlocks)
+                p.pushKeyboardNote(note, 0, false);
+        }
+        else if (b == 0)
             midi.addEvent(juce::MidiMessage::noteOn(1, note, (juce::uint8) velocity), 0);
         else if (b == noteOnBlocks)
             midi.addEvent(juce::MidiMessage::noteOff(1, note), 0);
@@ -1103,6 +1128,36 @@ int main(int argc, char** argv)
                 check(s.rms > 1.0e-4f,
                       juce::String("sounds WITHOUT any MIDI, as an effect should (rms ")
                           + juce::String(s.rms, 5) + ")");
+
+                // ── The keyboard queue must still DRAIN for a non-instrument ──
+                // W3.2, and this assertion exists because the first version of
+                // that code got it wrong: the drain was written inside the
+                // isInstrument() gate, so an effect patch never emptied the ring.
+                // It would fill to capacity, every further keypress would count
+                // as dropped, and the next instrument the user generated would
+                // receive the whole stale backlog as one burst.
+                //
+                // Push more than the ring holds (256) and assert nothing was
+                // dropped -- which is only true if processBlock is emptying it.
+                // RED CASE, measured: with the drain back inside the gate,
+                // droppedKeyboardNotes() reaches 545 here and this fails.
+                for (int i = 0; i < 400; ++i)
+                {
+                    p.pushKeyboardNote(60, 100, true);
+                    p.pushKeyboardNote(60, 0, false);
+                    if ((i % 8) == 0)
+                        (void) render(p, kSampleRate, kBlockSize, 1);
+                }
+                (void) render(p, kSampleRate, kBlockSize, 2);
+
+                check(p.droppedKeyboardNotes() == 0,
+                      juce::String("the note queue DRAINS even for an effect (dropped ")
+                          + juce::String((int) p.droppedKeyboardNotes()) + ")");
+
+                const auto afterKeys = render(p, kSampleRate, kBlockSize, 20);
+                check(afterKeys.rms > 1.0e-4f,
+                      "an effect keeps sounding and is unmoved by keyboard notes");
+
                 std::printf("\n");
                 continue;
             }
@@ -1143,6 +1198,47 @@ int main(int argc, char** argv)
                       + juce::String(mr.held.rms[0], 5) + ")");
 
             check(! p.isOutputMuted(), "OutputGuard did NOT need to mute this patch");
+
+            // ── The same note, from the on-screen keyboard ────────────────────
+            // W3.2. The keyboard cannot write a DSP zone itself (its callbacks
+            // are on the message thread), so it queues into NoteRing and
+            // processBlock drains it. This asserts the drain exists and lands on
+            // the same voice the MidiBuffer walk does.
+            //
+            // RED CASE, measured: with the `while (noteRing.pop(ev))` loop
+            // deleted from processBlock, the "SOUNDS" and "SAME note" checks
+            // below fail on EVERY instrument in the corpus at held rms 0.00000
+            // against a MIDI rms of 0.39689-0.77979. Nothing ever reaches the
+            // voice.
+            //
+            // ⚠️ Note which check carries the weight. The release assertion below
+            // still reported OK in that run, because a tail of ~0 is trivially
+            // under 1% of a held level of ~0 -- it is the "SOUNDS" check that has
+            // teeth, and the release check is only meaningful ON TOP of it. This
+            // is the en.ar shape from 2026-08-01 (an assertion that passed
+            // whether or not the thing it named worked), recorded here so the
+            // next reader does not mistake a green release line for evidence
+            // that a note was ever produced.
+            const auto kb = renderWithMidi(p, kSampleRate, kBlockSize, 80, 40, 69, 100,
+                                           NoteSource::Keyboard);
+
+            check(kb.held.rms[0] > 1.0e-3f,
+                  juce::String("SOUNDS from the on-screen keyboard (rms ")
+                      + juce::String(kb.held.rms[0], 5) + ")");
+            check(kb.tailRms < kb.held.rms[0] * 0.01f,
+                  juce::String("keyboard note-off RELEASES (tail rms ")
+                      + juce::String(kb.tailRms, 7) + ")");
+            check(p.droppedKeyboardNotes() == 0,
+                  "no keyboard note was dropped (the ring never overflowed)");
+
+            // The two sources must agree. A keyboard note at the same pitch and
+            // velocity is the same note: if these diverge, one path is writing a
+            // different zone, a different unit, or a stale velocity -- and the
+            // MIDI-only assertions above would never notice.
+            check(std::abs(kb.held.rms[0] - mr.held.rms[0]) < mr.held.rms[0] * 0.05f,
+                  juce::String("keyboard and MIDI produce the SAME note (kb ")
+                      + juce::String(kb.held.rms[0], 5) + " vs midi "
+                      + juce::String(mr.held.rms[0], 5) + ")");
 
             // ── The hanging note ─────────────────────────────────────────────
             // Hold a note and NEVER release it (noteOnBlocks past the end, so

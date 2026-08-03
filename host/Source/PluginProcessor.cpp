@@ -185,7 +185,9 @@ void PluginForgeProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     // at 48 kHz with a 512-sample block. Sample-accurate timing means splitting
     // the compute() call at each event offset, which is worth doing once the
     // pitch and polyphony gates exist to prove the split changed nothing else.
-    if (faustEngine.isInstrument())
+    const bool playable = faustEngine.isInstrument();
+
+    if (playable)
     {
         for (const auto meta : midi)
         {
@@ -217,6 +219,48 @@ void PluginForgeProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             else if (msg.isAllNotesOff() || msg.isAllSoundOff())
                 faustEngine.allNotesOff();
         }
+    }
+
+    // ── The on-screen / computer keyboard ───────────────────────────────────
+    // Same voice writes as the walk above, from a different source: the editor's
+    // MidiKeyboardState callbacks run on the message thread and cannot touch a
+    // DSP zone themselves, so they queue here and this drains them. NoteRing.h
+    // carries the argument for why a queue and not the idiomatic
+    // MidiKeyboardState::processNextMidiBuffer -- that call locks, and this
+    // thread does not.
+    //
+    // DRAINED INLINE, not in a helper. check_rt_safety.py scopes exactly four
+    // function names and cannot follow a call graph (its own docstring says so),
+    // so a drainNoteRing() would be invisible to the one automated check that
+    // reads this file for allocations and locks. Keeping the loop in the
+    // function the hook already watches is the difference between a guarded and
+    // an unguarded audio path.
+    //
+    // ⚠️ DRAINED UNCONDITIONALLY, APPLIED ONLY TO AN INSTRUMENT -- and the two
+    // halves of that sentence are not the same condition, which is the whole
+    // reason this sits OUTSIDE the `playable` block above. Draining inside it
+    // meant an effect patch never emptied the queue: the ring would fill to 255,
+    // every further keypress would count as dropped, and the moment the user
+    // generated an instrument the stale backlog would fire as one burst of
+    // note-ons. The editor disables the keyboard for an effect, so this should
+    // never receive anything then -- "should never" is exactly the assumption
+    // worth not building on.
+    //
+    // AFTER the MidiBuffer walk, so that when both sources deliver in one block
+    // the on-screen key is the one that wins the monophonic voice. The two
+    // streams have no timestamp relationship -- ring events were produced
+    // asynchronously on another thread -- so SOME order had to be chosen; this
+    // one favours the control the user is looking at.
+    pf::NoteEvent ev;
+    while (noteRing.pop(ev))
+    {
+        if (! playable)
+            continue;
+
+        if (ev.on)
+            faustEngine.noteOn(ev.note, ev.velocity);
+        else
+            faustEngine.noteOff(ev.note);
     }
 
     paramPool.pushToFaust(faustEngine);

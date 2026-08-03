@@ -3,6 +3,7 @@
 #include "FaustEngine.h"
 #include "ParamPool.h"
 #include "OutputGuard.h"
+#include "NoteRing.h"
 #include <atomic>
 #include <mutex>
 
@@ -168,6 +169,33 @@ public:
     // a meter tolerates seeing a stale block, there is no ordering dependency.
     std::atomic<float> outputLevel { 0.0f };
 
+    // ── On-screen / computer keyboard notes ─────────────────────────────────
+    // Called from the MESSAGE THREAD only — the editor's MidiKeyboardState
+    // listener callbacks. Lock-free; returns false if the queue is full, having
+    // stored nothing (NoteRing.h documents why overflow drops the newest).
+    //
+    // The ring lives HERE and not in the editor because the editor is destroyed
+    // and recreated every time the user closes and reopens the plugin window,
+    // while the audio thread keeps running throughout. A queue owned by the
+    // editor would be freed underneath processBlock.
+    //
+    // Events queued while a compile is mid-swap are NOT lost: processBlock's
+    // early-return path leaves them in the ring and the next block drains them
+    // in order. That is deliberately different from the MidiBuffer path, which
+    // drops (see processBlock). A hardware note-off in the swap window is gone
+    // for good because the buffer is gone; a keyboard note-off is still queued,
+    // and honouring it costs nothing and prevents a stuck key.
+    bool pushKeyboardNote(int note, int velocity, bool on) noexcept
+    {
+        return noteRing.push({ static_cast<unsigned char>(note),
+                               static_cast<unsigned char>(velocity),
+                               on });
+    }
+
+    // Advisory, for tests and diagnostics. Non-zero means the audio thread
+    // stopped draining long enough to fill 255 events.
+    std::uint32_t droppedKeyboardNotes() const noexcept { return noteRing.droppedCount(); }
+
     // Set by the editor to surface true JIT-ready status (ADR-011 "point E":
     // the Generate button re-enables when the subprocess returns, but the DSP
     // only goes live when this fires). Same threading contract as
@@ -242,6 +270,14 @@ private:
     FaustEngine faustEngine;
     ParamPool   paramPool;
     OutputGuard outputGuard;
+
+    // Notes from the on-screen / computer keyboard, message thread -> audio
+    // thread. Written by pushKeyboardNote(), drained inline in processBlock.
+    // Declared AFTER faustEngine deliberately: ~PluginForgeProcessor calls
+    // faustEngine.shutdown() first (see the destructor), and members are
+    // destroyed in reverse declaration order, so the ring outlives the engine
+    // teardown rather than the other way round.
+    pf::NoteRing noteRing;
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 

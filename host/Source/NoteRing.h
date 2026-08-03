@@ -118,9 +118,14 @@ public:
         return dropped.load(std::memory_order_relaxed);
     }
 
-    // Test/reset support ONLY. Not safe to call while either thread is running;
-    // the processor calls it from prepareToPlay, where the audio thread is not
-    // yet live for this instance.
+    // TEST SUPPORT ONLY, and nothing in host/Source calls it.
+    //
+    // Deliberately not called from prepareToPlay, which was the obvious home:
+    // JUCE serialises prepareToPlay against processBlock, but NOT against the
+    // message thread, so a user holding a key down while the host changes sample
+    // rate would have the producer pushing while this ran. Leaving stale events
+    // queued is harmless by comparison -- prepareToPlay already calls
+    // silenceVoice(), and any surviving note-off is applied in order.
     void reset() noexcept
     {
         writeIdx.store(0, std::memory_order_relaxed);
