@@ -32,7 +32,7 @@ Detailed task breakdown for the remaining work:
 | `ca34955` | `tools/screenshot_ui.sh` matched on window *title*, so a terminal sitting in `~/PluginForge` was captured instead of the plugin — with a success line and a plausible geometry. Matches on class now. |
 | `a04c9e2` | **W3.1**: `NoteRing.h` — SPSC lock-free note queue, message thread → audio thread. Two test targets (ASan + TSan), both wired into `check.sh` and CI in the same commit. |
 | `496c35e` | **W3.2**: processor owns the ring; `processBlock` drains it inline in the `enterAudio()` bracket. `OfflineRenderTest` 158 → 179 checks. |
-| *(pending)* | **Document naming rule + `check_doc_naming.py`**, and this file renamed out of its date. COLLABORATION.md §7 table row and a "Naming documents" section; 13 new control-wiring assertions. |
+| `e0cd9a9` | **Document naming rule + `check_doc_naming.py`**, and this file renamed out of its date. COLLABORATION.md §7 table row and a "Naming documents" section; 13 new control-wiring assertions. |
 
 `tools/check.sh full` green — 17 rungs, then 19 once the two NoteRing rungs landed.
 
