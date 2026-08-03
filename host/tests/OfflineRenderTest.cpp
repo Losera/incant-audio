@@ -1176,6 +1176,74 @@ int main(int argc, char** argv)
     // prepare() stored the new rate and returned, so the DSP kept running at the
     // rate it was instanceInit'd with — a 500 ms delay silently became 250 ms.
     {
+    // ── Meters are captured, and take no slot ────────────────────────────────
+    // Faust's hbargraph/vbargraph is an OUTPUT: the DSP writes it, the UI reads
+    // it. ParamCapture's two bargraph callbacks were empty function bodies until
+    // 2026-08-02, so a patch publishing a meter published nothing -- the widget
+    // never entered ParamList and no metering could exist anywhere in the product.
+    //
+    // Two claims, and they pull in opposite directions, which is why one patch
+    // asserts both: the meter must be SEEN (it reaches the published params) and
+    // must NOT be given a macro slot (writing its zone would overwrite the
+    // measurement with a knob position every block, and eight meters must not cost
+    // eight of the 64 knobs).
+    //
+    // The source is the same fixture the UI gallery uses, read from disk rather
+    // than duplicated here, so the two cannot drift.
+    {
+        std::printf("  --- meters: captured as outputs, and unslotted ---\n\n");
+
+        const auto fixture = juce::File(__FILE__).getParentDirectory()
+                                 .getChildFile("ui_fixtures")
+                                 .getChildFile("06_effect_metered.dsp");
+        check(fixture.existsAsFile(), "the metered fixture is on disk");
+
+        if (fixture.existsAsFile())
+        {
+            PluginForgeProcessor p;
+            p.prepareToPlay(kSampleRate, kBlockSize);
+
+            if (loadAndAwait(p, fixture.loadFileAsString()))
+            {
+                check(true, "the metered patch JIT compiled");
+
+                // Drive + Level + Out. The bargraph is published like any other
+                // parameter: this is the half that was silently missing.
+                const auto labels = p.currentLabelsForTest();
+                check(labels.contains("Out"),
+                      juce::String("the hbargraph reached the published params (")
+                          + labels.joinIntoString(", ") + ")");
+
+                // ...but only the two SLIDERS get slots.
+                check(p.mappedSlotCountForTest() == 2,
+                      juce::String("the meter takes NO macro slot (2 knobs expected, "
+                                   "mapped ")
+                          + juce::String(p.mappedSlotCountForTest()) + ")");
+
+                const auto ids = p.slotIdsForTest();
+                bool meterSlotted = false;
+                for (const auto& id : ids)
+                    if (id == "out")
+                        meterSlotted = true;
+                check(! meterSlotted, "no slot is bound to the meter's identity");
+
+                // And the patch still makes audio with the meter attached --
+                // attach() must not have broken the signal path.
+                const auto s = render(p, kSampleRate, kBlockSize, 40);
+                check(s.rms > 1.0e-4f,
+                      juce::String("the metered patch still produces audio (rms ")
+                          + juce::String(s.rms, 5) + ")");
+                check(! s.anyNaN && ! s.anyInf,
+                      "the metered patch produces no NaN/Inf");
+            }
+            else
+            {
+                check(false, "the metered patch JIT compiled");
+            }
+            std::printf("\n");
+        }
+    }
+
         std::printf("  --- PF-018: sample-rate change on a live DSP ---\n\n");
 
         PluginForgeProcessor p;

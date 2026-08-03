@@ -83,7 +83,14 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
         juce::MessageManager::callAsync([safeThis, params]
         {
             if (safeThis == nullptr) return;
-            const auto numParams = static_cast<int>(params.size());
+            // `params` is the PER-SLOT view: POOL_SIZE entries, most of them the
+            // unused-slot sentinel. Counting size() here would report "64 params
+            // mapped" for every patch. The occupied slots are the ones with a
+            // live zone -- the same discriminator the grid skips on.
+            int numParams = 0;
+            for (const auto& p : params)
+                if (p.zone != nullptr)
+                    ++numParams;
             safeThis->promptPanel.setStatus(
                 juce::String(juce::CharPointer_UTF8("Ready \xe2\x80\x94 DSP live, "))
                 + juce::String(numParams)

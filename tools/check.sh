@@ -114,7 +114,8 @@ level_full() {
               PluginForgeSynth_VST3 ParamPoolTsanTest OfflineRenderTest \
               OfflineSynthRenderTest \
               PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim \
-              OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery
+              OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery \
+              ParamIdentityTest
 
     # ── Three harnesses that existed and ran nowhere ─────────────────────────
     # Found 2026-07-30 while surveying the measurement surface: OutputGuardTest
@@ -130,8 +131,15 @@ level_full() {
     # Adding them here also propagates to CI: TestLadderRunsWhatCIRuns parses the
     # workflow's harness list, so the workflow must gain them too or the relation
     # breaks -- which is the guard doing its job in the right direction.
+    # ParamIdentityTest joined this list on 2026-08-02, in the same commit that
+    # created it -- deliberately, and not as a follow-up. The rule it pins is a
+    # one-way door (changing the derivation orphans saved projects), and this
+    # repo's recurring defect is a control that exists and never runs: the three
+    # harnesses named above, PF-047's scenario that was defined and never called,
+    # and the five hooks that were mis-nested for a week. A test wired in later is
+    # a test that was unwired for however long "later" turned out to be.
     local pure
-    for pure in OutputGuardTest ParamMapTest StatePersistenceTest; do
+    for pure in OutputGuardTest ParamMapTest StatePersistenceTest ParamIdentityTest; do
       local bin
       bin="$(find host/build -type f -name "$pure" 2>/dev/null | head -n1)"
       if [[ -n "$bin" ]]; then

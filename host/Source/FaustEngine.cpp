@@ -1,4 +1,5 @@
 #include "FaustEngine.h"
+#include "ParamIdentity.h"
 #include <cmath>
 #include <thread>
 #include <faust/dsp/llvm-dsp.h>
@@ -105,6 +106,20 @@ struct ParamCapture : public UI
         info.zone  = zone;
         info.group = currentGroup();
 
+        // Stable identity, derived here and nowhere else. Collisions are resolved
+        // against the ids assigned EARLIER IN THIS SAME PASS, which is why the
+        // scan is over `params` rather than over some external registry: two
+        // controls can only collide within one patch.
+        {
+            std::vector<std::string> taken;
+            taken.reserve(params.size());
+            for (const auto& p : params)
+                taken.push_back(p.id);
+
+            info.id = ParamIdentity::disambiguate(
+                          ParamIdentity::base(info.group, info.label), taken);
+        }
+
         if (zone != nullptr && zone == pendingZone)
         {
             info.scale  = pendingScale;
@@ -147,8 +162,36 @@ struct ParamCapture : public UI
         params.push_back(consume(label, zone, 0.0f, 0.0f, 1.0f, 1.0f,
                                  FaustEngine::Kind::CheckButton));
     }
-    void addHorizontalBargraph(const char*, FAUSTFLOAT*, FAUSTFLOAT, FAUSTFLOAT) override {}
-    void addVerticalBargraph(const char*, FAUSTFLOAT*, FAUSTFLOAT, FAUSTFLOAT) override {}
+    // ── Bargraphs — outputs, captured since 2026-08-02 ──────────────────────
+    // These were empty bodies, so `hbargraph`/`vbargraph` were invisible to the
+    // entire host: a patch could publish a level meter and nothing downstream
+    // ever learned it existed. The information was always delivered here, on the
+    // same UI interface as the sliders; it was simply dropped -- the same shape as
+    // the group-nesting callbacks below, which were empty until 2026-07-31.
+    //
+    // A bargraph has min/max but NO init and NO step. Verified in the installed
+    // header, not recalled: /usr/include/faust/gui/UI.h:66-67 declares
+    //     addHorizontalBargraph(const char* label, REAL* zone, REAL min, REAL max)
+    // against :60-61
+    //     addHorizontalSlider(label, REAL* zone, REAL init, REAL min, REAL max, REAL step)
+    // -- two fewer arguments, and the two that are missing are exactly the ones a
+    // control the user turns would need. So the default is
+    // synthesised as the minimum -- a meter at rest reads its floor, which is what
+    // a silent signal measures -- and the step as 0, meaning continuous. Neither
+    // is a value the patch author supplied, and neither is used to drive audio:
+    // ParamMap only reads them for DISPLAY on a control that is never written.
+    void addHorizontalBargraph(const char* label, FAUSTFLOAT* zone,
+                               FAUSTFLOAT fmin, FAUSTFLOAT fmax) override
+    {
+        params.push_back(consume(label, zone, float(fmin), float(fmin), float(fmax),
+                                 0.0f, FaustEngine::Kind::Meter));
+    }
+    void addVerticalBargraph(const char* label, FAUSTFLOAT* zone,
+                             FAUSTFLOAT fmin, FAUSTFLOAT fmax) override
+    {
+        params.push_back(consume(label, zone, float(fmin), float(fmin), float(fmax),
+                                 0.0f, FaustEngine::Kind::Meter));
+    }
     void addSoundfile(const char*, const char*, Soundfile**) override {}
 
     // ── Group nesting ───────────────────────────────────────────────────────

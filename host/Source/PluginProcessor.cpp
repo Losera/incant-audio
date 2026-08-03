@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
-#include "ParamMap.h"   // mapZoneToSlot, for LoadMode::Fresh (PF-020)
+#include "ParamMap.h"        // mapZoneToSlot, for LoadMode::Fresh (PF-020)
+#include "ParamIdentity.h"   // kSchemeVersion, stamped into the state blob
 
 // SUBTLE: the input bus is REQUIRED for the effect target and OPTIONAL for the
 // instrument target, and that single boolean is what decides whether a DAW will
@@ -93,11 +94,18 @@ void PluginForgeProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
         pendingRestoreSource.clear();
         pendingRestorePrompt.clear();
     }
-    // Iterate, NOT Fresh: setStateInformation already wrote the saved macro
-    // values via replaceState(). Resetting them to patch defaults here would
-    // discard exactly what the restore just recovered (PF-020).
+    // Restore, NOT Fresh and NOT Iterate: setStateInformation already wrote the
+    // saved macro values via replaceState(). Resetting them to patch defaults
+    // here would discard exactly what the restore just recovered (PF-020).
+    //
+    // Iterate is not strong enough any more. It seeds slots that CHANGED HANDS,
+    // which is right for a refine -- but on a restore every slot looks changed
+    // whenever the identity map could not be seeded (a v1 blob, or an unknown id
+    // scheme), so Iterate would helpfully overwrite the entire restored session
+    // with patch defaults. Restore seeds nothing at all, because on this path the
+    // APVTS tree is the source of truth by construction.
     if (source.isNotEmpty())
-        loadFaustCode(source, prompt, LoadMode::Iterate);
+        loadFaustCode(source, prompt, LoadMode::Restore);
 }
 
 void PluginForgeProcessor::releaseResources()
@@ -228,7 +236,31 @@ void PluginForgeProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                       std::memory_order_relaxed);
 }
 
-void PluginForgeProcessor::resetMappedSlotsToDefaults(const FaustEngine::ParamList& params)
+void PluginForgeProcessor::seedSlotsToDefaults(const std::vector<int>& slotsToSeed)
+{
+    // Same thread-safety window as resetMappedSlotsToDefaults below -- both run
+    // inside the compile callback, between the audioBusy drain and ready=true.
+    const auto& bySlot = paramPool.publishedSlots();
+
+    for (const int i : slotsToSeed)
+    {
+        if (i < 0 || i >= ParamPool::POOL_SIZE)
+            continue;
+
+        auto* param = apvts.getParameter(ParamPool::slotId(i));
+        if (param == nullptr)
+            continue;
+
+        float norm = 0.0f;
+        if (static_cast<size_t>(i) < bySlot.size() && bySlot[static_cast<size_t>(i)].zone != nullptr)
+            norm = ParamMap::mapZoneToSlot(bySlot[static_cast<size_t>(i)].defaultValue,
+                                           bySlot[static_cast<size_t>(i)]);
+
+        param->setValueNotifyingHost(norm);
+    }
+}
+
+void PluginForgeProcessor::resetMappedSlotsToDefaults()
 {
     // SUBTLE: this runs inside the compile callback, which FaustEngine invokes at
     // step 5 of its swap protocol — AFTER the audioBusy drain proved no
@@ -236,6 +268,18 @@ void PluginForgeProcessor::resetMappedSlotsToDefaults(const FaustEngine::ParamLi
     // start. That is the one window in which the slot values can be rewritten
     // without pushToFaust concurrently reading them, so it is the right place and
     // the only right place. Same reasoning as outputGuard.reset() below.
+    //
+    // ⚠️ It now reads the pool's PER-SLOT view rather than the caller's ParamList.
+    // It used to take that list and index it with the slot number, which was only
+    // ever correct because remap() was positional -- params[i] WAS slot i. With
+    // identity-keyed assignment a param can land in any slot, so indexing the
+    // list by slot number would seed slot 3 from the 4th param in Faust's
+    // alphabetical order: not merely a wrong value, but the PF-001 shape again
+    // (two places computing one mapping and disagreeing). Asking the pool which
+    // param actually holds each slot is the only version of this that cannot
+    // drift, because there is only one answer and the pool owns it.
+    const auto& bySlot = paramPool.publishedSlots();
+
     for (int i = 0; i < ParamPool::POOL_SIZE; ++i)
     {
         auto* param = apvts.getParameter(ParamPool::slotId(i));
@@ -246,12 +290,12 @@ void PluginForgeProcessor::resetMappedSlotsToDefaults(const FaustEngine::ParamLi
         // SAME ParamMap pair pushToFaust uses in the other direction — a default
         // normalised by any other formula is the PF-001 bug all over again.
         // Unmapped slots go to 0 so a value left by a previous patch cannot
-        // reappear if a later patch happens to map that index.
-        const float norm =
-            (static_cast<size_t>(i) < params.size())
-                ? ParamMap::mapZoneToSlot(params[static_cast<size_t>(i)].defaultValue,
-                                          params[static_cast<size_t>(i)])
-                : 0.0f;
+        // reappear if a later patch happens to map that slot. A null zone is the
+        // unused-slot sentinel remap() writes.
+        float norm = 0.0f;
+        if (static_cast<size_t>(i) < bySlot.size() && bySlot[static_cast<size_t>(i)].zone != nullptr)
+            norm = ParamMap::mapZoneToSlot(bySlot[static_cast<size_t>(i)].defaultValue,
+                                           bySlot[static_cast<size_t>(i)]);
 
         // setValueNotifyingHost so the DAW's automation lane and any open editor
         // both follow the reset, rather than showing the previous patch's
@@ -273,44 +317,93 @@ void PluginForgeProcessor::loadFaustCode(const juce::String& faustCode,
     // then failed with no DSP live. The source of record is now whatever last
     // COMPILED, which is the only version of it that can actually be restored.
     //
-    // Whether the OUTGOING patch was an instrument, read here on the message
-    // thread while it is still the live one. Inside the callback this is already
-    // the incoming patch's answer — voiceValid is published at swap step 3a,
-    // before the callback fires at step 5 — so the comparison has to straddle
-    // the compile. See the Iterate note in the callback.
-    const bool wasInstrument = faustEngine.isInstrument();
-
+    // A `wasInstrument` snapshot used to be taken here, on the message thread
+    // while the outgoing patch was still the live one, so the callback could
+    // detect a crossing of the instrument/effect boundary and force Fresh.
+    // Identity-keyed assignment retired that mitigation (see the callback), and
+    // the snapshot went with it rather than being left captured-but-unread: a
+    // variable that still looks load-bearing is how a reader learns to distrust
+    // the rest of the file.
+    //
     // Captured by value into the callback: juce::String's copy is atomically
     // ref-counted, so handing it to the compile thread is safe.
-    faustEngine.compile(faustCode, [this, faustCode, prompt, mode, wasInstrument]
+    faustEngine.compile(faustCode, [this, faustCode, prompt, mode]
                                    (const FaustEngine::ParamList& params,
                                     const std::string& error) {
         if (error.empty())
         {
-            paramPool.remap(params);
-
-            // Iterate retains slot values BY INDEX (ParamPool::remap is
-            // positional, ParamPool.cpp:33-53). Crossing the instrument boundary
-            // shifts every index, because an instrument withholds gate/freq/gain
-            // from the published list and an effect does not — so refining a
-            // synth into an effect would land the old slot 0 (say Cutoff) on the
-            // new slot 0, which for an instrument is a voice control. A wrong
-            // pitch is far more audible than a wrong cutoff, and the user did not
-            // touch the knob that appears to have moved.
+            // Fresh forgets the previous slot assignment so the pool packs from
+            // slot 0; its values are about to be reset to patch defaults anyway,
+            // and retaining a fragmented assignment whose values are discarded
+            // buys nothing. Iterate keeps the map, which is what makes a value
+            // follow its parameter across a regeneration.
             //
-            // Forcing Fresh across that transition is a MITIGATION, not the fix.
-            // The fix is a label-keyed remap, which makes retention meaningful for
-            // every patch change rather than just this one; it is recorded in
-            // STATUS.md's "Assumed, never checked" list as unbuilt.
-            const bool crossedInstrumentBoundary =
-                wasInstrument != faustEngine.isInstrument();
+            // Ordered BEFORE remap(): remap() rebuilds the map from whatever it
+            // finds, so clearing afterwards would discard the assignment it just
+            // made.
+            if (mode == LoadMode::Fresh)
+                paramPool.clearIdentityMap();
+
+            const auto remapResult = paramPool.remap(params);
+
+            // THE INSTRUMENT-BOUNDARY MITIGATION IS GONE, and this is the change
+            // that retires it. It used to force Fresh whenever wasInstrument
+            // differed from isInstrument(), because remap was POSITIONAL: an
+            // instrument withholds gate/freq/gain from the published list and an
+            // effect does not, so crossing that boundary shifted every index and
+            // landed the old slot 0 (say Cutoff) on a voice control. Its own
+            // comment called itself a mitigation and named label-keyed remap as
+            // the fix.
+            //
+            // Identity-keyed assignment makes the crossing a non-event: `cutoff`
+            // reclaims whatever slot `cutoff` held, whether or not three voice
+            // controls appeared or vanished around it. Retention is now correct
+            // for EVERY patch change rather than disabled for one of them.
 
             // PF-020. Fresh must reset in the PROCESSOR, not the editor — doing it
             // in ParamGridPanel is what made "fresh" conditional on the editor
             // being open. Ordered after remap() so the ParamInfo the conversion
             // needs is published, and before the labels/source commit below.
-            if (mode == LoadMode::Fresh || crossedInstrumentBoundary)
-                resetMappedSlotsToDefaults(params);
+            if (mode == LoadMode::Fresh)
+            {
+                resetMappedSlotsToDefaults();
+            }
+            else if (mode == LoadMode::Restore)
+            {
+                // Nothing. setStateInformation already wrote the saved values and
+                // seeded the identity map that makes this compile reclaim the
+                // same slots; touching anything here would undo the restore.
+            }
+            else
+            {
+                // Iterate keeps the values of params that RECLAIMED their slot --
+                // that is the entire feature, and it is what makes "make the
+                // resonance stronger" preserve the rest of the patch.
+                //
+                // But a slot that CHANGED HANDS holds a value belonging to a
+                // parameter that no longer exists. Left alone, a newly-introduced
+                // "Drive" would appear holding the position the user had dialled
+                // into the deleted "Res" -- PF-020's exact hazard, arriving
+                // through identity assignment instead of positional. Seeding just
+                // those slots is the narrowest correct answer: it fixes the
+                // newcomer without touching a single retained value.
+                seedSlotsToDefaults(remapResult.newlyAssignedSlots);
+            }
+
+            // PF-051. A patch with more than POOL_SIZE controls used to lose the
+            // surplus silently -- no error, no log, no count. Logged here rather
+            // than failing the compile: the DSP is live and correct, and 64 of its
+            // controls do work, so refusing the patch outright would be a worse
+            // answer than a partial one the user is told about.
+            if (! remapResult.overflowed.empty())
+                juce::Logger::writeToLog(
+                    "PluginForge: patch declares " + juce::String(params.size())
+                    + " controls; only " + juce::String(ParamPool::POOL_SIZE)
+                    + " fit the macro pool. Unreachable: "
+                    + juce::String(remapResult.overflowed.front())
+                    + (remapResult.overflowed.size() > 1
+                           ? " (+" + juce::String(remapResult.overflowed.size() - 1) + " more)"
+                           : ""));
 
             // Capture the slot->label map for persistence, and commit the source
             // of record (PF-022) — both only now that the compile has SUCCEEDED.
@@ -324,6 +417,12 @@ void PluginForgeProcessor::loadFaustCode(const juce::String& faustCode,
                 currentLabels.clearQuick();
                 for (const auto& p : params)
                     currentLabels.add(juce::String(p.label));
+
+                // The slot->id map, captured in the same critical section as the
+                // labels and the source so a getStateInformation() on the message
+                // thread can never observe a blob whose values, labels and
+                // assignment came from different compiles.
+                currentSlotIds = remapResult.slotIds;
             }
 
             // A new patch gets a clean verdict: clear any latched mute from the
@@ -350,8 +449,17 @@ void PluginForgeProcessor::loadFaustCode(const juce::String& faustCode,
                                              ? OutputGuard::RunawayPolicy::Report
                                              : OutputGuard::RunawayPolicy::Latch);
 
+            // The PER-SLOT view, not the compact capture list. The editor binds
+            // each control to a macro slot, so it has to be told which slot each
+            // param landed in -- and after identity-keyed assignment that is no
+            // longer "the same order you captured them in". See the header
+            // comment on ParamGridPanel::refreshParamKnobs.
+            //
+            // Safe to hand out by reference: the editor's handler copies it into
+            // a callAsync capture before returning (PluginEditor.cpp:81-83), on
+            // this thread, while the buffer is live and published.
             if (onFaustCompileSuccess)
-                onFaustCompileSuccess(params);
+                onFaustCompileSuccess(paramPool.publishedSlots());
         }
         else
         {
@@ -414,6 +522,14 @@ static const juce::Identifier kPromptId        ("prompt");
 // getProperty's default supplies "faithful", which is the behaviour those blobs
 // were saved under anyway. Nothing has to migrate.
 static const juce::Identifier kUiStyleId       ("uiStyle");
+// schemaVersion 2 (2026-08-02). The slot -> ParamIdentity map, and the derivation
+// scheme that produced it. See getStateInformation for the format and
+// setStateInformation for what a v1 blob (which has none of this) does instead.
+static const juce::Identifier kParamMapTag     ("ParamMap");
+static const juce::Identifier kIdSchemeId      ("idScheme");
+static const juce::Identifier kSlotTag         ("Slot");
+static const juce::Identifier kSlotIndexId     ("index");
+static const juce::Identifier kSlotParamId     ("id");
 
 juce::String PluginForgeProcessor::uiStyle() const
 {
@@ -445,6 +561,33 @@ void PluginForgeProcessor::getStateInformation(juce::MemoryBlock& destData)
         root.setProperty(kFaustSourceId, currentFaustSource, nullptr);
         root.setProperty(kPromptId,      currentPrompt,      nullptr);
         root.setProperty(kUiStyleId,     currentUiStyle,     nullptr);
+
+        // ── The slot -> identity map (schemaVersion 2) ──────────────────────
+        // Without this, a restore knows every knob's VALUE and nothing about
+        // which PARAMETER each value belonged to. The recompile would then pack
+        // slots by identity in capture order while the restored values sit at
+        // their saved indices, and a patch whose params do not happen to capture
+        // in the saved order hands every knob its neighbour's value.
+        //
+        // `idScheme` records the derivation rule that produced these strings
+        // (ParamIdentity::kSchemeVersion). It is not decoration: the rule is a
+        // one-way door, and a future change to it must be able to recognise an
+        // old blob and migrate rather than silently mismatch every id.
+        //
+        // Only OCCUPIED slots are written. An empty element per free slot would
+        // trade a fixed 64 children for nothing readable.
+        juce::ValueTree mapNode(kParamMapTag);
+        mapNode.setProperty(kIdSchemeId, juce::String(ParamIdentity::kSchemeVersion), nullptr);
+        for (size_t slot = 0; slot < currentSlotIds.size(); ++slot)
+        {
+            if (currentSlotIds[slot].empty())
+                continue;
+            juce::ValueTree slotNode(kSlotTag);
+            slotNode.setProperty(kSlotIndexId, static_cast<int>(slot), nullptr);
+            slotNode.setProperty(kSlotParamId, juce::String(currentSlotIds[slot]), nullptr);
+            mapNode.appendChild(slotNode, nullptr);
+        }
+        root.appendChild(mapNode, nullptr);
     }
 
     // copyState() flushes pending parameter updates and returns a thread-safe copy
@@ -482,6 +625,59 @@ void PluginForgeProcessor::setStateInformation(const void* data, int sizeInBytes
     if (stateChild.isValid())
         apvts.replaceState(stateChild);
 
+    // ── Seed the slot assignment BEFORE the recompile ───────────────────────
+    // The recompile below is what rebuilds the pool, and it reclaims a slot only
+    // if the identity map already says that id held it. Seeding here is therefore
+    // the difference between "every knob comes back where the user left it" and
+    // "every knob comes back holding whatever param happens to capture in that
+    // position".
+    //
+    // A v1 blob has no ParamMap, and the correct response is to seed NOTHING. v1
+    // values were saved under positional assignment, and an empty map makes
+    // remap() pack params in capture order -- i.e. positionally -- which is
+    // exactly the layout those values were written under. The old blob restores
+    // bit-identically to how it always did, with no migration step, because the
+    // fallback and the thing it is falling back to are the same arrangement.
+    //
+    // An UNRECOGNISED idScheme is also treated as "no map": the ids in it were
+    // produced by a rule this build does not have, so honouring them would map
+    // values onto whatever those strings happen to collide with now. Falling back
+    // to positional loses the improvement for that one blob and cannot corrupt it.
+    {
+        std::vector<std::string> restoredSlotIds;
+        const auto mapNode = root.getChildWithName(kParamMapTag);
+        if (mapNode.isValid())
+        {
+            const juce::String scheme = mapNode.getProperty(kIdSchemeId, juce::String());
+            if (scheme == juce::String(ParamIdentity::kSchemeVersion))
+            {
+                restoredSlotIds.assign(static_cast<size_t>(ParamPool::POOL_SIZE), std::string {});
+                for (int c = 0; c < mapNode.getNumChildren(); ++c)
+                {
+                    const auto slotNode = mapNode.getChild(c);
+                    if (slotNode.getType() != kSlotTag)
+                        continue;
+                    const int slot = slotNode.getProperty(kSlotIndexId, -1);
+                    const juce::String id = slotNode.getProperty(kSlotParamId, juce::String());
+                    if (slot >= 0 && slot < ParamPool::POOL_SIZE && id.isNotEmpty())
+                        restoredSlotIds[static_cast<size_t>(slot)] = id.toStdString();
+                }
+            }
+            else
+            {
+                juce::Logger::writeToLog(
+                    "PluginForge: saved project uses id scheme '" + scheme
+                    + "', this build understands '"
+                    + juce::String(ParamIdentity::kSchemeVersion)
+                    + "'. Restoring by slot position instead.");
+            }
+        }
+
+        // Empty vector => cleared map => positional packing, which is the v1
+        // behaviour. seedIdentityMap handles both cases with one call.
+        paramPool.seedIdentityMap(restoredSlotIds);
+    }
+
     const juce::String source = root.getProperty(kFaustSourceId, juce::String());
     const juce::String prompt = root.getProperty(kPromptId,      juce::String());
     // Absent in a pre-2026-07-31 blob; the default is the behaviour those blobs
@@ -511,9 +707,10 @@ void PluginForgeProcessor::setStateInformation(const void* data, int sizeInBytes
     // prepareToPlay, which drains the stash below.
     if (prepared.load(std::memory_order_acquire))
     {
-        // Iterate: the values restored by replaceState() above are the point of
-        // the restore, so this recompile must not reset them (PF-020).
-        loadFaustCode(source, prompt, LoadMode::Iterate);
+        // Restore: the values replaceState() wrote above are the point of the
+        // restore, so this recompile must not reset any of them. See the twin
+        // call site in prepareToPlay for why Iterate is not sufficient here.
+        loadFaustCode(source, prompt, LoadMode::Restore);
     }
     else
     {
@@ -539,6 +736,22 @@ juce::StringArray PluginForgeProcessor::currentLabelsForTest() const
 {
     std::lock_guard<std::mutex> lock(metaMutex);
     return currentLabels;   // by value, under the lock: the compile thread rewrites this
+}
+
+std::vector<std::string> PluginForgeProcessor::slotIdsForTest() const
+{
+    std::lock_guard<std::mutex> lock(metaMutex);
+    return currentSlotIds;   // by value, under the lock, same as the labels above
+}
+
+int PluginForgeProcessor::mappedSlotCountForTest() const
+{
+    std::lock_guard<std::mutex> lock(metaMutex);
+    int n = 0;
+    for (const auto& id : currentSlotIds)
+        if (! id.empty())
+            ++n;
+    return n;
 }
 
 juce::AudioProcessorEditor* PluginForgeProcessor::createEditor()

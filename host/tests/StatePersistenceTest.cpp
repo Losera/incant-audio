@@ -150,8 +150,16 @@ int main()
             check(root.getChildWithName("STATE").isValid(), "STATE child present");
             check(! root.getChildWithName("SlotLabels").isValid(),
                   "no SlotLabels node — dropped from v1 2026-07-27");
-            check(root.getNumChildren() == 1,
-                  "STATE is the blob's only child");
+
+            // v2 (2026-08-02) adds exactly ONE child: the slot -> ParamIdentity
+            // map. The count assertion is kept rather than relaxed to ">= 1" --
+            // its job is to catch a node nobody meant to add, and a bound that
+            // grows whenever anything is added would stop doing that job. Bump it
+            // deliberately, with the new node named, or not at all.
+            check(root.getChildWithName("ParamMap").isValid(),
+                  "ParamMap child present (schemaVersion 2)");
+            check(root.getNumChildren() == 2,
+                  "STATE and ParamMap are the blob's only children");
 
             // The §2 trigger-3 contract is a FORMAT, so it has to be reviewable as
             // one. Set PLUGINFORGE_DUMP_STATE=<path> to write the literal emitted
@@ -176,6 +184,106 @@ int main()
 
         check(b.currentSourceForTest() == kSource, "Faust source restored");
         check(b.currentPromptForTest() == kPrompt, "prompt restored");
+    }
+
+    // ── v1 MIGRATION: a blob saved before the identity map still restores ────
+    // THE ONE-WAY-DOOR INSURANCE. schemaVersion 2 added the slot -> ParamIdentity
+    // map, and every project saved before 2026-08-02 lacks it. Those blobs are in
+    // users' sessions already and cannot be re-saved retroactively, so "we will
+    // handle it later" is not available -- if a v1 blob does not restore, the data
+    // is gone.
+    //
+    // The fallback is deliberately the DO-NOTHING one: no map means an empty
+    // identity seed, which makes remap() pack params in capture order -- exactly
+    // the positional layout v1 values were written under. So the old arrangement
+    // and the fallback are the same arrangement, and no migration code exists to
+    // rot. This test is what proves that claim rather than asserting it.
+    //
+    // A v1 blob is synthesised here rather than checked in as a fixture, because a
+    // fixture would silently keep passing if getStateInformation stopped being
+    // able to produce something a reader can still parse. Built from the same
+    // pieces v1 actually wrote: root tag, schemaVersion 1, faustSource, prompt,
+    // and STATE -- and no ParamMap, no idScheme.
+    {
+        std::printf("\nv1 migration — a pre-identity blob still restores\n");
+
+        juce::MemoryBlock v1Blob;
+        {
+            // Borrow a real APVTS tree by round-tripping a live processor, then
+            // strip the v2 additions back off. This keeps the STATE child's exact
+            // shape honest instead of hand-rolling 64 PARAM elements.
+            PluginForgeProcessor donor;
+            setSlot(donor, 0,  0.25f);
+            setSlot(donor, 3,  0.42f);
+            setSlot(donor, 63, 1.0f);
+
+            juce::MemoryBlock current;
+            donor.getStateInformation(current);
+            auto xml = juce::AudioProcessor::getXmlFromBinary(
+                           current.getData(), static_cast<int>(current.getSize()));
+            check(xml != nullptr, "donor blob parsed");
+            if (xml != nullptr)
+            {
+                auto root = juce::ValueTree::fromXml(*xml);
+                root.setProperty("schemaVersion", 1, nullptr);
+                root.setProperty("faustSource",   kSource, nullptr);
+                root.setProperty("prompt",        kPrompt, nullptr);
+                root.removeChild(root.getChildWithName("ParamMap"), nullptr);
+
+                check(! root.getChildWithName("ParamMap").isValid(),
+                      "the synthesised v1 blob genuinely has no ParamMap");
+                check((int) root.getProperty("schemaVersion", 0) == 1,
+                      "the synthesised blob declares schemaVersion 1");
+
+                if (auto v1Xml = root.createXml())
+                    juce::AudioProcessor::copyXmlToBinary(*v1Xml, v1Blob);
+            }
+        }
+
+        PluginForgeProcessor v1;
+        v1.setStateInformation(v1Blob.getData(), static_cast<int>(v1Blob.getSize()));
+
+        checkNear(getSlot(v1, 0),  0.25f, "v1: macro_0 restored");
+        checkNear(getSlot(v1, 3),  0.42f, "v1: macro_3 restored");
+        checkNear(getSlot(v1, 63), 1.0f,  "v1: macro_63 restored");
+        check(v1.currentSourceForTest() == kSource, "v1: Faust source restored");
+        check(v1.currentPromptForTest() == kPrompt, "v1: prompt restored");
+    }
+
+    // ── An UNKNOWN id scheme falls back rather than mis-mapping ──────────────
+    // A future build may change the derivation rule. A blob written by it carries
+    // ids this build cannot interpret, and honouring them would map saved values
+    // onto whatever those strings happen to collide with under the current rule --
+    // silently, and onto the wrong controls. Falling back to positional loses the
+    // improvement for that one blob and cannot corrupt it.
+    {
+        juce::MemoryBlock futureBlob;
+        {
+            PluginForgeProcessor donor;
+            setSlot(donor, 0, 0.25f);
+            setSlot(donor, 3, 0.42f);
+
+            juce::MemoryBlock current;
+            donor.getStateInformation(current);
+            auto xml = juce::AudioProcessor::getXmlFromBinary(
+                           current.getData(), static_cast<int>(current.getSize()));
+            if (xml != nullptr)
+            {
+                auto root = juce::ValueTree::fromXml(*xml);
+                root.setProperty("faustSource", kSource, nullptr);
+                auto mapNode = root.getChildWithName("ParamMap");
+                check(mapNode.isValid(), "donor blob carried a ParamMap to corrupt");
+                mapNode.setProperty("idScheme", "v99-from-the-future", nullptr);
+
+                if (auto futureXml = root.createXml())
+                    juce::AudioProcessor::copyXmlToBinary(*futureXml, futureBlob);
+            }
+        }
+
+        PluginForgeProcessor f;
+        f.setStateInformation(futureBlob.getData(), static_cast<int>(futureBlob.getSize()));
+        checkNear(getSlot(f, 0), 0.25f, "unknown idScheme: values still restored");
+        checkNear(getSlot(f, 3), 0.42f, "unknown idScheme: second value still restored");
     }
 
     // ── Corrupt / foreign blobs leave state untouched ────────────────────────
@@ -247,14 +355,50 @@ int main()
                       "Fresh reset slot 0 to the patch's declared default");
         }
 
+        // ── Iterate onto an EMPTY pool now seeds, and that is the fix ──────────
+        // This block used to assert the opposite: that Iterate left the 0.1 alone.
+        // The expectation changed on 2026-08-02 with identity-keyed assignment,
+        // deliberately, and the old one was the weaker contract.
+        //
+        // Read what the setup actually says. A brand-new processor has no live
+        // patch and an empty identity map; the 0.1 was poked directly into slot 0
+        // and was never a value any user set on any control. "Gain" is therefore a
+        // NEWCOMER, and retaining an unrelated leftover to drive it is precisely
+        // the PF-020 hazard -- a knob coming up at a position that belongs to
+        // nothing. Seeding it to Gain's own declared 0.75 is the correct answer.
+        //
+        // Iterate has NOT stopped preserving values. It preserves the value of any
+        // param that RECLAIMS its slot, which is the real refine case and is
+        // asserted two blocks down; what it no longer does is hand a newcomer a
+        // dead value. EditorSessionTest scenario 15 covers the same split through
+        // the UI, with a survivor and a newcomer in one patch.
         {
             PluginForgeProcessor p;
             setSlot(p, 0, 0.1f);
             check(loadAndAwaitCompile(p, withDefault, "iterate",
                                       PluginForgeProcessor::LoadMode::Iterate),
                   "Iterate patch compiled");
+            checkNear(getSlot(p, 0), 0.75f,
+                      "Iterate SEEDED a newcomer rather than inheriting an unrelated leftover");
+        }
+
+        // ── The real refine case: a survivor keeps its value ──────────────────
+        // Same patch loaded twice. The second load's "Gain" has the same identity
+        // as the first's, so it reclaims its slot and the user's value stands.
+        // This is the half of Iterate that must NOT change, and without it the
+        // block above could be satisfied by an implementation that simply always
+        // seeds -- i.e. by deleting Iterate altogether.
+        {
+            PluginForgeProcessor p;
+            check(loadAndAwaitCompile(p, withDefault, "iterate-first",
+                                      PluginForgeProcessor::LoadMode::Fresh),
+                  "the patch compiled once");
+            setSlot(p, 0, 0.1f);   // now a value a user really did set on Gain
+            check(loadAndAwaitCompile(p, withDefault, "iterate-second",
+                                      PluginForgeProcessor::LoadMode::Iterate),
+                  "the same patch recompiled in Iterate mode");
             checkNear(getSlot(p, 0), 0.1f,
-                      "Iterate preserved the existing slot value");
+                      "Iterate PRESERVED the value of a param that reclaimed its slot");
         }
 
         // Slots the new patch does NOT map must be zeroed, so a value left by a
@@ -310,15 +454,24 @@ int main()
             auto root = juce::ValueTree::fromXml(*xml);
             check(! root.getChildWithName("SlotLabels").isValid(),
                   "a patch WITH params still serialises no SlotLabels node");
-            check(root.getNumChildren() == 1, "STATE remains the blob's only child");
+            check(root.getNumChildren() == 2,
+                  "STATE and ParamMap remain the blob's only children");
 
             // Deliberately NOT "the blob does not contain 'Gain'" — it does, and
             // must: faustSource carries hslider("Gain",...) verbatim, which is the
-            // artifact of record. What must be absent is the label MARKUP, so that
-            // is what is matched.
+            // artifact of record. What must be absent is the LABEL markup.
+            //
+            // <Slot> is now expected -- it is how v2 records the identity map --
+            // so this no longer asserts its absence. `label=` still must not
+            // appear: the dropped <SlotLabels> node wrote human labels, whereas a
+            // v2 Slot carries `id=`, a derived key. The distinction is the point.
+            // A slot's DISPLAY name is still rebuilt by remap() on restore and is
+            // still not persisted.
             const juce::String doc = xml->toString();
-            check(! doc.contains("<Slot") && ! doc.contains("label="),
-                  "no Slot element or label attribute anywhere in the blob");
+            check(! doc.contains("label="),
+                  "no label attribute anywhere in the blob");
+            check(doc.contains("<Slot") && doc.contains("id="),
+                  "the identity map IS persisted, as Slot/id");
         }
     }
 

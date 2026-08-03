@@ -48,9 +48,24 @@ int ParamGridPanel::preferredContentHeight() const
     return contentHeightForCurrentMode();
 }
 
+// ⚠️ `params` is the PER-SLOT view (ParamPool::publishedSlots()), not the compact
+// list Faust captured. Index i is macro slot i, and an unused slot carries the
+// null-zone sentinel remap() writes.
+//
+// It used to be the compact list, and the difference was invisible while
+// ParamPool::remap was positional -- params[i] WAS slot i, so the two views were
+// the same object seen twice. Identity-keyed assignment separates them, and this
+// panel has to render the one it is ATTACHED to. Passing the compact list here
+// after that change bound control i to slotId(i) while displaying the i'th
+// parameter in Faust's alphabetical order, so knobs drove parameters they were
+// not labelled with (EditorSessionTest scenario 15).
+//
+// A welcome side effect, not the reason: knob POSITIONS are now stable across a
+// regeneration. A param that reclaims slot 7 stays in the same cell of the grid
+// instead of shuffling when an alphabetically-earlier control is introduced.
 void ParamGridPanel::refreshParamKnobs(const FaustEngine::ParamList& params)
 {
-    const int numMapped =
+    const int slotCount =
         juce::jmin(static_cast<int>(params.size()), ParamPool::POOL_SIZE);
 
     // ── NO SEEDING HERE. It belongs to the processor, and only to it ────────
@@ -88,13 +103,22 @@ void ParamGridPanel::refreshParamKnobs(const FaustEngine::ParamList& params)
     // switch widget KIND between patches (a knob patch replaced by a toggle patch),
     // and two live attachments on one parameter is undefined.
     controls.clear();
-    controls.reserve(static_cast<size_t>(numMapped));
+    controls.reserve(static_cast<size_t>(slotCount));
 
-    for (int i = 0; i < numMapped; ++i)
+    for (int slot = 0; slot < slotCount; ++slot)
     {
-        const auto& p  = params[static_cast<size_t>(i)];
-        const auto  id = ParamPool::slotId(i);
+        const auto& p = params[static_cast<size_t>(slot)];
+
+        // A null zone is remap()'s unused-slot sentinel. Skipped rather than
+        // rendered, so the grid shows only the controls the patch actually has --
+        // the same visible result as before, reached by asking the pool instead
+        // of assuming the list was dense.
+        if (p.zone == nullptr)
+            continue;
+
+        const auto id = ParamPool::slotId(slot);
         Control c;
+        c.slot = slot;
 
         // Keep the metadata so a presentation change can restyle without rebuilding.
         // The zone pointer must NOT survive the copy: it points into the DSP instance

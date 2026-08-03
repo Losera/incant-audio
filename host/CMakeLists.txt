@@ -240,6 +240,27 @@ target_link_libraries(ParamMapTest PRIVATE
     ${LIBFAUST_LIB}
 )
 
+# ---------------------------------------------------------------------------
+# ParamIdentityTest -- the parameter-identity derivation rule
+# (host/Source/ParamIdentity.h, host/tests/ParamIdentityTest.cpp).
+#
+# Deliberately the CHEAPEST target in this file: a plain executable with NO JUCE,
+# NO libfaust and no plugin sources. ParamIdentity.h is pure string arithmetic
+# with no dependency on either, and the rule it encodes is a one-way door -- once
+# these ids are written into a saved user project, changing the derivation
+# orphans every restored value. A rule that consequential belongs at the rung
+# that costs two seconds to run, not behind a JIT and a message loop.
+#
+# ASan/UBSan for the same reason the other header-only tests carry them: the code
+# under test indexes and concatenates strings from author-supplied labels.
+# No -fno-sanitize=vptr here, unlike the harnesses that compile FaustEngine.cpp
+# -- nothing in this TU touches libfaust's -fno-rtti types.
+# ---------------------------------------------------------------------------
+add_executable(ParamIdentityTest tests/ParamIdentityTest.cpp)
+target_compile_features(ParamIdentityTest PRIVATE cxx_std_17)
+target_compile_options(ParamIdentityTest PRIVATE -fsanitize=address,undefined -g -O1)
+target_link_options(ParamIdentityTest PRIVATE -fsanitize=address,undefined)
+
 # StatePersistenceTest -- round-trips the P11 persisted-state blob through a real
 # PluginForgeProcessor (host/tests/StatePersistenceTest.cpp): getStateInformation ->
 # MemoryBlock -> setStateInformation on a fresh processor, asserting macro values,

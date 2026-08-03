@@ -26,8 +26,35 @@ public:
         VSlider,
         NumEntry,
         Button,      // momentary — resets to 0 when released
-        CheckButton  // latching toggle
+        CheckButton, // latching toggle
+
+        // ── Output, not input ───────────────────────────────────────────────
+        // Faust's hbargraph/vbargraph: a value the DSP WRITES and the UI READS.
+        // Every Kind above is the opposite direction.
+        //
+        // Captured since 2026-08-02. ParamCapture's addHorizontalBargraph and
+        // addVerticalBargraph were empty function bodies before that, so a patch
+        // publishing a level meter, a gain-reduction readout or an envelope
+        // follower produced NOTHING -- the widget never entered ParamList and no
+        // metering could exist anywhere in the product, regardless of what the UI
+        // layer did.
+        //
+        // ⚠️ A Meter MUST NEVER BE WRITTEN. Its zone is the DSP's output; pushing
+        // a slot value into it would overwrite the measurement every block with a
+        // knob position, and on the next compute() the DSP would overwrite that
+        // back -- a value that flickers between two meanings. ParamPool::remap
+        // therefore gives meters no slot at all, which is also why they cost
+        // nothing against the 64-slot budget.
+        Meter
     };
+
+    // True for the kinds the host WRITES (every control the user can turn).
+    // False for kinds the DSP writes and the host only reads.
+    //
+    // A free function on the enum rather than a check spread across call sites:
+    // there is exactly one direction question and it should have exactly one
+    // answer, for the same reason ParamMap owns the one conversion.
+    static bool isWritable(Kind k) { return k != Kind::Meter; }
 
     // Value-curve requested by the patch via [scale:log] / [scale:exp].
     // Faust strips metadata from the label and delivers it through
@@ -79,6 +106,24 @@ public:
         // ordering" (PF-038) is therefore Faust's own path ordering, not
         // anything ParamGridPanel does.
         std::string group;
+
+        // ── Stable identity ─────────────────────────────────────────────────
+        // Derived from group + label at capture by ParamIdentity::base/
+        // disambiguate (ParamIdentity.h), NOT from ordinal position. This is
+        // what ParamPool::remap keys slot assignment on, what the persisted
+        // state blob records per slot, and what a UI IR or a MIDI CC map will
+        // reference. See ParamIdentity.h for why identity had to stop being an
+        // index, and for the one-way-door warning on the derivation rule.
+        //
+        // ⚠️ Internal only. The host still sees `macro_0..macro_63` (ADR-004),
+        // and must continue to: automation lanes are bound to those IDs.
+        //
+        // Assigned in ParamCapture::consume(), so it is populated for EVERY
+        // captured param -- including the three voice controls an instrument
+        // withholds from the published list (FaustEngine.cpp, withoutVoiceControls).
+        // Withholding happens after capture, so removing them cannot renumber
+        // anything else's disambiguation suffix.
+        std::string id;
 
         // Direct pointer into the owning DSP instance's memory, captured during
         // buildUserInterface. This is what makes pushToFaust RT-safe: writing

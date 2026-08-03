@@ -403,6 +403,31 @@ void scenario03_overflow()
     check(h <= 1200, juce::String("window stayed inside setResizeLimits' 1200px max (")
                          + juce::String(h) + "px)");
     snapshot(s.editor, "03_overflow_40_params");
+
+    // ── PF-051: past 64, the surplus is BOUNDED, not silently infinite ───────
+    // A patch declaring more controls than the pool has slots used to lose the
+    // surplus with no error, no log and no count anywhere: remap() looped to
+    // POOL_SIZE and never looked at params[64+], and pushToFaust's
+    // min(infos.size(), slots.size()) hid it a second time. 70 controls compiled,
+    // 6 of them were unreachable, and nothing in the product said so.
+    //
+    // What is asserted here is the INVARIANT, not the message: exactly POOL_SIZE
+    // slots are occupied and the grid shows exactly that many. The overflow list
+    // itself goes to the log today -- surfacing it in the UI is real work and is
+    // deliberately not in this change, which is why this pins the boundary rather
+    // than a status string that does not exist yet.
+    const int tooMany = ParamPool::POOL_SIZE + 6;
+    const bool loaded = loadAndSettle(s, manyParamPatch(tooMany), ParamPool::POOL_SIZE);
+    check(loaded, juce::String("a ") + juce::String(tooMany)
+                      + "-param patch compiled and settled at the pool ceiling");
+    if (loaded)
+    {
+        check(s.processor.mappedSlotCountForTest() == ParamPool::POOL_SIZE,
+              juce::String("exactly POOL_SIZE slots are occupied (")
+                  + juce::String(s.processor.mappedSlotCountForTest()) + ")");
+        check(s.editor.gridControlCountForTest() == ParamPool::POOL_SIZE,
+              "the grid renders exactly the slots that exist, and no more");
+    }
 }
 
 // 4 — Generation fails, and the error survives exactly as long as it should.
@@ -525,17 +550,45 @@ process = _ * w, _ * w;
     s.editor.setRefineForTest(true);
     check(s.editor.refineEnabledForTest(), "Refine can be turned on");
 
+    // Patch C keeps the control's NAME and changes the DSP around it -- which is
+    // what a refine ("make it wider") actually is. `Width` therefore has the same
+    // identity, reclaims its slot, and the user's 1.0 stands.
+    //
+    // This used to rename the control to "Depth" and still expect the 1.0 to
+    // survive. That only worked because retention was positional: slot 0 kept its
+    // value no matter which parameter landed there. Under identity-keyed
+    // assignment a renamed control is a DIFFERENT control -- nothing in the source
+    // says otherwise -- so it is seeded to its own declared default. The rename is
+    // now asserted separately below, as a distinct outcome rather than an
+    // accident.
     const char* patchC = R"(import("stdfaust.lib");
-w = hslider("Depth", 0.2, 0, 1, 0.01);
-process = _ * w, _ * w;
+w = hslider("Width", 0.2, 0, 1, 0.01);
+process = _ * w * 0.5, _ * w * 0.5;
 )";
     check(loadAndSettle(s, patchC, 1, PluginForgeProcessor::LoadMode::Iterate),
           "patch C loaded in Iterate mode");
-    check(s.editor.gridControlLabelForTest(0) == "Depth", "the label still followed");
+    check(s.editor.gridControlLabelForTest(0) == "Width", "the label still followed");
     check(s.editor.gridControlValueForTest(0) > 0.9,
-          juce::String("Iterate KEPT the knob at 1.0 instead of resetting to 0.2 (got ")
+          juce::String("Iterate KEPT the knob at 1.0 for the SAME control (got ")
               + juce::String(s.editor.gridControlValueForTest(0), 3) + ")");
     snapshot(s.editor, "06b_refine_keeps_knobs");
+
+    // ── And the other outcome: a RENAMED control is a new control ────────────
+    // Stated as its own assertion because it is a real product decision, not an
+    // implementation detail. If a future change decides a rename should carry the
+    // value over (via a similarity heuristic, say), this is the check that will
+    // fail and force the decision to be made on purpose.
+    const char* patchD = R"(import("stdfaust.lib");
+w = hslider("Depth", 0.2, 0, 1, 0.01);
+process = _ * w, _ * w;
+)";
+    check(loadAndSettle(s, patchD, 1, PluginForgeProcessor::LoadMode::Iterate),
+          "patch D renames the control");
+    check(s.editor.gridControlLabelForTest(0) == "Depth", "the label followed the rename");
+    check(s.editor.gridControlValueForTest(0) < 0.5,
+          juce::String("a RENAMED control is a new control: seeded to its own 0.2, "
+                       "not handed the old control's 1.0 (got ")
+              + juce::String(s.editor.gridControlValueForTest(0), 3) + ")");
 }
 
 // 7 — The output guard trips and the user is told.
@@ -1066,6 +1119,114 @@ process = _ * amt, _ * amt;
               + juce::String(nonEmpty) + " non-empty");
 }
 
+// 15 — A regeneration that reorders, renames, adds and removes parameters must
+//      move each user value with the PARAMETER it belongs to, not with its index.
+//
+// THE BUG THIS PINS. Until identity-keyed assignment, ParamPool::remap copied
+// params[i] into slot i, so a parameter's identity WAS its ordinal position.
+// Faust emits widgets alphabetically (FaustEngine.h, the ordering note on
+// ParamInfo::group), so simply INSERTING a control whose name sorts early
+// renumbered everything after it:
+//
+//     patch A alphabetical:  Cutoff(0)  Gain(1)  Res(2)
+//     patch B alphabetical:  Cutoff(0)  Drive(1) Gain(2)
+//
+// "Gain" moved from slot 1 to slot 2 without the user touching anything, and
+// under Iterate the value the user had dialled into Gain stayed at slot 1 --
+// where the brand-new "Drive" now lived. The user's gain setting silently
+// became a drive setting. That is what this scenario asserts is over.
+void scenario15_identityKeyedRetention()
+{
+    scenario("15. a value follows its parameter across a regeneration",
+             "reorder + rename + add + remove; identity-keyed remap, not positional");
+
+    // Deliberately named so ALPHABETICAL order and DECLARATION order differ, and
+    // so patch B's newcomer sorts between two of A's survivors. If the ids were
+    // ordinal this could not pass.
+    const char* patchA = R"(import("stdfaust.lib");
+res    = hslider("Res",    0.3, 0, 1, 0.01);
+gain   = hslider("Gain",   0.5, 0, 1, 0.01);
+cutoff = hslider("Cutoff", 0.4, 0, 1, 0.01);
+process = _ * gain * (cutoff + res), _ * gain * (cutoff + res);
+)";
+
+    Session s;
+    check(loadAndSettle(s, patchA, 3), "patch A is live with 3 params");
+
+    // Establish which slot each label occupies, rather than assuming Faust's
+    // ordering. The test must assert RETENTION, not Faust's emission order --
+    // pinning the latter would make it fail on a Faust upgrade for no reason.
+    auto slotOfLabel = [&](const juce::String& want) {
+        for (int i = 0; i < s.editor.gridControlCountForTest(); ++i)
+            if (s.editor.gridControlLabelForTest(i) == want)
+                return i;
+        return -1;
+    };
+
+    const int gainSlotA = slotOfLabel("Gain");
+    const int resSlotA  = slotOfLabel("Res");
+    check(gainSlotA >= 0 && resSlotA >= 0, "patch A published both Gain and Res");
+
+    // The user dials in two values by hand.
+    if (auto* rp = s.processor.apvts.getParameter(ParamPool::slotId(gainSlotA)))
+        rp->setValueNotifyingHost(0.90f);
+    if (auto* rp = s.processor.apvts.getParameter(ParamPool::slotId(resSlotA)))
+        rp->setValueNotifyingHost(0.80f);
+    pump(100);
+
+    // Patch B: Res is GONE, Drive is NEW (and sorts before Gain), Cutoff and Gain
+    // survive. Under positional remap this renumbers Gain.
+    const char* patchB = R"(import("stdfaust.lib");
+drive  = hslider("Drive",  0.2, 0, 1, 0.01);
+gain   = hslider("Gain",   0.5, 0, 1, 0.01);
+cutoff = hslider("Cutoff", 0.4, 0, 1, 0.01);
+process = _ * gain * (cutoff + drive), _ * gain * (cutoff + drive);
+)";
+
+    check(loadAndSettle(s, patchB, 3, PluginForgeProcessor::LoadMode::Iterate),
+          "patch B replaced it in Iterate mode");
+
+    const int gainSlotB  = slotOfLabel("Gain");
+    const int driveSlotB = slotOfLabel("Drive");
+    check(gainSlotB >= 0 && driveSlotB >= 0, "patch B published both Gain and Drive");
+
+    // ── THE ASSERTION ───────────────────────────────────────────────────────
+    check(gainSlotB == gainSlotA,
+          juce::String("Gain RECLAIMED its slot (was ") + juce::String(gainSlotA)
+              + ", now " + juce::String(gainSlotB) + ")");
+
+    const float gainNow =
+        s.processor.apvts.getParameter(ParamPool::slotId(gainSlotB))->getValue();
+    check(std::abs(gainNow - 0.90f) < 0.01f,
+          juce::String("Gain KEPT the user's 0.90 across the regeneration (got ")
+              + juce::String(gainNow, 3) + ")");
+
+    // ── THE NEGATIVE, and the reason RemapResult::newlyAssignedSlots exists ──
+    // Drive is a newcomer that lands on the slot Res vacated. Iterate does not
+    // reset values, so without per-slot seeding it would come up holding Res's
+    // 0.80 -- a value the user set on a control that no longer exists. It must
+    // show its OWN declared default of 0.2 instead.
+    const float driveNow =
+        s.processor.apvts.getParameter(ParamPool::slotId(driveSlotB))->getValue();
+    check(std::abs(driveNow - 0.20f) < 0.01f,
+          juce::String("Drive shows its OWN default, not the deleted Res's 0.80 (got ")
+              + juce::String(driveNow, 3) + ")");
+
+    snapshot(s.editor, "15_identity_keyed_retention");
+
+    // ── The other direction: Fresh must still reset EVERYTHING ──────────────
+    // Without this, "retention works" could be satisfied by a remap that simply
+    // never resets -- which would silently break PF-020. One of these two checks
+    // has to fail for any implementation that gets the distinction wrong.
+    check(loadAndSettle(s, patchB, 3, PluginForgeProcessor::LoadMode::Fresh),
+          "the same patch reloaded in Fresh mode");
+    const float gainAfterFresh =
+        s.processor.apvts.getParameter(ParamPool::slotId(slotOfLabel("Gain")))->getValue();
+    check(std::abs(gainAfterFresh - 0.50f) < 0.01f,
+          juce::String("Fresh RESET Gain to the patch default 0.50 (got ")
+              + juce::String(gainAfterFresh, 3) + ")");
+}
+
 } // namespace
 
 int main()
@@ -1094,6 +1255,7 @@ int main()
     scenario12_readout();
     scenario13_styleSwitchDoesNotThrash();
     scenario14_groupCapture();
+    scenario15_identityKeyedRetention();
 
     tmp.deleteRecursively();
 

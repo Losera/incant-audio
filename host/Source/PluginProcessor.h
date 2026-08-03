@@ -100,7 +100,12 @@ public:
 
     // Persisted-state schema version. Bump when the blob layout changes; setState
     // rejects a blob whose version it does not understand rather than misreading it.
-    static constexpr int kStateSchemaVersion = 1;
+    // 2 as of 2026-08-02: the blob now carries the slot -> ParamIdentity map and
+    // the id-derivation scheme that produced it. A REAL bump, not an amendment
+    // like <SlotLabels> or `uiStyle` were: those were fields nothing depended on,
+    // whereas a v1 blob genuinely lacks information a v2 restore uses, and the two
+    // take different code paths (see setStateInformation).
+    static constexpr int kStateSchemaVersion = 2;
 
     // How a newly loaded patch treats the macro values already in the APVTS.
     //
@@ -117,7 +122,9 @@ public:
     enum class LoadMode
     {
         Fresh,     // reset every mapped slot to the new patch's declared default
-        Iterate    // keep current slot values (refine, and state restore)
+        Iterate,   // keep the value of every param that RECLAIMED its slot; seed
+                   // only slots that changed hands (refine)
+        Restore    // keep every slot exactly as it is -- seed nothing at all
     };
 
     // Called from the editor when a new Faust string arrives. The optional prompt
@@ -213,6 +220,19 @@ public:
     // record, which is where it always actually lived.
     juce::StringArray currentLabelsForTest() const;
 
+    // Test-only. The live slot -> ParamIdentity map, POOL_SIZE entries, empty
+    // string for a free slot. The direct observable for identity-keyed
+    // assignment: which slot a parameter landed in, and whether it kept it across
+    // a regeneration, are both statements about this vector and nothing else.
+    std::vector<std::string> slotIdsForTest() const;
+
+    // Test-only. How many slots the live patch actually occupies. NOT the same as
+    // currentLabelsForTest().size(): a Faust bargraph is published as a parameter
+    // (so it has a label) but is an OUTPUT and takes no slot, so a patch with two
+    // knobs and a meter reports 3 labels and 2 slots. That difference is the
+    // assertion the meter fixture exists to make.
+    int mappedSlotCountForTest() const;
+
     // Test-only. The rate the LIVE DSP is actually running at, per Faust's own
     // getSampleRate(); 0 when none is live. PF-018's spec assertion is precisely
     // "this follows prepareToPlay", and before the fix it did not.
@@ -229,7 +249,17 @@ private:
     // declared default, converting Faust zone units -> 0..1 with the same
     // ParamMap pair pushToFaust uses in the other direction. Unmapped slots are
     // zeroed so a stale value cannot reappear if a later patch maps that index.
-    void resetMappedSlotsToDefaults(const FaustEngine::ParamList& params);
+    // Takes no ParamList: with identity-keyed assignment the "which param holds
+    // slot i" question has exactly one answer and ParamPool owns it, so this
+    // reads paramPool.publishedSlots() instead of indexing a list by slot number.
+    // See the body for why passing the list would reintroduce the PF-001 shape.
+    void resetMappedSlotsToDefaults();
+
+    // Seed ONLY the listed slots to their (new) param's declared default. Used by
+    // LoadMode::Iterate for the slots ParamPool reports as having changed hands --
+    // see RemapResult::newlyAssignedSlots for why retaining a value there would
+    // hand a newcomer a deleted parameter's position.
+    void seedSlotsToDefaults(const std::vector<int>& slotsToSeed);
 
     // ── Retained generation metadata ────────────────────────────────────────
     // The Faust source, its originating prompt, and the current slot->label map.
@@ -253,6 +283,19 @@ private:
     // explicit callback cannot rot that way.
     juce::String       currentUiStyle { "faithful" };
     juce::StringArray  currentLabels;
+
+    // Slot -> ParamIdentity id for the live patch, POOL_SIZE entries, empty
+    // string for a free slot. Written in the compile callback beside
+    // currentLabels and under the same metaMutex, for the same reason: it is
+    // produced on the compile thread and read by getStateInformation() on the
+    // message thread.
+    //
+    // This is the half of the parameter model that has to survive a project
+    // reload. Without it a restored session knows every knob's VALUE (the APVTS
+    // tree) and nothing about which parameter each value belonged to, so the
+    // recompile would repack slots by identity order and hand every knob its
+    // neighbour's value. It is the reason schemaVersion moved to 2.
+    std::vector<std::string> currentSlotIds;
 
     // A restore blob can arrive (setStateInformation) before the host has called
     // prepareToPlay, at which point FaustEngine still holds the default 44100 Hz

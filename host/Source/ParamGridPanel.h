@@ -140,6 +140,17 @@ private:
         // use-after-free into a null deref.
         FaustEngine::ParamInfo meta;
 
+        // The macro slot this control is attached to.
+        //
+        // ⚠️ NOT the control's index. It was, for the whole life of this panel,
+        // because ParamPool::remap was positional -- params[i] WAS slot i, so
+        // attaching control i to slotId(i) happened to be right. Identity-keyed
+        // assignment breaks that: a param can reclaim any slot, so a control's
+        // position in this vector says nothing about which parameter it drives.
+        // Binding by index after that change attached knobs to the wrong
+        // parameters, which is exactly what EditorSessionTest scenario 15 caught.
+        int slot = -1;
+
         std::unique_ptr<juce::Component> widget;
         std::unique_ptr<juce::Label>     label;
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> sliderAtt;

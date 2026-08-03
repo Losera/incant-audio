@@ -178,16 +178,16 @@ jobs:
       # internals (PluginEditor.h:42-48, ParamGridPanel.h:91) and a rename there
       # would otherwise break the design instrument silently with CI green.
       - name: Build behavioural test harnesses
-        run: cmake --build build-ci --target OfflineRenderTest OfflineSynthRenderTest PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery
+        run: cmake --build build-ci --target OfflineRenderTest OfflineSynthRenderTest PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery ParamIdentityTest
 
       # OutputGuardTest / ParamMapTest / StatePersistenceTest — 96 checks that had
       # CMake targets and were run by NOTHING until 2026-07-30. PF-029 inverted:
       # there CI ran what the ladder did not, here neither ran them. All three are
       # pure and fast — no display, no network, no JIT for two of the three — so
       # the omission never had a cost justification.
-      - name: Run the pure harnesses (OutputGuard, ParamMap, StatePersistence)
+      - name: Run the pure harnesses (OutputGuard, ParamMap, StatePersistence, ParamIdentity)
         run: |
-          for t in OutputGuardTest ParamMapTest StatePersistenceTest; do
+          for t in OutputGuardTest ParamMapTest StatePersistenceTest ParamIdentityTest; do
             BIN="$(find build-ci -type f -name "$t" | head -n 1)"
             if [ -z "$BIN" ]; then
               echo "$t binary not found" >&2
