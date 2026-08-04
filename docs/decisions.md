@@ -525,3 +525,39 @@ What was decided?
 - Trade-offs and follow-on tasks
 ```
 </details>
+
+## ADR-021 — PluginSpec is not built
+
+Date: 2026-08-04
+Status: Accepted
+
+Context
+An architecture review proposed a PluginSpec: a structured artifact
+carrying signal topology, parameter schema, UI layout, MIDI map, and
+acceptance criteria, from which Faust, the JUCE parameter tree, and the
+UI would be generated. Brief A gathered evidence from the 19 recorded
+generations in bench/ladder_corpus.json, compiling each with
+faust-json 2.85.9.
+
+Evidence
+- 14 of 19 entries (74%) need nothing beyond FaustEngine::ParamInfo.
+- 0 of 19 use hgroup. 0 of 19 use any widget other than hslider. 0 of 19
+  carry [scale:] or [style:] metadata. The only vgroup present is the
+  Faust compiler's inserted wrapper.
+- The 2 real gaps are signal-graph-level facts outside a per-parameter
+  struct's scope by construction, not missing fields.
+
+Decision
+Do not build PluginSpec. Parameter structure stays discovered at compile
+time via MapUI/ParamCapture into ParamInfo. I/O topology is read live
+from the compiled dsp instance and never declared.
+
+Consequence
+The remaining unmet need is acceptance criteria — capturing what a
+generation was asked for so the result can be checked against it. That
+is a different artifact from a structural spec and is tracked separately.
+
+Revisit if
+Generated plugins begin exhibiting layout intent (grouping, ordering,
+control-type preference) in a meaningful fraction of a larger corpus.
+The 0/19 result is what kills this; a non-zero result reopens it.
