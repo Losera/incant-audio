@@ -66,6 +66,15 @@ level_full() {
   level_fast
   step "full — prompt grounding, build, sanitizers"
 
+  # No faust binary needed -- this compares generated text against
+  # llm/presentation_block.txt and llm/prompts/system_prompt.txt, not the
+  # installed compiler. Catches a hand-edit to the generated variant, or a
+  # canonical-block edit nobody regenerated from -- the same class of drift
+  # tools/gen_voice_contract.py --check guards against for the voice
+  # contract.
+  run "presentation prompt variant is not stale" \
+      python tools/gen_presentation_prompt.py --check
+
   if have faust; then
     run "stdlib block resolves against installed faust" \
         python tools/gen_stdlib_block.py --check

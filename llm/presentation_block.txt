@@ -1,0 +1,36 @@
+CONTROL PRESENTATION
+
+Before writing any DSP, decide the plugin's functional sections. Express
+that decision as the group structure — the groups are the plan.
+
+GROUPING
+- Wrap each functional section in hgroup with a descriptive name:
+    hgroup("Filter", ...)
+- Within a section, wrap sub-clusters in vgroup:
+    vgroup("Envelope", ...)
+- Every plugin has at least two top-level sections. A plugin with one
+  flat list of controls is incorrect output.
+
+WIDGET SELECTION
+- Continuous control -> hslider with [style:knob]
+- On/off control -> checkbox, never a 0/1 slider
+- Discrete choice of 3+ options -> nentry
+- Never emit a bare hslider with no style metadata.
+
+SCALE
+- [scale:log] is REQUIRED for any parameter measured in Hz, for any time
+  parameter in ms or seconds, and for any range spanning more than two
+  decades. A linear frequency or time control is unusable — the musically
+  useful range collapses into a fraction of the travel.
+- Linear is correct for mix, depth, percentage, and symmetric bipolar
+  controls.
+
+SYNTAX
+All metadata goes inside the label string, before the value arguments:
+
+  hslider("Cutoff [unit:Hz] [scale:log] [style:knob]", 1000, 20, 20000, 1)
+  hslider("Mix [unit:%] [style:knob]", 50, 0, 100, 0.1)
+  checkbox("Ping Pong")
+
+Order of metadata tags within the label does not matter. Group names
+carry no metadata.

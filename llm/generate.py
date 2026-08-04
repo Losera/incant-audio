@@ -44,7 +44,23 @@ DEFAULT_PROVIDER = providers.resolve_provider()
 # actionable message if a caller ever passes a temperature to such a model.
 DEFAULT_MODEL = providers.resolve_model(DEFAULT_PROVIDER)
 
-SYSTEM_PROMPT = (Path(__file__).parent / "prompts" / "system_prompt.txt").read_text()
+# A/B selector for the effects prompt only (the instrument prompt has no
+# presentation variant). Env var, matching PLUGINFORGE_PROVIDER/
+# PLUGINFORGE_GENERATION_BUDGET/PLUGINFORGE_PROMPT_LOG's existing idiom here
+# rather than a CLI flag, because SYSTEM_PROMPT is resolved once at import
+# time and every one of those is read the same way. An unrecognised value
+# falls back to "base", the same degrade-don't-fail rule select_prompt()
+# uses for an unrecognised `kind`.
+_PROMPT_VARIANT_FILES = {
+    "base": "system_prompt.txt",
+    "presentation": "system_prompt_presentation.txt",
+}
+PROMPT_VARIANT = os.environ.get("PLUGINFORGE_PROMPT_VARIANT", "base").strip().lower()
+if PROMPT_VARIANT not in _PROMPT_VARIANT_FILES:
+    PROMPT_VARIANT = "base"
+
+SYSTEM_PROMPT = (Path(__file__).parent / "prompts"
+                 / _PROMPT_VARIANT_FILES[PROMPT_VARIANT]).read_text()
 
 # The instrument prompt, and the router that chooses between them.
 #
