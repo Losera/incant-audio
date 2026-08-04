@@ -229,6 +229,16 @@ level_full() {
       skip "OfflineSynthRenderTest" "binary not built"
     fi
 
+    # The pitch gate's integration half: note 45 -> 110 Hz through the SAME
+    # --capture binary as above, and the fixed-pitch fixture proving the gate
+    # can fail. Marked `integration` and excluded from `fast`'s
+    # `-m "not integration"` for exactly this reason -- level_fast runs BEFORE
+    # this build, so a clean tree would otherwise skip it silently and never run
+    # it, which is the dead-control failure this file's header names. This rung
+    # is what gives it teeth.
+    run "pitch gate (note 45 -> 110 Hz through the capture binary)" \
+        python -m pytest tests/test_pitch_gate.py -q -m integration
+
     local promptpanel
     promptpanel="$(find host/build/PromptPanelThreadingTest_artefacts -type f -name PromptPanelThreadingTest 2>/dev/null | head -n1)"
     if [[ -z "$promptpanel" ]]; then

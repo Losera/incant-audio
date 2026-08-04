@@ -266,6 +266,20 @@ public:
     // "this follows prepareToPlay", and before the fix it did not.
     int liveDspSampleRateForTest() const { return faustEngine.liveDspSampleRateForTest(); }
 
+    // Test-only. Does the LIVE DSP declare Faust's full voice contract (gate +
+    // freq|key + gain|vel)? faustEngine stays private; this is the same
+    // forwarding idiom as liveDspSampleRateForTest above.
+    //
+    // WHY THIS EXISTS. The instrument corpus can hardcode the answer
+    // (OfflineRenderTest.cpp's Patch::isInstrument) because it owns its sources.
+    // --capture loads an ARBITRARY file and cannot, and a capture that guesses
+    // wrong renders a generated synth as silence.
+    //
+    // Ordering: FaustEngine::isInstrument() is published at DSP-swap time,
+    // strictly before the compile callback that loadAndAwait() waits on, so any
+    // caller that has observed a successful load also observes this correctly.
+    bool isInstrumentForTest() const { return faustEngine.isInstrument(); }
+
 private:
     FaustEngine faustEngine;
     ParamPool   paramPool;

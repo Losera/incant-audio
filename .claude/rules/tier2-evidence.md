@@ -45,10 +45,13 @@ fine", "this is the standard pattern" do not land Tier 2 changes.
 
 ## Prompts (`llm/prompts/`, `bench/prompts/`)
 
-- **One system prompt**, `llm/prompts/system_prompt.txt`, shared by the product and both
-  bench harnesses. Its stdlib block is generated from the installed `/usr/share/faust/*.lib`
-  by `tools/gen_stdlib_block.py`; `check_prompt_invariants.py` rejects any `ns.func` that
-  does not resolve.
+- **Two system prompts**, `llm/prompts/system_prompt.txt` (effects) and
+  `llm/prompts/instrument_prompt.txt` (instruments, added `d587665`), selected by
+  `llm/router.py`'s keyword scoring — never an LLM call. Each has its stdlib block
+  generated from the installed `/usr/share/faust/*.lib` by `tools/gen_stdlib_block.py`
+  (per-profile since `d587665`); `check_prompt_invariants.py` rejects any `ns.func`
+  in either file that does not resolve, and covers the whole `llm/prompts/` directory,
+  not one filename (`09786ec`).
 - **A prompt edit owes a benchmark statement.** Either re-run the affected benchmark or
   state that the baseline is now stale. Changing a prompt and leaving a stale baseline in
   place is a Tier 2 violation. Numbers recorded before 2026-07-21 measured a since-deleted

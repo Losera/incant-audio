@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""PreToolUse hook (Write/Edit/MultiEdit): guards llm/prompts/system_prompt.txt.
+"""PreToolUse hook (Write/Edit/MultiEdit): guards every file under llm/prompts/.
 
 REPLACES check_adr009_prompt_sync.py, which is now retired. That hook kept the
-ADR-009 rule text in sync across two prompt files. As of 2026-07-21 there is only
+ADR-009 rule text in sync across two prompt files. As of 2026-07-21 there was only
 one prompt file — bench/prompts/system_faust.txt was deleted and the benchmark now
-loads the production prompt — so a *sync* check has nothing to compare against and
-would fail closed on every edit.
+loads the production prompt — so a *sync* check had nothing to compare against and
+would have failed closed on every edit. (This is no longer true: 09786ec
+generalised PROMPT_RE from a single filename to a directory glob, and d587665
+added a second file, llm/prompts/instrument_prompt.txt. The point below — a
+single strong check beats a sync check between multiple weak ones — still holds
+per file; it just now runs once per prompt in the directory.)
 
 What replaced it is a stronger check on the one remaining file. The sync hook's
 real-world failure is worth recording: it verified one sentence and one regex, and

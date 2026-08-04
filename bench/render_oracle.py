@@ -136,6 +136,31 @@ NEVER_DECAYS_DB = -3.0
 # itself a failure.
 INERT_MS = 10.0
 
+# ── Pitch ────────────────────────────────────────────────────────────────────
+# The tolerance for "is this the note that was asked for". 50 cents = half a
+# semitone, and it sits between the two things it must separate:
+#   TOLERATED: detune and analog-style drift. The corpus asks for "warm"/"analog"
+#     instruments; a supersaw detuned +-15 cents or an LFO drifting +-20 cents is
+#     the patch working.
+#   CAUGHT: an octave error is 1200 cents (24x the tolerance), a semitone is 100,
+#     a patch that ignores `freq` and sits at 440 Hz against note 45 (110 Hz) is
+#     2400, and a normalised-vs-Hz filter-argument mistake is off by orders of
+#     magnitude.
+# Nothing legitimate lands between 50 and 100 cents of the requested pitch, so
+# this threshold is not a judgement call in the way NEVER_DECAYS_DB is.
+PITCH_TOLERANCE_CENTS = 50.0
+# Skip the attack before estimating: an ADSR attack is milliseconds, and 200 ms
+# also clears a filter envelope still opening.
+PITCH_SKIP_ATTACK_S = 0.2
+# Lag search bounds. Below 40 Hz a ~1.7 s capture window holds too few periods to
+# trust; above 2 kHz nothing in the corpus asks for a fundamental.
+PITCH_F_MIN, PITCH_F_MAX = 40.0, 2000.0
+# Periodicity floor: normalised ACF peak below this is NOT a pitch. Noise and
+# percussion must report "not evaluated", never a number — absence of a claim
+# must not read as a passed claim (the rule tail() already applies via
+# `evaluated`).
+PITCH_CONFIDENCE_MIN = 0.30
+
 
 def _diagnostic_tail(stderr: str, stdout: str = "", limit: int = 900) -> str:
     """The LAST part of a toolchain's output, not the first.
@@ -170,6 +195,16 @@ class UnsupportedPatch(RenderError):
     layer. Generators need the C++ offline harness driven by the existing
     FaustEngine JIT — which is the better home for this anyway, since it exercises
     the real production path rather than a parallel binary.
+
+    That harness now exists: `host/tests/OfflineRenderTest --capture <in.dsp>
+    <out.wav> [--note <n>]` (default note 45 / 110 Hz) renders a 0-input patch
+    through the real PluginForgeProcessor, plays a note if the patch declares the
+    full voice contract, and prints an `instrument=`/`held_end=` CAPTURE_OK line
+    that `pitch_of_wav()` above can measure directly. `bench/p6_capture.py` is
+    the existing caller. Routing generators through it automatically from this
+    module is a separate, deliberately deferred change — see the plan note on
+    `render_many()`'s `(input, output)` contract having nothing to compare a
+    0-input patch against.
     """
 
 
@@ -206,6 +241,11 @@ class Measurement:
     never_decays: bool = False
     tail_gate_evaluated: bool = False
     env_db_final: float = -np.inf
+    # Set by apply_pitch_gate() from a --capture instrument render, not by
+    # measure(). Left at the defaults when no pitch probe was run.
+    pitch_gate_evaluated: bool = False
+    cents_error: float = np.inf
+    out_of_tune: bool = False
     # Machine-readable siblings of `reasons`. `reasons` stays human text, and the
     # existing tests substring-match it, so it must not change shape. Consumers
     # that need to branch on a specific gate should use these instead of adding
@@ -238,6 +278,29 @@ class Tail:
     burst_end_ms: float = 0.0
     inert: bool = True                # memoryless: output stops when the input does
     frame_ms: float = TAIL_FRAME_MS
+
+
+@dataclass
+class Pitch:
+    """The one semantic gate this project has: did the instrument play the note
+    it was sent? Peer to Tail, computed from a --capture WAV (a rendered
+    instrument, not the noise/sweep/burst probes above — those never reach a
+    zero-input synth; see UnsupportedPatch).
+
+    `evaluated` is False when the ACF confidence never clears
+    PITCH_CONFIDENCE_MIN — an unpitched or too-quiet signal is not judged, the
+    same structural safety `Tail.evaluated` gives the tail check.
+    """
+    evaluated: bool = False
+    why: str = ""
+    midi_note: int = -1
+    expected_hz: float = 0.0
+    f0_hz: float = 0.0
+    confidence: float = 0.0
+    cents_error: float = float("inf")
+    tolerance_cents: float = PITCH_TOLERANCE_CENTS
+    in_tune: bool = False
+    fft_peak_hz: float = 0.0   # evidence only, never gated on — see fft_peak_hz()
 
 
 @dataclass
@@ -524,6 +587,171 @@ def meets_tail_expectation(t: Tail, expect_ms: float) -> tuple[bool, str]:
         return False, (f"no tail: output stops {t.tail_ms:.0f} ms after the input "
                        f"does, expected >= {expect_ms:.0f} ms")
     return False, f"tail {t.tail_ms:.0f} ms is under the expected {expect_ms:.0f} ms"
+
+
+def note_hz(midi_note: int) -> float:
+    """MIDI note -> Hz, the same equal-tempered formula FaustEngine::noteOn
+    writes into the /freq zone. Note 45 is 110.0 exactly."""
+    return 440.0 * 2.0 ** ((midi_note - 69) / 12.0)
+
+
+def cents(f_hz: float, ref_hz: float) -> float:
+    """Signed interval in cents; +inf when either side is non-positive (there is
+    no interval to a frequency of zero)."""
+    if f_hz <= 0 or ref_hz <= 0:
+        return float("inf")
+    return float(1200.0 * np.log2(f_hz / ref_hz))
+
+
+def fundamental_hz(y: np.ndarray, sr: int = SR,
+                   f_min: float = PITCH_F_MIN, f_max: float = PITCH_F_MAX,
+                   peak_ratio: float = 0.9) -> tuple[float, float]:
+    """(f0_hz, confidence) by normalised autocorrelation with parabolic peak
+    interpolation. Returns (0.0, confidence) when nothing clears `peak_ratio`.
+
+    NOT an FFT peak, deliberately: a saw or square whose 2nd harmonic dominates
+    (or anything through a high-pass) puts the loudest FFT *bin* an octave above
+    the true fundamental — exactly the error class this gate exists to catch.
+    Autocorrelation peaks at the true period whether or not the fundamental is
+    present at all. Its own failure mode is the opposite octave (the peak at 2T
+    nearly matches the one at T), handled the standard way: take the SMALLEST
+    lag that clears `peak_ratio` of the global max within the search window,
+    not the tallest peak.
+    """
+    x = np.asarray(y, dtype=np.float64)
+    x = x - x.mean()
+    if x.size < 2 or not np.any(x):
+        return 0.0, 0.0
+
+    ac = np.correlate(x, x, mode="full")[x.size - 1:]
+    if ac[0] <= 0:
+        return 0.0, 0.0
+    ac = ac / ac[0]
+
+    lo = max(1, int(sr / f_max))
+    hi = min(ac.size - 2, int(sr / f_min))
+    if hi <= lo:
+        return 0.0, 0.0
+    seg = ac[lo:hi]
+
+    peak = float(seg.max())
+    if peak <= 0:
+        return 0.0, 0.0
+    threshold = peak_ratio * peak
+
+    local_max = np.nonzero(
+        (seg >= threshold) & (seg >= np.roll(seg, 1)) & (seg >= np.roll(seg, -1)))[0]
+    # Exclude the array-wrap artefacts np.roll introduces at the two ends.
+    local_max = local_max[(local_max > 0) & (local_max < seg.size - 1)]
+    idx = int(local_max[0]) if local_max.size else int(seg.argmax())
+    lag = idx + lo
+
+    # Parabolic interpolation around the chosen lag for sub-sample precision.
+    if 0 < lag < ac.size - 1:
+        a, b, c = ac[lag - 1], ac[lag], ac[lag + 1]
+        denom = a - 2 * b + c
+        delta = float(np.clip(0.5 * (a - c) / denom, -1.0, 1.0)) if denom != 0 else 0.0
+    else:
+        delta = 0.0
+    true_lag = lag + delta
+    if true_lag <= 0:
+        return 0.0, float(seg[idx])
+    return float(sr / true_lag), float(seg[idx])
+
+
+def fft_peak_hz(y: np.ndarray, sr: int = SR) -> float:
+    """The loudest FFT bin, parabolically interpolated. EVIDENCE ONLY — reported
+    so a disagreement with fundamental_hz() is visible, never gated on (see that
+    function's docstring for why the FFT peak is the wrong instrument for the
+    missing-fundamental case)."""
+    x = np.asarray(y, dtype=np.float64)
+    if x.size < 2:
+        return 0.0
+    mag = np.abs(np.fft.rfft(x * np.hanning(x.size)))
+    if mag.size < 3:
+        return 0.0
+    idx = int(np.argmax(mag[1:])) + 1  # skip DC
+    if 0 < idx < mag.size - 1:
+        a, b, c = mag[idx - 1], mag[idx], mag[idx + 1]
+        denom = a - 2 * b + c
+        delta = float(np.clip(0.5 * (a - c) / denom, -1.0, 1.0)) if denom != 0 else 0.0
+    else:
+        delta = 0.0
+    return float((idx + delta) * sr / x.size)
+
+
+def pitch_of(y: np.ndarray, midi_note: int, sr: int = SR,
+            held_end: int | None = None,
+            skip_attack_s: float = PITCH_SKIP_ATTACK_S,
+            tolerance_cents: float = PITCH_TOLERANCE_CENTS) -> Pitch:
+    """Measure the fundamental of the HELD region and judge it against the note.
+
+    `held_end` is the note-off sample index — exactly what --capture prints as
+    `held_end=` on the CAPTURE_OK line — so this needs no copy of the capture
+    binary's timing constants. The release is excluded on purpose: a decaying
+    tail is where a pitch estimator is least reliable and it carries nothing
+    this gate wants.
+    """
+    p = Pitch(midi_note=midi_note, expected_hz=note_hz(midi_note),
+              tolerance_cents=tolerance_cents)
+
+    x = np.asarray(y, dtype=np.float64)
+    if x.ndim > 1:
+        x = x.mean(axis=1)   # fold channels; the voice contract's output is
+                              # mono duplicated to both, so this changes nothing
+                              # for a real capture and is harmless otherwise.
+
+    end = min(int(held_end), x.shape[0]) if held_end else x.shape[0]
+    start = int(skip_attack_s * sr)
+    if start >= end:
+        p.why = "held region shorter than the attack skip"
+        return p
+
+    f0, confidence = fundamental_hz(x[start:end], sr)
+    p.confidence = confidence
+    if confidence < PITCH_CONFIDENCE_MIN or f0 <= 0:
+        p.why = (f"not periodic enough (ACF confidence {confidence:.2f} < "
+                 f"{PITCH_CONFIDENCE_MIN:.2f}) — unpitched, silent, or too short")
+        return p
+
+    p.f0_hz = f0
+    p.fft_peak_hz = fft_peak_hz(x[start:end], sr)
+    p.cents_error = cents(f0, p.expected_hz)
+    p.in_tune = abs(p.cents_error) <= tolerance_cents
+    p.evaluated = True
+    return p
+
+
+def pitch_of_wav(path, midi_note: int, held_end: int | None = None) -> Pitch:
+    """Read a --capture WAV and measure it against the note that was sent."""
+    with _quiet_wav():
+        sr, y = wav.read(str(path))
+    # 24-bit PCM: scipy repacks into int32 with the three bytes HIGH
+    # (scipy.io.wavfile._read_data_chunk, the 'V1' path), so full scale is
+    # 2**31, not 2**23. Pitch is scale-invariant; this matters only if a level
+    # is ever read off the same array.
+    return pitch_of(y.astype(np.float64), midi_note, sr=int(sr), held_end=held_end)
+
+
+def apply_pitch_gate(m: Measurement, p: Pitch) -> Measurement:
+    """Fold the pitch verdict into a Measurement. Mutates and returns it.
+
+    Fires only when p.evaluated — an effect capture, or an unpitched output, is
+    not judged. Same named-step shape as apply_tail_gate.
+    """
+    if not p.evaluated:
+        return m
+    m.pitch_gate_evaluated = True
+    m.cents_error = p.cents_error
+    m.out_of_tune = not p.in_tune
+    if m.out_of_tune:
+        m.ok = False
+        m.reasons.append(
+            f"pitch is {p.cents_error:+.0f} cents from note {p.midi_note} "
+            f"({p.expected_hz:.2f} Hz expected, {p.f0_hz:.2f} Hz measured) — "
+            f"outside the {p.tolerance_cents:.0f}-cent tolerance")
+        m.codes.append("out_of_tune")
+    return m
 
 
 def _band_energy(sig: np.ndarray, sr: int, lo: float, hi: float) -> float:

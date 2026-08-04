@@ -58,6 +58,7 @@ sys.path.insert(0, str(ROOT / "bench"))
 sys.path.insert(0, str(ROOT / "llm"))
 
 from run_benchmark import acquire_lock, release_lock  # noqa: E402  (PF-025/PF-030)
+import render_oracle  # noqa: E402  (pitch_of_wav -- report only, never a gate here)
 
 BATTERY = ROOT / "bench" / "prompts" / "p6_battery.json"
 GENERATE = ROOT / "llm" / "generate.py"
@@ -74,6 +75,13 @@ DRY_RUN_PATCHES = [
     'import("stdfaust.lib");\nprocess = this is not faust;\n',      # compile failure
     'import("stdfaust.lib");\ng = checkbox("Gate");\n'
     'process = _ * g, _ * g;\n',                                    # silent at defaults
+    # An instrument: the full voice contract, so --capture plays note 45 and
+    # the dry run exercises the instrument=1 branch of verdict_for below.
+    'import("stdfaust.lib");\n'
+    'freq = hslider("freq",440,20,2000,0.01);\n'
+    'gain = hslider("gain",0.5,0,1,0.01);\n'
+    'gate = button("gate");\n'
+    'process = os.osc(freq) * gain * en.adsr(0.01,0.1,0.7,0.2,gate) <: _,_;\n',
 ]
 
 
@@ -145,6 +153,13 @@ def verdict_for(cap: dict) -> tuple[str, str]:
         return "NaN/Inf", "non-finite samples reached the output"
     if cap.get("muted") == "1":
         return "MUTED", "OutputGuard latched -- runaway or non-finite"
+    if cap.get("instrument") == "1" and rms < 1e-5:
+        # No longer ambiguous the way a bare-effect silence is. --capture PLAYS
+        # note 45 at an instrument, so a patch that declares the full voice
+        # contract and still renders silent did not receive its note or did not
+        # sound it. PF-032's "silent by design vs broken" question is answered
+        # by the note, not by a better threshold -- this is that answer.
+        return "NO NOTE", "instrument rendered silent with note 45 held"
     if rms < 1e-5:
         # Not necessarily a defect: a patch gated off at its declared defaults is
         # silent BY DESIGN, and PF-032 is open on telling the two apart. Flagged,
@@ -234,6 +249,25 @@ def main() -> int:
             row["verdict"], row["detail"] = verdict_for(cap)
             row["params"] = cap.get("params", "-")
             row["wav"] = wav.name if cap.get("ok") else None
+
+            # REPORT the pitch, never gate on it here -- this harness runs on
+            # nondeterministic model output (corpus_main makes the same call for
+            # the tail check), so it must not go red for reasons unrelated to
+            # whatever change is being evaluated. The gate's teeth live in
+            # tests/test_pitch_gate.py's deterministic fixtures.
+            if cap.get("ok") and cap.get("instrument") == "1" and row["wav"]:
+                held_end = int(cap.get("held_end", 0)) or None
+                try:
+                    p = render_oracle.pitch_of_wav(wav, midi_note=45, held_end=held_end)
+                except Exception as exc:  # pragma: no cover -- diagnostics only
+                    row["detail"] += f" [pitch: error ({exc})]"
+                else:
+                    if p.evaluated:
+                        row["detail"] += (f" [pitch: {p.f0_hz:.1f} Hz, "
+                                          f"{p.cents_error:+.0f}c from A2/110 Hz]")
+                    else:
+                        row["detail"] += f" [pitch: not evaluated ({p.why})]"
+
             print(f"       {row['verdict']:<11} {row['detail']}")
             rows.append(row)
     finally:

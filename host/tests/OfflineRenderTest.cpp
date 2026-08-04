@@ -280,6 +280,24 @@ struct MidiRender
     float        tailRms = 0.0f;   // RMS of the last kTailBlocks, after release
 };
 
+// Optional side-channel for --capture. renderWithMidi does not write files and
+// must not learn how; what --capture needs from it is the SAMPLES and the
+// whole-render statistics (Stats, defined above for runCapture's own use), and
+// this is how it gets both without a second copy of the note-driving loop --
+// see the NoteSource comment below for why that copy must not exist.
+//
+// stats/sumSq/sum accumulate PER BLOCK, at the same point in the loop and in
+// the same order the original inline runCapture loop used, so the summation
+// order -- and therefore the last digit of the printed rms and dc -- is
+// unchanged for the effect path.
+struct CaptureSink
+{
+    juce::AudioBuffer<float>* whole = nullptr;   // >= blocks*blockSize, 2 channels
+    Stats  stats;
+    double sumSq = 0.0;
+    double sum   = 0.0;
+};
+
 // How many trailing blocks the tail RMS averages over.
 //
 // It was ONE, and that was a latent flake rather than a passing test. With
@@ -304,11 +322,16 @@ constexpr int kTailBlocks = 4;
 // Two copies of the loop could drift apart and then agree with each other about
 // the wrong thing. Every existing call site is unchanged and still runs exactly
 // the code it always did.
-enum class NoteSource { MidiBuffer, Keyboard };
+//
+// None is the effect path through --capture: no event of either kind is ever
+// constructed, which keeps that render bit-identical to what this loop produced
+// before it learned to play a note at all.
+enum class NoteSource { MidiBuffer, Keyboard, None };
 
 MidiRender renderWithMidi(PluginForgeProcessor& p, double sampleRate, int blockSize,
                           int blocks, int noteOnBlocks, int note, int velocity,
-                          NoteSource source = NoteSource::MidiBuffer)
+                          NoteSource source = NoteSource::MidiBuffer,
+                          CaptureSink* sink = nullptr)
 {
     juce::AudioBuffer<float> buffer(2, blockSize);
     TestSignal signal;
@@ -335,13 +358,25 @@ MidiRender renderWithMidi(PluginForgeProcessor& p, double sampleRate, int blockS
             else if (b == noteOnBlocks)
                 p.pushKeyboardNote(note, 0, false);
         }
-        else if (b == 0)
-            midi.addEvent(juce::MidiMessage::noteOn(1, note, (juce::uint8) velocity), 0);
-        else if (b == noteOnBlocks)
-            midi.addEvent(juce::MidiMessage::noteOff(1, note), 0);
+        else if (source == NoteSource::MidiBuffer)
+        {
+            if (b == 0)
+                midi.addEvent(juce::MidiMessage::noteOn(1, note, (juce::uint8) velocity), 0);
+            else if (b == noteOnBlocks)
+                midi.addEvent(juce::MidiMessage::noteOff(1, note), 0);
+        }
+        // NoteSource::None emits nothing at all -- the effect path.
 
         signal.fill(buffer);
         p.processBlock(buffer, midi);
+
+        if (sink != nullptr)
+        {
+            accumulate(sink->stats, buffer, sink->sumSq, sink->sum);
+            if (sink->whole != nullptr)
+                for (int ch = 0; ch < 2; ++ch)
+                    sink->whole->copyFrom(ch, b * blockSize, buffer, ch, 0, blockSize);
+        }
 
         const float* l = buffer.getReadPointer(0);
         const float* r = buffer.getReadPointer(1);
@@ -680,6 +715,14 @@ const std::vector<InstrumentPatch> kInstruments = {
 constexpr double kSampleRate = 48000.0;
 constexpr int    kBlockSize  = 512;
 constexpr int    kBlocks     = 200;   // ~2.1s at 48k — long enough for LFOs/decay
+
+// --capture, instrument mode. Note-on at block 0, note-off at kCaptureNoteOff:
+// 1.71s held -- a long steady segment for a pitch estimator -- and 0.43s of
+// release left in the file, which is what makes the envelope audible to the
+// person the WAV is for. Same shape as the corpus's 80/40 split above, scaled.
+constexpr int kCaptureNoteOff  = 160;  // of kBlocks == 200
+constexpr int kCaptureNote     = 45;   // A2, 110.000 Hz exactly under FaustEngine::noteOn
+constexpr int kCaptureVelocity = 100;  // the corpus's velocity, so levels are comparable
 } // namespace
 
 // ── Capture mode ────────────────────────────────────────────────────────────
@@ -701,7 +744,18 @@ constexpr int    kBlocks     = 200;   // ~2.1s at 48k — long enough for LFOs/d
 // LoadMode::Fresh, so every mapped slot is seeded from the patch's own default
 // before a sample is rendered. That is the same position a user hears
 // immediately after clicking Generate, which is the moment being simulated.
-int runCapture(const juce::String& dspPath, const juce::String& wavPath)
+//
+// INSTRUMENTS GET A NOTE. isInstrumentForTest() decides -- the same predicate
+// the corpus assertion above holds accountable on both polarities -- and if the
+// loaded patch declares the full voice contract, note-on fires at block 0 and
+// note-off at kCaptureNoteOff, driven through the SAME renderWithMidi() the
+// corpus battery uses (see the NoteSource comment: two copies of a note loop
+// can drift apart and then agree with each other about the wrong thing). An
+// effect goes through NoteSource::None with noteOnBlocks == kBlocks, so no
+// event of either kind is ever constructed -- this render must stay
+// bit-identical to what a plain accumulate() loop over an empty MidiBuffer
+// produced before this function could reach an instrument at all.
+int runCapture(const juce::String& dspPath, const juce::String& wavPath, int note)
 {
     juce::File dspFile(dspPath);
     if (! dspFile.existsAsFile())
@@ -719,28 +773,26 @@ int runCapture(const juce::String& dspPath, const juce::String& wavPath)
         return 3;
     }
 
+    const bool instrument = p.isInstrumentForTest();
+
     // Render to a buffer rather than streaming, so the stats below describe
     // exactly the samples written to disk.
-    juce::AudioBuffer<float> block(2, kBlockSize);
     juce::AudioBuffer<float> whole(2, kBlockSize * kBlocks);
-    juce::MidiBuffer midi;
-    TestSignal signal;
-    signal.prepare(kSampleRate);
 
-    Stats s;
-    double sumSq = 0.0, sum = 0.0;
-    for (int b = 0; b < kBlocks; ++b)
-    {
-        signal.fill(block);
-        p.processBlock(block, midi);
-        accumulate(s, block, sumSq, sum);
-        for (int ch = 0; ch < 2; ++ch)
-            whole.copyFrom(ch, b * kBlockSize, block, ch, 0, kBlockSize);
-    }
+    CaptureSink sink;
+    sink.whole = &whole;
+
+    const auto mr = renderWithMidi(p, kSampleRate, kBlockSize, kBlocks,
+                                   instrument ? kCaptureNoteOff : kBlocks,
+                                   instrument ? note : 0, kCaptureVelocity,
+                                   instrument ? NoteSource::MidiBuffer : NoteSource::None,
+                                   &sink);
+
+    Stats s = sink.stats;
     if (s.sampleCount > 0)
     {
-        s.rms = (float) std::sqrt(sumSq / s.sampleCount);
-        s.dc  = (float) (sum / s.sampleCount);
+        s.rms = (float) std::sqrt(sink.sumSq / s.sampleCount);
+        s.dc  = (float) (sink.sum / s.sampleCount);
     }
 
     juce::File wav(wavPath);
@@ -770,26 +822,46 @@ int runCapture(const juce::String& dspPath, const juce::String& wavPath)
     }
 
     // One machine-readable line, so the driver does not have to parse prose.
-    std::printf("CAPTURE_OK wav=%s params=%d rms=%.6f peak=%.6f dc=%.6f nan=%d inf=%d muted=%d\n",
+    // Fields after `muted` are APPENDED, never reordered, so a reader who parses
+    // by position (a human diffing two logs) keeps working -- p6_capture.py
+    // parses by key regardless. instrument=0 means the fields after it describe
+    // an effect capture and held_rms/tail_rms are whole-render/last-4-block
+    // values, not a per-note measurement -- ignore them for an effect row.
+    std::printf("CAPTURE_OK wav=%s params=%d rms=%.6f peak=%.6f dc=%.6f nan=%d inf=%d muted=%d "
+                "instrument=%d note=%d vel=%d sr=%d held_end=%d held_rms=%.6f tail_rms=%.6f\n",
                 wav.getFullPathName().toRawUTF8(),
                 p.currentLabelsForTest().size(),
                 s.rms, s.peak, s.dc,
                 s.anyNaN ? 1 : 0, s.anyInf ? 1 : 0,
-                p.isOutputMuted() ? 1 : 0);
+                p.isOutputMuted() ? 1 : 0,
+                instrument ? 1 : 0,
+                instrument ? note : -1,
+                instrument ? kCaptureVelocity : 0,
+                (int) kSampleRate,
+                instrument ? kCaptureNoteOff * kBlockSize : 0,
+                mr.held.rms[0], mr.tailRms);
     return 0;
 }
 
 int main(int argc, char** argv)
 {
-    if (argc == 4 && juce::String(argv[1]) == "--capture")
+    if (argc >= 4 && juce::String(argv[1]) == "--capture")
     {
+        int note = kCaptureNote;
+        if (argc == 6 && juce::String(argv[4]) == "--note")
+            note = juce::String::fromUTF8(argv[5]).getIntValue();
+        else if (argc != 4)
+        {
+            std::printf("usage: OfflineRenderTest [--capture <in.dsp> <out.wav> [--note <n>]]\n");
+            return 2;
+        }
         juce::ScopedJuceInitialiser_GUI juceInit;
         return runCapture(juce::String::fromUTF8(argv[2]),
-                          juce::String::fromUTF8(argv[3]));
+                          juce::String::fromUTF8(argv[3]), note);
     }
     if (argc > 1)
     {
-        std::printf("usage: OfflineRenderTest [--capture <in.dsp> <out.wav>]\n");
+        std::printf("usage: OfflineRenderTest [--capture <in.dsp> <out.wav> [--note <n>]]\n");
         return 2;
     }
 
@@ -1111,6 +1183,16 @@ int main(int argc, char** argv)
                 continue;
             }
             check(true, "JIT compiled and a DSP went live");
+
+            // isInstrumentForTest() is the predicate --capture uses to decide
+            // whether to play a note, since --capture loads an arbitrary file
+            // and cannot hardcode the answer the way this corpus does. Checked
+            // on BOTH polarities here, including "sine with a freq knob but no
+            // gate" (below), which must answer false -- the direction that
+            // would otherwise make every effect capture start playing notes.
+            check(p.isInstrumentForTest() == patch.isInstrument,
+                  juce::String("isInstrumentForTest() agrees with the corpus (")
+                      + (patch.isInstrument ? "instrument" : "effect") + ")");
 
             // The three voice controls must not be knobs. This is the assertion
             // that keeps ParamPool from overwriting every note.

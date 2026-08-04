@@ -1,4 +1,4 @@
-# PluginForge — Status  (2026-08-01)
+# PluginForge — Status  (2026-08-03)
 
 Rewritten each session per COLLABORATION.md §5. Single writer, no merge conflicts.
 Narrative history lives in git.
@@ -11,111 +11,141 @@ behind HEAD.
 
 ## Works — and how we know
 
-**This session made a generated patch playable, then adversarially reviewed the work that
-made it playable and fixed nine defects in it.** Phase 0 (`fc89754`) landed the note path;
-an audit of that commit against the C++ tree, the prompt layer and Faust's own headers found
-that it shipped with a hanging note, a false threading invariant, two comments asserting the
-opposite of the code beside them, an untested plugin target, and a runaway watchdog whose
-constant did not denote a time. All fixed, **every one seen failing first**. Five commits
-pushed, CI green (run 30686483382).
+**This session closed the actual gap behind "instruments can be played, but not generated and
+not heard" — measurement, not generation.** `/orient`'s digest opened pointing at "Next three
+thing 1: `instrument_prompt.txt` + a router" as unbuilt; it was already built, one session
+earlier (`d587665`, six commits behind where this session started, undocumented here because
+that commit landed one commit *after* the last STATUS.md rewrite). What was still true and still
+blocking: nothing in the repo could play a note at a generated instrument, so the prompt had
+never produced a single measured patch. `--capture` built an empty `MidiBuffer` and reported
+`rms=0.000000` as success. Fixed, and a new gate added on top of the fix.
 
-- **A held note can be released.** *(`fb733a3`.)* `allNotesOff()` existed and was called from
-  nowhere but the MIDI walk, so a note held across a transport stop or a `prepareToPlay`
-  re-prepare left `*gate == 1` with no events left to clear it — the patch droned forever.
-  `FaustEngine::silenceVoice()` brackets internally with `enterAudio()`/`exitAudio()`;
-  `audioBusy` is a counter (`FaustEngine.h:203,:212`) so an extra holder from the message
-  thread is what the drain guard is built to tolerate. **Red case measured:** with the call
-  commented out the assertion reports rms **0.3806881** — full sustain; restored, 0.0000002.
-- **`en.ar` is a one-shot, and it had made an assertion vacuous.** `envelopes.lib:85-86`
-  triggers release "when the envelope value reaches 1" — the gate's level is ignored entirely.
-  The key/vel corpus patch used it, so its "DECAYS after note-off" check passed **whether or
-  not note-off worked**. Proved directly: with `reset()` broken that patch's gate stayed at 1
-  and the output still fell to zero. Only `en.adsr` sustains. This is a trap for the
-  instrument prompt, which advertises both side by side.
-- **The instrument target is no longer untested, in two directions.** *(`31c0ebc`.)* Every
-  console-app harness compiles with `PF_IS_SYNTH == 0` (JUCE defines `JucePlugin_*` only for
-  plugin targets), so the synth build's traits were asserted by **nothing**.
-  `OfflineSynthRenderTest` is the same corpus at `-DPF_IS_SYNTH=1`, asserting `acceptsMidi()`,
-  the release tail and the bus layout **in both directions** so the two builds cannot silently
-  swap. Separately, `check.sh` built `PluginForgeSynth` and **CI did not** — PF-029 inverted,
-  invisible to `TestLadderRunsWhatCIRuns` because its universe is filtered to names ending in
-  `Test` and its relation runs CI→ladder only. `TestBothPluginTargetsAreGated` closes it.
-- **A bus-layout gate, where JUCE's default was `return true` for any layout.**
-  *(`28d5bfc`.)* `juce_AudioProcessor.h:1329` accepted 5.1 while `kMaxChannels` is 2 and
-  `scratch` is sized to it — the host was told yes and then got its dry input back. Red case:
-  with the override stubbed to `return true`, three assertions fail.
-- **A release assertion that was passing by luck.** `tailRms` was the last block only; with
-  note-off at block 40 and a 0.2 s release, that window's *leading edge* sat 3.7 ms **before**
-  the release finished. Now 80 blocks, averaged over the last four (0.384–0.427 s after
-  note-off), threshold tightened 10% → **1%**, measured margin four orders.
-- **ADR-020: a loud synth is not a broken one.** *(`b4058df`.)* `os.square * gain` at unity
-  sits at `|y| == 1.0` forever by construction, so a latching runaway watchdog muted the first
-  loud square-wave synth permanently. Detection is now split from response: `Latch` for
-  effects, `Report` for instruments. The **limiter, not the mute**, is what bounds the output,
-  so `Report` gives up a backstop and not the guarantee. `NonFinite` latches under both. In
-  the same code, `overScaleRun` was one `int` shared across the channel loop, so
-  `kRunawaySeconds` was not a time — **measured: mono 47 blocks, stereo 24**. Per-channel:
-  47 and 47. `OutputGuardTest` 17 → **25 checks**.
-- **The prompt guards cover a directory, not one filename.** *(`09786ec`.)* Both controls
-  named `system_prompt.txt` exactly, so Phase 1's `instrument_prompt.txt` would have been born
-  with no invariant checking while every gate stayed green. Generalised **before** the file
-  exists. **Verified end to end:** the hook was fed a `Write` payload for
-  `llm/prompts/instrument_prompt.txt` — a file that does not exist — containing
-  `os.totallyFake`; it exits 2 and names the fabrication. Under the old regex it exited 0.
-- **Suite:** `check.sh full` green, 16 rungs. `OfflineRenderTest` and `OfflineSynthRenderTest`
-  **158 checks each, 0 failures**; `OutputGuardTest` 25/0; `StatePersistenceTest` 33/0; 68
-  control-wiring tests.
+- **`--capture` plays a note.** `runCapture` (`host/tests/OfflineRenderTest.cpp`) now reads
+  `PluginForgeProcessor::isInstrumentForTest()` (new — the same forwarding idiom as
+  `liveDspSampleRateForTest()`), and if the loaded patch declares the full voice contract, drives
+  a MIDI note through the **same** `renderWithMidi()` the corpus battery uses rather than a second
+  copy of the note loop — the file's own comment argues against that duplication, and a second
+  copy is exactly the kind of thing that drifts and then agrees with itself about the wrong
+  answer. `CAPTURE_OK` gained `instrument= note= vel= sr= held_end= held_rms= tail_rms=`, appended
+  never reordered. **Effect capture is proven bit-identical**, not just argued: `md5sum` on three
+  fixtures before/after matched exactly, and the diff on the first eight `CAPTURE_OK` fields is
+  the WAV path only. `isInstrumentForTest()` also got its own assertion in the corpus loop, on
+  **both polarities** — including the "sine with a `freq` knob but no gate" negative control,
+  which is the direction that would otherwise make every effect capture start playing notes.
+- **The first semantic gate this project has had.** Every existing check answers "is this patch
+  broken" — NaN, silence, runaway gain, a dropped delay tail. None could tell a synth playing
+  440 Hz from one playing 110 Hz; both are finite, non-silent, bounded audio. `bench/render_oracle.py`
+  gained `pitch_of_wav()`: normalised autocorrelation with parabolic interpolation, **not** an FFT
+  peak — verified directly, not assumed: on a signal built from harmonics 2–10 of 110 Hz with no
+  110 Hz component at all, the FFT peak reads 220.03 Hz (wrong, an octave up — a saw or a
+  high-passed tone routinely does this) while the autocorrelation estimator reads 110.09 Hz
+  (correct). That comparison is now `TestEstimator::test_missing_fundamental_does_not_read_an_octave_up`
+  in `tests/test_pitch_gate.py`, so the choice has a red case behind it, not just a docstring.
+- **The red fixture, seen failing on the right axis and green on every other one.**
+  `tests/fixtures/instrument_fixed_pitch.dsp` hardcodes `os.osc(440)` while referencing `freq`
+  only as a filter corner (`fi.lowpass(1, freq*20)`) — the shape a model produces when it wires
+  the envelope and forgets the pitch. Compiles, isn't silent, no NaN/Inf, sounds and releases —
+  every gate that predates this one is green. The pitch gate reports **+2400.0 cents** against a
+  **50-cent** tolerance (half a semitone; tolerates the ±15–20 cents of detune the corpus's
+  "warm/analog" prompts legitimately ask for, and nothing legitimate lands between 50 and the next
+  real failure at 100+).
+- **Verified end to end on a real generation, not just fixtures.** First live generation ever run
+  against `instrument_prompt.txt` (`d587665` shipped it eight commits ago and flagged this
+  exact gap as the honest thing not yet verified): `llm/generate.py --prompt "a warm analog
+  subtractive synth pad, playable from MIDI"` routed to `"kind": "instrument"`, compiled first
+  try, and correctly used the Hz-ordered `ve.moog_vcf(res, cutoff)` (resonance first, Hz second —
+  the unit contract the prompt teaches, distinct from `moogLadder`'s normalised 0–1). Captured and
+  measured: **110.01 Hz against an expected 110.0, 0.13 cents of error, `in_tune=True`.** The FFT
+  peak on that same render reads 112.06 Hz — the estimator choice above is not academic, it moved
+  the number on the very first real patch it was run against.
+- **`tools/check.sh assumed` went from 2 claims to 1.** "Semantic fidelity is unmeasured (PF-013)"
+  is removed from Assumed below — not because all semantic fidelity is now measured (it isn't;
+  see Broken #8, unchanged), but because the specific blocking claim was "there is no instrument
+  to measure fidelity against," and there now is one, with a passing and a failing case both on
+  record. This is the metric CLAUDE.md names as the one that cannot be improved by writing
+  documentation; it moved by building a gate, not by asserting one.
+- **Suite:** `check.sh full` green, 20 rungs (new: "pitch gate (note 45 -> 110 Hz through the
+  capture binary)", marked `integration` so `fast`'s `-m "not integration"` excludes it honestly
+  rather than silently skipping it — `level_fast` runs *before* `level_full`'s build step, so an
+  unmarked test would skip once on a clean tree and never run again, the exact dead-control
+  failure this file exists to stop recording after the fact).
+  `check.sh audio` green. `OfflineRenderTest` **183 checks, 0 failures** (was 179).
+  `tests/test_pitch_gate.py`: 8/8 (5 pure-numpy in `fast`, 3 `integration` needing the built
+  binary).
+
+### Carried forward from 2026-08-01 to 2026-08-03 — six commits this file never recorded
+
+STATUS.md was last rewritten at `f260d53`, one commit before `d587665`. Everything below landed
+in the gap `/orient`'s staleness banner was pointing at.
+
+- **The instrument prompt and its router (`d587665`).** Two prompts, not one: the effects prompt
+  had ~300 tokens of slack against groq's 8000-token per-request ceiling, and the voice contract
+  plus a synth few-shot did not fit. `instrument_prompt.txt` (7,784 chars, its own generated
+  stdlib profile — 19 curated entries vs the effects prompt's 46) teaches the `gate`/`freq`/`gain`
+  contract, the Hz-vs-normalised filter split, and that `en.ar` is a one-shot. `llm/router.py` is
+  keyword scoring, not an LLM call — a classifier round trip does not fit the 100 s budget and
+  would fail exactly when the network is the problem — with 25 tests including the real
+  `bench/prompts/prompts.json` 5/20 split. **Its own commit message flagged the gap this session
+  closed**: not one live generation had been run against it, and there was still no way to send it
+  notes or measure what came back.
+- **A parameter is named, not numbered (`e7d7c20`).** `ParamIdentity.h` derives a slug from
+  group+label instead of using ordinal position as identity, closing four defects that were one
+  fact from four angles (PF-038 alphabetical knobs, raw slot numbers in the DAW, the forced-Fresh
+  instrument-boundary hack, PF-051's 65th-control silent drop). State blob schema v2; v1 blobs fall
+  back to positional restore. Versioned and pinned in the same commit that creates it
+  (`ParamIdentityTest`, wired into `check.sh` and CI together).
+- **The lock-free note path exists end to end (`a04c9e2`, `496c35e`).** `NoteRing.h` — SPSC,
+  drop-newest-on-overflow (drop-oldest would need the producer to advance the consumer's cursor,
+  which is a race, not a policy) — is drained **inline** inside `processBlock`'s `enterAudio()`
+  bracket, because `check_rt_safety.py` scopes four function names and cannot follow a call graph
+  to a helper. Two bugs found by writing the tests, both fixed in the same commit: the drain was
+  originally inside the `isInstrument()` gate, so an *effect* patch never emptied the ring (it
+  would fill to 255 and burst-fire on the next instrument the user generated — measured: 545
+  drops with the bug reintroduced); and `NoteRing::reset()`'s comment claimed `prepareToPlay`
+  called it, which would race a held key against a sample-rate change, and does not. Seen failing:
+  with the drain loop deleted, every instrument in the corpus reports 0.0 rms from the keyboard
+  against 0.39689–0.77979 from MIDI. **What this does NOT provide**: the on-screen/QWERTY widget
+  itself. `pushKeyboardNote()`'s only caller anywhere in `host/Source/` is still the test corpus —
+  confirmed by grep, not assumed. The queue exists; nothing produces into it from the UI yet.
+- **The screenshot tool matched a terminal, not the plugin (`ca34955`).** Window selection was
+  `'PluginForge' in title`, and a shell sitting in `~/PluginForge` has a matching title. Now
+  matches on window class, which JUCE sets from the product name and no terminal can collide with.
+- **A date in a filename is a claim, and it goes stale (`e0cd9a9`).** Living session docs move to
+  `docs/sessions/NNN-topic.md`, numbered not dated. `check_doc_naming.py` blocks a new dated
+  filename on `Write`; point-in-time records (`docs/records/`, `bench/results/`, `logs/`,
+  `artifacts/`) are exempt because their date is content, not packaging.
+
+### Carried forward from 2026-08-01 — the instrument audit session
+
+Five commits, all seen failing before being fixed: a hanging note (`allNotesOff()` existed and
+was called from nowhere), `en.ar`'s one-shot semantics making a corpus assertion vacuous
+(`envelopes.lib:85-86`), the `PluginForgeSynth` build target going untested in both directions
+(`OfflineSynthRenderTest` closes it), a bus-layout gate JUCE's own default left open (5.1 audio
+into a 2-channel scratch buffer), a release-window assertion passing by luck (3.7 ms before the
+release actually finished), ADR-020 splitting runaway *detection* from *response* so a loud
+`os.square` synth stops being muted permanently, and the prompt guard hook generalised from one
+filename to a directory glob **before** the file it would need to cover existed (`09786ec`).
+`check.sh full` green, 16 rungs at the time; `OfflineRenderTest`/`OfflineSynthRenderTest` 158
+checks each.
 
 ### Carried forward from 2026-07-31 — the arity session
 
-- **The host is stereo and the patch may not be.** *(PF-049 critical, PF-050 high — both
-  found and fixed today.)* `process()` handed JUCE's channel array straight to
-  `dsp->compute` with no bounds check. `juce_AudioSampleBuffer.h:342` returns the raw
-  `channels` array and **`:441` null-terminates it** at index `numChannels`, so on a
-  2-channel buffer `io[2]` is `nullptr` and `io[3]` is past the allocation. `faust -lang cpp`
-  on `process = _,_,_;` emits `FAUSTFLOAT* output2 = outputs[2];` then `output2[i0] = ...` —
-  **a null dereference on the audio thread**, reachable from the current corpus. Nothing in
-  `host/Source/` called `getNumInputs`/`getNumOutputs`; `llm/faust_validator.py:6-16` only
-  checks faust's return code. Now: `runCompile` rejects `numOuts < 1 || numOuts > 2 ||
-  numIns > 2` before publishing, through the existing failure path, so it surfaces as a
-  compile error the user can read. **Rejected, not clamped** — silently dropping channels 3+
-  produces plausible-sounding wrong audio, which is harder to diagnose than a refusal.
-- **A mono patch now reaches both speakers.** *(PF-050.)* `process()` routes mismatched arity
-  through a scratch buffer **sized in `prepare()`, never in `process()`**, and duplicates a
-  1-output patch to both channels. Faust only contracts in-place `compute()` when the arities
-  agree, so 1-in/2-out could not stay in place. The equal-arity fast path is byte-identical to
-  the old code: the common case pays nothing.
-- **Seen failing, with numbers.** `OfflineRenderTest`'s corpus was twelve entries, **all
-  2-in/2-out** — nothing had ever exercised this. Six arity cases added; before the fix
-  **five failed**: the three over-wide patches went live with an arity the host cannot serve,
-  and the two mono patches came out at `max |L-R|` of **0.73** and **0.25** (RMS L 0.212 /
-  R 0.262 — oscillator left, dry signal right). After: **L == R exactly, `max |L-R| = 0.0`**,
-  and all three over-wide patches refused at compile. `OfflineRenderTest` went to **124
-  checks, 0 failures**. `test_the_real_audio_path_passes_its_own_hook` still green, so the
-  new code satisfies `check_rt_safety.py`.
-- **The audio rung stops being a lottery.** *(PF-046 fixed.)* It gated on
-  `bench/results/results.json` — the file `level_quota` overwrites — so its verdict was a
-  property of the last model draw. It now gates on `bench/ladder_corpus.json`: 19 frozen
-  records from the 2026-07-31 ollama run, same schema so the oracle takes either file.
-  **Verified rather than assumed:** the old gate pointed at a different archived draw fails 1,
-  and a *different* patch (PF-032's noise gate); replacing `results.json` with that draw
-  leaves the new gate at **16 passed, 0 failed, exit 0**. The 3 zero-input generators are kept
-  in deliberately, so every run prints a standing reminder that the generative category sits
-  outside the gate.
-- **PF-045 is excluded from the ladder on purpose, and stays open.** The sawtooth+ADSR record
-  fails `dc_offset` and `never_decays` because the patch passes `releaseTime * ma.SR / 1000.0`
-  to `en.adsr`, whose times are in **seconds** (`/usr/share/faust/envelopes.lib:192-202`).
-  The ladder gates the render path and the oracle — what it can control. Generation quality
-  belongs to `check.sh quota`, which still writes `results.json` and still surfaces it.
-- **The UI is untouched and proven so.** `tools/ui_iterate.sh`: **15 rendered, 0 broken,
-  `no change`** against the committed reference after the DSP work.
-- **Carried forward, unchanged:** the control-style selector and its in-place restyle
-  (PF-047); Faust group capture (`ParamInfo::group`) — still captured, still nothing lays out
-  by it; the render oracle's `tail()` burst probe and `never_decays` gate; the prompt
-  regenerated under Faust 2.85.9; the noise floor is provider-side (PF-031); PF-012's
-  cross-model comparison; pluginval at strictness 10; the full audio-path invariant list
-  (PF-001/002/005/006/015/018/019/020/021/022/023).
-- **Suite: `tools/check.sh audio` green end to end** — every rung, including `audio`.
+- **The host is stereo and the patch may not be.** *(PF-049 critical, PF-050 high.)* A 3-output
+  patch reached a null-terminated JUCE channel array past its bound — a null dereference on the
+  audio thread, now rejected at compile with a readable error rather than silently truncated.
+- **A mono patch now reaches both speakers**, through a scratch buffer sized in `prepare()`. The
+  equal-arity fast path stays byte-identical.
+- **Seen failing, with numbers.** Before the fix, mono patches came out at `max|L-R|` of 0.73 and
+  0.25 (oscillator left, dry signal right); after, `L == R` exactly.
+- **The audio rung stops being a lottery** *(PF-046)*: gates on a frozen 19-record corpus instead
+  of whatever the last quota run happened to draw.
+- **PF-045 stays open on purpose.** The sawtooth+ADSR ladder record still passes milliseconds
+  where `en.adsr` wants seconds. Note this session's live instrument generation used
+  `en.adsr` correctly, in seconds — the model gets it right when the prompt states it; PF-045 is
+  about a specific frozen benchmark record, not about whether the contract can be taught.
+- **Carried forward, unchanged:** the control-style selector, Faust group capture, the tail-check
+  burst probe, the noise floor being provider-side (PF-031), PF-012's cross-model comparison,
+  pluginval at strictness 10, the full audio-path invariant list.
 
 ---
 
@@ -123,184 +153,145 @@ pushed, CI green (run 30686483382).
 
 Registry with IDs, severity and discovery dates: `docs/BUGS.md`.
 
-**1. An instrument can be played, but not generated and not heard.** *(unfiled, high —
-the honest answer to "how are the synthesizer features developing".)* **Substantially
-changed 2026-07-31/08-01.** The machinery now exists and is asserted: a second plugin target
-`PluginForgeSynth` (`IS_SYNTH TRUE`, `NEEDS_MIDI_INPUT TRUE`, category `Instrument`), an
-optional input bus, a MIDI walk inside the `enterAudio()` bracket, voice-contract detection
-read off the compiled DSP, monophonic last-note-priority notes, and `OfflineSynthRenderTest`
-— the same corpus compiled with `PF_IS_SYNTH=1`, which is the only harness that exercises the
-instrument build's traits at all. 158 checks per build, green in CI (run 30686483382).
+**1. An instrument can be played and generated and measured — but still not heard by a human, in
+the product.** *(unfiled, high — narrower than it was a session ago.)* Three things used to block
+this and they are no longer peers:
 
-**Two things still block anything audible, and they are peers — neither alone is enough:**
+- ~~Generation cannot emit an instrument.~~ **Fixed, `d587665`.** `instrument_prompt.txt` +
+  `llm/router.py` route real prompts to a prompt that can legally emit `button("gate")`, and a
+  live generation this session compiled first try and played the correct pitch.
+- ~~Nothing can measure whether a generated instrument works.~~ **Fixed, this session.**
+  `--capture` plays a note; `pitch_of_wav()` judges it. See Works above.
+- **There is still no way for a human to send it notes, inside the product.** *(Unchanged — this
+  is now the whole of Broken #1.)* The lock-free path a keyboard would need exists and is proven
+  (`NoteRing` + the inline drain in `processBlock`, carried forward above), but nothing produces
+  into it: `pushKeyboardNote()`'s only caller in `host/Source/` is still the test corpus. No MIDI
+  hardware is attached either (`aconnect -i` shows only `System` and `Midi Through`). A human can
+  today reach a generated instrument's audio only through `--capture --note <n>` on the command
+  line — real, but not the product experience. See **Waiting on you #2** for the exact commands.
+  ⚠️ The idiomatic JUCE path is still not usable as-is: `MidiKeyboardState` holds a
+  `juce::CriticalSection` (`juce_MidiKeyboardState.h:182`), forbidden on the audio thread.
 
-- **Generation cannot emit an instrument.** `system_prompt.txt:14` mandates `hslider()` and
-  `:7` forbids anything outside the stdlib block, which contains no `button`, `checkbox` or
-  `nentry`. So the model has **no legal way to produce a `gate`**; without one the voice
-  contract fails, `isInstrument()` stays false, and the MIDI walk never runs. An
-  `instrument_prompt.txt` is forced — the effects prompt has ~300 tokens of slack.
-- **There is no way to send it notes.** No MIDI hardware is attached (`aconnect -i` shows
-  only `System` and `Midi Through`), and the editor has no on-screen keyboard, no
-  computer-keyboard input and no piano roll. ⚠️ The idiomatic JUCE fix is **not RT-safe
-  here**: `MidiKeyboardState` holds a `CriticalSection` (`juce_MidiKeyboardState.h:182`) and
-  `processNextMidiBuffer` takes it (`.cpp:140`), which `processBlock`'s no-locks rule forbids.
-  Needs a lock-free ring from the message thread instead.
+- **It has never been in a DAW.** *(Unchanged.)* `COPY_PLUGIN_AFTER_BUILD FALSE`
+  (`host/CMakeLists.txt:22`) means the VST3 has never been installed or scanned, and pluginval is
+  not on PATH. Four concrete gaps behind "must take MIDI in any DAW": monophonic by design,
+  block-granularity MIDI (~10.7 ms jitter), a hardcoded 2.0 s tail length, no MIDI CC mapping.
 
-- **It has never been in a DAW.** *(Requirement stated 2026-08-01: the generated instrument
-  must take MIDI in any DAW.)* The traits are right — `IS_SYNTH TRUE`, `VST3_CATEGORIES
-  Instrument`, `acceptsMidi()`, an input-optional bus — and `PluginForge Synth.vst3` builds.
-  But `COPY_PLUGIN_AFTER_BUILD FALSE` (`host/CMakeLists.txt:22`) means it has **never been
-  installed** (`~/.vst3` holds only Vital), never been scanned, never been loaded, and
-  **pluginval is not on PATH** so the instrument target has never been validated at all. Four
-  concrete gaps behind the requirement, in the order they will bite:
-  1. **Monophonic.** A DAW user plays chords immediately; Phase 0 is one note by design.
-  2. **Block-granularity MIDI** — ~10.7 ms jitter at 48 k/512. Audible on tight rhythmic
-     parts. Sample accuracy means splitting `compute()` at event offsets.
-  3. **`getTailLengthSeconds()` is a hardcoded 2.0 s.** Hosts use it to decide when to stop
-     calling `processBlock`; a 5 s pad release is truncated, a plucked patch wastes CPU.
-  4. **No MIDI CC → parameter mapping.** `docs/goals_and_next_steps.md:64` has this as a
-     long-term item, and it is a different feature from note input — worth disambiguating
-     before either is called done.
-
-So the only playable instruments in existence are the four hand-written patches inside
-`kInstruments`. The benchmark corpus's `generative` category is still scored by
-`first_try_compiles` alone and still unmeasurable by the Python oracle
-(`UnsupportedPatch`, `render_oracle.py:161-174`).
-
-**2. "Refine" does not refine.** *(unfiled, high.)* `LoadMode::Iterate` is a **knob-value
-retention policy** (`PluginProcessor.h:59-63`). Ticking the toggle changes nothing about the
-LLM call — the subprocess argv is `--prompt <text>` and nothing else
-(`PromptPanel.cpp:367-370`). The model has never seen the prior patch, so "add a resonance
-control" regenerates from imagination and **replaces** the live DSP. The same shape sits in
-the retry loop: `generate.py:133` feeds back compiler stderr but **never the failed code**.
-`currentSource()` already exists (`PluginProcessor.h:137-148`) and nothing reads it into the
-generation path. Three findings from this session's design pass, all load-bearing:
-  - **`juce::ChildProcess` cannot write to a child's stdin.** The complete API is
-    `juce_ChildProcess.h:35-110` — no write method, no stdin handle, any platform. The POSIX
-    implementation creates one pipe and `dup2`s it onto the child's stdout/stderr only
-    (`juce_SharedCode_posix.h:1096-1155`); stdin is inherited from the host process. So
-    `generate.py --json` over stdin **would hang in a DAW**. The transport must be
-    `--request-file <path>` on argv.
-  - **A refine payload can exceed groq's request ceiling.** groq admits a request only when
-    `prompt_tokens + max_tokens <= 8000` (`llm/providers.py:68-72`), `max_tokens` cannot go
-    below 4096 (`providers.py:764-766` × `:274`), and the prompt already leaves ~311 tokens
-    of estimated slack. Generated patches measure p50 242 / p90 527 / max 1705 chars. So the
-    tail **413s non-retryably** on the default provider. ollama has no such wall.
-  - **The HUMAN-OWNED prompt gate no longer exists.** COLLABORATION.md Revision 2 §9 retired
-    the three-mode protocol on 2026-07-21 and `protect_human_owned.py` was deleted in
-    `cf1d8e8`. `docs/ux_roadmap.md:62-68` still describes it — a document that outlived its
-    mechanism, the failure class COLLABORATION.md §5 exists to prevent. **Fix or delete that
-    line.** What still binds is the evidence rule: a prompt edit owes a benchmark statement.
+**2. "Refine" does not refine.** *(unfiled, high — unchanged this session.)* `LoadMode::Iterate`
+is a knob-retention policy; the LLM never sees the prior patch. Three load-bearing findings from
+the earlier design pass stand: `juce::ChildProcess` cannot write to a child's stdin (needs
+`--request-file`), a refine payload can exceed groq's request ceiling non-retryably, and
+`docs/ux_roadmap.md:62-68` still describes a HUMAN-OWNED gate that `cf1d8e8` deleted — fix or
+delete that line.
 
 **3. One generation defect is actually evidenced; the rest is sampling.** *(PF-024/PF-032,
-high.)* Karplus-Strong's `recursion_cycle` is the only failure reproducing prompt *and* class
-across runs — four archives. The sidechain compressor fails every run with a *different*
-error. **Fixing anything else on the strength of one run is fixing noise.**
+high, unchanged.)* Karplus-Strong's `recursion_cycle` reproduces across four archives; the
+sidechain compressor fails every run with a *different* error.
 
-**4. The noise gate still renders silent.** *(PF-032's surviving half, high.)*
-`ef.gate_stereo(threshold, attack, hold, release, _, _)` — the signal written into the
-argument list where `misceffects.lib:159` documents `_,_ : gate_stereo(t,a,h,r) : _,_`. The
-prompt rule targeting it measured as not working on ollama.
+**4. The noise gate still renders silent.** *(PF-032's surviving half, high, unchanged.)*
 
-**5. PF-045 — `en.*` time units.** *(medium, open, deliberately not spent today.)* The
-two-line fix is a unit annotation at `tools/gen_stdlib_block.py:143-146`, the precedent one
-group above. It costs prompt headroom (~124 tokens) and owes a benchmark statement, and the
-**last two prompt rules aimed at this same class measured as doing nothing on ollama.**
-Recorded as a decision, not an oversight.
+**5. PF-045 — `en.*` time units on the frozen ladder record.** *(medium, open, deliberately not
+spent.)* See the carried-forward note above: this is about one archived benchmark patch, not
+about whether the unit contract can be taught — this session's live instrument generation used
+`en.adsr` correctly.
 
 **6. The DAW still sees raw slots.** *(follow-up to PF-037, open, unfiled.)*
 
-**7. Knob ordering is Faust's own.** *(PF-038 low.)* Alphabetical per group and per widget;
-`ParamGridPanel` does not sort.
+**7. Knob ordering is Faust's own.** *(PF-038 low.)*
 
-**8. The only fidelity instrument is not interpretable.** *(PF-041 high, PF-042 medium.)*
+**8. The only fidelity instrument is not interpretable.** *(PF-041 high, PF-042 medium,
+unchanged.)* Distinct from this session's pitch gate: PF-041/042 are about the general
+spectral/timbral "does it sound like what was asked" judge for the *effects* corpus, which this
+session did not touch. The pitch gate is narrower — one objective, numeric property (fundamental
+frequency) for the *instrument* corpus — and does not generalize to "is this musical."
 
-**9. The declared ollama model cannot hold its own prompt.** *(PF-043, medium.)*
+**9. The declared ollama model cannot hold its own prompt.** *(PF-043, medium, unchanged.)*
 
-**10. `score_efficacy.py --judge` spends quota and takes no lock.** *(unfiled.)*
+**10. `score_efficacy.py --judge` spends quota and takes no lock.** *(unfiled, unchanged.)*
 
 ---
 
 ## Assumed, never checked
 
-**Two claims. The number did not move on 2026-08-01 either.** The session landed five commits
-of instrument machinery, an ADR and a guard generalisation — all real, none of it evidence
-about generation quality. Said plainly, twice running now, because the metric exists so that a
-productive session cannot disguise itself as a measured one. Note the shape of the debt: both
-claims are blocked behind instruments, and instruments are now blocked behind a prompt and a
-keyboard rather than behind the audio path.
+**One claim, down from two.** "Semantic fidelity is unmeasured" is removed — see Works above for
+what moved it and what it does and does not mean. Do not read this as "assumed" being close to
+empty: it tracks claims nobody has checked, not claims nobody has thought of, and the pitch gate's
+own honest limit (Broken #8) is a reminder that a narrow win here is not a broad one.
 
-- **The efficacy pilot generalizes to nothing.** *(PF-011)* 125 generations ≈ 437k tokens ≈
-  **2.2 days** on groq. Needs sharding — **or ollama**, which is unmetered.
-- **Semantic fidelity is unmeasured.** *(PF-013)* Blocked **on the instrument, not on quota**
-  — PF-041 and PF-042.
+- **The efficacy pilot generalizes to nothing.** *(PF-011, unchanged.)* 125 generations ≈ 437k
+  tokens ≈ 2.2 days on groq. Needs sharding — or ollama, which is unmetered (CPU-only until the
+  box reboots; the NVIDIA driver mismatch is still live).
 
 ## Next three things
 
-1. **`instrument_prompt.txt` + a router.** The first of the two things blocking every audible
-   instrument. Must permit `button("gate")`, teach the `gate`/`freq`/`gain` naming contract
-   (case-sensitive, matched against Faust's own `extractPaths`), carry the unit contract
-   (`ve.moog_vcf` takes Hz while `ve.moogLadder`/`diodeLadder`/`korg35LPF` take 0–1;
-   `en.adsr` times are seconds — PF-045), and **warn that `en.ar` is a one-shot**:
-   `envelopes.lib:85-86` releases when the envelope reaches 1 and ignores the gate entirely,
-   so it cannot sustain a note. Router is keyword-based and local — a third LLM call does not
-   fit the 100 s budget. The guards already cover a new file (`09786ec`).
-2. **An on-screen + computer keyboard, on a lock-free path.** The second blocker, and useless
-   without item 1 — as item 1 is without this. `MidiKeyboardComponent` gives clicking *and*
-   QWERTY (`setKeyPressBaseOctave`, `:145`) for free, but its state class locks, so events
-   must cross to the audio thread through a `juce::AbstractFifo` ring drained inside the
-   existing `enterAudio()` bracket. Red case: TSan, plus an assertion that the audio thread
-   never touches the `CriticalSection`. A preset-phrase library (triad, arpeggio,
-   progression) is worth more than a drawing UI for A/B work and should come before it.
-3. *(evidence)* **Fix the judge before using it — PF-041 first.** Still the cheapest route to
-   moving the `assumed` number, and it has now failed to move for two sessions running. Note
-   the coupling that makes this cheaper than it was: instruments are the first thing this
-   project generates where "did it do what was asked" has an objective answer — play note 45,
-   assert 110 Hz — so the pitch gate is a semantic check the effects corpus could never offer.
+1. **The on-screen + computer-keyboard UI widget.** The lock-free path it needs — `NoteRing`,
+   drained inline inside `enterAudio()`/`exitAudio()` — is built and TSan-proven
+   (`a04c9e2`/`496c35e`). What is missing is strictly the producer: something in
+   `host/Source/PluginEditor.*` that calls `pushKeyboardNote()`. `MidiKeyboardComponent` gives
+   clicking and QWERTY (`setKeyPressBaseOctave`) for free but its underlying state class locks —
+   drive it through a listener that forwards into the ring rather than letting it touch
+   `processBlock` directly. This is the last piece between a generated instrument and a human
+   hearing it played live in the product, rather than through `--capture --note <n>` on the CLI.
+   A preset-phrase library (triad, arpeggio, progression) is worth more than a drawing UI for A/B
+   work and should land first.
+2. **The two follow-ups this session deliberately deferred.** (a) Route `render_oracle.py`'s
+   zero-input `UnsupportedPatch` through the capture binary instead of refusing outright — blocked
+   on deciding what `features()`/`tail()` report when there is no input signal to compare against,
+   a design question, not wiring. (b) Extend `test_prompt_headroom.py`, `test_prompt_claims.py`,
+   `test_project_structure.py` and `bench/check_prompt_regression.py` to cover
+   `instrument_prompt.txt` — real gap (~1580 tokens of unguarded slack, currently fine, silently
+   unguarded), not a live defect, and belongs with the other prompt-guard generalisations as one
+   tidy commit.
+3. *(evidence)* **PF-041/PF-042 — the spectral/timbral judge.** Still the next slice of the same
+   debt the pitch gate paid down a piece of. Reframe from last session: the `assumed` number did
+   move this session, via the pitch gate rather than this item — this is not "the cheapest route"
+   anymore in the same sense, but it is still open, still unfiled as a fix, and still the thing
+   standing between "compiles and plays the right note" and "sounds like what was asked for" for
+   the instrument corpus specifically (the effects corpus's version of this question is Broken #8
+   unchanged).
 
-**Displaced, deliberately: Make Refine carry the source.** It was item 2 and is still the
-highest-leverage gap in the product (`docs/competitive_landscape.md:107-109`), but the two
-instrument blockers above are each one session and together unblock the listening pass, the
-`assumed` number and the whole `generative` fifth of the corpus. Sequence when it returns: one
-live groq generation measuring `usage.prompt_tokens` at `max_tokens=3000` (settles whether the
-token wall is real), then `--request-file` + `prior_source`, then the token pre-flight, then
-feed the failed code back into the retry. Red case is `scenario15_refineCarriesTheSource` in
-`EditorSessionTest` — **and its negative**, that a Fresh request does not carry it, or "always
-send the source" passes while doubling every request.
+**Displaced, not urgent: Make Refine carry the source.** Was item 2 two sessions running; the
+instrument work it was displaced for is now down to one item (the keyboard widget, above) instead
+of two. Still the highest-leverage gap in the product per `docs/competitive_landscape.md:107-109`.
+Sequence when it returns: one live groq generation measuring `usage.prompt_tokens` at
+`max_tokens=3000`, then `--request-file` + `prior_source`, then the token pre-flight, then feed
+failed code back into the retry. Red case: `scenario15_refineCarriesTheSource` in
+`EditorSessionTest`, and its negative (a Fresh request must not carry it).
 
 ## Waiting on you
 
-1. **The EFFECTS listening pass.**
-   `host/build/PluginForgeHost_artefacts/Debug/Standalone/PluginForge Host` is current. The
-   input bus is **required** — with no audio going in you hear nothing regardless of the
-   patch. The **VST3 has never been installed** — `COPY_PLUGIN_AFTER_BUILD FALSE`
-   (`host/CMakeLists.txt:22`), and `~/.vst3` holds only Vital — so a DAW test needs the bundle
-   copied into a scan path first. Provider: groq is active and fastest; ollama is free but
-   **CPU-only until the box reboots** (the NVIDIA driver mismatch is still live).
-   The *instrument* listening pass is not available yet — see Broken #1 for why.
+1. **The EFFECTS listening pass.** Unchanged from last session.
+   `host/build/PluginForgeHost_artefacts/Debug/Standalone/PluginForge Host` is current. Input bus
+   is required. VST3 still never installed (`COPY_PLUGIN_AFTER_BUILD FALSE`). groq is active and
+   fastest; ollama is free but CPU-only until reboot.
 
-2. **Sequencing call: fold the keyboard into the instrument-prompt session, or after it?**
-   The 2026-07-31 ruling on instruments is now largely executed — `IS_SYNTH`,
-   `NEEDS_MIDI_INPUT`, `acceptsMidi()`, the input-optional bus layout, the MIDI dispatcher
-   inside the bracket and a generator path in the C++ harness all landed. Two items from that
-   ruling remain: the prompt contract with a synth few-shot, and polyphony (deliberately
-   deferred — Phase 0 is monophonic on purpose, so that when per-voice zone fan-out goes wrong
-   there is a working baseline to bisect against). What is genuinely open is whether the
-   keyboard ships alongside the prompt: **neither is useful without the other**, since a
-   generated instrument with no way to play it is as silent as a keyboard with no instrument
-   to drive.
+2. **NEW: an INSTRUMENT listening pass now exists — CLI only, not yet in the Standalone.**
+   ```
+   python llm/generate.py --prompt "<what you want>"          # routes itself; look for "kind":"instrument"
+   # paste faust_code to a .dsp, then:
+   host/build/OfflineRenderTest_artefacts/Debug/OfflineRenderTest --capture in.dsp out.wav [--note N]
+   ```
+   Default note is 45 (A2, 110 Hz), held ~1.7 s then released. `CAPTURE_OK` reports
+   `instrument=1 held_end=... held_rms=... tail_rms=...`; play the WAV. This is real audio through
+   the shipping `PluginForgeProcessor::processBlock` path (JIT, swap protocol, ParamPool,
+   OutputGuard all run exactly as in a DAW) — it is a genuine listening pass, just not yet reachable
+   by clicking anything. The pad generated live this session
+   (`import("stdfaust.lib"); ... ve.moog_vcf(res, cutoff) ...`, 7 knobs, in tune at note 45 to
+   0.13 cents) is the first candidate worth your ears.
 
-3. **Requested and not yet planned: a piano roll.** Drawing chords needs a note grid *and a
-   clock* — the Standalone has no host transport, so it would own its own, which is the part
-   that makes this larger than a widget. Recommended split: preset audition phrases first
-   (they make A/B comparison meaningful, which a hand-drawn phrase does not), drawing UI
-   after. Not scoped yet.
+3. **Sequencing call on the keyboard is narrower now, not open.** Both things it was waiting on —
+   the prompt and the note-queue plumbing — are done. What's left is purely the UI widget (Next
+   three #1). No decision needed from you here anymore; flagging that this item can come off the
+   list once the widget lands.
 
-4. **`docs/ux_roadmap.md:62-68` describes a gate that no longer exists** (Broken #2). One-line
-   fix, but it is exactly the drift class this project keeps paying for.
+4. **Requested and not yet planned: a piano roll.** Unchanged. Needs a note grid *and* a clock (no
+   host transport in Standalone). Recommended split: preset audition phrases first, drawing UI
+   after.
 
-5. **`bench/results/.prompt_baseline.json` is still untouched**, deliberately. It records
-   `0.88` for the deleted pre-unification prompt. Replacing it should record a *spread*.
+5. **`docs/ux_roadmap.md:62-68` describes a gate that no longer exists** (Broken #2). Unchanged,
+   one-line fix.
 
-6. **`UDHR.md` is a 1-byte stub** and `IDEAS.md` is your idea dump — both untracked, both left
-   alone.
+6. **`bench/results/.prompt_baseline.json` is still untouched**, deliberately. Records `0.88` for
+   the deleted pre-unification prompt.
+
+7. **`UDHR.md` and `IDEAS.md`** — still untracked, still yours, still left alone.
