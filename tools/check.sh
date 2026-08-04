@@ -67,11 +67,19 @@ level_full() {
   step "full — prompt grounding, build, sanitizers"
 
   # No faust binary needed -- this compares generated text against
-  # llm/presentation_block.txt and llm/prompts/system_prompt.txt, not the
-  # installed compiler. Catches a hand-edit to the generated variant, or a
-  # canonical-block edit nobody regenerated from -- the same class of drift
-  # tools/gen_voice_contract.py --check guards against for the voice
-  # contract.
+  # llm/voice_contract.json, not against the installed compiler. Catches a
+  # hand-edit to host/Source/VoiceContract.generated.h or the instrument
+  # prompt's spliced block, or a canonical-source edit nobody regenerated
+  # from -- the two-places-hand-synced defect this file exists to close.
+  run "voice-contract label list is not stale" \
+      python tools/gen_voice_contract.py --check
+
+  # No faust binary needed either -- this is a text comparison between
+  # llm/prompts/system_prompt_presentation.txt and its two sources
+  # (llm/prompts/system_prompt.txt + llm/presentation_block.txt). Catches a
+  # hand-edit to the generated variant, or a canonical-block edit nobody
+  # regenerated from, the same class of drift the voice-contract check above
+  # guards against.
   run "presentation prompt variant is not stale" \
       python tools/gen_presentation_prompt.py --check
 

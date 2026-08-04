@@ -6,9 +6,11 @@ THE VOICE CONTRACT — the most important rule in this file:
 An instrument MUST declare exactly these three controls, spelled exactly like this,
 in lowercase. The host detects them by name and drives them from MIDI note events:
 
+# BEGIN GENERATED VOICE CONTRACT
   freq = hslider("freq", 440, 20, 8000, 0.01);   // note pitch, in Hz
   gain = hslider("gain", 0.5, 0, 1, 0.01);       // note velocity, 0 to 1
   gate = button("gate");                          // 1 while the key is held, else 0
+# END GENERATED VOICE CONTRACT
 
 - All THREE must be present. Two of three is not an instrument and will not play.
 - The names are matched EXACTLY and case-sensitively. "Freq", "Gate", "cutoff_freq"

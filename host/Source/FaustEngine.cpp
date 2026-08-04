@@ -1,5 +1,6 @@
 #include "FaustEngine.h"
 #include "ParamIdentity.h"
+#include "VoiceContract.generated.h"
 #include <cmath>
 #include <thread>
 #include <faust/dsp/llvm-dsp.h>
@@ -233,6 +234,11 @@ struct ParamCapture : public UI
 //
 // Exact and case-sensitive, matching Faust. See the VoiceControls comment in
 // FaustEngine.h for why leniency here would be a trap rather than a kindness.
+//
+// The match tables (kGateLabels/kFreqLabels/kGainLabels) are GENERATED from
+// llm/voice_contract.json by tools/gen_voice_contract.py -- the same file
+// llm/prompts/instrument_prompt.txt's GENERATED VOICE CONTRACT block comes
+// from, so the two cannot say different things. See VoiceContract.generated.h.
 // ---------------------------------------------------------------------------
 namespace
 {
@@ -245,16 +251,28 @@ FaustEngine::VoiceControls extractVoiceControls(const FaustEngine::ParamList& pa
         if (p.zone == nullptr)
             continue;
 
-        // First match wins per role. Faust collects EVERY matching path into a
+        // First match wins per role, across params AND across a zone's own
+        // label list (checked in the generated table's order, which is the
+        // canonical match order). Faust collects EVERY matching path into a
         // vector and drives them all; a patch with two "gate" controls is
         // pathological, and taking the first keeps this phase simple. Phase 1
         // hands the job to dsp_poly, which does the vector properly.
-        if (p.label == "gate")            { if (!vc.gate) vc.gate = p.zone; }
-        else if (p.label == "freq")       { if (!vc.freq) { vc.freq = p.zone; vc.freqIsKey = false; } }
-        else if (p.label == "key")        { if (!vc.freq) { vc.freq = p.zone; vc.freqIsKey = true;  } }
-        else if (p.label == "gain")       { if (!vc.gain) { vc.gain = p.zone; vc.gainIsVel = false; } }
-        else if (p.label == "vel"
-              || p.label == "velocity")   { if (!vc.gain) { vc.gain = p.zone; vc.gainIsVel = true;  } }
+        //
+        // A param's label can equal at most ONE of the six accepted strings,
+        // so checking the three zones independently (rather than the original
+        // if/else-if chain across all six) cannot double-assign a param --
+        // there is no string that appears in two of the tables below.
+        if (! vc.gate)
+            for (const auto& e : pf::VoiceContract::kGateLabels)
+                if (p.label == e.name) { vc.gate = p.zone; break; }
+
+        if (! vc.freq)
+            for (const auto& e : pf::VoiceContract::kFreqLabels)
+                if (p.label == e.name) { vc.freq = p.zone; vc.freqIsKey = e.rawUnits; break; }
+
+        if (! vc.gain)
+            for (const auto& e : pf::VoiceContract::kGainLabels)
+                if (p.label == e.name) { vc.gain = p.zone; vc.gainIsVel = e.rawUnits; break; }
     }
 
     return vc;

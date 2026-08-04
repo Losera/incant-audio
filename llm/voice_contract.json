@@ -1,0 +1,71 @@
+{
+  "_comment": [
+    "The ONE canonical source for Faust's voice-control label contract.",
+    "Two consumers are generated from this file, never hand-edited to match",
+    "each other: host/Source/VoiceContract.generated.h (the C++ match list",
+    "FaustEngine::extractVoiceControls uses) and the GENERATED VOICE CONTRACT",
+    "block in llm/prompts/instrument_prompt.txt (what the model is told).",
+    "Regenerate both with: python tools/gen_voice_contract.py --write",
+    "",
+    "Zone order and label order within a zone ARE the match order",
+    "(FaustEngine::extractVoiceControls: first match per role wins, and a",
+    "patch declaring both 'freq' and 'key' binds only the first one found in",
+    "this order). Changing either order changes behaviour -- see",
+    "tools/gen_voice_contract.py --check, which is wired into",
+    "tools/check.sh's full level.",
+    "",
+    "labels[0] in each zone is the PRIMARY spelling: the one",
+    "llm/prompts/instrument_prompt.txt teaches the model to write. Every",
+    "other entry is an ALTERNATE spelling FaustEngine still recognises (Faust",
+    "hand-written test fixtures, the poly-dsp precedent) but the prompt never",
+    "mentions -- teaching the model two names for one slot invites it to pick",
+    "either inconsistently. 'rawUnits' on an alternate records why the unit",
+    "conversion in FaustEngine::noteOn differs for it (freq wants Hz, key the",
+    "raw MIDI note; gain wants 0-1, vel/velocity the raw 0-127).",
+    "",
+    "'promptOrder' is separate from 'zones' order on purpose: 'zones' IS the",
+    "C++ match order (gate before freq before gain -- changing it changes",
+    "extractVoiceControls's behaviour) while 'promptOrder' is only the",
+    "pedagogical order the three declarations appear in the prompt (pitch,",
+    "then level, then gate), which carries no match semantics and always",
+    "did not match the C++ order even before this file existed."
+  ],
+  "promptOrder": ["freq", "gain", "gate"],
+  "zones": [
+    {
+      "zone": "gate",
+      "labels": [
+        { "label": "gate" }
+      ],
+      "widget": "button",
+      "comment": "1 while the key is held, else 0"
+    },
+    {
+      "zone": "freq",
+      "labels": [
+        { "label": "freq" },
+        { "label": "key", "rawUnits": true }
+      ],
+      "widget": "hslider",
+      "default": 440,
+      "min": 20,
+      "max": 8000,
+      "step": 0.01,
+      "comment": "note pitch, in Hz"
+    },
+    {
+      "zone": "gain",
+      "labels": [
+        { "label": "gain" },
+        { "label": "vel", "rawUnits": true },
+        { "label": "velocity", "rawUnits": true }
+      ],
+      "widget": "hslider",
+      "default": 0.5,
+      "min": 0,
+      "max": 1,
+      "step": 0.01,
+      "comment": "note velocity, 0 to 1"
+    }
+  ]
+}
