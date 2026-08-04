@@ -488,6 +488,57 @@ class TestPacing:
 # Model discovery (doctor CLI)
 # ---------------------------------------------------------------------------
 
+class TestTokenEstimation:
+    """A6: estimate_tokens/request_ceiling/preflight_prior_source, the production
+    source of truth tests/test_prompt_headroom.py aliases rather than duplicates.
+    """
+
+    def test_estimate_tokens_exact_at_the_calibration_point(self):
+        anchor = "x" * providers.CALIBRATION_CHARS
+        expected = int(providers.CALIBRATION_PROMPT_TOKENS * providers.SAFETY_FACTOR)
+        assert providers.estimate_tokens(anchor) == expected
+
+    def test_estimate_tokens_scales_linearly_with_length(self):
+        short = providers.estimate_tokens("x" * 100)
+        long_ = providers.estimate_tokens("x" * 200)
+        assert long_ == pytest.approx(short * 2, abs=1)
+
+    def test_request_ceiling_leaves_room_for_output(self):
+        assert providers.request_ceiling(4096) == providers.GROQ_TPM_LIMIT - 4096
+
+    def test_headroom_tokens_matches_ceiling_minus_estimate(self):
+        text = "a" * 1000
+        assert providers.headroom_tokens(text, 4096) == (
+            providers.request_ceiling(4096) - providers.estimate_tokens(text))
+
+    def test_preflight_prior_source_fits_a_small_payload(self):
+        assert providers.preflight_prior_source("system", "a small prior source", 4096) is True
+
+    def test_preflight_prior_source_rejects_an_oversized_payload(self):
+        huge = "x" * 40000
+        assert providers.preflight_prior_source("system", huge, 4096) is False
+
+    def test_preflight_prior_source_fits_a_small_refine_payload(self):
+        """A short prior source against the real system prompt still fits."""
+        from pathlib import Path
+        system_prompt = (Path(providers.__file__).resolve().parent.parent
+                         / "llm" / "prompts" / "system_prompt.txt").read_text()
+        assert providers.preflight_prior_source(
+            system_prompt, "y" * 100, providers.MAX_OUTPUT_TOKENS) is True
+
+    def test_preflight_prior_source_rejects_the_observed_max_prior_source(self):
+        """providers.py's own recorded observed maximum prior-source length
+        (~2,200 chars, see the MAX_OUTPUT_TOKENS comment) is exactly the case A6
+        exists for: too large to fit the same budget as a fresh generation, so
+        it must be dropped by the caller, not truncated.
+        """
+        from pathlib import Path
+        system_prompt = (Path(providers.__file__).resolve().parent.parent
+                         / "llm" / "prompts" / "system_prompt.txt").read_text()
+        assert providers.preflight_prior_source(
+            system_prompt, "y" * 2200, providers.MAX_OUTPUT_TOKENS) is False
+
+
 class TestListModels:
     def test_openai_compat_returns_sorted_ids(self, monkeypatch):
         monkeypatch.setenv("GROQ_API_KEY", "gsk-test")

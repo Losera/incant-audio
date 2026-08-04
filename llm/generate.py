@@ -8,6 +8,10 @@ Run modes:
                                              writes response to stdout (legacy)
   python generate.py --prompt "..."         — arg mode, outputs JSON to stdout;
                                              used by the C++ host via juce::ChildProcess
+  python generate.py --request-file <path>  — arg mode, request JSON read from a file
+                                             instead of a CLI arg; used by the host for
+                                             requests too large/structured for argv,
+                                             e.g. a refine carrying prior_source (A2)
 """
 import datetime
 import json
@@ -136,6 +140,21 @@ _TRUNCATION_HINT = (
     "reimplementing one. Emit only the Faust source."
 )
 
+# A3: how a refine request's prior Faust source folds into the existing user
+# message — no new prompt file, see docs/sessions/002-refine-loop-and-ui-redesign.md
+# for the three reasons this was rejected. Mirrored (not imported — that script
+# measures the payload shape this constant defines, deliberately without pulling
+# in this module's provider/router import chain) in tools/measure_prompt_tokens.py,
+# which is what settled that this framing fits the token budget (A1). Keep the two
+# in sync if either changes.
+_REFINE_PREAMBLE = (
+    "The user is asking you to MODIFY the following existing Faust program, "
+    "not write a new one from scratch. Preserve its structure and control "
+    "names where the request does not require changing them. Return the "
+    "COMPLETE modified program.\n\n```faust\n{prior}\n```\n\nApply this "
+    "change: "
+)
+
 
 def _call_api(content: str, provider: str, model: str | None = None,
               budget: "providers.Budget | None" = None,
@@ -157,7 +176,8 @@ def generate_faust(user_prompt: str, error_context: str = "",
                    model: str | None = None,
                    budget: "providers.Budget | None" = None,
                    truncated: bool = False,
-                   kind: str | None = None) -> str:
+                   kind: str | None = None,
+                   prior_source: str | None = None) -> str:
     """One generation attempt.
 
     `truncated` and `error_context` are mutually exclusive repair signals, and the
@@ -170,8 +190,17 @@ def generate_faust(user_prompt: str, error_context: str = "",
     repair text -- which is compiler stderr, not a user request -- would let a
     retry silently switch prompts mid-generation and repair the code against
     rules the first attempt never saw.
+
+    `prior_source`, when non-empty, is folded in via `_REFINE_PREAMBLE` ahead of
+    `user_prompt` -- the whole point being that it reads as one user message, not
+    a second conversation turn (A3). Every attempt in a retry loop must pass the
+    SAME prior_source too, for the same reason as `kind`: generate_json decides
+    once, before the loop (A6's preflight), whether it fits the token budget at
+    all.
     """
     content = user_prompt
+    if prior_source:
+        content = _REFINE_PREAMBLE.format(prior=prior_source) + content
     if truncated:
         content += _TRUNCATION_HINT
     elif error_context:
@@ -283,7 +312,18 @@ def generate_json(request: dict) -> dict:
     # Routed ONCE, before the loop, from the user's text. Every retry then reuses
     # the same kind — see generate_faust's note on why re-routing per attempt
     # would repair code against rules the first attempt never saw.
-    kind, _ = select_prompt(prompt, request.get("kind"))
+    kind, system_prompt = select_prompt(prompt, request.get("kind"))
+
+    # A6: decided ONCE, before the loop, same reasoning as `kind` above. Doesn't
+    # fit the token budget → dropped entirely, never truncated (a half program
+    # teaches the model a syntax error the user didn't make — the same failure
+    # class _TRUNCATION_HINT already exists to prevent in the other direction).
+    prior_source = request.get("prior_source") or None
+    prior_source_dropped = False
+    if prior_source:
+        candidate = _REFINE_PREAMBLE.format(prior=prior_source) + prompt
+        if not providers.preflight_prior_source(system_prompt, candidate, MAX_OUTPUT_TOKENS):
+            prior_source, prior_source_dropped = None, True
 
     error_ctx = ""
     truncated = False
@@ -291,7 +331,8 @@ def generate_json(request: dict) -> dict:
     for attempt in range(1, max_retries + 1):
         try:
             code = generate_faust(prompt, error_ctx, provider, model, budget,
-                                  truncated=truncated, kind=kind)
+                                  truncated=truncated, kind=kind,
+                                  prior_source=prior_source)
         except providers.RateLimited as exc:
             return _failure(attempt, "rate_limited", str(exc))
         except providers.BudgetExhausted as exc:
@@ -319,8 +360,15 @@ def generate_json(request: dict) -> dict:
             # NOT on the failure path yet — _failure() is shared by six call sites
             # and threading it through is a separate change. A failed instrument
             # request is currently indistinguishable from a failed effect one.
-            return {"success": True, "faust_code": code, "attempts": attempt,
-                    "error": None, "reason": "ok", "kind": kind}
+            response = {"success": True, "faust_code": code, "attempts": attempt,
+                       "error": None, "reason": "ok", "kind": kind}
+            if prior_source_dropped:
+                # Additive, same treatment as `kind` above: every existing
+                # consumer reads success/faust_code/error and is unaffected by
+                # an extra key. Lets PromptPanel tell the user their refine
+                # silently became a regeneration instead of staying quiet.
+                response["prior_source_dropped"] = True
+            return response
         error_ctx = error
 
         # Don't start an attempt there is no time to finish — returning the last
@@ -424,6 +472,10 @@ def log_user_prompt(request: dict, response: dict) -> None:
         print(f"[prompt-log] not recorded: {exc}", file=sys.stderr)
 
 
+def _read_request_file(path: str) -> dict:
+    return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
 def _run_subprocess_mode(build_request):
     """
     Shared body for the --json and --prompt ADR-011 subprocess entry points.
@@ -466,7 +518,8 @@ if __name__ == "__main__":
     # every path that can actually spend money is covered (the plugin invokes this
     # script as a subprocess) without blocking unit tests that drive the functions
     # directly with a mocked transport. See llm/providers.py.
-    _subprocess_mode = "--json" in sys.argv or "--prompt" in sys.argv
+    _subprocess_mode = ("--json" in sys.argv or "--prompt" in sys.argv
+                        or "--request-file" in sys.argv)
     try:
         providers.assert_free(DEFAULT_PROVIDER)
     except providers.PaidProviderError as exc:
@@ -484,6 +537,10 @@ if __name__ == "__main__":
         idx = sys.argv.index("--prompt")
         prompt_arg = sys.argv[idx + 1] if idx + 1 < len(sys.argv) else ""
         _run_subprocess_mode(lambda: {"prompt": prompt_arg})
+    elif "--request-file" in sys.argv:
+        idx = sys.argv.index("--request-file")
+        path_arg = sys.argv[idx + 1] if idx + 1 < len(sys.argv) else ""
+        _run_subprocess_mode(lambda: _read_request_file(path_arg))
     else:
         prompt = " ".join(a for a in sys.argv[1:] if not a.startswith("-")) \
                  or "a warm analog chorus with rate and depth controls"

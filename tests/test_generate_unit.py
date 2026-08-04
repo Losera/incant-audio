@@ -2,6 +2,7 @@
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import patch, MagicMock, call
 import pytest
@@ -86,6 +87,43 @@ class TestGenerateFaust:
         msgs = mock_create.call_args[1]["messages"]
         combined = " ".join(m["content"] for m in msgs)
         assert "compiler error" not in combined
+
+
+# ---------------------------------------------------------------------------
+# generate_faust() — prior_source folding (A3)
+# ---------------------------------------------------------------------------
+
+class TestGenerateFaustPriorSource:
+    def test_folds_prior_source_ahead_of_the_user_prompt(self):
+        with patch.object(generate.client.messages, "create",
+                          return_value=_api_response(VALID_FAUST)) as mock_create:
+            generate.generate_faust("make the resonance stronger",
+                                    prior_source="process = _ * 0.5;")
+        msgs = mock_create.call_args[1]["messages"]
+        combined = " ".join(m["content"] for m in msgs)
+        assert "process = _ * 0.5;" in combined
+        assert "MODIFY the following existing Faust program" in combined
+        assert "make the resonance stronger" in combined
+        # The fold is a preamble ahead of the request, not appended after it.
+        assert combined.index("process = _ * 0.5;") < combined.index(
+            "make the resonance stronger")
+
+    def test_no_prior_source_leaves_message_byte_identical_to_today(self):
+        """The negative half: an absent prior_source must change nothing."""
+        with patch.object(generate.client.messages, "create",
+                          return_value=_api_response(VALID_FAUST)) as mock_create:
+            generate.generate_faust("make the resonance stronger")
+        msgs = mock_create.call_args[1]["messages"]
+        user_msgs = [m["content"] for m in msgs if m["role"] == "user"]
+        assert user_msgs == ["make the resonance stronger"]
+
+    def test_empty_string_prior_source_treated_same_as_absent(self):
+        with patch.object(generate.client.messages, "create",
+                          return_value=_api_response(VALID_FAUST)) as mock_create:
+            generate.generate_faust("make it louder", prior_source="")
+        msgs = mock_create.call_args[1]["messages"]
+        user_msgs = [m["content"] for m in msgs if m["role"] == "user"]
+        assert user_msgs == ["make it louder"]
 
 
 # ---------------------------------------------------------------------------
@@ -273,6 +311,111 @@ class TestGenerateJson:
     def test_unknown_provider_raises(self):
         with pytest.raises(ValueError, match="Unknown provider"):
             generate.generate_json({**self.BASE_REQUEST, "provider": "openai", "max_retries": 1})
+
+
+# ---------------------------------------------------------------------------
+# generate_json() — prior_source preflight (A6)
+# ---------------------------------------------------------------------------
+
+class TestGenerateJsonPriorSourcePreflight:
+    BASE_REQUEST = {"prompt": "make it louder", "provider": "anthropic",
+                    "model": "claude-opus-4-6", "max_retries": 1}
+
+    def test_no_prior_source_never_calls_preflight(self):
+        with patch.object(generate, "generate_faust", return_value=VALID_FAUST) as mock_gen, \
+             patch.object(generate, "validate_faust", return_value=(True, "")), \
+             patch.object(generate.providers, "preflight_prior_source") as mock_preflight:
+            generate.generate_json(self.BASE_REQUEST)
+        mock_preflight.assert_not_called()
+        assert mock_gen.call_args.kwargs["prior_source"] is None
+
+    def test_fitting_prior_source_is_sent_whole(self):
+        with patch.object(generate, "generate_faust", return_value=VALID_FAUST) as mock_gen, \
+             patch.object(generate, "validate_faust", return_value=(True, "")), \
+             patch.object(generate.providers, "preflight_prior_source", return_value=True):
+            result = generate.generate_json(
+                {**self.BASE_REQUEST, "prior_source": "process = _;"})
+        assert mock_gen.call_args.kwargs["prior_source"] == "process = _;"
+        assert "prior_source_dropped" not in result
+
+    def test_oversized_prior_source_is_dropped_not_truncated(self):
+        with patch.object(generate, "generate_faust", return_value=VALID_FAUST) as mock_gen, \
+             patch.object(generate, "validate_faust", return_value=(True, "")), \
+             patch.object(generate.providers, "preflight_prior_source", return_value=False):
+            result = generate.generate_json(
+                {**self.BASE_REQUEST, "prior_source": "y" * 5000})
+        # Dropped ENTIRELY, never truncated -- generate_faust must see None, not
+        # a shortened string.
+        assert mock_gen.call_args.kwargs["prior_source"] is None
+        assert result["prior_source_dropped"] is True
+
+    def test_dropped_flag_absent_when_generation_fails(self):
+        """Additive on the success path only, same treatment as `kind` (PF-019)."""
+        with patch.object(generate, "generate_faust", return_value="bad"), \
+             patch.object(generate, "validate_faust", return_value=(False, "bad symbol")), \
+             patch.object(generate.providers, "preflight_prior_source", return_value=False):
+            result = generate.generate_json(
+                {**self.BASE_REQUEST, "prior_source": "y" * 5000})
+        assert result["success"] is False
+        assert "prior_source_dropped" not in result
+
+
+# ---------------------------------------------------------------------------
+# --request-file mode (A2)
+# ---------------------------------------------------------------------------
+
+class TestRequestFileMode:
+    def test_read_request_file_parses_json(self, tmp_path):
+        path = tmp_path / "request.json"
+        path.write_text(json.dumps({"prompt": "a filter", "prior_source": "x"}),
+                        encoding="utf-8")
+        assert generate._read_request_file(str(path)) == {
+            "prompt": "a filter", "prior_source": "x"}
+
+    def test_missing_file_yields_adr011_failure_not_a_traceback(self, monkeypatch, capsys, tmp_path):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-key")
+        missing = str(tmp_path / "does-not-exist.json")
+        generate._run_subprocess_mode(lambda: generate._read_request_file(missing))
+        captured = capsys.readouterr()
+        payload = json.loads(captured.out.strip())
+        assert payload["success"] is False
+        assert "Traceback" not in captured.out
+        assert "Traceback" in captured.err
+
+    def test_request_file_content_reaches_generate_json(self, monkeypatch, capsys, tmp_path):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-key")
+        path = tmp_path / "request.json"
+        path.write_text(json.dumps({"prompt": "stereo reverb", "prior_source": "process = _;"}),
+                        encoding="utf-8")
+        captured_request = {}
+
+        def fake_generate_json(request):
+            captured_request.update(request)
+            return {"success": True, "faust_code": "x", "attempts": 1, "error": None}
+
+        with patch.object(generate, "generate_json", side_effect=fake_generate_json):
+            generate._run_subprocess_mode(lambda: generate._read_request_file(str(path)))
+        capsys.readouterr()
+        assert captured_request == {"prompt": "stereo reverb", "prior_source": "process = _;"}
+
+    def test_request_file_flag_counts_as_subprocess_mode(self, tmp_path):
+        """The A2 trap, exercised for real: a bare `python generate.py
+        --request-file <path>` under the paid-provider guard (no
+        PLUGINFORGE_ALLOW_PAID) must print the ADR-011 JSON like --json/--prompt
+        do. If --request-file were missing from `:469`'s _subprocess_mode check,
+        this would instead print a bare `[!] ...` to stderr and exit 1."""
+        req = tmp_path / "request.json"
+        req.write_text(json.dumps({"prompt": "x"}), encoding="utf-8")
+        env = os.environ.copy()
+        env["PLUGINFORGE_PROVIDER"] = "anthropic"
+        env.pop("PLUGINFORGE_ALLOW_PAID", None)
+        llm_dir = Path(__file__).resolve().parent.parent / "llm"
+        result = subprocess.run(
+            [sys.executable, "generate.py", "--request-file", str(req)],
+            cwd=str(llm_dir), env=env, capture_output=True, text=True, timeout=30)
+        assert result.returncode == 0
+        payload = json.loads(result.stdout.strip())
+        assert payload["success"] is False
 
 
 # ---------------------------------------------------------------------------

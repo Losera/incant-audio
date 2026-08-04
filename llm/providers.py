@@ -103,6 +103,64 @@ DEFAULT_PROVIDER = "anthropic"
 # now, and tests/test_truncation_detection.py asserts they agree.
 MAX_OUTPUT_TOKENS = 4096
 
+# ── Token estimation for the groq admission rule (A6) ────────────────────────
+# Moved here from tests/test_prompt_headroom.py 2026-08-04 so the runtime
+# preflight decision (preflight_prior_source, called from generate_json before
+# a refine request goes out) and the CI guard read the same calibration and
+# cannot silently drift apart. Full derivation, the exact 413 behaviour this
+# exists to catch, and what it does NOT catch: tests/test_prompt_headroom.py.
+
+# Measured live 2026-08-04 against groq openai/gpt-oss-120b via
+# tools/measure_prompt_tokens.py: usage.prompt_tokens for llm/prompts/
+# system_prompt.txt (this exact char count) plus a short user message.
+CALIBRATION_CHARS = 11992
+CALIBRATION_PROMPT_TOKENS = 3522
+
+# groq gpt-oss-120b, free tier "on_demand" — read from x-ratelimit-limit-tokens
+# and corroborated by the 413 body ("Limit 8000, Requested ...").
+GROQ_TPM_LIMIT = 8000
+
+# The estimate is scaled up by this much before being used for a real decision.
+# Punctuation-dense Faust with dotted identifiers (ba.linear2log) tokenizes
+# worse than the prose this ratio was calibrated across; firing slightly early
+# is useful, firing slightly late is not.
+SAFETY_FACTOR = 1.05
+
+
+def estimate_tokens(text: str) -> int:
+    """Calibrated linear estimate of what groq will count `text` as.
+
+    Exact at the calibration point by construction; pessimistic by
+    SAFETY_FACTOR everywhere else. Deliberately NOT a general tokenizer — only
+    meaningful for text of roughly the same character (system prompt plus
+    Faust source) as the calibration sample.
+    """
+    ratio = CALIBRATION_PROMPT_TOKENS / CALIBRATION_CHARS
+    return int(len(text) * ratio * SAFETY_FACTOR)
+
+
+def request_ceiling(max_output_tokens: int = MAX_OUTPUT_TOKENS) -> int:
+    """Prompt tokens (system + user) groq will admit before a 413, at this max_output_tokens."""
+    return GROQ_TPM_LIMIT - max_output_tokens
+
+
+def headroom_tokens(text: str, max_output_tokens: int = MAX_OUTPUT_TOKENS) -> int:
+    """Slack before groq refuses `text` as the prompt at this max_output_tokens. May be negative."""
+    return request_ceiling(max_output_tokens) - estimate_tokens(text)
+
+
+def preflight_prior_source(system_prompt: str, content_with_prior_source: str,
+                           max_output_tokens: int = MAX_OUTPUT_TOKENS) -> bool:
+    """True if system_prompt + content_with_prior_source fits groq's admission rule.
+
+    Called by generate_json before the retry loop starts. When this is False the
+    caller drops prior_source entirely and marks the response
+    prior_source_dropped — never truncated, the same "a half program teaches a
+    syntax error the user didn't make" reasoning _TRUNCATION_HINT already applies
+    in the other direction (llm/generate.py).
+    """
+    return headroom_tokens(system_prompt + content_with_prior_source, max_output_tokens) > 0
+
 # Free-tier request budgets as advertised 2026-07; they move, and every provider
 # below rate-limits by account age/region. Treat as ordering hints, not contracts.
 #

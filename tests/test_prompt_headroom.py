@@ -92,38 +92,32 @@ import providers  # noqa: E402
 PROMPT_PATH = ROOT / "llm" / "prompts" / "system_prompt.txt"
 
 # ── The calibration anchor ────────────────────────────────────────────────────
+# Moved to llm/providers.py 2026-08-04 (A6): the runtime preflight decision
+# (providers.preflight_prior_source, called from generate_json before a refine
+# request goes out) and this CI guard now read the same numbers, so they cannot
+# drift apart the way three separately-recorded slack figures already had by
+# this session (see the module docstring above). Aliased back to the old names
+# here so the rest of this file, and the arithmetic notes below, read unchanged.
+#
 # Re-measured live 2026-08-04 against groq openai/gpt-oss-120b via
 # tools/measure_prompt_tokens.py. usage.prompt_tokens for a request carrying
 # exactly this file as the system message plus a short user message. Includes
 # chat-template overhead, which is what the TPM check actually counts.
-MEASURED_CHARS = 11992
-MEASURED_PROMPT_TOKENS = 3522
+MEASURED_CHARS = providers.CALIBRATION_CHARS
+MEASURED_PROMPT_TOKENS = providers.CALIBRATION_PROMPT_TOKENS
 
 # groq gpt-oss-120b, free tier "on_demand", read from x-ratelimit-limit-tokens and
 # corroborated by the 413 body ("Limit 8000, Requested 10783").
-GROQ_TPM_LIMIT = 8000
+GROQ_TPM_LIMIT = providers.GROQ_TPM_LIMIT
 
 # The estimate is scaled up by this much before being asserted on. Punctuation-dense
 # Faust with dotted identifiers (ba.linear2log) tokenizes worse than the prose this
 # ratio was calibrated across, and a guard that trips slightly early is useful while
 # a guard that trips slightly late is not.
-SAFETY_FACTOR = 1.05
+SAFETY_FACTOR = providers.SAFETY_FACTOR
 
-
-def estimate_prompt_tokens(text: str) -> int:
-    """Calibrated linear estimate of what groq will count for this system prompt.
-
-    Exact at the calibration point by construction; pessimistic by SAFETY_FACTOR
-    everywhere else. Deliberately NOT a general tokenizer — it is only meaningful
-    for text of the same character as system_prompt.txt.
-    """
-    ratio = MEASURED_PROMPT_TOKENS / MEASURED_CHARS
-    return int(len(text) * ratio * SAFETY_FACTOR)
-
-
-def headroom_tokens(text: str, max_output_tokens: int) -> int:
-    """Tokens of slack before groq refuses the request with a 413. May be negative."""
-    return GROQ_TPM_LIMIT - estimate_prompt_tokens(text) - max_output_tokens
+estimate_prompt_tokens = providers.estimate_tokens
+headroom_tokens = providers.headroom_tokens
 
 
 class TestTheRealPromptStillFits:
