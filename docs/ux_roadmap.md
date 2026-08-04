@@ -59,12 +59,17 @@ Depends on: Phase 1 (prompt/source retention).
 | A/B toggle | Keep the last two successful compiles' sources; one-click toggle recompiles the other (swap protocol already handles live switching, `docs/prototype_test_plan.md` step 6) | DELEGATE |
 | Named snapshots | User-named {prompt, source, param values} tuples inside the state blob; precursor to Phase-4 presets | DELEGATE |
 
-**Refine split:** the `generate.py` refine mode (new CLI flag, message assembly that
-includes existing source + delta request, reusing the retry loop at
-`llm/generate.py:69`) is DELEGATE. The system-prompt wording that teaches the model to
-*modify rather than regenerate* is PROPOSED (HUMAN-OWNED — requires human authoring) —
-it changes `llm/prompts/system_prompt.txt` or adds a sibling prompt file under
-`llm/prompts/`, both HUMAN-OWNED per COLLABORATION.md.
+**Refine (landed 2026-08-04** — `--request-file` CLI mode, `prior_source` folded into the
+existing user message via `llm/generate.py`'s `_REFINE_PREAMBLE`, threaded through
+`PromptPanel`'s existing subprocess bridge; see
+`docs/sessions/002-refine-loop-and-ui-redesign.md` and the dated ADR-011 amendment in
+`docs/decisions.md`). No sibling prompt file was needed — three reasons are recorded in the
+session doc, the shortest being that `select_prompt()` returns exactly one file, so a
+second one would have to duplicate the ~11,400-char stdlib block to keep output compiling.
+The DELEGATE/PROPOSED/HUMAN-OWNED vocabulary this paragraph used to gate on was retired by
+COLLABORATION.md §9 (2026-07-21): a prompt edit is Tier 2 evidence-bar work under
+COLLABORATION.md §3 now, not an authorship gate, and this paragraph was still describing
+the old gate three sessions after it stopped existing.
 
 ---
 

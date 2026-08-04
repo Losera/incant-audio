@@ -1227,6 +1227,105 @@ process = _ * gain * (cutoff + drive), _ * gain * (cutoff + drive);
               + juce::String(gainAfterFresh, 3) + ")");
 }
 
+// 16 — Refine actually carries the prior Faust source to the LLM (A2-A6).
+//
+// STATUS.md's cited name for this test was scenario15_refineCarriesTheSource --
+// that slot is scenario15_identityKeyedRetention above; this is 16, the next
+// free slot. FakeGenerator::writeSuccessCapturing (FakeGenerator.h) is what
+// makes this provable: it records argv and, when used, the --request-file
+// payload PromptPanel actually wrote, rather than ignoring both the way
+// writeSuccess()'s cat does.
+void scenario16_refineCarriesTheSource(const juce::File& tmp)
+{
+    scenario("16. Refine carries the prior Faust source",
+             "the request-file transport (A2), the fold (A3), and the "
+             "first-generation degrade (A4)");
+
+    // A control name distinctive enough that finding it inside a captured
+    // prior_source could not be an accident.
+    const char* markerPatch = R"(import("stdfaust.lib");
+z = hslider("Zzyzx", 0.5, 0, 1, 0.01);
+process = _ * z, _ * z;
+)";
+
+    FakeGenerator::install(
+        FakeGenerator::writeSuccessCapturing(tmp, "gen16", markerPatch));
+
+    Session s;
+
+    // ── Negative half: Refine OFF ────────────────────────────────────────────
+    check(! s.editor.refineEnabledForTest(), "Refine starts off");
+    s.editor.submitPromptForTest("a filter with a distinctive control");
+    const bool firstLive = pumpUntil([&] {
+        return s.editor.statusTextForTest().contains("DSP live");
+    });
+    check(firstLive, "the first (Refine-off) generation reached DSP live");
+
+    auto argv1 = FakeGenerator::capturedArgv(tmp, "gen16");
+    check(argv1.contains("--prompt"), "Refine off: plain --prompt, as today");
+    check(! argv1.contains("--request-file"), "Refine off: no --request-file in argv");
+    check(FakeGenerator::capturedRequestJson(tmp, "gen16").isEmpty(),
+          "Refine off: no request.json was written at all");
+    check(s.processor.currentSourceForTest().contains("Zzyzx"),
+          "the processor's source of record carries the marker control -- what "
+          "the next half's refine has to actually reuse");
+
+    // ── Positive half: Refine ON, after a first successful generation ───────
+    s.editor.setRefineForTest(true);
+    check(s.editor.refineEnabledForTest(), "Refine turned on");
+
+    s.editor.submitPromptForTest("make the resonance stronger");
+    const bool secondLive = pumpUntil([&] {
+        return s.editor.statusTextForTest().contains("DSP live");
+    });
+    check(secondLive, "the second (Refine-on) generation reached DSP live");
+
+    auto argv2 = FakeGenerator::capturedArgv(tmp, "gen16");
+    check(argv2.contains("--request-file"),
+          "Refine on with a prior source: argv carries --request-file");
+    check(! argv2.contains("--prompt"),
+          "Refine on with a prior source: NOT the plain --prompt path");
+
+    auto requestJson = FakeGenerator::capturedRequestJson(tmp, "gen16");
+    check(requestJson.isNotEmpty(), "a request.json payload was actually written");
+    check(requestJson.contains("Zzyzx"),
+          "the captured prior_source carries the first patch's marker control -- "
+          "the wiring STATUS.md's Broken #2 (\"Refine does not refine\") says did "
+          "not exist before this change");
+    check(requestJson.contains("make the resonance stronger"),
+          "the request also carries the new prompt text, not just the prior source");
+
+    // ── The degrade half: Refine ticked before anything has ever generated ──
+    // A fresh session -- currentSource() is empty -- so even with Refine ON at
+    // submit time there is nothing yet to refine. A4's requirement: the PAYLOAD
+    // degrades to plain --prompt; the MODE (Iterate) does not silently become
+    // Fresh, which is what scenario06_freshResetsKnobs already covers and this
+    // test must not re-litigate.
+    FakeGenerator::install(
+        FakeGenerator::writeSuccessCapturing(tmp, "gen16b", markerPatch));
+
+    Session s2;
+    s2.editor.setRefineForTest(true);
+    check(s2.editor.refineEnabledForTest(),
+          "second session: Refine ticked before any generation");
+
+    s2.editor.submitPromptForTest("a first patch, but with Refine already ticked");
+    const bool thirdLive = pumpUntil([&] {
+        return s2.editor.statusTextForTest().contains("DSP live");
+    });
+    check(thirdLive, "the degrade-case generation still reached DSP live");
+
+    auto argv3 = FakeGenerator::capturedArgv(tmp, "gen16b");
+    check(argv3.contains("--prompt"),
+          "first generation with Refine ticked: degrades to plain --prompt "
+          "(nothing to refine yet)");
+    check(! argv3.contains("--request-file"),
+          "first generation with Refine ticked: NOT --request-file -- there is "
+          "no prior source to send");
+
+    snapshot(s.editor, "16_refine_carries_the_source");
+}
+
 } // namespace
 
 int main()
@@ -1234,7 +1333,7 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInit;
 
     std::printf("EditorSessionTest -- a simulated human session against the real editor\n");
-    std::printf("  12 scenarios, no network, no quota, snapshots to artifacts/images/\n");
+    std::printf("  16 scenarios, no network, no quota, snapshots to artifacts/images/\n");
 
     auto tmp = juce::File::getSpecialLocation(juce::File::tempDirectory)
                    .getChildFile("pluginforge_editor_session");
@@ -1256,6 +1355,7 @@ int main()
     scenario13_styleSwitchDoesNotThrash();
     scenario14_groupCapture();
     scenario15_identityKeyedRetention();
+    scenario16_refineCarriesTheSource(tmp);
 
     tmp.deleteRecursively();
 

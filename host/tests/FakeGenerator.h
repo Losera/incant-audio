@@ -129,6 +129,69 @@ inline juce::File writeGarbage(const juce::File& dir, const juce::String& name)
     return script;
 }
 
+// A5: a variant that RECORDS what PromptPanel actually invoked, instead of
+// ignoring argv the way detail::writeScript's cat does. Every run overwrites
+// `<name>_argv.txt` (one arg per line) with this invocation's argv, and
+// removes/rewrites `<name>_request.json` -- present with a copy of the
+// --request-file payload when that flag was used, ABSENT otherwise (the `rm -f`
+// up front matters: without it a --prompt run following a --request-file run on
+// the same script would leave the PREVIOUS run's request.json on disk, and a
+// test reading "request.json exists" would be checking history, not this run).
+// Otherwise behaves like writeSuccess(): always returns success:true with the
+// given RAW Faust source.
+inline juce::File writeSuccessCapturing(const juce::File& dir, const juce::String& name,
+                                        const juce::String& faustCode)
+{
+    auto argvFile     = dir.getChildFile(name + "_argv.txt");
+    auto requestFile  = dir.getChildFile(name + "_request.json");
+    auto responseFile = dir.getChildFile(name + "_response.json");
+
+    auto* obj = new juce::DynamicObject();
+    obj->setProperty("success", true);
+    obj->setProperty("faust_code", faustCode);
+    obj->setProperty("attempts", 1);
+    obj->setProperty("error", juce::var());
+    obj->setProperty("reason", "ok");
+    // allOnOneLine=true -- see writeSuccess() above for why that's required, not
+    // cosmetic (PromptPanel scans for "the last line starting with {").
+    responseFile.replaceWithText(
+        juce::JSON::toString(juce::var(obj), /* allOnOneLine */ true),
+        false, false, "\n");
+
+    auto script = dir.getChildFile(name);
+    script.replaceWithText(
+        juce::String("#!/bin/sh\n")
+        + "rm -f '" + requestFile.getFullPathName() + "'\n"
+        + "for a in \"$@\"; do printf '%s\\n' \"$a\"; done > '"
+        + argvFile.getFullPathName() + "'\n"
+        + "if [ \"$1\" = '--request-file' ]; then cp \"$2\" '"
+        + requestFile.getFullPathName() + "'; fi\n"
+        + "cat '" + responseFile.getFullPathName() + "'\n",
+        false, false, "\n");
+    script.setExecutePermission(true);
+    return script;
+}
+
+// Test-only readback for writeSuccessCapturing()'s argv.txt -- one juce::String
+// per invoked argument, in order, or an empty array if the file doesn't exist
+// yet (generation hasn't run).
+inline juce::StringArray capturedArgv(const juce::File& dir, const juce::String& name)
+{
+    auto f = dir.getChildFile(name + "_argv.txt");
+    if (! f.existsAsFile())
+        return {};
+    return juce::StringArray::fromLines(f.loadFileAsString());
+}
+
+// Test-only readback for writeSuccessCapturing()'s request.json -- the raw text
+// of the --request-file payload PromptPanel wrote, or an empty string if this
+// invocation didn't use --request-file at all.
+inline juce::String capturedRequestJson(const juce::File& dir, const juce::String& name)
+{
+    auto f = dir.getChildFile(name + "_request.json");
+    return f.existsAsFile() ? f.loadFileAsString() : juce::String();
+}
+
 // Point PromptPanel at a given script. Call BEFORE constructing the panel or the
 // editor — the path is resolved once, in the constructor (PromptPanel.cpp:80-108).
 inline void install(const juce::File& script)

@@ -175,7 +175,8 @@ private:
     // never spawns a thread.
     void workerLoop();
     void runGeneration(const juce::String& prompt, juce::uint64 myGeneration,
-                       PluginForgeProcessor::LoadMode mode);
+                       PluginForgeProcessor::LoadMode mode,
+                       const juce::String& priorSource);
     void shutdownWorker();
 
     std::thread             worker;
@@ -191,6 +192,14 @@ private:
     // stamp below, which was a real race caught by the PF-006 test.
     PluginForgeProcessor::LoadMode pendingMode
         = PluginForgeProcessor::LoadMode::Fresh;      // guarded by jobMutex
+    // A4: processor.currentSource() AS OF SUBMIT, read on the message thread
+    // (submitPrompt) before jobMutex is taken -- currentSource() has its own
+    // metaMutex and doesn't need to nest with jobMutex, so there is no reason to
+    // invent a lock order. Empty when Refine is off, or on for a first
+    // generation (nothing to refine yet) -- runGeneration's empty check is what
+    // degrades that case to a plain --prompt request rather than sending a
+    // hollow prior_source.
+    juce::String            pendingPriorSource;       // guarded by jobMutex
     bool                    hasJob   = false;
     bool                    stopping = false;   // guarded by jobMutex
 

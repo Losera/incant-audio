@@ -268,6 +268,56 @@ option, as a new ADR.
 
 *To add a new decision: copy the ADR template below, increment the number, and fill in the fields.*
 
+## ADR-011 — Amendment (2026-08-04): `--request-file` mode and an additive `prior_source`
+
+| | |
+|---|---|
+| **Status** | Accepted |
+| **Date** | 2026-08-04 |
+
+**Context**
+Refine (`docs/competitive_landscape.md:107-109`'s P1 gap, "our refine loop is our moat #1
+made user-visible") needed the prior Faust source to reach the LLM. The prior source
+routinely exceeds what's comfortable to pass as a single argv string, and ADR-011's
+original decision text is explicit that argv is the transport ("no shell interpretation of
+the prompt text") — extending argv further rather than adding a second transport would have
+strained that boundary rather than honoured it.
+
+**Decision**
+Additive, not a replacement for the argv/stdout contract above:
+
+- `generate.py` gains a third subprocess mode, `--request-file <path>`, read once via
+  `_read_request_file()` and otherwise passed through the SAME `_run_subprocess_mode` /
+  `generate_json()` path as `--prompt` — one ADR-011 JSON line out, same as always
+  (`llm/generate.py`).
+- The request schema gains an optional `prior_source` field. `generate_json` folds it into
+  the existing user message via a new `_REFINE_PREAMBLE` constant (no new prompt file — see
+  `docs/sessions/002-refine-loop-and-ui-redesign.md` for the three reasons) and preflights it
+  against the groq token ceiling (`providers.preflight_prior_source`) before the retry loop:
+  fits → sent whole; doesn't fit → dropped entirely, never truncated.
+- The response schema gains an optional `prior_source_dropped: true`, additive on the
+  success path only, same treatment `kind` got in `d587665` — every existing consumer reads
+  `success`/`faust_code`/`error` and is unaffected by an extra key.
+- `PromptPanel` writes the request as a `juce::TemporaryFile(".json")` with forced `"\n"`
+  line endings (`juce_File.h:781-784`'s `replaceWithText` defaults to `"\r\n"`) and degrades
+  to a plain `--prompt` request — never a hollow `prior_source` — when there's nothing yet to
+  refine (first generation) or the write fails.
+
+**Consequences / hardening status**
+
+| Item | Status |
+|---|---|
+| `--request-file` missing from the `_subprocess_mode` credential-precheck flag | Closed at introduction — the exact trap A2 was written to avoid; see `_subprocess_mode`'s three-way `or` in `llm/generate.py`'s `__main__` |
+| Refine payload blowing the groq token ceiling | Closed — `providers.preflight_prior_source`, drop-not-truncate; measured live (`tools/measure_prompt_tokens.py`) that a 725-char prior source alone left 5 tokens of slack, so this was not optional |
+| Whether the model actually honours a folded-in prior source | Open — no test in this repo can prove it; the stated unverified remainder is one live groq run with a marker control surviving into the returned patch |
+
+**Rationale**
+Same reasoning ADR-011's original "Alternatives considered" already used against a
+persistent worker or a socket: this is one more one-shot subprocess mode, not a new
+lifecycle. `_request-file` and `prior_source` are both additive to a wire contract that
+already had precedent for growing this way (`kind`, `reason` before it) — no existing
+caller's request or response shape changes.
+
 ## ADR-009 — Verdict (2026-07-19): the rule worked, the prediction did not
 
 | | |

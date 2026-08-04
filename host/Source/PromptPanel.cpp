@@ -1,6 +1,7 @@
 #include "PromptPanel.h"
 #include <thread>
 #include <cmath>
+#include <optional>
 
 // ── PromptTextEditor ────────────────────────────────────────────────────────
 bool PromptTextEditor::keyPressed(const juce::KeyPress& key)
@@ -241,9 +242,17 @@ void PromptPanel::submitPrompt()
         // published with the job. Reading refineToggle on the worker instead would
         // be a data race on a Component, and would also mean a tick made mid-run
         // retroactively changed a generation the user had already started.
-        pendingMode = refineToggle.getToggleState()
+        const bool refine = refineToggle.getToggleState();
+        pendingMode = refine
                           ? PluginForgeProcessor::LoadMode::Iterate
                           : PluginForgeProcessor::LoadMode::Fresh;
+        // A4: read HERE too, same reasoning -- currentSource() must be read on
+        // this thread, before the worker picks the job up, not from the worker
+        // (which has no business reading processor state outside the job it was
+        // handed). Refine ticked with nothing yet generated (first generation)
+        // leaves this empty, which is what degrades runGeneration to a plain
+        // --prompt request instead of sending an empty/garbage prior_source.
+        pendingPriorSource = refine ? processor.currentSource().trim() : juce::String();
         // Stamp and job published under ONE lock — see the SUBTLE note on
         // `generation` in the header for why re-reading the atomic at pickup was
         // a race that made a run discard itself.
@@ -277,6 +286,7 @@ void PromptPanel::workerLoop()
         juce::String prompt;
         juce::uint64 myGeneration = 0;
         auto mode = PluginForgeProcessor::LoadMode::Fresh;
+        juce::String priorSource;
         {
             std::unique_lock<std::mutex> lock(jobMutex);
             jobCv.wait(lock, [this] { return hasJob || stopping; });
@@ -285,15 +295,17 @@ void PromptPanel::workerLoop()
             prompt       = pendingPrompt;
             myGeneration = pendingGeneration;
             mode         = pendingMode;
+            priorSource  = pendingPriorSource;
             hasJob       = false;
         }
 
-        runGeneration(prompt, myGeneration, mode);
+        runGeneration(prompt, myGeneration, mode, priorSource);
     }
 }
 
 void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myGeneration,
-                                PluginForgeProcessor::LoadMode mode)
+                                PluginForgeProcessor::LoadMode mode,
+                                const juce::String& priorSource)
 {
     // Superseded, or shutting down: nothing this run produces is wanted any more.
     // Checked before touching the processor and again before publishing.
@@ -332,6 +344,14 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
     const auto prompt = promptText.toStdString();
 
     {
+        // A4: declared BEFORE `child` so it outlives every exit path through this
+        // function — every branch below is a plain `return`, nothing skips a
+        // destructor, and ~TemporaryFile deletes the file it wrote
+        // (juce_TemporaryFile.h:116-122). std::optional rather than a
+        // default-constructed TemporaryFile because it is only needed when
+        // there is a prior source to send; the file itself isn't created until
+        // written to either way (juce_TemporaryFile.h:78-83).
+        std::optional<juce::TemporaryFile> requestFile;
         juce::ChildProcess child;
 
         // Register for the lifetime of `child` so submit/teardown can kill it.
@@ -362,12 +382,50 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
         if (stale())
             return;
 
+        // A4: refine carries the prior Faust source via a request file, not argv
+        // — juce::JSON::toString gives one clean escaping layer for source that
+        // can contain quotes, newlines, anything (see host/tests/FakeGenerator.h's
+        // note on why a hand-assembled payload isn't safe here).
+        juce::StringArray argv { pythonExe, scriptPath };
+        bool usedRequestFile = false;
+
+        if (priorSource.isNotEmpty())
+        {
+            requestFile.emplace(".json");
+            auto* obj = new juce::DynamicObject();
+            obj->setProperty("prompt", promptText);
+            obj->setProperty("prior_source", priorSource);
+            // Forced "\n": juce_File.h:781-784's replaceWithText defaults
+            // lineEndings to "\r\n", a trap host/tests/FakeGenerator.h already
+            // paid for once (PromptPanelThreadingTest). generate.py's json.loads
+            // doesn't care about a stray CR the way a POSIX shell does, but every
+            // other write in this codebase already avoids it, for no reason to
+            // be the one exception.
+            usedRequestFile = requestFile->getFile().replaceWithText(
+                juce::JSON::toString(juce::var(obj), /* allOnOneLine */ true),
+                false, false, "\n");
+        }
+
+        if (usedRequestFile)
+        {
+            argv.add("--request-file");
+            argv.add(requestFile->getFile().getFullPathName());
+        }
+        else
+        {
+            // Degrades the PAYLOAD only, never pendingMode (captured at submit,
+            // see submitPrompt) — a first generation with Refine ticked (nothing
+            // to refine yet) or a temp-file write failure both fall back to a
+            // plain, from-scratch request rather than sending an empty or
+            // half-written prior_source.
+            argv.add("--prompt");
+            argv.add(promptText);
+        }
+
         // Verified against juce_ChildProcess.h: start(const StringArray&, int) exists
         // with this exact signature — no shell interpretation of the prompt text.
         bool started = child.start(
-            juce::StringArray { pythonExe, scriptPath,
-                                "--prompt", juce::String(prompt) },
-            juce::ChildProcess::wantStdOut | juce::ChildProcess::wantStdErr);
+            argv, juce::ChildProcess::wantStdOut | juce::ChildProcess::wantStdErr);
 
         if (! started)
         {
