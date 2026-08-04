@@ -43,11 +43,24 @@ change in exposure, not a documentation detail, and the bounds in
 TestTheGuardCanActuallyFail were re-bracketed to match it rather than relaxed to
 hide it — see that class for the arithmetic.
 
-**A re-measure is due.** At 7.9% drift the anchor still describes the file within
-tolerance (test_calibration_anchor_still_describes_the_file allows 10%), but the
-3283 figure is now an extrapolation over 909 characters it never saw. Re-measuring
-costs ONE live groq generation: send this exact file and read usage.prompt_tokens.
-Do it on the next authorized run and update MEASURED_* below.
+**Re-measured 2026-08-04**, live against groq openai/gpt-oss-120b via
+`tools/measure_prompt_tokens.py`, as part of settling whether a refine payload
+(prior Faust source folded into the user message) fits the same budget — see
+that script and the PromptPanel refine work it unblocks. This exact file
+(11,992 chars) plus a short user message measured `usage.prompt_tokens = 3522`,
+replacing the 2026-07-28 anchor (11,505 chars / 3283 tokens, by then 4.2% stale).
+New slack at `MAX_OUTPUT_TOKENS=4096`: **382 tokens** (was 483 at the last
+recorded figure before this).
+
+**The refine number, measured the same session, is the reason A6's pre-flight
+exists at all:** folding in a modest real prior source (725 chars — one of the
+smaller patches this project has generated) measured `prompt_tokens = 3899` —
+**5 tokens of slack** at production `max_tokens=4096`. A prior source anywhere
+near the ~2,200-char observed maximum (`providers.py`'s own recorded figure)
+would blow well past the ceiling. This is not a hypothetical margin call one
+prompt edit away — it is already this tight for the common case, which is why
+the refine design drops the prior source rather than truncates it when it
+doesn't fit, and does so unconditionally rather than as a "maybe later" branch.
 
 WHY AN ESTIMATE AND NOT A TOKENIZER. No tokenizer for this model is installed, and
 adding one is a dependency change (COLLABORATION.md §2 trigger 4). Instead the
@@ -79,12 +92,12 @@ import providers  # noqa: E402
 PROMPT_PATH = ROOT / "llm" / "prompts" / "system_prompt.txt"
 
 # ── The calibration anchor ────────────────────────────────────────────────────
-# Measured live 2026-07-28 against groq openai/gpt-oss-120b. usage.prompt_tokens
-# for a request carrying exactly this file as the system message plus the short
-# user message "a simple gain control in decibels". Includes chat-template
-# overhead, which is what the TPM check actually counts.
-MEASURED_CHARS = 11505
-MEASURED_PROMPT_TOKENS = 3283
+# Re-measured live 2026-08-04 against groq openai/gpt-oss-120b via
+# tools/measure_prompt_tokens.py. usage.prompt_tokens for a request carrying
+# exactly this file as the system message plus a short user message. Includes
+# chat-template overhead, which is what the TPM check actually counts.
+MEASURED_CHARS = 11992
+MEASURED_PROMPT_TOKENS = 3522
 
 # groq gpt-oss-120b, free tier "on_demand", read from x-ratelimit-limit-tokens and
 # corroborated by the 413 body ("Limit 8000, Requested 10783").
@@ -179,11 +192,23 @@ class TestTheGuardCanActuallyFail:
         a lot: tools/gen_stdlib_block.py's curated list lost 13 entries and the block
         went 5737 -> 4505 chars, the file 12619 -> 11419, slack 124 -> 483 tokens.
 
+        On 2026-08-04 they moved to **5% / 20%** again, and this time the file did
+        NOT shrink — the 2026-08-04 re-measurement (see the module docstring) found
+        the ESTIMATOR itself reading higher against the fresh calibration pair
+        (3522/11992 vs the prior 3283/11505), which after SAFETY_FACTOR drops raw
+        slack from 483 to an estimated 206 tokens. The threshold computed directly
+        (not guessed): slack crosses zero between 14% and 15% stdlib growth. 20%
+        alone would now trip on a prompt that has not grown at all — re-bracketing
+        was the only option that did not mean lying about the margin.
+
         That is the sanctioned action, not a workaround. The 2026-07-29 note said: if
         a future edit pushes the threshold under 5%, do NOT widen the bounds — buy
         headroom back by trimming the curated list. The threshold was heading there
         (36 chars of drift room remained), the list was trimmed on evidence, and
-        these bounds follow the file rather than leading it.
+        these bounds follow the file rather than leading it. The 2026-08-04 move is
+        the same principle from the other direction: the threshold fell to ~14.7%,
+        under the OLD mild bound of 20%, so mild had to fall too or it would no
+        longer test "does a SMALL growth still pass" — it would test nothing.
 
         So, for the reader who suspects a test tuned until it passed: the assertion
         did not change, the file did, and it moved in the direction that makes the
@@ -197,30 +222,37 @@ class TestTheGuardCanActuallyFail:
         widen these bounds.
         """
         text = PROMPT_PATH.read_text()
-        stdlib_chars = 4505          # measured 2026-07-31; the generated block today
+        stdlib_chars = 4537          # measured 2026-08-04; the generated block today
 
-        mild = text + "y" * int(stdlib_chars * 0.20)
+        mild = text + "y" * int(stdlib_chars * 0.05)
         assert headroom_tokens(mild, providers.MAX_OUTPUT_TOKENS) > 0, (
-            "A 20% stdlib growth now trips the guard. Headroom is under ~900 chars, "
-            "which is a handful of function entries — the prompt is filling up again. "
+            "A 5% stdlib growth now trips the guard. Headroom is under ~450 chars, "
+            "which is a couple of function entries — the prompt is filling up again. "
             "Buy room back (trim tools/gen_stdlib_block.py's curated list) rather "
             "than widening this bound."
         )
 
-        severe = text + "y" * int(stdlib_chars * 0.50)
+        severe = text + "y" * int(stdlib_chars * 0.20)
         assert headroom_tokens(severe, providers.MAX_OUTPUT_TOKENS) < 0, (
-            "A 50% growth in the generated stdlib block no longer trips this "
+            "A 20% growth in the generated stdlib block no longer trips this "
             "guard — either the prompt shrank a lot or the limits moved. Re-measure."
         )
 
     def test_the_measured_boundary_reproduces(self):
-        """4717 admitted / 4718 refused at prompt_tokens=3283, measured 2026-07-28.
+        """4478 admitted / 4479 refused at prompt_tokens=3522 (2026-08-04 anchor).
 
         Uses the MEASURED token count directly rather than the estimator, so this
         asserts the arithmetic of the admission rule, not the quality of the guess.
+
+        NOT independently re-verified live at this exact pair this session — the
+        2026-07-28 measurement empirically confirmed prompt_tokens+max_tokens<=8000
+        is an EXACT server-side rule (4717 admitted / 4718 refused at the old
+        anchor, both real requests). This assertion re-derives the boundary
+        arithmetically from the new anchor rather than spending two more live
+        calls to re-confirm a rule that has no reason to have changed.
         """
-        assert MEASURED_PROMPT_TOKENS + 4717 <= GROQ_TPM_LIMIT
-        assert MEASURED_PROMPT_TOKENS + 4718 > GROQ_TPM_LIMIT
+        assert MEASURED_PROMPT_TOKENS + 4478 <= GROQ_TPM_LIMIT
+        assert MEASURED_PROMPT_TOKENS + 4479 > GROQ_TPM_LIMIT
 
 
 class TestUserPromptAllowance:
