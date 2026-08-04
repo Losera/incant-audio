@@ -94,6 +94,14 @@ level_full() {
     # in `fast`; this line is the half that does, named so the ladder shows it.
     run "the prompt's prose claims hold against the compiler" \
         python -m pytest tests/test_prompt_claims.py::TestClaimsHoldAgainstTheCompiler -q
+
+    # Presentation affordance checker -- REPORTING ONLY, cannot fail this
+    # ladder. Measures generation QUALITY (grouped controls, knob styling,
+    # units, log tapers, distinct labels) against bench/ladder_corpus.json;
+    # Brief F's validatePatch() gate is what owns CORRECTNESS. --report never
+    # writes bench/presentation_baseline.json and always exits 0.
+    step "presentation affordances (reporting only, cannot fail)"
+    python bench/presentation_checker.py --report
   else
     skip "prompt grounding" "faust not on PATH"
   fi
