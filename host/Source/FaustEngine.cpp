@@ -1,6 +1,15 @@
 #include "FaustEngine.h"
 #include "ParamIdentity.h"
 #include "VoiceContract.generated.h"
+// ParamPool::POOL_SIZE is the one number the macro-slot check below needs.
+// FaustEngine has otherwise never depended on ParamPool (the dependency runs
+// the other way: ParamPool.h includes FaustEngine.h for ParamList), so this
+// is a new edge, not a cycle -- reading it here is preferred over a second
+// hand-copied "64" in this file, which is exactly the kind of drift-prone
+// duplication CLAUDE.md's Faust-vs-JSON-IR reasoning and the voice-label
+// contract (FaustEngine.cpp:239-260 vs llm/prompts/instrument_prompt.txt)
+// both warn against.
+#include "ParamPool.h"
 #include <cmath>
 #include <thread>
 #include <faust/dsp/llvm-dsp.h>
@@ -312,6 +321,164 @@ FaustEngine::ParamList withoutVoiceControls(const FaustEngine::ParamList& params
     }
 
     return out;
+}
+
+// ---------------------------------------------------------------------------
+// Post-compile validation gate (Brief F).
+//
+// Faust will happily compile a `process` that cannot actually run in this
+// host: too many channels, an instrument that declares only PART of the
+// voice contract, more controls than the macro pool holds. None of that is a
+// Faust error -- the DSP is built and buildUserInterface() succeeds -- so
+// nothing before this point ever notices. This is what notices, and it runs
+// from runCompile() BEFORE Step 1 of the atomic swap (see below): a fatal
+// finding aborts the compile and the previously-live DSP, if any, is left
+// running untouched, exactly as an existing compile error already does.
+//
+// Deliberately static and deterministic: every input is either the compiled
+// dsp's own getNumInputs()/getNumOutputs() or the ParamList/VoiceControls
+// already computed a few lines above in runCompile. No LLM call, no
+// correction, no regeneration -- this reports, it does not fix.
+//
+// ⚠️ WHAT THIS GATE DOES NOT, AND CANNOT, CATCH: whether the topology is what
+// the PROMPT asked for. bench/ladder_corpus.json entry 1 ("a mono-to-stereo
+// duplicator") compiles to 2 inputs -> 1 output -- the reverse of the
+// request, but 2 in / 1 out is individually a perfectly legal stereo-in
+// patch, indistinguishable here from one that meant to do exactly that. No
+// static check on the compiled DSP alone can tell those apart; it needs the
+// PROMPT's intended topology captured as a separate acceptance assertion and
+// compared after compile, which is a different mechanism and a separate
+// brief (see spec-evidence/structure-gaps.md §4 and OPEN_QUESTIONS.md Q1,
+// and docs/decisions.md's PluginSpec ADR). Do not try to close that gap here.
+// ---------------------------------------------------------------------------
+struct GateFinding
+{
+    std::string check;      // stable identifier, for tests and logs
+    std::string expected;
+    std::string found;
+    bool        fatal;      // false => warning: logged, does not block the swap
+};
+
+// Every check reads only the compiled dsp's channel counts and the ParamList/
+// VoiceControls runCompile already has in hand -- nothing here re-derives
+// anything, in the same spirit as withoutVoiceControls() above being keyed on
+// ZONE IDENTITY rather than re-testing the six label spellings.
+std::vector<GateFinding> validatePatch(int numIns, int numOuts,
+                                       const FaustEngine::VoiceControls& vc,
+                                       const FaustEngine::ParamList& publishedParams)
+{
+    std::vector<GateFinding> findings;
+    const int maxCh = FaustEngine::kMaxChannels;
+
+    // The output bus is fixed stereo (FaustEngine.h's kMaxChannels comment);
+    // routing more than that would index past JUCE's channel array. See the
+    // primary sources this replaces cited in the old arity-gate comment this
+    // check absorbs: juce_AudioSampleBuffer.h:342,441 and faust/dsp/dsp.h:192.
+    if (numOuts > maxCh)
+        findings.push_back({ "output-channels",
+                             "at most " + std::to_string(maxCh)
+                                 + " outputs -- this plugin is stereo; write "
+                                   "`process = <left>, <right>;` for stereo or "
+                                   "a single expression for mono",
+                             std::to_string(numOuts) + " outputs", true });
+
+    if (numIns > maxCh)
+        findings.push_back({ "input-channels",
+                             "at most " + std::to_string(maxCh) + " inputs",
+                             std::to_string(numIns) + " inputs", true });
+
+    // A process with no output at all has nothing for the host to play.
+    // Checked, verified UNREACHABLE through the real compiler today: every
+    // zero-output source tried (`process = 0 : !;`, `par(i,0,_)`, `0,0:!,!`)
+    // is refused by createDSPFactoryFromString itself ("the Faust program has
+    // no output signal") -- so `f` is null and `dsp` never exists (see the
+    // `if (!f)` bail-out above) before this gate ever runs. Kept anyway, same
+    // reasoning as the `dsp == nullptr` branch in process() above (PF-023):
+    // cheap insurance against that compiler guarantee ever loosening, not a
+    // condition observed to fire.
+    if (numOuts < 1)
+        findings.push_back({ "zero-outputs", ">= 1 output",
+                             std::to_string(numOuts) + " outputs", true });
+
+    // A patch that matches exactly TWO of gate/freq|key/gain|vel|velocity
+    // (the exact match list at FaustEngine.cpp:252-257, read here via `vc`
+    // rather than re-tested) is not classified as an instrument by
+    // VoiceControls::valid() -- so today it silently becomes an ordinary
+    // effect with two knobs confusingly named e.g. "gate" and "freq" that
+    // MIDI never drives. That is precisely the "compiles cleanly and is
+    // silently dead" failure the brief exists to catch.
+    //
+    // Threshold is TWO, deliberately not "one or more". Measured against
+    // host/tests/OfflineRenderTest.cpp's own corpus (kInstruments, "sine with
+    // a freq knob"): a lone "freq" slider on an ordinary effect is an
+    // EXISTING, DELIBERATE, documented case ("an ordinary effect with a
+    // 'freq' slider and no gate is NOT an instrument... This is the case
+    // that makes the detection safe for the existing corpus") -- and "gate"
+    // and "gain" are themselves common effect-parameter names in their own
+    // right (a noise gate's threshold; any effect's output gain), so a single
+    // match is weak evidence of instrument INTENT. Two independent labels
+    // matching at once is a materially stronger signal that a voice contract
+    // was attempted and something was renamed out from under it, which the
+    // corpus contains no counter-example for (every entry is 0-of-3 or 3-of-3).
+    const int voiceLabelCount = (vc.gate  != nullptr ? 1 : 0)
+                              + (vc.freq  != nullptr ? 1 : 0)
+                              + (vc.gain  != nullptr ? 1 : 0);
+    if (voiceLabelCount == 2)
+    {
+        std::string missing;
+        if (vc.gate == nullptr) missing += "gate ";
+        if (vc.freq == nullptr) missing += "freq/key ";
+        if (vc.gain == nullptr) missing += "gain/vel/velocity ";
+        findings.push_back({ "instrument-voice-contract",
+                             "all three of gate, freq|key, gain|vel|velocity, or at most one of them",
+                             "missing " + missing + "-- declares two of three voice-contract roles",
+                             true });
+    }
+
+    // publishedParams already excludes the voice controls (withheld above)
+    // and, for an ordinary effect, includes only what buildUserInterface
+    // reported -- so filtering by isWritable here mirrors exactly what
+    // ParamPool::remap's own `eligible` pass counts against the 64-slot
+    // budget (ParamPool.cpp), rather than re-deriving a second rule for it.
+    int writableCount = 0;
+    for (const auto& p : publishedParams)
+        if (FaustEngine::isWritable(p.kind))
+            ++writableCount;
+
+    // NOT fatal, despite the brief's literal ask -- deliberately overridden
+    // against existing, tested, documented product behaviour (PF-051,
+    // PluginProcessor.cpp's loadFaustCode): a patch with more controls than
+    // the pool holds ALREADY compiles and runs today, with the first 64
+    // mapped and the surplus logged as unreachable
+    // (`remapResult.overflowed`) rather than refused outright -- "the DSP is
+    // live and correct, and 64 of its controls do work, so refusing the
+    // patch outright would be a worse answer than a partial one the user is
+    // told about." host/tests/EditorSessionTest.cpp pins this with a real
+    // 70-param patch ("compiled and settled at the pool ceiling"). Making
+    // this fatal would silently reverse that decision rather than extend it,
+    // which is a product call this brief did not make -- flagged in
+    // OPEN_QUESTIONS.md rather than decided here.
+    if (writableCount > ParamPool::POOL_SIZE)
+        findings.push_back({ "param-count",
+                             "at most " + std::to_string(ParamPool::POOL_SIZE) + " controls",
+                             std::to_string(writableCount) + " controls", false });
+
+    // Not fatal: an effect that happens to need no audio input (a pure
+    // generator) or an instrument that also reads one (say, a vocoder voice)
+    // both compile and run fine -- this is a "does this look right" nudge,
+    // not a rule broken. See VoiceControls::valid() for what "instrument"
+    // means here.
+    const bool isInstrument = vc.valid();
+    if (! isInstrument && numIns == 0)
+        findings.push_back({ "channel-role-mismatch",
+                             "an effect normally reads at least one audio input",
+                             "0 inputs", false });
+    else if (isInstrument && numIns != 0)
+        findings.push_back({ "channel-role-mismatch",
+                             "an instrument normally takes no audio input",
+                             std::to_string(numIns) + " inputs", false });
+
+    return findings;
 }
 } // namespace
 
@@ -647,47 +814,12 @@ void FaustEngine::runCompile(const std::string& code, const CompileCallback& cb)
 
         dsp->init(static_cast<int>(sr));
 
-        // ── Arity gate ───────────────────────────────────────────────────────
-        // Faust will happily compile a process with any channel count; the host
-        // is fixed stereo. Before this gate, process() handed JUCE's channel
-        // array straight to compute() with no bounds check, so a patch declaring
-        // more channels than the host indexed past the end of that array ON THE
-        // AUDIO THREAD.
-        //
-        // Primary sources for the failure mode:
-        //  - juce_AudioSampleBuffer.h:342 — getArrayOfWritePointers() returns the
-        //    raw `channels` array;
-        //  - juce_AudioSampleBuffer.h:441 — `channels[numChannels] = nullptr`, so
-        //    the array is null-TERMINATED at index numChannels;
-        //  - faust/dsp/dsp.h:192 — compute(count, inputs, outputs) is the contract;
-        //    `faust -lang cpp` on `process = _,_,_;` emits
-        //    `FAUSTFLOAT* output2 = outputs[2];` followed by `output2[i0] = ...`.
-        //
-        // So for a 2-channel buffer io[2] is the null terminator (a null deref)
-        // and io[3] onward is past the allocation (a genuine out-of-bounds read,
-        // then a write through whatever it finds). Rejecting here converts both
-        // into a compile error the user can read — and which the generate.py
-        // retry loop could later feed back to the model as stderr.
-        //
-        // Rejected, not clamped: silently dropping channels 3+ of a patch the
-        // model meant to be quadraphonic would produce plausible-sounding wrong
-        // audio, which is harder to diagnose than a refusal.
+        // Read topology LIVE off the compiled instance -- never a declared or
+        // cached source. dsp->getNumInputs()/getNumOutputs() are libfaust's own
+        // accessors (faust/dsp/dsp.h), the same ones process()'s arity routing
+        // reads at runtime via dspNumIns/dspNumOuts below.
         const int numIns  = dsp->getNumInputs();
         const int numOuts = dsp->getNumOutputs();
-
-        if (numOuts < 1 || numOuts > kMaxChannels || numIns > kMaxChannels)
-        {
-            delete dsp;
-            deleteDSPFactory(f);
-            cb({}, "This patch declares " + std::to_string(numIns) + " input(s) and "
-                   + std::to_string(numOuts) + " output(s), which this plugin cannot "
-                   "route: it is stereo, so process must have at most "
-                   + std::to_string(kMaxChannels) + " inputs and 1 or "
-                   + std::to_string(kMaxChannels) + " outputs. "
-                   "Write `process = <left>, <right>;` for stereo, or a single "
-                   "expression for mono.");
-            return;
-        }
 
         // Bail out before publishing if shutdown began while libfaust was working.
         // Past this point the protocol calls cb(), which reaches into ParamPool and
@@ -718,6 +850,43 @@ void FaustEngine::runCompile(const std::string& code, const CompileCallback& cb)
         // leaving them mapped would let pushToFaust overwrite every note.
         const ParamList publishedParams =
             vc.valid() ? withoutVoiceControls(capture.params, vc) : capture.params;
+
+        // ── Post-compile validation gate ────────────────────────────────────
+        // Runs HERE: after the DSP and its parameters are known, but before
+        // Step 1 of the swap below begins, so a fatal finding can refuse the
+        // swap outright and leave whatever was previously live untouched. See
+        // the big comment on validatePatch() above for what this deliberately
+        // does and does not catch.
+        const auto gateFindings = validatePatch(numIns, numOuts, vc, publishedParams);
+
+        bool gateFatal = false;
+        std::string gateMessage = "This patch fails the post-compile validation gate:";
+        for (const auto& finding : gateFindings)
+        {
+            if (! finding.fatal)
+                continue;
+            gateFatal = true;
+            gateMessage += "\n  - " + finding.check + ": expected " + finding.expected
+                         + "; found " + finding.found + ".";
+        }
+
+        if (gateFatal)
+        {
+            delete dsp;
+            deleteDSPFactory(f);
+            cb({}, gateMessage);
+            return;
+        }
+
+        // Warnings do not block the swap -- logged the same way PF-051's
+        // slot-overflow condition is (PluginProcessor.cpp's loadFaustCode),
+        // which is the existing precedent for "the patch is fine, but odd".
+        for (const auto& finding : gateFindings)
+            if (! finding.fatal)
+                juce::Logger::writeToLog(
+                    "PluginForge: validation gate warning [" + juce::String(finding.check)
+                    + "] expected " + juce::String(finding.expected)
+                    + "; found " + juce::String(finding.found));
 
         // Build the MapUI for audio-thread parameter writes.
         // SUBTLE: newUI holds raw float* pointers into dsp's internal memory.

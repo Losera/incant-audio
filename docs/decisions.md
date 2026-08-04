@@ -561,3 +561,19 @@ Revisit if
 Generated plugins begin exhibiting layout intent (grouping, ordering,
 control-type preference) in a meaningful fraction of a larger corpus.
 The 0/19 result is what kills this; a non-zero result reopens it.
+
+---
+
+Addendum (2026-08-04, Brief F): the "read it live off the compiled dsp
+instance" branch of Q1's option 1 (OPEN_QUESTIONS.md) is now implemented,
+not just proposed. `FaustEngine::runCompile`'s post-compile validation gate
+(`validatePatch()`, FaustEngine.cpp) reads `dsp->getNumInputs()`/
+`getNumOutputs()` at compile time and rejects a patch whose topology cannot
+run in this host, before the atomic swap publishes it — no PluginSpec field,
+exactly the "cheapest option" named above. Confirmed against the same 19-entry
+corpus this ADR's evidence came from: the gate's `input-channels` check fires
+on entries 10 and 18 (4 inputs, twice the host's stereo maximum) and on no
+other entry; entry 1's mono/stereo reversal is unchanged and un-caught, because
+it is an intent-vs-result question (see the boundary comment on
+`validatePatch()`), not a topology-legality one — a different mechanism, still
+not built. See host/tests/ValidationGateTest.cpp for the per-check coverage.

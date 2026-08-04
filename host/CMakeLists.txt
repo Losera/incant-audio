@@ -342,6 +342,49 @@ target_link_libraries(StatePersistenceTest PRIVATE
     ${LIBFAUST_LIB}
 )
 
+# ValidationGateTest -- the post-compile validation gate (Brief F), which runs
+# inside FaustEngine::runCompile (Source/FaustEngine.cpp's validatePatch())
+# before the atomic DSP swap. Same source/link set and same reasoning as
+# StatePersistenceTest immediately above: constructing PluginForgeProcessor
+# reaches createEditor(), and loadFaustCode() queues a real JIT compile through
+# the actual compile path -- there is no way to exercise the gate without it.
+juce_add_console_app(ValidationGateTest
+    PRODUCT_NAME "Validation Gate Test"
+)
+
+target_sources(ValidationGateTest PRIVATE
+    tests/ValidationGateTest.cpp
+    Source/PluginProcessor.cpp
+    Source/PluginEditor.cpp
+    Source/PromptPanel.cpp
+    Source/CodeEditorPanel.cpp
+    Source/ParamGridPanel.cpp
+    Source/FaustEngine.cpp
+    Source/ParamPool.cpp
+    Source/OutputGuard.cpp
+)
+
+target_compile_features(ValidationGateTest PRIVATE cxx_std_17)
+
+target_compile_definitions(ValidationGateTest PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_VST3_CAN_REPLACE_VST2=0
+)
+
+# -fno-sanitize=vptr: see the StatePersistenceTest block above -- libfaust.so is
+# built -fno-rtti and does not export typeinfo for llvm_dsp.
+target_compile_options(ValidationGateTest PRIVATE -fsanitize=address,undefined -fno-sanitize=vptr -g -O1)
+target_link_options(ValidationGateTest PRIVATE -fsanitize=address,undefined -fno-sanitize=vptr)
+
+target_link_libraries(ValidationGateTest PRIVATE
+    juce::juce_audio_utils
+    juce::juce_dsp
+    juce::juce_gui_extra
+    juce::juce_recommended_config_flags
+    ${LIBFAUST_LIB}
+)
+
 # PromptPanelThreadingTest -- the PF-006 regression harness
 # (host/tests/PromptPanelThreadingTest.cpp). Exercises the owned+joined generate
 # worker: teardown with a subprocess in flight, rapid-fire supersede, and the

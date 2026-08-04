@@ -132,7 +132,7 @@ level_full() {
               OfflineSynthRenderTest \
               PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim \
               OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery \
-              ParamIdentityTest NoteRingTest NoteRingTsanTest
+              ParamIdentityTest NoteRingTest NoteRingTsanTest ValidationGateTest
 
     # ── Three harnesses that existed and ran nowhere ─────────────────────────
     # Found 2026-07-30 while surveying the measurement surface: OutputGuardTest
@@ -160,9 +160,13 @@ level_full() {
     # index arithmetic, and NoteRingTsanTest below covers the memory-ordering
     # claim the header actually makes. Running only one of the two would leave
     # half the header unchecked while printing a green line.
+    # ValidationGateTest joined 2026-08-04 in the commit that created it, same
+    # principle again: the post-compile validation gate (FaustEngine.cpp's
+    # validatePatch()) is deterministic and needs no display, exactly like
+    # StatePersistenceTest beside it.
     local pure
     for pure in OutputGuardTest ParamMapTest StatePersistenceTest ParamIdentityTest \
-                NoteRingTest; do
+                NoteRingTest ValidationGateTest; do
       local bin
       bin="$(find host/build -type f -name "$pure" 2>/dev/null | head -n1)"
       if [[ -n "$bin" ]]; then
