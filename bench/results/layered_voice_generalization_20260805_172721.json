@@ -1,0 +1,427 @@
+{
+  "brief": "docs/sessions/006-briefs/p3-layered-voice-evidence.md",
+  "claim_under_test": "the layered-voice control-exposure prompt fix (bc061ff) generalizes beyond the 2 prompts it was tested on",
+  "provider": "groq",
+  "model": "openai/gpt-oss-120b",
+  "kind_pinned": "instrument",
+  "generated_at": "2026-08-05T17:27:21.139379+00:00",
+  "n_prompts": 10,
+  "n_passed": 10,
+  "status_counts": {
+    "pass": 10
+  },
+  "records": [
+    {
+      "prompt": "a pad synth with a detuned unison layer for a wider sound",
+      "compiled": true,
+      "faust_code": "import(\"stdfaust.lib\");\nfreq = hslider(\"freq\",440,20,8000,0.01);\ngain = hslider(\"gain\",0.5,0,1,0.01);\ngate = button(\"gate\");\nattack = hslider(\"Attack[unit:s]\",0.5,0.01,5,0.01);\ndecay = hslider(\"Decay[unit:s]\",0.5,0.01,5,0.01);\nsustain = hslider(\"Sustain\",0.8,0,1,0.01);\nrelease = hslider(\"Release[unit:s]\",1.0,0.01,10,0.01);\nenv = en.adsr(attack,decay,sustain,release,gate);\ndetune = hslider(\"Detune[unit:Hz]\",5,0,50,0.01):si.smoo;\nunisonMix = hslider(\"UnisonMix\",0.5,0,1,0.01):si.smoo;\ncutoff = hslider(\"Cutoff[unit:Hz]\",2000,50,8000,1):si.smoo;\nresonance = hslider(\"Resonance\",0.7,0.1,5,0.01):si.smoo;\nmainOsc = os.sawtooth(freq);\nunisonOsc = (os.sawtooth(freq+detune)+os.sawtooth(freq-detune))*unisonMix;\nvoice = mainOsc+unisonOsc;\nprocess = voice:fi.resonlp(cutoff,resonance,1):*(gain*env);",
+      "attempts": [
+        {
+          "attempt": 1,
+          "outcome": "compiled"
+        }
+      ],
+      "analysis": {
+        "status": "pass",
+        "layer_vars": [
+          "mainOsc",
+          "unisonOsc"
+        ],
+        "control_vars": [
+          "attack",
+          "cutoff",
+          "decay",
+          "detune",
+          "freq",
+          "gain",
+          "release",
+          "resonance",
+          "sustain",
+          "unisonMix"
+        ],
+        "detail": [
+          {
+            "layer_var": "unisonOsc",
+            "dedicated_controls": [
+              "detune",
+              "unisonMix"
+            ],
+            "has_own_control": true
+          }
+        ]
+      },
+      "pass": true,
+      "status": "pass"
+    },
+    {
+      "prompt": "an FM bell with a sub-oscillator an octave below the carrier",
+      "compiled": true,
+      "faust_code": "import(\"stdfaust.lib\");\nfreq = hslider(\"freq\", 440, 20, 8000, 0.01);\ngain = hslider(\"gain\", 0.5, 0, 1, 0.01);\ngate = button(\"gate\");\nratio = hslider(\"Ratio\", 2.0, 0.5, 8.0, 0.01) : si.smoo;\nmodIndex = hslider(\"ModIndex\", 5.0, 0, 20, 0.01) : si.smoo;\nsubMix = hslider(\"SubMix\", 0.5, 0, 1, 0.01) : si.smoo;\nattack = hslider(\"Attack[unit:s]\", 0.01, 0.001, 2, 0.001) : si.smoo;\ndecay = hslider(\"Decay[unit:s]\", 1.0, 0.001, 5, 0.001) : si.smoo;\nsustain = hslider(\"Sustain\", 0, 0, 1, 0.01) : si.smoo;\nrelease = hslider(\"Release[unit:s]\", 0.2, 0.001, 5, 0.001) : si.smoo;\nenv = en.adsr(attack, decay, sustain, release, gate);\ncarrier = os.osc(freq + os.osc(freq * ratio) * modIndex);\nsubOsc = os.osc(freq * 0.5) * subMix;\nprocess = (carrier + subOsc) * (gain * env);",
+      "attempts": [
+        {
+          "attempt": 1,
+          "outcome": "compiled"
+        }
+      ],
+      "analysis": {
+        "status": "pass",
+        "layer_vars": [
+          "carrier",
+          "subOsc"
+        ],
+        "control_vars": [
+          "attack",
+          "decay",
+          "freq",
+          "gain",
+          "modIndex",
+          "ratio",
+          "release",
+          "subMix",
+          "sustain"
+        ],
+        "detail": [
+          {
+            "layer_var": "subOsc",
+            "dedicated_controls": [
+              "subMix"
+            ],
+            "has_own_control": true
+          }
+        ]
+      },
+      "pass": true,
+      "status": "pass"
+    },
+    {
+      "prompt": "a plucked string patch layered with a soft noise breath layer",
+      "compiled": true,
+      "faust_code": "import(\"stdfaust.lib\");\nfreq = hslider(\"freq\", 440, 20, 8000, 0.01);\ngain = hslider(\"gain\", 0.5, 0, 1, 0.01);\ngate = button(\"gate\");\npluckMix = hslider(\"PluckMix\", 1, 0, 1, 0.01) : si.smoo;\npluckAttack = hslider(\"PluckAttack[unit:s]\", 0.001, 0.001, 0.1, 0.001);\npluckDecay = hslider(\"PluckDecay[unit:s]\", 0.2, 0.01, 5, 0.001);\nstringCutoff = hslider(\"StringCutoff[unit:Hz]\", 2000, 200, 8000, 1) : si.smoo;\nstringRes = hslider(\"StringResonance\", 0.7, 0, 1, 0.01) : si.smoo;\nnoiseMix = hslider(\"NoiseMix\", 0.5, 0, 1, 0.01) : si.smoo;\nnoiseAttack = hslider(\"NoiseAttack[unit:s]\", 0.01, 0.001, 1, 0.001);\nnoiseDecay = hslider(\"NoiseDecay[unit:s]\", 0.1, 0.001, 2, 0.001);\nnoiseSustain = hslider(\"NoiseSustain\", 0.8, 0, 1, 0.01);\nnoiseRelease = hslider(\"NoiseRelease[unit:s]\", 0.5, 0.001, 5, 0.001);\nnoiseCutoff = hslider(\"NoiseCutoff[unit:Hz]\", 1500, 100, 5000, 1) : si.smoo;\nnoiseRes = hslider(\"NoiseResonance\", 0.5, 0, 1, 0.01) : si.smoo;\npluckEnv = en.ar(pluckAttack, pluckDecay, gate);\nstringOsc = os.sawtooth(freq);\nstringFiltered = stringOsc : fi.resonlp(stringCutoff, stringRes, 1);\nstring = (stringFiltered * pluckEnv) * pluckMix;\nnoiseEnv = en.adsr(noiseAttack, noiseDecay, noiseSustain, noiseRelease, gate);\nnoise = no.noise : fi.resonlp(noiseCutoff, noiseRes, 1);\nnoiseLayer = (noise * noiseEnv) * noiseMix;\nprocess = (string + noiseLayer) * gain;",
+      "attempts": [
+        {
+          "attempt": 1,
+          "outcome": "compiled"
+        }
+      ],
+      "analysis": {
+        "status": "pass",
+        "layer_vars": [
+          "stringOsc",
+          "noise"
+        ],
+        "control_vars": [
+          "freq",
+          "gain",
+          "noiseAttack",
+          "noiseCutoff",
+          "noiseDecay",
+          "noiseMix",
+          "noiseRelease",
+          "noiseRes",
+          "noiseSustain",
+          "pluckAttack",
+          "pluckDecay",
+          "pluckMix",
+          "stringCutoff",
+          "stringRes"
+        ],
+        "detail": [
+          {
+            "layer_var": "noise",
+            "dedicated_controls": [
+              "noiseCutoff",
+              "noiseMix",
+              "noiseRes"
+            ],
+            "has_own_control": true
+          }
+        ]
+      },
+      "pass": true,
+      "status": "pass"
+    },
+    {
+      "prompt": "a bass synth with a second square-wave layer one octave up for bite",
+      "compiled": true,
+      "faust_code": "import(\"stdfaust.lib\");\nfreq = hslider(\"freq\", 110, 20, 8000, 0.01);\ngain = hslider(\"gain\", 0.5, 0, 1, 0.01);\ngate = button(\"gate\");\ncutoff = hslider(\"Cutoff[unit:Hz]\", 800, 50, 8000, 1) : si.smoo;\nres = hslider(\"Resonance\", 0.5, 0, 5, 0.01) : si.smoo;\nattack = hslider(\"Attack[unit:s]\", 0.01, 0.001, 2, 0.001);\ndecay = hslider(\"Decay[unit:s]\", 0.2, 0.001, 2, 0.001);\nsustain = hslider(\"Sustain\", 0.7, 0, 1, 0.01);\nrelease = hslider(\"Release[unit:s]\", 0.3, 0.001, 5, 0.001);\nlayerMix = hslider(\"LayerMix\", 0.5, 0, 1, 0.01) : si.smoo;\nenv = en.adsr(attack, decay, sustain, release, gate);\nmainOsc = os.sawtooth(freq);\nsecondOsc = os.square(freq * 2) * layerMix;\nvoice = mainOsc + secondOsc;\nprocess = voice : fi.resonlp(cutoff, res, 1) : *(gain * env);",
+      "attempts": [
+        {
+          "attempt": 1,
+          "outcome": "compiled"
+        }
+      ],
+      "analysis": {
+        "status": "pass",
+        "layer_vars": [
+          "mainOsc",
+          "secondOsc"
+        ],
+        "control_vars": [
+          "attack",
+          "cutoff",
+          "decay",
+          "freq",
+          "gain",
+          "layerMix",
+          "release",
+          "res",
+          "sustain"
+        ],
+        "detail": [
+          {
+            "layer_var": "secondOsc",
+            "dedicated_controls": [
+              "layerMix"
+            ],
+            "has_own_control": true
+          }
+        ]
+      },
+      "pass": true,
+      "status": "pass"
+    },
+    {
+      "prompt": "an organ voice with a drawbar-style second harmonic layer",
+      "compiled": true,
+      "faust_code": "import(\"stdfaust.lib\");\nfreq = hslider(\"freq\", 440, 20, 8000, 0.01);\ngain = hslider(\"gain\", 0.5, 0, 1, 0.01);\ngate = button(\"gate\");\nsecondMix = hslider(\"SecondMix\", 0.5, 0, 1, 0.01) : si.smoo;\nattack = hslider(\"Attack[unit:s]\", 0.01, 0.001, 5, 0.001) : si.smoo;\ndecay = hslider(\"Decay[unit:s]\", 0.1, 0.001, 5, 0.001) : si.smoo;\nsustain = hslider(\"Sustain\", 0.7, 0, 1, 0.01) : si.smoo;\nrelease = hslider(\"Release[unit:s]\", 0.2, 0.001, 10, 0.001) : si.smoo;\nenv = en.adsr(attack, decay, sustain, release, gate);\nfund = os.osc(freq);\nsecond = os.osc(freq * 2) * secondMix;\nvoice = fund + second;\nprocess = voice : *(gain * env);",
+      "attempts": [
+        {
+          "attempt": 1,
+          "outcome": "compiled"
+        }
+      ],
+      "analysis": {
+        "status": "pass",
+        "layer_vars": [
+          "fund",
+          "second"
+        ],
+        "control_vars": [
+          "attack",
+          "decay",
+          "freq",
+          "gain",
+          "release",
+          "secondMix",
+          "sustain"
+        ],
+        "detail": [
+          {
+            "layer_var": "second",
+            "dedicated_controls": [
+              "secondMix"
+            ],
+            "has_own_control": true
+          }
+        ]
+      },
+      "pass": true,
+      "status": "pass"
+    },
+    {
+      "prompt": "a lead synth with a detuned second saw layer for a supersaw effect",
+      "compiled": true,
+      "faust_code": "import(\"stdfaust.lib\");\nfreq = hslider(\"freq\", 440, 20, 8000, 0.01);\ngain = hslider(\"gain\", 0.5, 0, 1, 0.01);\ngate = button(\"gate\");\ndetune = hslider(\"Detune[unit:Hz]\", 5, 0, 50, 0.01) : si.smoo;\nsupersawMix = hslider(\"SupersawMix\", 0.5, 0, 1, 0.01) : si.smoo;\ncutoff = hslider(\"Cutoff[unit:Hz]\", 2000, 50, 8000, 1) : si.smoo;\nresonance = hslider(\"Resonance\", 0.5, 0, 5, 0.01) : si.smoo;\nattack = hslider(\"Attack[unit:s]\", 0.01, 0.001, 5, 0.001) : si.smoo;\ndecay = hslider(\"Decay[unit:s]\", 0.2, 0.001, 5, 0.001) : si.smoo;\nsustain = hslider(\"Sustain\", 0.7, 0, 1, 0.01) : si.smoo;\nrelease = hslider(\"Release[unit:s]\", 0.5, 0.001, 8, 0.001) : si.smoo;\nenv = en.adsr(attack, decay, sustain, release, gate);\nmainOsc = os.sawtooth(freq);\ndetunedOsc = os.sawtooth(freq + detune);\nvoice = mainOsc + (detunedOsc * supersawMix);\nprocess = voice : fi.resonlp(cutoff, resonance, 1) : *(gain * env);",
+      "attempts": [
+        {
+          "attempt": 1,
+          "outcome": "compiled"
+        }
+      ],
+      "analysis": {
+        "status": "pass",
+        "layer_vars": [
+          "mainOsc",
+          "detunedOsc"
+        ],
+        "control_vars": [
+          "attack",
+          "cutoff",
+          "decay",
+          "detune",
+          "freq",
+          "gain",
+          "release",
+          "resonance",
+          "supersawMix",
+          "sustain"
+        ],
+        "detail": [
+          {
+            "layer_var": "detunedOsc",
+            "dedicated_controls": [
+              "detune",
+              "supersawMix"
+            ],
+            "has_own_control": true
+          }
+        ]
+      },
+      "pass": true,
+      "status": "pass"
+    },
+    {
+      "prompt": "a bell patch with a ring-modulated second layer for metallic overtones",
+      "compiled": true,
+      "faust_code": "import(\"stdfaust.lib\");\nfreq = hslider(\"freq\", 440, 20, 8000, 0.01);\ngain = hslider(\"gain\", 0.5, 0, 1, 0.01);\ngate = button(\"gate\");\ncutoff = hslider(\"Cutoff[unit:Hz]\", 3000, 50, 8000, 1) : si.smoo;\nres = hslider(\"Resonance\", 2, 0.1, 10, 0.01) : si.smoo;\nattack = hslider(\"Attack[unit:s]\", 0.01, 0.001, 5, 0.001);\ndecay = hslider(\"Decay[unit:s]\", 1.5, 0.001, 10, 0.001);\nsustain = hslider(\"Sustain\", 0.2, 0, 1, 0.01);\nrelease = hslider(\"Release[unit:s]\", 2.0, 0.001, 10, 0.001);\nringMix = hslider(\"RingMix\", 0.5, 0, 1, 0.01) : si.smoo;\nringRatio = hslider(\"RingRatio\", 2.0, 0.5, 8.0, 0.01) : si.smoo;\nenv = en.adsr(attack, decay, sustain, release, gate);\nmain = os.sawtooth(freq);\nring = (os.sawtooth(freq) * os.sawtooth(freq * ringRatio)) * ringMix;\nvoice = main + ring;\nprocess = voice : fi.resonlp(cutoff, res, 1) : *(gain * env);",
+      "attempts": [
+        {
+          "attempt": 1,
+          "outcome": "compiled"
+        }
+      ],
+      "analysis": {
+        "status": "pass",
+        "layer_vars": [
+          "main",
+          "ring"
+        ],
+        "control_vars": [
+          "attack",
+          "cutoff",
+          "decay",
+          "freq",
+          "gain",
+          "release",
+          "res",
+          "ringMix",
+          "ringRatio",
+          "sustain"
+        ],
+        "detail": [
+          {
+            "layer_var": "ring",
+            "dedicated_controls": [
+              "ringMix",
+              "ringRatio"
+            ],
+            "has_own_control": true
+          }
+        ]
+      },
+      "pass": true,
+      "status": "pass"
+    },
+    {
+      "prompt": "a brass synth with a sub-bass layer doubling the root note",
+      "compiled": true,
+      "faust_code": "import(\"stdfaust.lib\");\nfreq = hslider(\"freq\",440,20,8000,0.01) : si.smoo;\ngain = hslider(\"gain\",0.5,0,1,0.01) : si.smoo;\ngate = button(\"gate\");\ncutoff = hslider(\"Cutoff[unit:Hz]\",2000,50,8000,1) : si.smoo;\nq = hslider(\"Resonance\",0.5,0.1,5,0.01) : si.smoo;\nattack = hslider(\"Attack[unit:s]\",0.01,0.001,2,0.001);\ndecay = hslider(\"Decay[unit:s]\",0.2,0.001,5,0.001);\nsustain = hslider(\"Sustain\",0.8,0,1,0.01);\nrelease = hslider(\"Release[unit:s]\",0.5,0.001,5,0.001);\nsubMix = hslider(\"SubMix\",0.5,0,1,0.01) : si.smoo;\nenv = en.adsr(attack, decay, sustain, release, gate);\nprocess = (os.sawtooth(freq) + (os.sawtooth(freq * 0.5) * subMix)) : fi.resonlp(cutoff, q, 1) : *(gain * env);",
+      "attempts": [
+        {
+          "attempt": 1,
+          "outcome": "compiled"
+        }
+      ],
+      "analysis": {
+        "status": "pass",
+        "layer_vars": [
+          "process",
+          "process#1"
+        ],
+        "control_vars": [
+          "attack",
+          "cutoff",
+          "decay",
+          "freq",
+          "gain",
+          "q",
+          "release",
+          "subMix",
+          "sustain"
+        ],
+        "detail": [
+          {
+            "layer_var": "process#1",
+            "dedicated_controls": [
+              "subMix"
+            ],
+            "has_own_control": true
+          }
+        ]
+      },
+      "pass": true,
+      "status": "pass"
+    },
+    {
+      "prompt": "a chiptune lead with a pulse-wave harmony layer a fifth above",
+      "compiled": true,
+      "faust_code": "import(\"stdfaust.lib\");\nfreq = hslider(\"freq\", 440, 20, 8000, 0.01);\ngain = hslider(\"gain\", 0.5, 0, 1, 0.01);\ngate = button(\"gate\");\nattack = hslider(\"Attack[unit:s]\", 0.01, 0.001, 2, 0.001) : si.smoo;\ndecay = hslider(\"Decay[unit:s]\", 0.1, 0.001, 2, 0.001) : si.smoo;\nsustain = hslider(\"Sustain\", 0.7, 0, 1, 0.01);\nrelease = hslider(\"Release[unit:s]\", 0.3, 0.001, 5, 0.001) : si.smoo;\nharmonyMix = hslider(\"HarmonyMix\", 0.5, 0, 1, 0.01) : si.smoo;\nenv = en.adsr(attack, decay, sustain, release, gate);\nlead = os.square(freq);\nharmony = os.square(freq * 1.5);\nvoice = lead + harmony * harmonyMix;\nprocess = voice * gain * env;",
+      "attempts": [
+        {
+          "attempt": 1,
+          "outcome": "compiled"
+        }
+      ],
+      "analysis": {
+        "status": "pass",
+        "layer_vars": [
+          "lead",
+          "harmony"
+        ],
+        "control_vars": [
+          "attack",
+          "decay",
+          "freq",
+          "gain",
+          "harmonyMix",
+          "release",
+          "sustain"
+        ],
+        "detail": [
+          {
+            "layer_var": "harmony",
+            "dedicated_controls": [
+              "harmonyMix"
+            ],
+            "has_own_control": true
+          }
+        ]
+      },
+      "pass": true,
+      "status": "pass"
+    },
+    {
+      "prompt": "a pad with an added noise texture layer for airiness",
+      "compiled": true,
+      "faust_code": "import(\"stdfaust.lib\");\nfreq = hslider(\"freq\", 440, 20, 8000, 0.01);\ngain = hslider(\"gain\", 0.5, 0, 1, 0.01);\ngate = button(\"gate\");\ncutoff = hslider(\"Cutoff[unit:Hz]\", 2000, 20, 8000, 1) : si.smoo;\nq = hslider(\"Resonance\", 0.5, 0.1, 10, 0.01) : si.smoo;\nattack = hslider(\"Attack[unit:s]\", 0.5, 0.01, 5, 0.01);\ndecay = hslider(\"Decay[unit:s]\", 0.3, 0.01, 5, 0.01);\nsustain = hslider(\"Sustain\", 0.8, 0, 1, 0.01);\nrelease = hslider(\"Release[unit:s]\", 1.5, 0.01, 8, 0.01);\nnoiseMix = hslider(\"NoiseMix\", 0.2, 0, 1, 0.01) : si.smoo;\nenv = en.adsr(attack, decay, sustain, release, gate);\npad = os.sawtooth(freq);\nair = no.noise : fi.resonlp(cutoff, q, 1);\nprocess = (pad + air * noiseMix) * (gain * env);",
+      "attempts": [
+        {
+          "attempt": 1,
+          "outcome": "compiled"
+        }
+      ],
+      "analysis": {
+        "status": "pass",
+        "layer_vars": [
+          "pad",
+          "air"
+        ],
+        "control_vars": [
+          "attack",
+          "cutoff",
+          "decay",
+          "freq",
+          "gain",
+          "noiseMix",
+          "q",
+          "release",
+          "sustain"
+        ],
+        "detail": [
+          {
+            "layer_var": "air",
+            "dedicated_controls": [
+              "cutoff",
+              "q"
+            ],
+            "has_own_control": true
+          }
+        ]
+      },
+      "pass": true,
+      "status": "pass"
+    }
+  ],
+  "detector_note": "Re-analyzed offline (no new LLM calls) after two scoring bugs were found and fixed in analyze(), both discovered by inspecting this run's own generated code: (1) layers inlined into one statement with no intermediate named variable, e.g. process = (os.sawtooth(freq) + (os.sawtooth(freq*0.5)*subMix)) : ...; (2) a composite named layer built from two summed primitives that is itself later referenced as one bare term, e.g. unisonOsc = (os.sawtooth(freq+detune)+os.sawtooth(freq-detune))*unisonMix; voice = mainOsc+unisonOsc;. faust_code, provider, model, and attempts are untouched -- only the derived analysis/status/pass fields were recomputed against the SAME stored generations.",
+  "manual_cross_check": "All 10 generated Faust programs were additionally read by hand (not just scored by analyze()) and independently confirmed compliant: every added layer has a real, dedicated hslider governing its presence (a mix knob, a detune amount, or a filter param referenced only by that layer) that the primary voice never references. Two scoring bugs were found and fixed in analyze() during this process (see detector_note); a third, lower-severity gap remains documented in check_layered_voice_generalization.py (a nested-parens edge case that can UNDERCOUNT a layer's dedicated controls when a statement wraps a sum in an outer scalar multiply, e.g. record 10's noiseMix) but is conservative -- it can only push a verdict toward fail_missing_control, never manufacture a false pass -- and did not change any verdict in this run."
+}
