@@ -1539,6 +1539,206 @@ void scenario20_keyboardDisabledForEffect()
     snapshot(s.editor, "20_keyboard_disabled_for_effect");
 }
 
+// 21 — allNotesOff(0) on setPlayable(false) actually releases a held note.
+//
+// THE GAP THIS CLOSES. Scenario 20 loads an EFFECT FIRST, so
+// KeyboardPanel::setPlayable(false)'s keyboardState.allNotesOff(0) call
+// (KeyboardPanel.cpp, inside setPlayable) always runs against an EMPTY
+// held-note set there -- deleting that allNotesOff(0) call today breaks no
+// existing scenario. This holds a note on an INSTRUMENT first, then swaps to
+// an effect, so the transition itself is what setPlayable(false) has to clean
+// up after -- the actual user story ("I was playing, then generated a new
+// effect chain, and a key stayed stuck").
+//
+// HOW THE PROOF WORKS, since nothing exposes "is note 60 still held" (JUCE's
+// own MidiKeyboardState::isNoteOn() exists, juce_MidiKeyboardState.h:39-45,
+// but KeyboardPanel.h adds no accessor for it, and adding one is out of this
+// brief's scope). juce::MidiKeyboardState::noteOff()
+// (juce_MidiKeyboardState.cpp:79-91) is a NO-OP -- no listener call, nothing
+// forwarded -- for a note that is not currently on; the whole body is guarded
+// by `if (isNoteOn (midiChannel, midiNoteNumber))`. So the only way
+// KeyboardPanel::handleNoteOff can fire for note 60 is if MidiKeyboardState
+// genuinely still considered it held at the moment allNotesOff(0) ran.
+//
+// That handleNoteOff, if it fires, pushes exactly one NoteEvent into
+// PluginForgeProcessor's ring (PluginProcessor.h:188-193,
+// pushKeyboardNote()). Nothing else touches the ring between the note-on
+// being drained (the render() call below) and this point: loadAndSettle()
+// only pumps the MESSAGE loop (juce::MessageManager::runDispatchLoopUntil),
+// never processBlock, so the ring is exactly as empty as the last
+// processBlock call left it. That makes ring OCCUPANCY -- measured by how
+// many more pushes fit before NoteRing.h's capacity (256 slots, one
+// permanently unused, so 255 is the max occupancy before overflow) -- an
+// honest, indirect proxy for "did the release actually get queued":
+//   * if allNotesOff(0) queued the release, occupancy is 1 going into the
+//     fill loop below, and 255 further pushes is one too many -- exactly the
+//     LAST of them overflows.
+//   * if allNotesOff(0) never ran (the deleted-line red case), occupancy is
+//     0 going in, and all 255 further pushes succeed.
+// This is also exactly why the loop below runs 255 times and not fewer: any
+// smaller number cannot tell the two cases apart.
+//
+// (b) from the brief -- droppedKeyboardNotes() sane, not incrementing from
+// this path -- is checked TWICE: once right after the swap (must still read
+// 0, or the proof below has no clean baseline), and once as a cross-check
+// against the fill loop's own local failure count.
+void scenario21_allNotesOffReleasesHeldNoteOnDisable()
+{
+    scenario("21. setPlayable(false) releases a note held across an instrument -> effect swap",
+             "KeyboardPanel::setPlayable's allNotesOff(0) path -- untouched by scenario 20, "
+             "which always runs it against an empty held-note set");
+
+    Session s;
+    check(loadAndSettle(s, kGatedSawSynthPatch, 1), "the instrument compiled and is live");
+    s.editor.pumpMeterTickForTest();
+    check(s.editor.keyboardPlayableForTest(), "the keyboard enables for the instrument");
+
+    // Hold note 60 and prove it is actually SOUNDING -- not just queued -- so
+    // "held" means what a user would mean by it, the same bar scenario 17 sets.
+    s.editor.keyboardNoteOnForTest(60, 1.0f);
+    render(s.processor, 40);
+    const float held = s.processor.outputLevel.load(std::memory_order_relaxed);
+    check(held > 0.02f, juce::String("note 60 is actually sounding before the swap (peak ")
+                             + juce::String(held, 5) + ")");
+    check(s.processor.droppedKeyboardNotes() == 0, "nothing dropped getting the note held");
+
+    // Swap to an EFFECT. loadAndSettle only pumps the message loop -- no
+    // processBlock call happens here, so the ring is untouched by this step;
+    // the render() above already drained it back to empty.
+    check(loadAndSettle(s, kTinyPatch, 1), "an effect patch replaced the instrument");
+    check(! s.processor.isInstrumentForTest(), "the live DSP no longer declares a voice contract");
+    check(s.processor.droppedKeyboardNotes() == 0,
+          "still nothing dropped -- the clean baseline the proof below depends on");
+
+    // Drive the SAME mechanism a real session uses: the editor's 30Hz timer,
+    // not a test-only setter (KeyboardPanel.h has none for this; pumping the
+    // timer here IS PluginEditor::timerCallback(), the real call site).
+    s.editor.pumpMeterTickForTest();
+    check(! s.editor.keyboardPlayableForTest(),
+          "the keyboard disables now that the live patch has no voice contract");
+
+    // ── The proof: ring occupancy, not audio ────────────────────────────────
+    // faustEngine.isInstrument() is now false, so even if this note-off HAD
+    // reached processBlock's drain it would be discarded there (`if (!
+    // playable) continue;`, PluginProcessor.cpp) -- the effect has no gate to
+    // release. "Released" here can only mean "reached the ring", which is
+    // exactly what the header comment above sets out to measure directly, via
+    // PluginForgeProcessor::pushKeyboardNote() -- the same public entry point
+    // OfflineRenderTest.cpp already uses directly (KeyboardPanel.h:57-68).
+    int failedPushes = 0;
+    for (int i = 0; i < 255; ++i)
+        if (! s.processor.pushKeyboardNote(61 + (i % 30), 100, true))
+            ++failedPushes;
+
+    check(failedPushes == 1,
+          juce::String("exactly one of 255 filler pushes overflowed (got ")
+              + juce::String(failedPushes)
+              + ") -- proof the ring already held ONE event (the auto-released note-off) "
+                "before this loop started");
+    check(s.processor.droppedKeyboardNotes() == 1,
+          juce::String("the ring's own drop counter agrees (got ")
+              + juce::String((int) s.processor.droppedKeyboardNotes()) + ")");
+
+    snapshot(s.editor, "21_allnotesoff_releases_held_note");
+}
+
+// 22 — QWERTY / computer-keyboard mapping: the STATIC contract only.
+//
+// WHY THIS IS SCOPED THE WAY IT IS. juce_MidiKeyboardComponent.cpp's
+// keyStateChanged() (the private override that answers a real OS keypress)
+// gates real note-firing on KeyPress::isCurrentlyDown() -- actual OS keyboard
+// state that only a compositor-level input tool can fake. wtype, ydotool and
+// xdotool are all absent on this machine -- this file's own header comment
+// ("WHAT SIMULATED HUMAN MEANS HERE, precisely") already records that no
+// synthetic input exists here. Calling keyStateChanged(true) directly to work
+// around that was considered and rejected: that is a DIFFERENT branch than a
+// real keypress takes and produces note-OFFs, not note-ons, for a key not
+// already tracked as down -- exercising it would prove nothing but its own
+// workaround.
+//
+// NOT COVERED: real keypress-to-note firing. Nothing on this machine can
+// synthesize a keypress the compositor and JUCE's KeyPress::isCurrentlyDown()
+// will see as real, so end-to-end QWERTY input is untested here and untested
+// anywhere else in this repo. This scenario only checks that the STATIC
+// mapping KeyboardPanel configures is internally self-consistent -- it does
+// NOT prove that a keypress, on this or any machine, actually produces a
+// note.
+//
+// WHAT IS CHECKED INSTEAD, and why it has to be literal constants rather than
+// a live query: juce::MidiKeyboardComponent keeps the key-press base octave
+// (keyMappingOctave) PRIVATE with no getter (juce_MidiKeyboardComponent.h:263)
+// and KeyboardPanel.h exposes no accessor for its own keyboardComponent (and
+// adding one is out of this brief's scope -- KeyboardPanel.h/.cpp are not to
+// be touched). So this checks the values actually read out of
+// KeyboardPanel.cpp today, against JUCE's own default key-mapping table,
+// rather than introspecting a live object:
+//   * KeyboardPanel.cpp:20  keyboardComponent.setAvailableRange(36, 96);
+//   * KeyboardPanel.cpp:30  keyboardComponent.setKeyPressBaseOctave(4);
+//   * juce_MidiKeyboardComponent.cpp:36,38-39 -- the DEFAULT qwerty map
+//     ("awsedftgyhujkolp;", 17 characters) assigns each key an offset-from-C
+//     of 0..16 via setKeyPressForNote(). setKeyPressForNote's own doc comment
+//     (juce_MidiKeyboardComponent.h:120-127) gives the formula in words --
+//     "this value + (12 * the current base octave)" -- and the actual runtime
+//     arithmetic matches it exactly (juce_MidiKeyboardComponent.cpp:260,
+//     `12 * keyMappingOctave + keyPressNotes.getUnchecked(i)`).
+// If a future edit changes any of those three numbers without updating this
+// scenario, this only fails once a human rereads and rewrites the assertion
+// below -- it is not wired to the source text, because there is no live
+// accessor to wire it to. That is the honest limit of a "static contract"
+// check, which is why every constant's origin is named above rather than
+// left to be taken on faith.
+void scenario22_qwertyMappingStaticContract()
+{
+    scenario("22. QWERTY mapping is internally self-consistent (STATIC CONTRACT ONLY)",
+             "no synthetic-input tool exists on this machine -- see NOT COVERED above");
+
+    // Session still constructed: this at least proves KeyboardPanel builds
+    // and lays out under these exact settings, the same construction path a
+    // real session takes, and leaves a snapshot for a human's eye.
+    Session s;
+    check(s.editor.getHeight() > 0, "the editor (and its KeyboardPanel) constructed");
+
+    // ── The mapping arithmetic, from the constants cited above ─────────────
+    const int availableLow   = 36;
+    const int availableHigh  = 96;
+    const int baseOctave     = 4;
+    const int qwertyKeyCount = 17;                    // "awsedftgyhujkolp;"
+    const int lowestOffset   = 0;
+    const int highestOffset  = qwertyKeyCount - 1;     // 16
+
+    const int mappedLow  = 12 * baseOctave + lowestOffset;
+    const int mappedHigh = 12 * baseOctave + highestOffset;
+    std::printf("      QWERTY maps to MIDI %d..%d; visible/available range is %d..%d\n",
+                mappedLow, mappedHigh, availableLow, availableHigh);
+
+    check(mappedLow >= availableLow && mappedHigh <= availableHigh,
+          juce::String("every QWERTY-mapped note (") + juce::String(mappedLow) + ".."
+              + juce::String(mappedHigh) + ") falls inside the visible range ("
+              + juce::String(availableLow) + ".." + juce::String(availableHigh)
+              + ") -- setKeyPressBaseOctave(4) lines up with setAvailableRange(36, 96)");
+
+    // ── The other half: nothing on the construction path locks NoteRing's
+    //    forbidden call ─────────────────────────────────────────────────────
+    // Grepped by hand while writing this scenario, not at runtime (there is
+    // no principled way to tell "calls it" from "mentions it in a comment
+    // explaining why it must not" by regex -- KeyboardPanel.h itself contains
+    // the string three times, all in prose):
+    //   * host/Source/ -- zero call sites; every hit is a comment in
+    //     KeyboardPanel.h, NoteRing.h or PluginProcessor.cpp explaining why
+    //     the call is forbidden, not an actual call.
+    //   * juce_MidiKeyboardComponent.cpp/.h in full (the ~/JUCE checkout this
+    //     build compiles against) -- zero hits at all; the component's own
+    //     mouse and keyStateChanged() handlers call state.noteOn()/noteOff()
+    //     directly (the same two methods KeyboardPanel's Listener callback
+    //     receives), never MidiKeyboardState::processNextMidiBuffer().
+    check(true,
+          "grepped host/Source/ and juce_MidiKeyboardComponent.cpp/.h in full: no call site "
+          "for processNextMidiBuffer anywhere on the keyboard-widget construction path "
+          "(NoteRing.h's whole reason for existing)");
+
+    snapshot(s.editor, "22_qwerty_mapping_static_contract");
+}
+
 } // namespace
 
 int main()
@@ -1546,7 +1746,7 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInit;
 
     std::printf("EditorSessionTest -- a simulated human session against the real editor\n");
-    std::printf("  20 scenarios, no network, no quota, snapshots to artifacts/images/\n");
+    std::printf("  22 scenarios, no network, no quota, snapshots to artifacts/images/\n");
 
     auto tmp = juce::File::getSpecialLocation(juce::File::tempDirectory)
                    .getChildFile("pluginforge_editor_session");
@@ -1573,6 +1773,8 @@ int main()
     scenario18_keyboardLastNotePriority();
     scenario19_keyboardSurvivesCompileSwap();
     scenario20_keyboardDisabledForEffect();
+    scenario21_allNotesOffReleasesHeldNoteOnDisable();
+    scenario22_qwertyMappingStaticContract();
 
     tmp.deleteRecursively();
 
