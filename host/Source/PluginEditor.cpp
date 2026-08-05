@@ -5,6 +5,13 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
     : AudioProcessorEditor(&p), processor(p),
       promptPanel(p), codeEditorPanel(p), paramGridPanel(p), keyboardPanel(p)
 {
+    // setLookAndFeel(&lnf), NOT setDefaultLookAndFeel: the latter is
+    // process-global, and this plugin can share a process with the DAW and
+    // other instances of itself (session 002 Part B, item B2). Set before any
+    // child is added so nothing paints a frame under the stock JUCE
+    // LookAndFeel first.
+    setLookAndFeel(&lnf);
+
     // Taller default than the pre-split 480×410 so the widened prompt/error band
     // (Chrome::promptH) fits with a grid row visible below the meter.
     setSize(480, 460);
@@ -182,7 +189,13 @@ void PluginForgeEditor::updateWindowSizeForParams()
     setSize(getWidth(), winH);   // synchronously triggers resized() below
 }
 
-PluginForgeEditor::~PluginForgeEditor() {}
+PluginForgeEditor::~PluginForgeEditor()
+{
+    // MUST be first: ~LookAndFeel() asserts if any Component still points at
+    // it, and this editor's own children still do until this line runs
+    // (session 002 Part B, item B2; docs/sessions/002-handoff-README.md).
+    setLookAndFeel(nullptr);
+}
 
 // ── Test-only forwarders ────────────────────────────────────────────────────
 // See the header for why these are forwarders rather than panel accessors.

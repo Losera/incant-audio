@@ -5,6 +5,7 @@
 #include "CodeEditorPanel.h"
 #include "ParamGridPanel.h"
 #include "KeyboardPanel.h"
+#include "ForgeLookAndFeel.h"
 
 // ── PluginForgeEditor ───────────────────────────────────────────────────────
 // Thin top-level shell. It owns the window, the title + output level meter, and
@@ -148,6 +149,14 @@ private:
     Chrome chrome;
 
     PluginForgeProcessor& processor;
+
+    // Session 002 Part B, item B2. Declared BEFORE the child panels below so
+    // that (in reverse-declaration-order C++ destruction) every panel that may
+    // reference it through Component::getLookAndFeel()'s parent-chain lookup is
+    // torn down first -- see ForgeLookAndFeel.h's header comment and
+    // docs/sessions/002-handoff-README.md for why the ordering is load-bearing
+    // (~LookAndFeel() asserts if anything still points at it).
+    ForgeLookAndFeel lnf;
 
     // ── Child panels ─────────────────────────────────────────────────────────
     PromptPanel     promptPanel;
