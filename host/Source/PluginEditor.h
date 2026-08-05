@@ -4,6 +4,7 @@
 #include "PromptPanel.h"
 #include "CodeEditorPanel.h"
 #include "ParamGridPanel.h"
+#include "KeyboardPanel.h"
 
 // ── PluginForgeEditor ───────────────────────────────────────────────────────
 // Thin top-level shell. It owns the window, the title + output level meter, and
@@ -68,6 +69,17 @@ public:
     juce::String codeTextForTest() const { return codeEditorPanel.displayedSourceForTest(); }
     bool         codeIsReadOnlyForTest() const { return codeEditorPanel.isReadOnlyForTest(); }
 
+    // ── On-screen / computer keyboard (host/Source/KeyboardPanel.*) ─────────
+    // Forwarders, same rationale as the grid accessors above: the panel stays
+    // private, these are message-thread-only one-liners. noteOnForTest/
+    // noteOffForTest drive KeyboardPanel's OWN juce::MidiKeyboardState::
+    // Listener callback -- the same one a click or a mapped computer-keypress
+    // reaches -- not PluginForgeProcessor::pushKeyboardNote or NoteRing
+    // directly. See KeyboardPanel.h for why that distinction matters.
+    void keyboardNoteOnForTest(int note, float velocity)  { keyboardPanel.noteOnForTest(note, velocity); }
+    void keyboardNoteOffForTest(int note)                 { keyboardPanel.noteOffForTest(note); }
+    bool keyboardPlayableForTest() const                  { return keyboardPanel.isPlayableForTest(); }
+
 private:
     // 30Hz UI tick: pulls processor.outputLevel (relaxed atomic, written on the
     // audio thread) into displayLevel with instant attack / exponential decay,
@@ -106,6 +118,10 @@ private:
         int gapRow     = 10;
         int rowH       = 24;   // the disclosure / mode row
         int gapGrid    = 6;
+        int gapKeyboard = 8;   // gap above the keyboard band
+        int keyboardH   = 64;  // KeyboardPanel -- ALWAYS present (unlike codeH
+                               // below, unavailability is dimming, not removal;
+                               // see host/Source/KeyboardPanel.h)
         int codeH      = 240;  // CodeEditorPanel, reserved at the BOTTOM and only
                                // while that panel is visible
     };
@@ -115,7 +131,7 @@ private:
     static constexpr int chromeHeight(const Chrome& c)
     {
         return c.margin + c.titleH + c.promptH + c.gapMeter + c.meterH
-             + c.gapRow + c.rowH + c.gapGrid + c.margin;
+             + c.gapRow + c.rowH + c.gapGrid + c.gapKeyboard + c.keyboardH + c.margin;
     }
 
     // The sum is pinned by a static_assert at the top of resized() — NOT here.
@@ -137,6 +153,7 @@ private:
     PromptPanel     promptPanel;
     CodeEditorPanel codeEditorPanel;
     ParamGridPanel  paramGridPanel;
+    KeyboardPanel   keyboardPanel;
 
     // Disclosure for the read-only Faust view. Off by default: the code is for
     // the user who wants it, and a no-code tool must not open on a wall of DSL.

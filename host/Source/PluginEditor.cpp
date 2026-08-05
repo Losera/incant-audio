@@ -3,7 +3,7 @@
 
 PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
     : AudioProcessorEditor(&p), processor(p),
-      promptPanel(p), codeEditorPanel(p), paramGridPanel(p)
+      promptPanel(p), codeEditorPanel(p), paramGridPanel(p), keyboardPanel(p)
 {
     // Taller default than the pre-split 480×410 so the widened prompt/error band
     // (Chrome::promptH) fits with a grid row visible below the meter.
@@ -18,6 +18,12 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
 
     addAndMakeVisible(promptPanel);
     addAndMakeVisible(paramGridPanel);
+
+    // Always in the layout, unlike codeEditorPanel below -- an effect patch's
+    // "you can't play this" is communicated by dimming (KeyboardPanel::
+    // setPlayable), not by removing the control from the window, so the user
+    // is never left wondering whether playing is possible at all.
+    addAndMakeVisible(keyboardPanel);
 
     // The read-only Faust view (ux_roadmap Phase 3a). Still an invisible child
     // with no layout space UNTIL the user asks for it: this is a no-code tool and
@@ -239,6 +245,12 @@ void PluginForgeEditor::timerCallback()
     displayLevel = (peak > displayLevel) ? peak : displayLevel * 0.85f;
     repaint(meterBounds);
 
+    // Same 30Hz tick, no second timer (fact #7 / PluginProcessor.h's
+    // isInstrumentForTest() comment): enable the keyboard only for a patch
+    // that actually declares a voice contract. setPlayable() is idempotent, so
+    // polling it unconditionally here costs nothing when nothing changed.
+    keyboardPanel.setPlayable(processor.isInstrumentForTest());
+
     // Output-guard edge detection. The guard latches on the audio thread; this
     // is the only place the UI learns about it. Written on transition only (see
     // wasOutputMuted) so a compile error message isn't overwritten 30x/second.
@@ -299,8 +311,9 @@ void PluginForgeEditor::resized()
     // band change — do not relax it. (Lives here, not at class scope: `Chrome{}`
     // needs default member initializers the enclosing class has not finished
     // declaring yet.)
-    static_assert(chromeHeight(Chrome{}) == 350,
-                  "Chrome must still sum to 350 — the pre-refactor kChromeHeight.");
+    static_assert(chromeHeight(Chrome{}) == 422,
+                  "Chrome must still sum to 422 — the pre-refactor 350 (kChromeHeight) "
+                  "plus the keyboard band's gapKeyboard(8) + keyboardH(64).");
 
     const auto& c = chrome;
 
@@ -321,6 +334,12 @@ void PluginForgeEditor::resized()
         styleToggle.setBounds(row.removeFromRight(120));
         area.removeFromTop(c.gapGrid);
     }
+
+    // On-screen / computer keyboard. Always laid out (see the addAndMakeVisible
+    // comment in the constructor) so an effect patch's dimmed keyboard is still
+    // visible rather than absent.
+    area.removeFromTop(c.gapKeyboard);
+    keyboardPanel.setBounds(area.removeFromTop(c.keyboardH));
 
     // Code/Errors region (S2): reserved at the bottom only while the panel is
     // visible. It starts hidden, so the grid keeps the whole remainder today.

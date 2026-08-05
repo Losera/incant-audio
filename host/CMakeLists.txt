@@ -20,6 +20,7 @@ set(PF_CORE_SOURCES
     Source/PromptPanel.cpp
     Source/CodeEditorPanel.cpp
     Source/ParamGridPanel.cpp
+    Source/KeyboardPanel.cpp
     Source/FaustEngine.cpp
     Source/ParamPool.cpp
     Source/OutputGuard.cpp
@@ -155,6 +156,7 @@ target_sources(ParamPoolTsanTest PRIVATE
     Source/PromptPanel.cpp
     Source/CodeEditorPanel.cpp
     Source/ParamGridPanel.cpp
+    Source/KeyboardPanel.cpp
     Source/FaustEngine.cpp
     Source/ParamPool.cpp
     Source/OutputGuard.cpp
@@ -313,6 +315,7 @@ target_sources(StatePersistenceTest PRIVATE
     Source/PromptPanel.cpp
     Source/CodeEditorPanel.cpp
     Source/ParamGridPanel.cpp
+    Source/KeyboardPanel.cpp
     Source/FaustEngine.cpp
     Source/ParamPool.cpp
     Source/OutputGuard.cpp
@@ -359,6 +362,7 @@ target_sources(ValidationGateTest PRIVATE
     Source/PromptPanel.cpp
     Source/CodeEditorPanel.cpp
     Source/ParamGridPanel.cpp
+    Source/KeyboardPanel.cpp
     Source/FaustEngine.cpp
     Source/ParamPool.cpp
     Source/OutputGuard.cpp
@@ -407,6 +411,7 @@ target_sources(PromptPanelThreadingTest PRIVATE
     Source/PromptPanel.cpp
     Source/CodeEditorPanel.cpp
     Source/ParamGridPanel.cpp
+    Source/KeyboardPanel.cpp
     Source/FaustEngine.cpp
     Source/ParamPool.cpp
     Source/OutputGuard.cpp
@@ -461,6 +466,7 @@ target_sources(OfflineRenderTest PRIVATE
     Source/PromptPanel.cpp
     Source/CodeEditorPanel.cpp
     Source/ParamGridPanel.cpp
+    Source/KeyboardPanel.cpp
     Source/FaustEngine.cpp
     Source/ParamPool.cpp
     Source/OutputGuard.cpp
@@ -559,6 +565,7 @@ target_sources(EditorSessionTest PRIVATE
     Source/PromptPanel.cpp
     Source/CodeEditorPanel.cpp
     Source/ParamGridPanel.cpp
+    Source/KeyboardPanel.cpp
     Source/FaustEngine.cpp
     Source/ParamPool.cpp
     Source/OutputGuard.cpp
@@ -669,6 +676,7 @@ target_sources(UiDesignGallery PRIVATE
     Source/PromptPanel.cpp
     Source/CodeEditorPanel.cpp
     Source/ParamGridPanel.cpp
+    Source/KeyboardPanel.cpp
     Source/FaustEngine.cpp
     Source/ParamPool.cpp
     Source/OutputGuard.cpp

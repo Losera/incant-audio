@@ -208,6 +208,21 @@ const char* kRunawayPatch = R"(import("stdfaust.lib");
 process = _ * 1000000 + 100, _ * 1000000 + 100;
 )";
 
+// A full voice-contract instrument (gate/freq/gain), the same shape validated
+// as OfflineRenderTest.cpp's "gated saw synth" corpus entry -- reused here
+// rather than re-derived, since VoiceContract.generated.h's label matching
+// (host/Source/VoiceContract.generated.h: "gate", "freq", "gain") is exact and
+// case-sensitive. One user knob (Cutoff); freq/gain/gate are withheld from the
+// grid as voice controls.
+const char* kGatedSawSynthPatch = R"(import("stdfaust.lib");
+freq = hslider("freq",440,20,2000,0.01);
+gain = hslider("gain",0.5,0,1,0.01);
+gate = button("gate");
+cutoff = hslider("Cutoff",1200,50,8000,1);
+process = os.sawtooth(freq) * gain * en.adsr(0.01,0.1,0.7,0.2,gate)
+          : fi.resonlp(cutoff,2,1) <: _,_;
+)";
+
 // Builds a patch with N horizontal sliders, for the overflow scenario.
 juce::String manyParamPatch(int n)
 {
@@ -279,6 +294,32 @@ void render(PluginForgeProcessor& p, int blocks)
                 buf.setSample(ch, i, 0.25f * std::sin(0.05f * (float) i));
         p.processBlock(buf, midi);
     }
+}
+
+// Spins processBlock (deliberately NOT juce::MessageManager pumping) until the
+// named source is the one live. Safe without a message-loop pump because
+// FaustEngine compiles on its OWN persistent worker thread
+// (PluginProcessor.h:217-219: "cb fires on that worker (NOT the message
+// thread)") and currentFaustSource is assigned ON THAT THREAD
+// (PluginProcessor.cpp:180-181) -- both the ready flag and the source of
+// record flip independent of anything this loop does; it exists only to keep
+// calling processBlock so a keyboard note queued before the DSP existed gets
+// drained the instant it can be.
+bool renderUntilReady(PluginForgeProcessor& p, const juce::String& source, int timeoutMs = 20000)
+{
+    juce::AudioBuffer<float> buf(2, 512);
+    juce::MidiBuffer midi;
+    const auto deadline = juce::Time::getMillisecondCounter() + (juce::uint32) timeoutMs;
+    while (juce::Time::getMillisecondCounter() < deadline)
+    {
+        for (int ch = 0; ch < buf.getNumChannels(); ++ch)
+            for (int i = 0; i < buf.getNumSamples(); ++i)
+                buf.setSample(ch, i, 0.25f * std::sin(0.05f * (float) i));
+        p.processBlock(buf, midi);
+        if (p.currentSourceForTest() == source && p.isInstrumentForTest())
+            return true;
+    }
+    return false;
 }
 
 using WidgetKind = ParamGridPanel::WidgetKind;
@@ -1326,6 +1367,178 @@ process = _ * z, _ * z;
     snapshot(s.editor, "16_refine_carries_the_source");
 }
 
+// 17 — The on-screen keyboard producer: click a key, hear a note, release it.
+//
+// THE GAP THIS CLOSES. The NoteRing queue and its drain in processBlock were
+// TSan-proven and fully wired (PluginProcessor.h:172-193, PluginProcessor.cpp's
+// drain loop after the MIDI walk) but nothing in the editor ever called the
+// producer side -- OfflineRenderTest.cpp exercised pushKeyboardNote() directly,
+// which proves the QUEUE works but says nothing about whether a human clicking
+// the editor can ever reach it. This scenario drives KeyboardPanel's own
+// juce::MidiKeyboardState::Listener callback (via noteOnForTest/noteOffForTest,
+// which call keyboardState.noteOn()/noteOff() -- see KeyboardPanel.h for why
+// that is the same code path a real click or a computer-keypress reaches, not
+// a shortcut around it), not FaustEngine or NoteRing directly.
+void scenario17_keyboardNoteRoundTrip()
+{
+    scenario("17. the on-screen keyboard producer: a note plays and releases",
+             "PluginProcessor.h:172-193 / KeyboardPanel -- the last piece of the "
+             "NoteRing path, now reachable from the editor");
+
+    Session s;
+    check(loadAndSettle(s, kGatedSawSynthPatch, 1), "the instrument compiled and is live");
+
+    s.editor.pumpMeterTickForTest();   // the 30Hz poll enables the keyboard
+    check(s.editor.keyboardPlayableForTest(), "the keyboard enables for an instrument patch");
+
+    render(s.processor, 10);
+    check(s.processor.outputLevel.load(std::memory_order_relaxed) < 0.05f,
+          "silent with no note held");
+
+    s.editor.keyboardNoteOnForTest(69, 1.0f);
+    render(s.processor, 40);
+    const float held = s.processor.outputLevel.load(std::memory_order_relaxed);
+    check(held > 0.02f,
+          juce::String("the on-screen note SOUNDS (peak ") + juce::String(held, 5) + ")");
+    check(s.processor.droppedKeyboardNotes() == 0, "no keyboard event was dropped");
+
+    s.editor.keyboardNoteOffForTest(69);
+    render(s.processor, 60);   // past en.adsr's 0.2s release
+    const float tail = s.processor.outputLevel.load(std::memory_order_relaxed);
+    check(tail < held * 0.1f,
+          juce::String("the on-screen note RELEASES (tail ") + juce::String(tail, 6)
+              + " vs held " + juce::String(held, 5) + ")");
+    snapshot(s.editor, "17_keyboard_round_trip");
+}
+
+// 18 — Last-note-priority reaches the voice THROUGH the on-screen keyboard.
+//
+// FaustEngine.cpp:485-528 already implements the legato guard (freq/gain set
+// before the gate; noteOff only releases the gate for the note that is still
+// currentNote) -- that is proven elsewhere. What this proves is that
+// KeyboardPanel forwards two DIFFERENT notes as two DIFFERENT events rather
+// than, say, collapsing them, and adds no competing priority logic of its own.
+// It would fail if KeyboardPanel's wiring were reverted (nothing would ever
+// sound) and it would also fail if the panel mismapped which note-off belongs
+// to which note (releasing A would then wrongly cut B short).
+void scenario18_keyboardLastNotePriority()
+{
+    scenario("18. last-note-priority, proven through the on-screen keyboard",
+             "note-on A, note-on B, note-off A -> B is still sounding");
+
+    Session s;
+    check(loadAndSettle(s, kGatedSawSynthPatch, 1), "the instrument compiled and is live");
+    s.editor.pumpMeterTickForTest();
+    check(s.editor.keyboardPlayableForTest(), "the keyboard is enabled");
+
+    s.editor.keyboardNoteOnForTest(60, 1.0f);     // note A
+    render(s.processor, 15);
+    s.editor.keyboardNoteOnForTest(64, 1.0f);     // note B steals it (A never released)
+    render(s.processor, 30);
+    const float bothHeld = s.processor.outputLevel.load(std::memory_order_relaxed);
+    check(bothHeld > 0.02f, "sounding after A then B, both through the on-screen keyboard");
+
+    // Releasing A must be a no-op: currentNote is B.
+    s.editor.keyboardNoteOffForTest(60);
+    render(s.processor, 20);
+    const float afterAOff = s.processor.outputLevel.load(std::memory_order_relaxed);
+    check(afterAOff > bothHeld * 0.5f,
+          juce::String("A's release did NOT cut B short (before ") + juce::String(bothHeld, 5)
+              + ", after A-off " + juce::String(afterAOff, 5) + ")");
+
+    // Releasing B is the real release.
+    s.editor.keyboardNoteOffForTest(64);
+    render(s.processor, 60);
+    const float afterBOff = s.processor.outputLevel.load(std::memory_order_relaxed);
+    check(afterBOff < bothHeld * 0.1f,
+          juce::String("B's release DOES silence the voice (") + juce::String(afterBOff, 6) + ")");
+    snapshot(s.editor, "18_keyboard_last_note_priority");
+}
+
+// 19 — A keyboard note queued before/through a compile swap is not lost.
+//
+// Fact #6 (PluginProcessor.h:182-187, PluginProcessor.cpp's early-return
+// comment at the top of processBlock): a keyboard note-off queued while
+// faustEngine.enterAudio() is false is NOT lost -- the ring is only ever
+// DRAINED inside the enterAudio()/exitAudio() bracket, so an event queued
+// while that bracket is refused simply waits, and the next successful block
+// drains it in order. A hardware MIDI note-off in the same window IS dropped,
+// because the MidiBuffer itself is gone by the next block -- NoteRing is not.
+//
+// WHAT THIS TEST ACTUALLY EXERCISES, stated precisely because it matters for
+// the RISK line: it queues the note before ANY DSP has ever compiled, which
+// is the SAME branch (`if (!faustEngine.enterAudio()) { ...; return; }`,
+// PluginProcessor.cpp:155-169) a live recompile's ready=false window takes --
+// not a race against an in-flight recompile's exact timing. That is
+// deliberate: hitting the live-recompile window from a black-box test would
+// depend on the JIT's wall-clock duration and would be flaky by construction,
+// and FaustEngine.cpp's runCompile is explicitly out of scope to instrument
+// for this task. The code path exercised (early return -> ring not drained ->
+// drained on the next ready block) is identical either way; what is NOT
+// proven here is the timing overlap with a SECOND, already-loaded patch's
+// in-flight swap. See the report's RISK line.
+void scenario19_keyboardSurvivesCompileSwap()
+{
+    scenario("19. a keyboard note queued before the DSP exists is not lost",
+             "PluginProcessor.h:182-187 -- the ring waits; a hardware note-off would not");
+
+    Session s;
+    check(s.processor.currentSourceForTest().isEmpty(), "nothing compiled yet");
+
+    // Queued while faustEngine.enterAudio() is unconditionally false: there is
+    // no DSP at all, so every render() call below takes the early-return
+    // branch until the compile started next actually finishes.
+    s.editor.keyboardNoteOnForTest(69, 1.0f);
+
+    s.processor.loadFaustCode(kGatedSawSynthPatch, "keyboard swap test");
+    const bool ready = renderUntilReady(s.processor, kGatedSawSynthPatch);
+    check(ready, "the compile finished and the instrument went live");
+    if (! ready) return;
+
+    check(s.processor.droppedKeyboardNotes() == 0,
+          "the note queued before the DSP existed was not dropped");
+
+    render(s.processor, 40);   // let the envelope build
+    const float held = s.processor.outputLevel.load(std::memory_order_relaxed);
+    check(held > 0.02f,
+          juce::String("the note queued BEFORE the DSP existed is sounding now that it "
+                       "is ready (peak ") + juce::String(held, 5) + ")");
+
+    s.editor.keyboardNoteOffForTest(69);
+    render(s.processor, 60);
+    const float tail = s.processor.outputLevel.load(std::memory_order_relaxed);
+    check(tail < held * 0.1f,
+          juce::String("note-off through the same producer still releases the voice "
+                       "after the swap (tail ") + juce::String(tail, 6) + ")");
+    snapshot(s.editor, "19_keyboard_survives_compile_swap");
+}
+
+// 20 — An effect patch (no voice contract) disables the keyboard.
+void scenario20_keyboardDisabledForEffect()
+{
+    scenario("20. an effect patch disables the keyboard",
+             "no voice contract to play -- clicks must not silently accept notes "
+             "nothing consumes");
+
+    Session s;
+    check(loadAndSettle(s, kTinyPatch, 1), "a plain effect (Gain) compiled");
+    s.editor.pumpMeterTickForTest();
+    check(! s.editor.keyboardPlayableForTest(),
+          "the keyboard reports disabled for a patch with no voice contract");
+
+    // Even a note that reaches the ring -- bypassing the disabled UI, the way
+    // this test-only entry point does; see KeyboardPanel::noteOnForTest --
+    // must not sound: processBlock's drain discards it because
+    // faustEngine.isInstrument() is false for this patch (`if (! playable)
+    // continue;` in PluginProcessor.cpp's drain loop).
+    s.editor.keyboardNoteOnForTest(69, 1.0f);
+    render(s.processor, 20);
+    check(! s.processor.isOutputMuted(), "the effect keeps running normally, unaffected");
+    check(s.processor.droppedKeyboardNotes() == 0,
+          "the note was consumed by the unconditional drain, not left stuck in the ring");
+    snapshot(s.editor, "20_keyboard_disabled_for_effect");
+}
+
 } // namespace
 
 int main()
@@ -1333,7 +1546,7 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInit;
 
     std::printf("EditorSessionTest -- a simulated human session against the real editor\n");
-    std::printf("  16 scenarios, no network, no quota, snapshots to artifacts/images/\n");
+    std::printf("  20 scenarios, no network, no quota, snapshots to artifacts/images/\n");
 
     auto tmp = juce::File::getSpecialLocation(juce::File::tempDirectory)
                    .getChildFile("pluginforge_editor_session");
@@ -1356,6 +1569,10 @@ int main()
     scenario14_groupCapture();
     scenario15_identityKeyedRetention();
     scenario16_refineCarriesTheSource(tmp);
+    scenario17_keyboardNoteRoundTrip();
+    scenario18_keyboardLastNotePriority();
+    scenario19_keyboardSurvivesCompileSwap();
+    scenario20_keyboardDisabledForEffect();
 
     tmp.deleteRecursively();
 
