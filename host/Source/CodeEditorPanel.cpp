@@ -1,4 +1,5 @@
 #include "CodeEditorPanel.h"
+#include "Theme.h"
 
 CodeEditorPanel::CodeEditorPanel(PluginForgeProcessor& p)
     : processor(p)
@@ -6,8 +7,8 @@ CodeEditorPanel::CodeEditorPanel(PluginForgeProcessor& p)
     addAndMakeVisible(header);
     header.setText("Generated Faust (read-only)", juce::dontSendNotification);
     header.setJustificationType(juce::Justification::centredLeft);
-    header.setFont(juce::Font(12.0f));
-    header.setColour(juce::Label::textColourId, juce::Colour(0xff9399b2));
+    header.setFont(Theme::Type::body());
+    header.setColour(juce::Label::textColourId, Theme::subtext);
 
     addAndMakeVisible(editor);
     // Phase 3a is the view alone. Editing lands with a Compile button, not before
@@ -16,16 +17,11 @@ CodeEditorPanel::CodeEditorPanel(PluginForgeProcessor& p)
     // (juce_CodeEditorComponent.h:237).
     editor.setReadOnly(true);
     editor.setScrollbarThickness(8);
-    editor.setColour(juce::CodeEditorComponent::backgroundColourId,
-                     juce::Colour(0xff181825));
-    editor.setColour(juce::CodeEditorComponent::defaultTextColourId,
-                     juce::Colour(0xffcdd6f4));
-    editor.setColour(juce::CodeEditorComponent::lineNumberBackgroundId,
-                     juce::Colour(0xff11111b));
-    editor.setColour(juce::CodeEditorComponent::lineNumberTextId,
-                     juce::Colour(0xff6c7086));
-    editor.setFont(juce::Font(juce::Font::getDefaultMonospacedFontName(), 12.0f,
-                              juce::Font::plain));
+    editor.setColour(juce::CodeEditorComponent::backgroundColourId, Theme::mantle);
+    editor.setColour(juce::CodeEditorComponent::defaultTextColourId, Theme::text);
+    editor.setColour(juce::CodeEditorComponent::lineNumberBackgroundId, Theme::crust);
+    editor.setColour(juce::CodeEditorComponent::lineNumberTextId, Theme::overlay);
+    editor.setFont(Theme::Type::mono());
 
     // Seed from whatever is already live, so a panel revealed AFTER a compile
     // shows the live patch instead of staying blank until the next one.
@@ -57,5 +53,5 @@ void CodeEditorPanel::resized()
 
 void CodeEditorPanel::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff181825));
+    g.fillAll(Theme::mantle);
 }

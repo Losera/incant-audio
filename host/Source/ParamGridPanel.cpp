@@ -1,6 +1,7 @@
 #include "ParamGridPanel.h"
 #include "ParamGridLayout.h"
 #include "ParamMap.h"
+#include "Theme.h"
 // ParamMap.h is included for DISPLAY ONLY — formatZone/parseZone/mapSlotToZone
 // inside the text-box lambdas in applyPresentation() (PF-037).
 //
@@ -129,7 +130,7 @@ void ParamGridPanel::refreshParamKnobs(const FaustEngine::ParamList& params)
 
         c.label = std::make_unique<juce::Label>();
         c.label->setJustificationType(juce::Justification::centred);
-        c.label->setFont(juce::Font(12.0f));
+        c.label->setFont(Theme::Type::label());
         c.label->setText(juce::String(p.label), juce::dontSendNotification);
         content.addAndMakeVisible(*c.label);
 

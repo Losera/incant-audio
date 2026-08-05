@@ -19,6 +19,10 @@ build/
 # --- Generated artifacts ---
 artifacts/
 
+# --- Melchior (instrumentation, currently inert) ---
+.melchior/index.db
+.melchior/active.json
+
 # --- In-source CMake residue -------------------------------------------------
 # cmake was run directly in host/ as well as in host/build/, leaving ~400M of
 # build tree beside the sources. These are anchored to /host/ so an equivalent

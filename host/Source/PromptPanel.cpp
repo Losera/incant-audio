@@ -1,4 +1,5 @@
 #include "PromptPanel.h"
+#include "Theme.h"
 #include <thread>
 #include <cmath>
 #include <optional>
@@ -139,7 +140,7 @@ PromptPanel::PromptPanel(PluginForgeProcessor& p)
     // timerCallback while a subprocess is in flight.
     addChildComponent(progressLabel);
     progressLabel.setJustificationType(juce::Justification::centredLeft);
-    progressLabel.setColour(juce::Label::textColourId, juce::Colour(0xfff9e2af)); // catppuccin yellow
+    progressLabel.setColour(juce::Label::textColourId, Theme::yellow);
 
     // Error region: read-only (juce_TextEditor.h:130), multi-line + word-wrapped
     // (:78), with scrollbars (:156) and no caret (:140). Starts hidden; shown by
@@ -149,10 +150,9 @@ PromptPanel::PromptPanel(PluginForgeProcessor& p)
     errorBox.setReadOnly(true);
     errorBox.setScrollbarsShown(true);
     errorBox.setCaretVisible(false);
-    errorBox.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xff181825));
-    errorBox.setColour(juce::TextEditor::textColourId,       juce::Colour(0xfff2c9d3));
-    errorBox.setFont(juce::Font(juce::Font::getDefaultMonospacedFontName(), 12.0f,
-                                juce::Font::plain));
+    errorBox.setColour(juce::TextEditor::backgroundColourId, Theme::mantle);
+    errorBox.setColour(juce::TextEditor::textColourId,       Theme::errorText);
+    errorBox.setFont(Theme::Type::mono());
 }
 
 PromptPanel::~PromptPanel()
