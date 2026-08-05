@@ -577,3 +577,59 @@ other entry; entry 1's mono/stereo reversal is unchanged and un-caught, because
 it is an intent-vs-result question (see the boundary comment on
 `validatePatch()`), not a topology-legality one — a different mechanism, still
 not built. See host/tests/ValidationGateTest.cpp for the per-check coverage.
+
+---
+
+## ADR-022 — Per-generated-plugin visual identity: heuristic native-widget variation, not a new LLM artifact or WebView
+
+| | |
+|---|---|
+| **Status** | Accepted |
+| **Date** | 2026-08-05 |
+
+**Context**
+Competing tools are named in docs/competitive_landscape.md as beating PluginForge on
+generated-UI quality ("'Beautiful UIs' is a stated competitor strength and our weakest
+lane"). The question raised: should each generated plugin get a unique, professionally-
+designed visual presentation, inferred from the prompt with no explicit spec. Two
+existing ADRs bear directly: ADR-021 rejected a structured design-intent artifact
+("PluginSpec") on 0/19 evidence of structural affordance usage; ADR-019 rejected a
+WebView UI surface, which is what would make bespoke per-plugin graphics easy.
+
+**Decision**
+1. Do not add a new LLM-emitted design-intent output to pursue visual uniqueness.
+   ADR-021's revisit trigger ("a non-zero result reopens this") has not fired --
+   reconfirmed 2026-08-05 (tools/check.sh full's presentation-affordances report,
+   same 19-entry corpus: 0/19 hgroup, style, or scale usage).
+2. Do not reopen ADR-019 to pursue bespoke per-plugin graphics. No new evidence
+   against the gtk3/webkit2gtk build-breakage risk that motivated it.
+3. Accepted near-term scope: a per-generation visual palette derived
+   DETERMINISTICALLY and HEURISTICALLY from facts already produced by compilation
+   (ParamInfo labels/groups, unit metadata, instrument-vs-effect from the voice
+   contract), applied through the same setColour()-token mechanism
+   ParamGridPanel/KeyboardPanel/Theme.h already use. No new LLM output, no WebView,
+   no new distributable artifact -- ordinary Tier-1 C++/UI work, not gated by this
+   ADR or any other.
+4. Out of scope, explicitly: whether a generated plugin can be exported as its own
+   separate distributable standalone. The current architecture already permits a
+   coarse version for free (the state blob persists a patch; the built
+   PluginForgeSynth/Host binary plus a saved state file is already shareable). A
+   genuinely stripped, single-patch-only build is a materially bigger undertaking
+   touching ADR-001/ADR-003's JIT-in-host-plugin model and needs its own ADR.
+
+**Reasons**
+- Both closed ADRs' stated revisit triggers are unmet; nothing here is new evidence
+  against either.
+- A heuristic palette costs no schema change and no prompt edit -- doesn't trigger
+  §3's Tier-2 prompt/benchmark obligations.
+- Keeps CLAUDE.md's "single distributable artifact" line intact without presupposing
+  an answer to the export question, which deserves its own dedicated decision.
+
+**Consequences**
+- "Unique" means computed-per-generation, not hand-designed -- a real ceiling.
+  If that proves competitively insufficient, ADR-019 is the one to reopen, on its
+  own stated triggers, not this one.
+- The export/standalone-per-generation question stays open, tracked separately --
+  not silently resolved by this ADR's silence on it.
+- Revisit if: ADR-021's trigger fires on a larger/fresher corpus, or the heuristic
+  palette, once built, measurably reads as worse than the current static Theme.

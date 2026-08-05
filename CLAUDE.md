@@ -10,6 +10,8 @@ Pipeline: Natural language prompt → LLM → Faust DSL → LLVM JIT → VST3/AU
 - JIT via libfaust/LLVM inside JUCE host plugin (single distributable artifact)
 - Pre-allocated 64-slot parameter pool to satisfy DAW fixed-param requirements
 - Error correction loop: compiler stderr fed back to LLM, up to 3 retries
+- Generated-plugin visual identity: heuristic native-widget palette, not a new LLM
+  artifact or WebView (ADR-022)
 
 ## Stack
 - JUCE 7 (C++17) — audio plugin framework, VST3/AU output
