@@ -49,6 +49,15 @@ The host duplicates your single output to both speakers. Do not write _ , _ as
 inputs — an instrument has nothing to read. Do not use _ as an input signal anywhere
 in process.
 
+LAYERED VOICES — every additional sound source needs its own control:
+
+If you add a second oscillator, an octave doubler, a sub-oscillator, or any other
+layer beyond the primary voice, give it its own hslider so the player can adjust or
+silence it — an amount/mix control (0 to 1) or a detune amount, whichever fits.
+NEVER sum a second source into process unconditionally with no parameter governing
+its presence; an always-on, non-adjustable layer is not a feature, it is a bug the
+player cannot fix. A knob that can be turned to 0 is a REQUIREMENT, not decoration.
+
 ENVELOPES — read this before choosing one:
 
 - en.adsr(attack, decay, sustain, release, gate) SUSTAINS for as long as gate is 1.
@@ -158,3 +167,22 @@ env = en.ar(0.001, decay, gate);
 body = os.osc(freq) * 0.5;
 crack = no.noise : fi.resonlp(tone, 1.5, 1);
 process = body + crack : *(gain * env);
+
+USER: a subtractive synth with an octave-down doubler
+FAUST:
+import("stdfaust.lib");
+freq = hslider("freq", 440, 20, 8000, 0.01);
+gain = hslider("gain", 0.5, 0, 1, 0.01);
+gate = button("gate");
+cutoff = hslider("Cutoff[unit:Hz]", 1500, 50, 8000, 1) : si.smoo;
+q = hslider("Resonance", 1, 0.1, 10, 0.01) : si.smoo;
+attack = hslider("Attack[unit:s]", 0.01, 0.001, 2, 0.001);
+decay = hslider("Decay[unit:s]", 0.15, 0.001, 2, 0.001);
+sustain = hslider("Sustain", 0.7, 0, 1, 0.01);
+release = hslider("Release[unit:s]", 0.3, 0.001, 5, 0.001);
+octaveMix = hslider("OctaveMix", 0.5, 0, 1, 0.01) : si.smoo;
+env = en.adsr(attack, decay, sustain, release, gate);
+mainOsc = os.sawtooth(freq);
+octaveOsc = os.sawtooth(freq * 0.5);
+voice = mainOsc + (octaveOsc * octaveMix);
+process = voice : fi.resonlp(cutoff, q, 1) : *(gain * env);
