@@ -22,6 +22,15 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          # numpy + scipy: tests/test_pitch_gate.py imports numpy at module scope
+          # for its pure-numpy pitch estimator (the `fast`, non-integration half
+          # of that file — the integration half needs a built OfflineRenderTest
+          # and runs in build-host below), and it in turn imports bench/
+          # render_oracle.py, which imports scipy.io.wavfile at module scope.
+          # Neither is a product dependency, only a test dependency, which is
+          # why they live here and not in requirements.txt — same packages the
+          # render-oracle job below installs for itself.
+          pip install numpy scipy
 
       - name: Run unit tests (no API key or faust compiler required)
         run: pytest tests/ -m "not integration" -v
