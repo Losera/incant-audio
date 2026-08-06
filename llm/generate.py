@@ -330,6 +330,14 @@ def generate_json(request: dict) -> dict:
     # would repair code against rules the first attempt never saw.
     kind, system_prompt = select_prompt(prompt, request.get("kind"))
 
+    # Dynamic stdlib token headroom optimization (PLUGINFORGE_DYNAMIC_STDLIB=1 default)
+    if os.environ.get("PLUGINFORGE_DYNAMIC_STDLIB", "1") != "0":
+        try:
+            import prompt_builder
+            system_prompt = prompt_builder.build_dynamic_prompt(prompt)
+        except Exception:
+            pass
+
     # A6: decided ONCE, before the loop, same reasoning as `kind` above. Doesn't
     # fit the token budget → dropped entirely, never truncated (a half program
     # teaches the model a syntax error the user didn't make — the same failure
