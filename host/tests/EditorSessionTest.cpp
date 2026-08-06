@@ -163,7 +163,7 @@ struct Session
         // Without a size the grid has zero bounds and every widget lands at 0x0 —
         // technically constructed, visually meaningless, and the snapshots would
         // be blank.
-        editor.setSize(480, 460);
+        editor.setSize(900, 500);
     }
 };
 
@@ -439,7 +439,7 @@ void scenario03_overflow()
     // The window must have grown, and must have stopped growing. The cap is
     // kMaxGridRows (6) * kCellH (95) + chrome; past it the Viewport scrolls.
     const int h = s.editor.getHeight();
-    check(h > 460, juce::String("window grew past its default for 40 params (now ")
+    check(h > 500, juce::String("window grew past its default for 40 params (now ")
                        + juce::String(h) + "px)");
     check(h <= 1200, juce::String("window stayed inside setResizeLimits' 1200px max (")
                          + juce::String(h) + "px)");
@@ -1282,6 +1282,15 @@ void scenario16_refineCarriesTheSource(const juce::File& tmp)
              "the request-file transport (A2), the fold (A3), and the "
              "first-generation degrade (A4)");
 
+    // ── Transport note (kind selector, 2026-08-06) ───────────────────────────
+    // The request-file transport is now UNCONDITIONAL: once the kind selector
+    // exists, every generation carries kind, and kind has no argv transport
+    // (the old --prompt path could not express it). So the assertions below live
+    // at the JSON-content level -- what the payload CARRIES -- not at the
+    // argv-shape level. The substance is unchanged: prior_source appears in the
+    // request iff there is a prior source to carry (Refine on after a
+    // generation), and is ABSENT when Refine is off or there is nothing yet.
+
     // A control name distinctive enough that finding it inside a captured
     // prior_source could not be an accident.
     const char* markerPatch = R"(import("stdfaust.lib");
@@ -1303,10 +1312,17 @@ process = _ * z, _ * z;
     check(firstLive, "the first (Refine-off) generation reached DSP live");
 
     auto argv1 = FakeGenerator::capturedArgv(tmp, "gen16");
-    check(argv1.contains("--prompt"), "Refine off: plain --prompt, as today");
-    check(! argv1.contains("--request-file"), "Refine off: no --request-file in argv");
-    check(FakeGenerator::capturedRequestJson(tmp, "gen16").isEmpty(),
-          "Refine off: no request.json was written at all");
+    check(argv1.contains("--request-file"),
+          "Refine off: request-file transport (kind has no argv form)");
+    check(! argv1.contains("--prompt"),
+          "Refine off: the old plain --prompt path is gone");
+    auto req1 = FakeGenerator::capturedRequestJson(tmp, "gen16");
+    check(req1.isNotEmpty(), "Refine off: a request.json was still written");
+    check(req1.contains("\"kind\""),
+          "Refine off: the request carries the kind selector value");
+    check(! req1.contains("Zzyzx"),
+          "Refine off: NO prior_source folded in -- Refine off must not send the "
+          "previous patch as context");
     check(s.processor.currentSourceForTest().contains("Zzyzx"),
           "the processor's source of record carries the marker control -- what "
           "the next half's refine has to actually reuse");
@@ -1335,6 +1351,8 @@ process = _ * z, _ * z;
           "not exist before this change");
     check(requestJson.contains("make the resonance stronger"),
           "the request also carries the new prompt text, not just the prior source");
+    check(requestJson.contains("\"kind\""),
+          "Refine on: the request still carries the kind selector value");
 
     // ── The degrade half: Refine ticked before anything has ever generated ──
     // A fresh session -- currentSource() is empty -- so even with Refine ON at
@@ -1357,12 +1375,14 @@ process = _ * z, _ * z;
     check(thirdLive, "the degrade-case generation still reached DSP live");
 
     auto argv3 = FakeGenerator::capturedArgv(tmp, "gen16b");
-    check(argv3.contains("--prompt"),
-          "first generation with Refine ticked: degrades to plain --prompt "
-          "(nothing to refine yet)");
-    check(! argv3.contains("--request-file"),
-          "first generation with Refine ticked: NOT --request-file -- there is "
-          "no prior source to send");
+    check(argv3.contains("--request-file"),
+          "first generation with Refine ticked: request-file transport (kind)");
+    auto req3 = FakeGenerator::capturedRequestJson(tmp, "gen16b");
+    check(req3.isNotEmpty(), "degrade case: a request.json was written");
+    check(! req3.contains("Zzyzx"),
+          "first generation with Refine ticked: NO prior_source in the request -- "
+          "the PAYLOAD degrades (nothing to refine yet) even though the MODE is "
+          "Iterate, so a hollow prior_source is never sent");
 
     snapshot(s.editor, "16_refine_carries_the_source");
 }
@@ -1739,6 +1759,130 @@ void scenario22_qwertyMappingStaticContract()
     snapshot(s.editor, "22_qwerty_mapping_static_contract");
 }
 
+// 23 — The kind selector (Instrument / Effect) reaches the LLM request (ADR-011).
+//
+// `kind` existed in generate.py's request schema (select_prompt at :85-95, read
+// at :331) but nothing in the host ever sent it: the workflow-step-2 type
+// override was half-built with no wire. This scenario drives the selector and
+// proves the request JSON carries the chosen kind. The default is the build
+// target (PF_IS_SYNTH) so a synth build opens on "Instrument" without the user
+// touching anything — the selector is an override, not a required choice.
+void scenario23_kindSelectorReachesRequest(const juce::File& tmp)
+{
+    scenario("23. The kind selector's choice reaches the LLM request",
+             "the generation-time type override (workflow step 2), wired to "
+             "generate.py's existing kind field");
+
+    FakeGenerator::install(
+        FakeGenerator::writeSuccessCapturing(tmp, "gen23", kTinyPatch));
+
+    Session s;
+
+    check(s.editor.kindForTest()
+              == juce::String(PF_IS_SYNTH ? "Instrument" : "Effect"),
+          "kind selector defaults to the build target (PF_IS_SYNTH)");
+
+    const juce::String chosen = PF_IS_SYNTH ? "Effect" : "Instrument";
+    s.editor.setKindForTest(chosen);
+    check(s.editor.kindForTest() == chosen, "kind selector accepts the override");
+
+    s.editor.submitPromptForTest("a small patch, kind must ride along");
+    const bool live = pumpUntil([&] {
+        return s.editor.statusTextForTest().contains("DSP live");
+    });
+    check(live, "the kind-carrying generation reached DSP live");
+
+    // Parse the request rather than substring-match, so the assertion survives
+    // any juce::JSON whitespace choice.
+    auto req = FakeGenerator::capturedRequestJson(tmp, "gen23");
+    check(req.isNotEmpty(), "a request.json was written");
+    const auto parsed = juce::JSON::parse(req);
+    check(parsed.getProperty("kind", "").toString() == chosen,
+          "the request JSON's kind field carries the selector's choice -- "
+          "generate.py:331 reads exactly this field to pick the prompt");
+
+    snapshot(s.editor, "23_kind_selector_reaches_request");
+}
+
+// 24 — prior_source_dropped is surfaced, not swallowed (007 A/B subject).
+//
+// generate.py:381-386: a refine whose prior source overflowed the token budget
+// becomes a fresh generation, and the response says so. Before this change the
+// host ignored the field, so the user was silently handed a full regen. The
+// conditional fake below is the honest shape: the flag must appear ONLY when the
+// request actually carried a prior source (Refine on after a first generation),
+// never when it didn't. The dispatch script greps the request JSON for the first
+// patch's marker control — Zzyzx exists in the prior_source iff one was sent.
+void scenario24_priorSourceDroppedSurfaced(const juce::File& tmp)
+{
+    scenario("24. prior_source_dropped is surfaced, not swallowed",
+             "a refine that silently became a fresh generation must not be silent");
+
+    const char* markerPatch = R"(import("stdfaust.lib");
+z = hslider("Zzyzx", 0.5, 0, 1, 0.01);
+process = _ * z, _ * z;
+)";
+
+    // Two response payloads: plain success, and success carrying the dropped flag.
+    auto writeResponse = [&](const char* name, bool dropped) {
+        auto* obj = new juce::DynamicObject();
+        obj->setProperty("success", true);
+        obj->setProperty("faust_code", markerPatch);
+        obj->setProperty("attempts", 1);
+        obj->setProperty("error", juce::var());
+        obj->setProperty("reason", "ok");
+        if (dropped)
+            obj->setProperty("prior_source_dropped", true);
+        auto f = tmp.getChildFile(name);
+        f.replaceWithText(juce::JSON::toString(juce::var(obj), /* allOnOneLine */ true),
+                          false, false, "\n");
+        return f.getFullPathName();
+    };
+    const auto plain   = writeResponse("gen24_plain.json", false);
+    const auto dropped = writeResponse("gen24_dropped.json", true);
+
+    // Dispatch script: argv is `sh <script> --request-file <path>` (kind always
+    // present → request-file always used), so $2 is the request JSON. Cat the
+    // dropped response iff the request carried the marker (a prior source was
+    // really sent), else the plain one.
+    auto script = tmp.getChildFile("gen24");
+    script.replaceWithText(
+        juce::String("#!/bin/sh\n")
+        + "if grep -q 'Zzyzx' \"$2\"; then cat '" + dropped + "'; else cat '"
+        + plain + "'; fi\n",
+        false, false, "\n");
+    script.setExecutePermission(true);
+    FakeGenerator::install(script);
+
+    Session s;
+
+    // ── First generation: Refine off, nothing to carry, no warning ──────────
+    check(! s.editor.priorSourceDroppedForTest(), "dropped-source flag starts false");
+    s.editor.submitPromptForTest("a filter with a distinctive control");
+    const bool firstLive = pumpUntil([&] {
+        return s.editor.statusTextForTest().contains("DSP live");
+    });
+    check(firstLive, "the first (Refine-off) generation reached DSP live");
+    check(! s.editor.priorSourceDroppedForTest(),
+          "Refine off: the dropped-source flag stays false (nothing was dropped)");
+    check(! s.editor.statusTextForTest().contains("prior source dropped"),
+          "Refine off: no dropped-source warning on the status line");
+
+    // ── Second generation: Refine on, a prior source to carry — and it drops ──
+    s.editor.setRefineForTest(true);
+    s.editor.submitPromptForTest("make the resonance stronger");
+    const bool secondLive = pumpUntil([&] {
+        return s.editor.statusTextForTest().contains("DSP live");
+    });
+    check(secondLive, "the second (Refine-on) generation reached DSP live");
+    check(s.editor.priorSourceDroppedForTest(),
+          "Refine on + source dropped: the panel publishes the flag");
+    check(s.editor.statusTextForTest().contains("prior source dropped"),
+          "the status line warns the user the refine became a fresh generation");
+
+    snapshot(s.editor, "24_prior_source_dropped_surfaced");
+}
+
 } // namespace
 
 int main()
@@ -1746,7 +1890,7 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInit;
 
     std::printf("EditorSessionTest -- a simulated human session against the real editor\n");
-    std::printf("  22 scenarios, no network, no quota, snapshots to artifacts/images/\n");
+    std::printf("  24 scenarios, no network, no quota, snapshots to artifacts/images/\n");
 
     auto tmp = juce::File::getSpecialLocation(juce::File::tempDirectory)
                    .getChildFile("pluginforge_editor_session");
@@ -1775,6 +1919,8 @@ int main()
     scenario20_keyboardDisabledForEffect();
     scenario21_allNotesOffReleasesHeldNoteOnDisable();
     scenario22_qwertyMappingStaticContract();
+    scenario23_kindSelectorReachesRequest(tmp);
+    scenario24_priorSourceDroppedSurfaced(tmp);
 
     tmp.deleteRecursively();
 

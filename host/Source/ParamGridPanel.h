@@ -1,6 +1,8 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "PluginProcessor.h"
+#include "UiIr.h"
+#include <map>
 #include <memory>
 #include <vector>
 
@@ -92,6 +94,23 @@ public:
     // corrupt or future state blob degrades to the shipped layout rather than
     // refusing to open.
     static ControlStyle controlStyleFromName(const juce::String& name);
+
+    // ── UI IR rendering (ADR-024 / Phase 1a) ─────────────────────────────────
+    // Applies a renderer-agnostic layout description to the grid. When a valid IR
+    // is present, controls are laid out by section (grouped, with headings) rather
+    // than the default sqrt-grid. Any compiled param not in the IR is appended to
+    // a trailing "Parameters" section — a parameter is never invisible.
+    //
+    // Pass an empty/default UiIr::Layout to revert to the default grid. The IR
+    // does NOT change widget types — applyPresentation still decides that from
+    // the Faust Kind. The IR only controls grouping, section headings, and
+    // column-span.
+    //
+    // Called from the shell after refreshParamKnobs, on the message thread.
+    void applyUiIr(const UiIr::Layout& ir);
+
+    // Test-only: the currently active IR sections (empty if no IR applied).
+    const std::vector<UiIr::Section>& activeSectionsForTest() const { return activeSections; }
 
     int          controlCountForTest() const { return static_cast<int>(controls.size()); }
     // Bumped once per refreshParamKnobs. A test cannot reliably wait for "the
@@ -197,6 +216,18 @@ private:
 
     // Message-thread only, like everything else here. See refreshCountForTest().
     int refreshCount = 0;
+
+    // The UI IR layout currently in effect (empty when none). Read by resized()
+    // to decide sectioned vs default grid layout. Stored separately from the
+    // controls vector so a presentation change doesn't destroy the IR.
+    std::vector<UiIr::Section> activeSections;
+    juce::String activeArchetype;
+    juce::String activeTokens;
+    void layoutSectioned();
+
+    // Lookup from IR control label → the actual widget Control pointer.
+    // Built by applyUiIr(), consumed by layoutSectioned().
+    std::map<std::string, Control*> irLookup;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ParamGridPanel)
 };

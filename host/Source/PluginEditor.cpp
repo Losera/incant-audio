@@ -12,16 +12,18 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
     // LookAndFeel first.
     setLookAndFeel(&lnf);
 
-    // Taller default than the pre-split 480×410 so the widened prompt/error band
-    // (Chrome::promptH) fits with a grid row visible below the meter.
-    setSize(480, 460);
+    // Two-panel authoring screen (Track 1.1). Wider than the pre-split shell so
+    // the left preview/grid column has room to breathe next to the right prompt
+    // column. Height is the max(right column, grid) + vertical chrome; 500 fits
+    // both an empty grid and the fixed 276px right column comfortably.
+    setSize(900, 500);
 
-    // Resizable shell: the prompt+error band and the auto-layout
-    // grid both need to flex, and the code editor won't fit a fixed window. Each
-    // child panel gets its own bounds in resized(); min height keeps the prompt
-    // band + meter visible, max stays within a sane on-screen size.
+    // Resizable: prompt band and grid both flex, and the code band appears/disappears
+    // under the split. Minimum width keeps both columns wide enough to be usable
+    // (~380px each after margins + divider); minimum height keeps the fixed right
+    // column visible.
     setResizable(true, true);
-    setResizeLimits(480, kMinWindowH, 1400, 1200);
+    setResizeLimits(800, kMinWindowH, 1600, 1200);
 
     addAndMakeVisible(promptPanel);
     addAndMakeVisible(paramGridPanel);
@@ -44,6 +46,44 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
 
     addAndMakeVisible(styleToggle);
     styleToggle.onClick = [this] { cycleControlStyle(); };
+
+    // ── Audition sample selector ────────────────────────────────────────────
+    // Populates with .wav files found relative to the executable (dev layout)
+    // or in the standard JUCE audio file search paths. "Off" is always item 0.
+    auditionSelector.addItem("Audition: Off", 1);
+
+    // Search for .wav files in artifacts/samples/ relative to the executable
+    auto exeDir = juce::File::getSpecialLocation(juce::File::currentExecutableFile)
+                      .getParentDirectory();
+    // Try multiple relative paths (dev layout vs installed)
+    const char* sampleDirs[] = {
+        "../../artifacts/samples",   // host/build/.../Standalone/ → artifacts/
+        "../artifacts/samples",      // host/build/.../ → artifacts/
+        "artifacts/samples",         // running from repo root
+    };
+    juce::StringArray sampleFiles;
+    for (const auto* rel : sampleDirs)
+    {
+        auto sampleDir = exeDir.getChildFile(rel);
+        if (sampleDir.isDirectory())
+        {
+            for (const auto& f : juce::RangedDirectoryIterator(sampleDir, false, "*.wav"))
+            {
+                const auto name = f.getFile().getFileNameWithoutExtension();
+                if (sampleFiles.indexOf(name) < 0)
+                    sampleFiles.add(name);
+            }
+            break;
+        }
+    }
+    sampleFiles.sortNatural();
+    int id = 2;
+    for (const auto& name : sampleFiles)
+        auditionSelector.addItem(name, id++);
+
+    auditionSelector.setSelectedId(1, juce::dontSendNotification);
+    auditionSelector.onChange = [this] { auditionSampleChanged(); };
+    addAndMakeVisible(auditionSelector);
 
     // Come up in whatever style is stored, not the default -- a project reopened
     // with rotaries must not snap back to sliders. Applied before any compile, so
@@ -105,10 +145,18 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
             for (const auto& p : params)
                 if (p.zone != nullptr)
                     ++numParams;
-            safeThis->promptPanel.setStatus(
-                juce::String(juce::CharPointer_UTF8("Ready \xe2\x80\x94 DSP live, "))
-                + juce::String(numParams)
-                + (numParams == 1 ? " param mapped." : " params mapped."));
+            auto status = juce::String(juce::CharPointer_UTF8("Ready \xe2\x80\x94 DSP live, "))
+                          + juce::String(numParams)
+                          + (numParams == 1 ? " param mapped." : " params mapped.");
+            // Refine was asked for but generate.py had to drop the prior source
+            // (token-budget overflow, generate.py:381-386): this generation is a
+            // full regen, not a refinement, and the user deserves to know. The
+            // flag is published by PromptPanel's worker on the message thread
+            // before the JIT compile starts, so it is settled by the time this
+            // compile-success callback hops to the message thread.
+            if (safeThis->promptPanel.priorSourceDroppedForTest())
+                status += "  (prior source dropped — refine became a fresh generation)";
+            safeThis->promptPanel.setStatus(status);
             safeThis->paramGridPanel.refreshParamKnobs(params);
             // The source of record is committed in the same success branch that
             // fires this callback (PluginProcessor.cpp:180-181), so by the time
@@ -119,6 +167,36 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
             safeThis->updateWindowSizeForParams();
         });
     };
+}
+
+void PluginForgeEditor::auditionSampleChanged()
+{
+    const int selectedId = auditionSelector.getSelectedId();
+    if (selectedId <= 1)
+    {
+        // "Off" or nothing selected — stop audition
+        processor.setAuditionActive(false);
+        return;
+    }
+
+    const auto sampleName = auditionSelector.getText();
+    // Search for the .wav file in the same directories as the dropdown population
+    auto exeDir = juce::File::getSpecialLocation(juce::File::currentExecutableFile)
+                      .getParentDirectory();
+    const char* sampleDirs[] = {
+        "../../artifacts/samples",
+        "../artifacts/samples",
+        "artifacts/samples",
+    };
+    for (const auto* rel : sampleDirs)
+    {
+        auto wavFile = exeDir.getChildFile(rel).getChildFile(sampleName + ".wav");
+        if (wavFile.existsAsFile())
+        {
+            processor.loadAuditionSample(wavFile);
+            return;
+        }
+    }
 }
 
 void PluginForgeEditor::applyControlStyle(const juce::String& styleName)
@@ -177,15 +255,18 @@ void PluginForgeEditor::setCodeViewVisible(bool shouldBeVisible)
 
 void PluginForgeEditor::updateWindowSizeForParams()
 {
-    // Grid content height the panel wants, capped to kMaxGridRows so the window
-    // stays reasonable (the Viewport scrolls beyond the cap), and floored so the
-    // window never drops below the setResizeLimits minimum (480×360). The result
-    // is clamped again by the ComponentBoundsConstrainer setResizeLimits installed.
+    // Two-panel window height: the split region is the taller of the left grid
+    // column (variable) and the right prompt column (fixed rightColumnHeight()).
+    // Grid content is capped to kMaxGridRows so the window stays reasonable — past
+    // the cap the grid Viewport scrolls. The code band, when visible, is added as
+    // a full-width strip below the split, so revealing code always grows the
+    // window (the grow-on-show contract scenario 11 pins).
     const int wanted = paramGridPanel.preferredContentHeight();
     const int capH   = kMaxGridRows * ParamGridPanel::kCellH;
     const int gridH  = juce::jmin(wanted, capH);
-    const int codeH  = codeEditorPanel.isVisible() ? chrome.codeH : 0;
-    const int winH   = juce::jmax(kMinWindowH, chromeHeight(chrome) + gridH + codeH);
+    const int splitH = juce::jmax(gridH, rightColumnHeight(chrome));
+    const int codeH  = codeEditorPanel.isVisible() ? (chrome.gapCode + chrome.codeH) : 0;
+    const int winH   = juce::jmax(kMinWindowH, verticalChrome(chrome) + splitH + codeH);
     setSize(getWidth(), winH);   // synchronously triggers resized() below
 }
 
@@ -280,6 +361,62 @@ void PluginForgeEditor::timerCallback()
                                       + ". Generate again to reset.");
         }
     }
+
+    // Dev-cockpit state export: every third tick (~10Hz), and only while armed —
+    // setCockpitStatePath() must have been called with a non-empty path. Default
+    // OFF, so tests and headless builds never write /tmp/pluginforge_state.json
+    // unless a caller opted in. Written from the message thread, never from
+    // audio. Fail-open: a write error does not interrupt the UI tick.
+    if (cockpitEnabled && !cockpitStatePath.isEmpty())
+    {
+        if (++cockpitStateTick >= 3)
+        {
+            cockpitStateTick = 0;
+            writeCockpitState();
+        }
+    }
+}
+
+void PluginForgeEditor::writeCockpitState()
+{
+    // Self-protecting: the timer gates on cockpitEnabled + a non-empty path, but
+    // a direct call must not write to an empty path — juce::File("") resolves to
+    // the current directory and replaceWithText would fail into it.
+    if (!cockpitEnabled || cockpitStatePath.isEmpty())
+        return;
+
+    auto root = std::make_unique<juce::DynamicObject>();
+    root->setProperty("status", statusTextForTest());
+    root->setProperty("error", errorTextForTest());
+    root->setProperty("controlStyle", controlStyleForTest());
+    root->setProperty("styleButton", styleButtonTextForTest());
+    root->setProperty("codeVisible", codeVisibleForTest());
+    root->setProperty("codeReadOnly", codeIsReadOnlyForTest());
+    root->setProperty("keyboardPlayable", keyboardPlayableForTest());
+    root->setProperty("outputLevel", displayLevel);
+    root->setProperty("outputMuted", processor.isOutputMuted());
+    root->setProperty("isInstrument", processor.isInstrumentForTest());
+    root->setProperty("sourceChars", processor.currentSource().length());
+    root->setProperty("windowWidth", getWidth());
+    root->setProperty("windowHeight", getHeight());
+
+    juce::Array<juce::var> controls;
+    const int n = gridControlCountForTest();
+    for (int i = 0; i < n; ++i)
+    {
+        auto control = std::make_unique<juce::DynamicObject>();
+        control->setProperty("index", i);
+        control->setProperty("label", gridControlLabelForTest(i));
+        control->setProperty("group", gridControlGroupForTest(i));
+        control->setProperty("value", gridControlValueForTest(i));
+        control->setProperty("text", gridControlTextForTest(i));
+        control->setProperty("kind", static_cast<int>(gridControlKindForTest(i)));
+        controls.add(juce::var(control.release()));
+    }
+    root->setProperty("controls", controls);
+
+    const auto json = juce::JSON::toString(juce::var(root.release()), true);
+    juce::File(cockpitStatePath).replaceWithText(json, false, false, "\n");
 }
 
 void PluginForgeEditor::paint(juce::Graphics& g)
@@ -287,8 +424,22 @@ void PluginForgeEditor::paint(juce::Graphics& g)
     g.fillAll(Theme::base);
     g.setColour(juce::Colours::white);
     g.setFont(Theme::Type::title());
-    g.drawText("PluginForge", getLocalBounds().removeFromTop(36),
+    // Title lives in the top-margin+title band so it reads as a shell header, not
+    // as part of either column. chrome.titleH matches the reservation in resized().
+    g.drawText("PluginForge",
+               getLocalBounds().removeFromTop(chrome.margin + chrome.titleH),
                juce::Justification::centred);
+
+    // Divider between the left (grid) and right (prompt) columns. Drawn as a thin
+    // line down the middle of the dividerW gap. Set in resized().
+    if (dividerX > 0)
+    {
+        g.setColour(Theme::crust);
+        g.fillRect(juce::Rectangle<int>(dividerX, chrome.margin + chrome.titleH,
+                                        1, getHeight() - (chrome.margin + chrome.titleH)
+                                              - chrome.margin - chrome.gapKeyboard
+                                              - chrome.keyboardH));
+    }
 
     // ── Output level meter (post-DSP peak) ──────────────────────────────────
     auto track = meterBounds.toFloat();
@@ -311,54 +462,72 @@ void PluginForgeEditor::paint(juce::Graphics& g)
 
 void PluginForgeEditor::resized()
 {
-    // Vertical bands. Each panel lays its own widgets out relative to the bounds
-    // it is handed here (S2 owns PromptPanel's internal split; S3 owns the grid).
-    // Every band comes from `chrome`, which chromeHeight() also sums — so the
-    // window arithmetic in updateWindowSizeForParams() cannot drift from what is
-    // carved here. Do not reintroduce a literal.
+    // Two-panel authoring screen. The window is a full-width title bar, a split
+    // region (left preview/grid column | right prompt column), an optional full-
+    // width code band, and a full-width keyboard band at the bottom. Every band
+    // comes from `chrome`; updateWindowSizeForParams() sums the same numbers via
+    // rightColumnHeight()/verticalChrome(), so window arithmetic cannot drift from
+    // what is carved here. Do not reintroduce a literal.
     //
-    // The de-duplication that produced `Chrome` claimed zero behaviour change, and
-    // nothing else pins it: EditorSessionTest reads a window height that has passed
-    // through jmax/jmin clamps, so it cannot isolate the sum. This can, at compile
-    // time. When it fires, update the height baselines in the same commit as the
-    // band change — do not relax it. (Lives here, not at class scope: `Chrome{}`
-    // needs default member initializers the enclosing class has not finished
-    // declaring yet.)
-    static_assert(chromeHeight(Chrome{}) == 422,
-                  "Chrome must still sum to 422 — the pre-refactor 350 (kChromeHeight) "
-                  "plus the keyboard band's gapKeyboard(8) + keyboardH(64).");
+    // The two derived sums replace the pre-split single chromeHeight() pin. When
+    // one fires, update the height baselines in the same commit as the band change
+    // — do not relax it. (Lives here, not at class scope: `Chrome{}` needs default
+    // member initializers the enclosing class has not finished declaring yet.)
+    static_assert(rightColumnHeight(Chrome{}) == 276,
+                  "Right column: promptH(220) + gapMeter(8) + meterH(14) "
+                  "+ gapRow(10) + rowH(24) = 276.");
+    static_assert(verticalChrome(Chrome{}) == 136,
+                  "Vertical chrome: margin(16) + titleH(32) + gapKeyboard(8) "
+                  "+ keyboardH(64) + margin(16) = 136.");
 
     const auto& c = chrome;
 
     auto area = getLocalBounds().reduced(c.margin);
-    area.removeFromTop(c.titleH);                 // title spacer (title painted full-width)
+    area.removeFromTop(c.titleH);                 // full-width title spacer
 
-    promptPanel.setBounds(area.removeFromTop(c.promptH));
-    area.removeFromTop(c.gapMeter);
-    meterBounds = area.removeFromTop(c.meterH);
-    area.removeFromTop(c.gapRow);
+    // Keyboard: full-width band at the bottom, ALWAYS laid out (see the
+    // addAndMakeVisible comment in the constructor) so an effect patch's dimmed
+    // keyboard is still visible rather than absent.
+    auto keyboardArea = area.removeFromBottom(c.keyboardH);
+    keyboardPanel.setBounds(keyboardArea);
+    area.removeFromBottom(c.gapKeyboard);
 
-    // Disclosure sits directly above whichever region is below it, so it reads as
-    // the control for the code band rather than as part of the prompt block.
+    // Code editor: full-width band above the keyboard, only while visible.
+    // Placing it here (rather than inside the left column, as the plan diagram
+    // suggested) preserves scenario 11's grow-on-show contract even when the right
+    // prompt column would otherwise absorb the code band's height.
+    if (codeEditorPanel.isVisible())
     {
-        auto row = area.removeFromTop(c.rowH);
-        codeToggle.setBounds(row.removeFromRight(110));
-        row.removeFromRight(6);
-        styleToggle.setBounds(row.removeFromRight(120));
-        area.removeFromTop(c.gapGrid);
+        codeEditorPanel.setBounds(area.removeFromBottom(c.codeH));
+        area.removeFromBottom(c.gapCode);
     }
 
-    // On-screen / computer keyboard. Always laid out (see the addAndMakeVisible
-    // comment in the constructor) so an effect patch's dimmed keyboard is still
-    // visible rather than absent.
-    area.removeFromTop(c.gapKeyboard);
-    keyboardPanel.setBounds(area.removeFromTop(c.keyboardH));
+    // Split what remains into left (grid) and right (prompt) columns.
+    const int splitW = area.getWidth();
+    const int leftW  = juce::jmax(0, juce::roundToInt((splitW - c.dividerW) * kLeftFraction));
+    auto leftCol  = area.removeFromLeft(leftW);
+    area.removeFromLeft(c.dividerW);              // divider gap
+    auto rightCol = area;                          // remainder
 
-    // Code/Errors region (S2): reserved at the bottom only while the panel is
-    // visible. It starts hidden, so the grid keeps the whole remainder today.
-    if (codeEditorPanel.isVisible())
-        codeEditorPanel.setBounds(area.removeFromBottom(c.codeH));
+    // Record the divider x (in window coords) for paint() to draw the seam.
+    dividerX = leftCol.getRight() + c.dividerW / 2;
 
-    // Remaining space is the auto-layout grid.
-    paramGridPanel.setBounds(area);
+    // Left column: the whole thing is the grid. Section titles (Track 1.2) paint
+    // inside the panel; no dedicated header band is carved here.
+    paramGridPanel.setBounds(leftCol);
+
+    // Right column, top to bottom: prompt → meter → disclosure row. Any vertical
+    // slack (the column is taller than rightColumnHeight when the left grid is
+    // tall) falls between the disclosure row and the bottom edge.
+    promptPanel.setBounds(rightCol.removeFromTop(c.promptH));
+    rightCol.removeFromTop(c.gapMeter);
+    meterBounds = rightCol.removeFromTop(c.meterH);
+    rightCol.removeFromTop(c.gapRow);
+
+    auto row = rightCol.removeFromTop(c.rowH);
+    codeToggle.setBounds(row.removeFromRight(110));
+    row.removeFromRight(6);
+    styleToggle.setBounds(row.removeFromRight(120));
+    row.removeFromRight(6);
+    auditionSelector.setBounds(row.removeFromLeft(juce::jmin(160, row.getWidth())));
 }

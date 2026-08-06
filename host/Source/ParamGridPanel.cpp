@@ -314,6 +314,15 @@ void ParamGridPanel::setControlStyle(ControlStyle s)
 
 void ParamGridPanel::layoutControls()
 {
+    // Sectioned layout: when a UI IR has defined sections, use the sectioned
+    // path instead of the default sqrt-grid. Controls not named in the IR are
+    // already appended to the trailing "Parameters" section by applyUiIr().
+    if (! activeSections.empty())
+    {
+        layoutSectioned();
+        return;
+    }
+
     const int n    = static_cast<int>(controls.size());
     const int cols = ParamGridLayout::columnsFor(n);
     // No `rows` local: the row count is only ever needed as a height, and that now
@@ -382,6 +391,154 @@ void ParamGridPanel::resized()
 {
     viewport.setBounds(getLocalBounds());
     layoutControls();
+}
+
+// ── UI IR rendering (ADR-024 / Phase 1a) ────────────────────────────────────
+// Applies a renderer-agnostic sectioned layout. The IR controls GROUPING and
+// COLUMN SPAN only — widget type still comes from applyPresentation() and the
+// Faust Kind. When no IR is present, or it names nothing, this is a no-op and
+// the default sqrt-grid rules.
+//
+// A parameter that is compiled but NOT named in the IR is appended to a
+// trailing "Parameters" section rather than dropped — an invisible parameter is
+// a defect the panel must not introduce (mirrors the B3 note in session 001).
+void ParamGridPanel::applyUiIr(const UiIr::Layout& ir)
+{
+    activeSections.clear();
+    activeArchetype = juce::String(ir.archetype);
+    activeTokens = juce::String(ir.tokens);
+
+    if (ir.schema != 1 || controls.empty())
+    {
+        layoutControls();
+        return;
+    }
+
+    // Build a lookup from the visible controls' labels. The IR addresses params
+    // by their FaustEngine label (the same key ParamPool::slotId uses for the
+    // identity scheme). Duplicate labels within a section are not allowed; the
+    // first match wins and the rest fall through to the trailing section.
+    std::vector<Control*> byLabel;
+    for (auto& c : controls)
+        byLabel.push_back(&c);
+
+    struct Placed { Control* control; const UiIr::ControlRef* ref; };
+    std::vector<Placed> placed;
+    std::vector<Control*> unplaced;
+    for (auto& c : controls)
+        unplaced.push_back(&c);
+
+    // Copy only the sections that name at least one known control.
+    for (const auto& section : ir.sections)
+    {
+        UiIr::Section s;
+        s.id = section.id;
+        s.title = section.title;
+        s.span = section.span;
+        for (const auto& ref : section.controls)
+        {
+            auto it = std::find_if(unplaced.begin(), unplaced.end(),
+                                   [&ref](const Control* c) {
+                                       return c->meta.label == ref.paramLabel;
+                                   });
+            if (it == unplaced.end())
+                continue;      // unknown label — silently ignored, never a crash
+            auto* c = *it;
+            unplaced.erase(it);
+            s.controls.push_back(ref);
+            placed.push_back({ c, &s.controls.back() });
+        }
+        if (! s.controls.empty())
+            activeSections.push_back(std::move(s));
+    }
+
+    // Any control the IR did not mention goes in a trailing section.
+    if (! unplaced.empty())
+    {
+        UiIr::Section trailing;
+        trailing.id = "unassigned";
+        trailing.title = "Parameters";
+        for (auto* c : unplaced)
+        {
+            UiIr::ControlRef ref;
+            ref.paramLabel = c->meta.label;
+            ref.style = "";
+            ref.size = "";
+            trailing.controls.push_back(ref);
+        }
+        activeSections.push_back(std::move(trailing));
+    }
+
+    // A Section stores ControlRef values; layoutControls() needs the actual
+    // widget pointers. Rather than re-search per layout pass, map ref → control
+    // now so the geometry pass below can consult it.
+    irLookup.clear();
+    for (const auto& section : activeSections)
+        for (const auto& ref : section.controls)
+        {
+            auto it = std::find_if(controls.begin(), controls.end(),
+                                   [&ref](const Control& c) {
+                                       return c.meta.label == ref.paramLabel;
+                                   });
+            if (it != controls.end())
+                irLookup[ref.paramLabel] = &*it;
+        }
+
+    layoutControls();
+}
+
+// ── Sectioned geometry (used when activeSections is non-empty) ─────────────
+// Rows are computed per section: a heading row (section title) then one row of
+// cells per control, honouring the control's span. Column count derives from the
+// widest section rather than the global sqrt — a 12-param synth with a 2-wide
+// filter section reads as intended, not squashed.
+void ParamGridPanel::layoutSectioned()
+{
+    if (controls.empty() || activeSections.empty())
+        return;
+
+    const int fullW = viewport.getWidth();
+    if (fullW == 0)
+        return;
+
+    int cols = 2;
+    for (const auto& section : activeSections)
+        cols = juce::jmax(cols, section.span);
+    cols = juce::jlimit(2, 6, cols);
+
+    const int cellW = fullW / cols;
+    int y = 0;
+    constexpr int kHeadingH = 20;
+
+    for (const auto& section : activeSections)
+    {
+        // Heading row (painted via paint() from activeSections; geometry only here)
+        auto heading = juce::Rectangle<int>(4, y, fullW - 8, kHeadingH);
+        (void) heading;
+        y += kHeadingH;
+
+        for (const auto& ref : section.controls)
+        {
+            auto it = irLookup.find(ref.paramLabel);
+            if (it == irLookup.end())
+                continue;
+            auto* c = it->second;
+            const int span = juce::jlimit(1, cols, ref.size == "lg" ? 2 : 1);
+            const int w = cellW * span;
+            auto cell = juce::Rectangle<int>(0, y, w, kCellH);
+            c->label->setBounds(cell.removeFromTop(kLabelH));
+            auto body = cell.reduced(4);
+            if (c->buttonAtt != nullptr)
+                c->widget->setBounds(body.withSizeKeepingCentre(
+                    juce::jmin(body.getWidth(), 90), juce::jmin(body.getHeight(), 28)));
+            else
+                c->widget->setBounds(body);
+            y += kCellH;
+        }
+        y += 4;   // inter-section gap
+    }
+
+    content.setSize(fullW, juce::jmax(y, viewport.getHeight()));
 }
 
 // ── Test-only observables ───────────────────────────────────────────────────

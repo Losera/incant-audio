@@ -55,6 +55,23 @@ public:
     // The Fresh/Refine toggle, driven and read without a click.
     void         setRefineForTest(bool on) { promptPanel.setRefineForTest(on); }
     bool         refineEnabledForTest() const { return promptPanel.refineEnabledForTest(); }
+    // The kind selector (generation target) and the prior-source-dropped warning
+    // flag (generate.py:381-386), driven and read without a click.
+    juce::String kindForTest() const { return promptPanel.kindForTest(); }
+    void         setKindForTest(const juce::String& kind) { promptPanel.setKindForTest(kind); }
+    bool         priorSourceDroppedForTest() const { return promptPanel.priorSourceDroppedForTest(); }
+    // Dev-cockpit state export — OFF by default. Nothing is written anywhere
+    // until a caller (the Standalone app or the /cockpit skill) opts in via
+    // setCockpitStatePath(path), which sets the path AND arms the 30Hz timer
+    // export. No test currently drives this; the accessors are the seam the
+    // cockpit uses to enable it, not an EditorSessionTest feature.
+    void         setCockpitStatePath(const juce::String& path)
+    {
+        cockpitStatePath = path;
+        cockpitEnabled  = !path.isEmpty();
+    }
+    juce::String cockpitStatePathForTest() const { return cockpitStatePath; }
+    bool         cockpitEnabledForTest() const   { return cockpitEnabled; }
     // The code-view disclosure, and what the view is actually showing.
     // The style the PANEL is actually rendering, not the one the processor
     // stored — so a test can wait for the callAsync hop to have landed rather
@@ -97,56 +114,81 @@ private:
     // source in on the way up so a view revealed after a compile is not blank.
     void setCodeViewVisible(bool shouldBeVisible);
 
-    // ── Layout budget ────────────────────────────────────────────────────────
-    // Every non-grid vertical band, in the order resized() carves them. The grid
-    // gets whatever is left.
+    // ── Layout budget (two-panel authoring screen) ────────────────────────────
+    // Track 1.1: the window is a left preview/grid column and a right prompt column,
+    // split at kLeftFraction with a dividerW gap, under a full-width title bar and
+    // above a full-width keyboard band. The vertical bands below (promptH, meterH,
+    // rowH) now describe the RIGHT column's fixed content, not the whole window.
     //
     // WHY A STRUCT AND NOT CONSTANTS. This used to be a list of constants plus a
     // hand-summed kChromeHeight, with a header comment insisting the two "MUST
     // match what resized() consumes". They were never linked by construction, and
-    // they had already drifted: resized() carved the disclosure row with a bare
-    // literal 24 while kCodeToggleRowH sat unread beside the sum. Now resized()
-    // CONSUMES this struct and chromeHeight() SUMS it — one source, two readers,
-    // and a band cannot be changed in one place only.
+    // they had already drifted. Now resized() CONSUMES this struct and the
+    // rightColumnHeight()/verticalChrome() sums below READ it — one source, and a
+    // band cannot be changed in one place only. The pin moved from a single
+    // whole-window sum to those two, asserted at the top of resized().
     struct Chrome
     {
-        int margin     = 16;   // reduced() inset, counted top and bottom
-        int titleH     = 36;   // title spacer (the title is painted full-width)
-        int promptH    = 220;  // PromptPanel: multi-line prompt + buttons +
-                               // progress + status + a scrollable error region
-        int gapMeter   = 8;
-        int meterH     = 14;
-        int gapRow     = 10;
-        int rowH       = 24;   // the disclosure / mode row
-        int gapGrid    = 6;
-        int gapKeyboard = 8;   // gap above the keyboard band
-        int keyboardH   = 64;  // KeyboardPanel -- ALWAYS present (unlike codeH
-                               // below, unavailability is dimming, not removal;
-                               // see host/Source/KeyboardPanel.h)
-        int codeH      = 240;  // CodeEditorPanel, reserved at the BOTTOM and only
-                               // while that panel is visible
+        int margin      = 16;   // reduced() inset, counted every edge
+        int titleH      = 32;   // full-width title bar spacer (title painted in it)
+        int dividerW    = 4;    // gap between the left and right columns
+
+        // Right column, top to bottom (fixed content; the grid column flexes).
+        int promptH     = 220;  // PromptPanel: multi-line prompt + buttons +
+                                // progress + status + a scrollable error region
+        int gapMeter    = 8;
+        int meterH      = 14;
+        int gapRow      = 10;
+        int rowH        = 24;   // the disclosure / mode row
+
+        // Full-width bottom bands.
+        int gapKeyboard = 8;    // gap above the keyboard band
+        int keyboardH   = 64;   // KeyboardPanel -- ALWAYS present (unlike codeH
+                                // below, unavailability is dimming, not removal;
+                                // see host/Source/KeyboardPanel.h)
+        int gapCode     = 8;    // gap above the code band
+        int codeH       = 240;  // CodeEditorPanel, a full-width band ABOVE the
+                                // keyboard and only while that panel is visible.
+                                // (Design note: the plan places this "in the left
+                                // column"; a full-width band below the split is
+                                // used instead so that revealing code always grows
+                                // the window — the grow-on-show contract scenario 11
+                                // pins — even when the right prompt column is the
+                                // taller of the two and would otherwise absorb it.)
     };
 
-    // Non-grid chrome in window px, EXCLUDING the code band (which is added by the
-    // caller only when the panel is visible). 350 for the Console values above.
-    static constexpr int chromeHeight(const Chrome& c)
+    // The left column's share of the split region's width.
+    static constexpr float kLeftFraction = 0.5f;
+
+    // The right column's fixed vertical content: prompt + meter + disclosure row.
+    // The split region is the taller of this and the (variable) grid column.
+    static constexpr int rightColumnHeight(const Chrome& c)
     {
-        return c.margin + c.titleH + c.promptH + c.gapMeter + c.meterH
-             + c.gapRow + c.rowH + c.gapGrid + c.gapKeyboard + c.keyboardH + c.margin;
+        return c.promptH + c.gapMeter + c.meterH + c.gapRow + c.rowH;
     }
 
-    // The sum is pinned by a static_assert at the top of resized() — NOT here.
+    // Everything outside the split region: title bar, both margins, keyboard band.
+    // The code band is added by the caller only when the panel is visible.
+    static constexpr int verticalChrome(const Chrome& c)
+    {
+        return c.margin + c.titleH + c.gapKeyboard + c.keyboardH + c.margin;
+    }
+
+    // The two sums are pinned by a static_assert at the top of resized() — NOT here.
     // `Chrome{}` needs its default member initializers, which are not available
     // until the enclosing class is complete, so a class-scope assertion is
-    // ill-formed ("default member initializer required before the end of its
-    // enclosing class"). resized() is the right home anyway: it is the reader whose
-    // agreement with this sum is the actual contract.
+    // ill-formed. resized() is the right home anyway: it is the reader whose
+    // agreement with these sums is the actual contract.
 
     static constexpr int kMinWindowH   = 400;  // matches setResizeLimits minimum
     static constexpr int kMaxGridRows  = 6;    // rows shown before the grid scrolls
 
     // The band budget in force. A single instance today; step 7 makes it per-mode.
     Chrome chrome;
+
+    // The x of the divider between the two columns, set in resized(), read in
+    // paint() to draw the seam. In window coordinates.
+    int dividerX = 0;
 
     PluginForgeProcessor& processor;
 
@@ -178,6 +220,14 @@ private:
     // reopened project and a second editor both come up in the chosen style.
     void applyControlStyle(const juce::String& styleName);
 
+    // ── Audition dropdown ──────────────────────────────────────────────────
+    // Selects a reference sample to feed through the live DSP for auditioning
+    // generated effects. "Off" disables audition; selecting a sample loads and
+    // activates it. Samples live in artifacts/samples/ and are discovered
+    // relative to the executable.
+    juce::ComboBox auditionSelector { "Audition" };
+    void auditionSampleChanged();
+
     // ── Level meter (shell-owned) ────────────────────────────────────────────
     juce::Rectangle<int> meterBounds;      // set in resized(), painted in paint()
     float displayLevel = 0.0f;             // message-thread only
@@ -186,6 +236,17 @@ private:
     // Stored so the status label is written only on a transition -- rewriting it
     // at 30Hz would stomp compile/error messages every frame.
     bool wasOutputMuted = false;           // message-thread only
+
+    // Dev-cockpit mirror state. Written from the message-thread timer every third
+    // tick (~10Hz), never from the audio thread — and only while ARMED: a
+    // non-empty path set through setCockpitStatePath(). Default is OFF (empty
+    // path, enabled=false), so tests and headless builds never write /tmp state
+    // unless a caller opted in. Singleton path by design: the cockpit is a
+    // development mirror for one running Standalone instance.
+    juce::String cockpitStatePath;   // empty until setCockpitStatePath() arms it
+    bool         cockpitEnabled = false;
+    int          cockpitStateTick = 0;
+    void writeCockpitState();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PluginForgeEditor)
 };

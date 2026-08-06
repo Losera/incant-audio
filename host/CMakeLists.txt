@@ -181,6 +181,51 @@ target_link_libraries(ParamPoolTsanTest PRIVATE
     ${LIBFAUST_LIB}
 )
 
+# AuditionThreadingTest -- ThreadSanitizer stress harness for the audition-
+# buffer race between loadAuditionSample (message thread) and processBlock
+# (audio thread) -- host/tests/AuditionThreadingTest.cpp. Same shape as
+# ParamPoolTsanTest: separate console-app target so -fsanitize=thread applies
+# only here. One deliberate difference from ParamPoolTsanTest: it links
+# juce::juce_audio_formats because the test writes its own probe WAV via
+# juce::WavAudioFormat -- PluginProcessor.h pulls in juce_audio_processors,
+# which does NOT transitively expose audio_formats (OfflineRenderTest.cpp:60-62).
+juce_add_console_app(AuditionThreadingTest
+    PRODUCT_NAME "Audition Threading Test"
+)
+
+target_sources(AuditionThreadingTest PRIVATE
+    tests/AuditionThreadingTest.cpp
+    Source/PluginProcessor.cpp
+    Source/PluginEditor.cpp
+    Source/PromptPanel.cpp
+    Source/CodeEditorPanel.cpp
+    Source/ParamGridPanel.cpp
+    Source/KeyboardPanel.cpp
+    Source/FaustEngine.cpp
+    Source/ParamPool.cpp
+    Source/OutputGuard.cpp
+)
+
+target_compile_features(AuditionThreadingTest PRIVATE cxx_std_17)
+
+target_compile_definitions(AuditionThreadingTest PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_VST3_CAN_REPLACE_VST2=0
+)
+
+target_compile_options(AuditionThreadingTest PRIVATE -fsanitize=thread -g -O1)
+target_link_options(AuditionThreadingTest PRIVATE -fsanitize=thread)
+
+target_link_libraries(AuditionThreadingTest PRIVATE
+    juce::juce_audio_utils
+    juce::juce_dsp
+    juce::juce_gui_extra
+    juce::juce_audio_formats
+    juce::juce_recommended_config_flags
+    ${LIBFAUST_LIB}
+)
+
 # OutputGuardTest -- behavioural tests for the audio-output safety net
 # (host/tests/OutputGuardTest.cpp). Separate console app so ASan/UBSan apply
 # only here. Deliberately links NOTHING but juce_audio_basics and

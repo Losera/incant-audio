@@ -196,6 +196,33 @@ public:
     // stopped draining long enough to fill 255 events.
     std::uint32_t droppedKeyboardNotes() const noexcept { return noteRing.droppedCount(); }
 
+    // ── Sample audition ─────────────────────────────────────────────────────
+    // Loads a reference WAV and feeds it through the live DSP, replacing the
+    // input bus when active. For auditioning generated effects with known
+    // source material.
+    //
+    // Thread-safety handshake (matches the compile-worker idiom):
+    //   1. auditionActive = false (seq_cst) — gates new entrants
+    //   2. FaustEngine::drainAudioBusy()   — waits for in-flight processBlock
+    //   3. auditionBuffer = std::move(...)  — safe: no reader can be inside
+    //   4. auditionActive = true (seq_cst)  — re-enables reads of the new buffer
+    //
+    // The seq_cst load of auditionActive in processBlock, paired with the seq_cst
+    // store(false) here, forms a Dekker handshake on audioBusy: if the load reads
+    // true (stale), the load is ordered before the store in the total order — so
+    // the drain sees that processBlock's fetch_add and spins until it exits.
+    // (Rationale: FaustEngine.h:255-270.)
+    //
+    // loadAuditionSample: MESSAGE THREAD ONLY. Reads a WAV into a local buffer,
+    // drains audioBusy, then moves it into auditionBuffer.
+    //
+    // auditionPos is atomic, relaxed, only written by the audio thread; reset to
+    // 0 on every load/set. auditionActive is atomic and written only on the
+    // message thread.
+    void loadAuditionSample(const juce::File& wavFile);
+    void setAuditionActive(bool active);
+    bool isAuditionActive() const noexcept { return auditionActive.load(std::memory_order_relaxed); }
+
     // Set by the editor to surface true JIT-ready status (ADR-011 "point E":
     // the Generate button re-enables when the subprocess returns, but the DSP
     // only goes live when this fires). Same threading contract as
@@ -292,6 +319,22 @@ private:
     // destroyed in reverse declaration order, so the ring outlives the engine
     // teardown rather than the other way round.
     pf::NoteRing noteRing;
+
+    // ── Sample audition buffer ──────────────────────────────────────────────
+    // Loaded on the message thread by loadAuditionSample(), read on the audio
+    // thread when auditionActive is true. The buffer is swapped via std::move
+    // under the drain guard: auditionActive is set false (seq_cst), audioBusy
+    // is drained to zero, then the buffer is moved, then auditionActive is set
+    // true (seq_cst). processBlock's seq_cst load of auditionActive pairs with
+    // the seq_cst store to form the handshake. (See loadAuditionSample header.)
+    //
+    // auditionPos is atomic, relaxed, only written by the audio thread; reset to
+    // 0 on every load/set call. auditionActive is atomic, seq_cst on the write
+    // side, seq_cst on the read side in processBlock, relaxed in isAuditionActive
+    // (a UI snapshot, not part of the handshake).
+    std::atomic<bool> auditionActive { false };
+    std::atomic<size_t> auditionPos { 0 };
+    juce::AudioBuffer<float> auditionBuffer;  // 2-channel, pre-loaded from WAV
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 

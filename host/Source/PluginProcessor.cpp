@@ -141,6 +141,58 @@ void PluginForgeProcessor::reset()
     // does not also re-init the instance, and re-initialising here would discard
     // the tail the host is asking us to stop, not stop it cleanly.
     faustEngine.silenceVoice();
+    auditionPos.store(0, std::memory_order_relaxed);
+}
+
+void PluginForgeProcessor::loadAuditionSample(const juce::File& wavFile)
+{
+    // seq_cst: part of the Dekker handshake with processBlock's seq_cst load of
+    // auditionActive. The store-then-drain-then-mutate sequence matches the
+    // compile worker's ready-store-then-drain-then-swap (FaustEngine.cpp:900-964).
+    // In the total order of seq_cst operations, if a processBlock's load reads
+    // true (stale), the load is ordered before this store — so the drain
+    // (seq_cst load of audioBusy) sees that processBlock's fetch_add and spins
+    // until it completes. If the load reads false, the read path is not taken.
+    auditionActive.store(false, std::memory_order_seq_cst);
+    auditionPos.store(0, std::memory_order_relaxed);
+
+    if (! wavFile.existsAsFile())
+        return;
+
+    juce::AudioFormatManager fm;
+    fm.registerBasicFormats();
+
+    std::unique_ptr<juce::AudioFormatReader> reader(fm.createReaderFor(wavFile));
+    if (reader == nullptr || reader->lengthInSamples <= 0)
+        return;
+
+    const auto length = static_cast<int>(juce::jmin<juce::int64>(reader->lengthInSamples,
+                                                                 static_cast<juce::int64>(44100 * 20)));
+    juce::AudioBuffer<float> loaded(2, length);
+    loaded.clear();
+    reader->read(&loaded, 0, length, 0, true, true);
+
+    // Drain: wait for any processBlock that loaded auditionActive==true before
+    // our store(false) to complete its audition read and exitAudio. Without this,
+    // a mid-memcpy on the audio thread races the std::move below (use-after-free
+    // of the old buffer's heap block, per juce_AudioSampleBuffer.h:205-228 /
+    // juce_HeapBlock.h:144-148). This is the same drain FaustEngine.cpp:911-912
+    // performs before swapping activeDSP.
+    faustEngine.drainAudioBusy();
+
+    auditionBuffer = std::move(loaded);
+    auditionActive.store(auditionBuffer.getNumSamples() > 0, std::memory_order_seq_cst);
+}
+
+void PluginForgeProcessor::setAuditionActive(bool active)
+{
+    if (active && auditionBuffer.getNumSamples() == 0)
+        return;
+    auditionPos.store(0, std::memory_order_relaxed);
+    // seq_cst: consistent with loadAuditionSample's store sequence. No drain
+    // needed — this function does not mutate auditionBuffer, only the flag.
+    // An in-flight processBlock reading the unmodified buffer is harmless.
+    auditionActive.store(active, std::memory_order_seq_cst);
 }
 
 void PluginForgeProcessor::processBlock(juce::AudioBuffer<float>& buffer,
@@ -264,6 +316,58 @@ void PluginForgeProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     }
 
     paramPool.pushToFaust(faustEngine);
+
+    // ── Sample audition: feed pre-loaded WAV through the live DSP ──────────
+    // When auditionActive is true, the input buffer is overwritten with the
+    // audition sample (looping), so effects process a known signal rather than
+    // whatever the DAW host feeds in. This is the audition path — the sample
+    // was pre-loaded on the message thread (loadAuditionSample) into a fixed
+    // AudioBuffer; we read it with an atomic position (no allocation on audio
+    // thread, no lock, no I/O — just a memcpy from a pre-existing buffer).
+    //
+    // SUBTLE: auditionPos is ONLY written by this audio-thread code (reset to 0
+    // by loadAuditionSample / setAuditionActive on the message thread, but the
+    // store is relaxed and we tolerate one stale read — worst case, we read a
+    // slightly old position and the sample loops sooner or later than intended
+    // by one block, which is inaudible at 512 samples / 48 kHz).
+    // seq_cst: part of the Dekker handshake with loadAuditionSample's seq_cst
+    // store(false). In the seq_cst total order, if this load reads true (stale),
+    // it is ordered before that store — which means loadAuditionSample's drain
+    // sees our audioBusy and waits. If it reads false, the buffer is not touched.
+    // (See FaustEngine.h:255-270 for the enterAudio Dekker argument this mirrors.)
+    if (auditionActive.load(std::memory_order_seq_cst))
+    {
+        const int numAudSamples = auditionBuffer.getNumSamples();
+        if (numAudSamples > 0)
+        {
+            const int numCh = juce::jmin(buffer.getNumChannels(),
+                                         auditionBuffer.getNumChannels());
+            const int numSamples = buffer.getNumSamples();
+            size_t pos = auditionPos.load(std::memory_order_relaxed);
+
+            for (int ch = 0; ch < numCh; ++ch)
+            {
+                const float* src = auditionBuffer.getReadPointer(ch);
+                float* dst = buffer.getWritePointer(ch, 0);
+                size_t p = pos;
+                for (int s = 0; s < numSamples; ++s)
+                {
+                    dst[s] = src[p];
+                    if (++p >= static_cast<size_t>(numAudSamples))
+                        p = 0;
+                }
+            }
+            // Zero any remaining channels (e.g., mono buffer with stereo sample)
+            for (int ch = numCh; ch < buffer.getNumChannels(); ++ch)
+                buffer.clear(ch, 0, numSamples);
+
+            pos += static_cast<size_t>(numSamples);
+            while (pos >= static_cast<size_t>(numAudSamples))
+                pos -= static_cast<size_t>(numAudSamples);
+            auditionPos.store(pos, std::memory_order_relaxed);
+        }
+    }
+
     faustEngine.process(buffer);
 
     // SUBTLE: the guard runs ONLY on the generated-DSP path, deliberately. The

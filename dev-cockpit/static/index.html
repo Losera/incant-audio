@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PluginForge Dev-Cockpit</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #1e1e2e;
+            color: #cdd6f4;
+        }
+        h1 {
+            margin: 0 0 20px 0;
+            font-size: 24px;
+            color: #89b4fa;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        @media (max-width: 900px) {
+            .grid { grid-template-columns: 1fr; }
+        }
+        .panel {
+            background: #313244;
+            border-radius: 8px;
+            padding: 16px;
+        }
+        .panel h2 {
+            margin: 0 0 12px 0;
+            font-size: 16px;
+            color: #a6adc8;
+        }
+        .screenshot {
+            width: 100%;
+            border-radius: 4px;
+            background: #1e1e2e;
+            min-height: 300px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #6c7086;
+        }
+        .screenshot img {
+            max-width: 100%;
+            border-radius: 4px;
+        }
+        .state {
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            word-break: break-all;
+            max-height: 400px;
+            overflow: auto;
+            background: #1e1e2e;
+            padding: 12px;
+            border-radius: 4px;
+        }
+        .controls {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        button {
+            background: #89b4fa;
+            color: #1e1e2e;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover { background: #b4befe; }
+        button:disabled { background: #45475a; cursor: not-allowed; }
+        .status {
+            font-size: 12px;
+            color: #6c7086;
+            margin-top: 8px;
+        }
+        .status.error { color: #f38ba8; }
+        .status.success { color: #a6e3a1; }
+    </style>
+</head>
+<body>
+    <h1>PluginForge Dev-Cockpit</h1>
+
+    <div class="grid">
+        <div class="panel">
+            <h2>Live Screenshot</h2>
+            <div class="controls">
+                <button onclick="refreshScreenshot()">Refresh</button>
+                <label><input type="checkbox" id="autoRefresh" checked> Auto-refresh (2s)</label>
+            </div>
+            <div class="screenshot" id="screenshotContainer">
+                <span id="screenshotPlaceholder">No screenshot yet — click Refresh</span>
+                <img id="screenshotImg" style="display: none;">
+            </div>
+            <div class="status" id="screenshotStatus">Waiting for first screenshot...</div>
+        </div>
+
+        <div class="panel">
+            <h2>Plugin State</h2>
+            <div class="controls">
+                <button onclick="refreshState()">Refresh</button>
+                <label><input type="checkbox" id="autoRefreshState" checked> Auto-refresh (100ms)</label>
+            </div>
+            <div class="state" id="stateContent">Waiting for state...</div>
+            <div class="status" id="stateStatus">Not connected</div>
+        </div>
+    </div>
+
+    <script>
+        const screenshotImg = document.getElementById('screenshotImg');
+        const screenshotPlaceholder = document.getElementById('screenshotPlaceholder');
+        const screenshotStatus = document.getElementById('screenshotStatus');
+        const stateContent = document.getElementById('stateContent');
+        const stateStatus = document.getElementById('stateStatus');
+        const autoRefresh = document.getElementById('autoRefresh');
+        const autoRefreshState = document.getElementById('autoRefreshState');
+
+        let screenshotInterval = null;
+        let stateInterval = null;
+
+        async function refreshScreenshot() {
+            screenshotStatus.textContent = 'Capturing...';
+            screenshotStatus.className = 'status';
+
+            try {
+                const response = await fetch('/api/screenshot');
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                const blob = await response.blob();
+                const url = URL.createObjectURL(blob);
+                screenshotImg.src = url;
+                screenshotImg.style.display = 'block';
+                screenshotPlaceholder.style.display = 'none';
+                screenshotStatus.textContent = `Captured at ${new Date().toLocaleTimeString()}`;
+                screenshotStatus.className = 'status success';
+            } catch (err) {
+                screenshotStatus.textContent = `Error: ${err.message}`;
+                screenshotStatus.className = 'status error';
+            }
+        }
+
+        async function refreshState() {
+            try {
+                const response = await fetch('/api/state');
+                if (!response.ok) {
+                    if (response.status === 503) {
+                        stateStatus.textContent = 'Plugin not running';
+                        stateStatus.className = 'status error';
+                        return;
+                    }
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                const state = await response.json();
+                stateContent.textContent = JSON.stringify(state, null, 2);
+                stateStatus.textContent = `Updated at ${new Date().toLocaleTimeString()}`;
+                stateStatus.className = 'status success';
+            } catch (err) {
+                stateStatus.textContent = `Error: ${err.message}`;
+                stateStatus.className = 'status error';
+            }
+        }
+
+        function setupAutoRefresh() {
+            // Screenshot auto-refresh (2s interval)
+            if (autoRefresh.checked && !screenshotInterval) {
+                screenshotInterval = setInterval(refreshScreenshot, 2000);
+            } else if (!autoRefresh.checked && screenshotInterval) {
+                clearInterval(screenshotInterval);
+                screenshotInterval = null;
+            }
+
+            // State auto-refresh (100ms interval for near-real-time)
+            if (autoRefreshState.checked && !stateInterval) {
+                stateInterval = setInterval(refreshState, 100);
+            } else if (!autoRefreshState.checked && stateInterval) {
+                clearInterval(stateInterval);
+                stateInterval = null;
+            }
+        }
+
+        autoRefresh.addEventListener('change', setupAutoRefresh);
+        autoRefreshState.addEventListener('change', setupAutoRefresh);
+
+        // Initial load
+        refreshScreenshot();
+        refreshState();
+        setupAutoRefresh();
+    </script>
+</body>
+</html>

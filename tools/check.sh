@@ -136,8 +136,8 @@ level_full() {
     run "build the host and every test harness" \
         cmake --build host/build --target PluginForgeHost PluginForgeHost_Standalone \
               PluginForgeHost_VST3 PluginForgeSynth PluginForgeSynth_Standalone \
-              PluginForgeSynth_VST3 ParamPoolTsanTest OfflineRenderTest \
-              OfflineSynthRenderTest \
+              PluginForgeSynth_VST3 ParamPoolTsanTest AuditionThreadingTest \
+              OfflineRenderTest OfflineSynthRenderTest \
               PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim \
               OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery \
               ParamIdentityTest NoteRingTest NoteRingTsanTest ValidationGateTest
@@ -212,6 +212,22 @@ level_full() {
           env TSAN_OPTIONS=halt_on_error=1 timeout 300 "$tsan"
     else
       skip "ThreadSanitizer" "ParamPoolTsanTest binary not built"
+    fi
+
+    # The audition-buffer swap (loadAuditionSample on the message thread vs
+    # processBlock reading the same buffer on the audio thread). The fix is a
+    # seq_cst Dekker handshake draining FaustEngine::audioBusy before the move;
+    # this is the rung that makes that ordering argument an assertion rather
+    # than a claim. Same 300 s ceiling as ParamPoolTsanTest above; the test
+    # itself bounds its wall-clock hammering, so the timeout is a backstop, not
+    # a race against the test's own clock. See host/tests/AuditionThreadingTest.cpp.
+    local auditiontsan
+    auditiontsan="$(find host/build/AuditionThreadingTest_artefacts -type f -name AuditionThreadingTest 2>/dev/null | head -n1)"
+    if [[ -n "$auditiontsan" ]]; then
+      run "audition-buffer swap under ThreadSanitizer" \
+          env TSAN_OPTIONS=halt_on_error=1 timeout 300 "$auditiontsan"
+    else
+      skip "audition-buffer swap under ThreadSanitizer" "AuditionThreadingTest binary not built"
     fi
 
     # NoteRing's release/acquire pairing, under a real producer thread and a real

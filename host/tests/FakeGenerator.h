@@ -64,9 +64,12 @@ inline juce::File writeScript(const juce::File& dir, const juce::String& name,
 } // namespace detail
 
 // success:true with the given RAW Faust source (no pre-escaping — that is this
-// function's job).
+// function's job). `priorSourceDropped` (default false) lets a test assert the
+// token-budget-overflow warning path (generate.py:381-386): the request asked
+// to carry prior_source, the LLM layer could not, and the response must say so.
 inline juce::File writeSuccess(const juce::File& dir, const juce::String& name,
-                               const juce::String& faustCode, int sleepSeconds = 0)
+                               const juce::String& faustCode, int sleepSeconds = 0,
+                               bool priorSourceDropped = false)
 {
     auto* obj = new juce::DynamicObject();
     obj->setProperty("success", true);
@@ -74,6 +77,11 @@ inline juce::File writeSuccess(const juce::File& dir, const juce::String& name,
     obj->setProperty("attempts", 1);
     obj->setProperty("error", juce::var());
     obj->setProperty("reason", "ok");
+    // Present only when true, matching generate.py:381-386 (production emits the
+    // field only in the dropped case — an always-present `false` would not be
+    // the shape of a real response).
+    if (priorSourceDropped)
+        obj->setProperty("prior_source_dropped", true);
     // allOnOneLine=true is REQUIRED, not cosmetic. juce::JSON::toString defaults
     // to pretty-printing (juce_JSON.h: `bool allOnOneLine = false`), and
     // PromptPanel scans the output for "the last line that starts with {"

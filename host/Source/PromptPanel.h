@@ -112,6 +112,19 @@ public:
     bool refineEnabledForTest() const { return refineToggle.getToggleState(); }
     void setRefineForTest(bool on) { refineToggle.setToggleState(on, juce::sendNotification); }
 
+    // Test-only. The kind selector's selected text (Instrument / Effect) and a way
+    // to set it without a click.
+    juce::String kindForTest() const { return kindSelector.getText(); }
+    void setKindForTest(const juce::String& kind)
+    {
+        kindSelector.setText(kind, juce::sendNotification);
+    }
+
+    // Test-only. True if the last successful generation reported that the prior
+    // source was dropped due to token-budget overflow (generate.py's
+    // prior_source_dropped flag, generate.py:381-386).
+    bool priorSourceDroppedForTest() const { return lastPriorSourceDropped; }
+
 private:
     void timerCallback() override;
 
@@ -127,6 +140,7 @@ private:
     PromptTextEditor promptInput;
     juce::TextButton  generateButton { "Generate" };
     juce::TextButton  historyButton  { "History" };
+    juce::ComboBox    kindSelector;
     juce::Label       statusLabel;
     juce::Label       progressLabel;
     juce::TextEditor  errorBox;
@@ -168,6 +182,11 @@ private:
     juce::int64 workStartMs = 0;
     float       pulsePhase  = 0.0f;
 
+    // True when the last successful generation had prior_source_dropped in the
+    // response JSON (generate.py:381-386). Read by the shell to surface a
+    // warning. Reset on every new generation.
+    bool        lastPriorSourceDropped = false;
+
     // ── Generation worker (PF-006) ──────────────────────────────────────────
     // Mirrors FaustEngine's compile worker (FaustEngine.h "Compile worker",
     // commit d10f59e): persistent thread, single pending slot, joined on
@@ -176,7 +195,8 @@ private:
     void workerLoop();
     void runGeneration(const juce::String& prompt, juce::uint64 myGeneration,
                        PluginForgeProcessor::LoadMode mode,
-                       const juce::String& priorSource);
+                       const juce::String& priorSource,
+                       const juce::String& kind);
     void shutdownWorker();
 
     std::thread             worker;
@@ -200,6 +220,9 @@ private:
     // degrades that case to a plain --prompt request rather than sending a
     // hollow prior_source.
     juce::String            pendingPriorSource;       // guarded by jobMutex
+    // Kind (instrument/effect) AS OF SUBMIT, same thread/mutex reasoning as
+    // pendingPriorSource: read on message thread, published with the job.
+    juce::String            pendingKind;              // guarded by jobMutex
     bool                    hasJob   = false;
     bool                    stopping = false;   // guarded by jobMutex
 

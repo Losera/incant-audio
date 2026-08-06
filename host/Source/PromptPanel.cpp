@@ -117,6 +117,20 @@ PromptPanel::PromptPanel(PluginForgeProcessor& p)
     addAndMakeVisible(historyButton);
     historyButton.onClick = [this] { showHistoryMenu(); };
 
+    // ── Kind selector (Instrument / Effect) ────────────────────────────────
+    // ADR-011's `kind` field already exists in generate.py:331's request schema
+    // and router.py's classify() — this wires it to the UI. Default matches
+    // the build target so a synth-build opens with "Instrument" and vice-versa;
+    // the user can override per-generation (it is NOT persisted).
+    kindSelector.addItem("Effect", 1);
+    kindSelector.addItem("Instrument", 2);
+    {
+        const int idx = PF_IS_SYNTH != 0 ? 2 : 1;
+        kindSelector.setSelectedId(idx, juce::dontSendNotification);
+    }
+    kindSelector.setTooltip("Generation target: routes to the appropriate prompt and compiler rules.");
+    addAndMakeVisible(kindSelector);
+
     // PF-020's residual affordance. Off by default, because Fresh is the correct
     // default and making it visible must not change it.
     addAndMakeVisible(refineToggle);
@@ -215,6 +229,10 @@ void PromptPanel::submitPrompt()
     // the current result. The human reported exactly this on 2026-07-24.
     clearError();
 
+    // Reset the dropped-source flag on every submit, message thread, so a prior
+    // run's warning never reads as this run's. The worker republishes it on success.
+    lastPriorSourceDropped = false;
+
     // Prevent double-submit. Re-enabled once the subprocess returns.
     generateButton.setEnabled(false);
     startWorking();
@@ -253,6 +271,9 @@ void PromptPanel::submitPrompt()
         // leaves this empty, which is what degrades runGeneration to a plain
         // --prompt request instead of sending an empty/garbage prior_source.
         pendingPriorSource = refine ? processor.currentSource().trim() : juce::String();
+        // Kind is a generation-time choice (not persisted), read on the message
+        // thread at submit time alongside the other captures.
+        pendingKind = kindSelector.getText().trim();
         // Stamp and job published under ONE lock — see the SUBTLE note on
         // `generation` in the header for why re-reading the atomic at pickup was
         // a race that made a run discard itself.
@@ -287,6 +308,7 @@ void PromptPanel::workerLoop()
         juce::uint64 myGeneration = 0;
         auto mode = PluginForgeProcessor::LoadMode::Fresh;
         juce::String priorSource;
+        juce::String kind;
         {
             std::unique_lock<std::mutex> lock(jobMutex);
             jobCv.wait(lock, [this] { return hasJob || stopping; });
@@ -296,16 +318,18 @@ void PromptPanel::workerLoop()
             myGeneration = pendingGeneration;
             mode         = pendingMode;
             priorSource  = pendingPriorSource;
+            kind         = pendingKind;
             hasJob       = false;
         }
 
-        runGeneration(prompt, myGeneration, mode, priorSource);
+        runGeneration(prompt, myGeneration, mode, priorSource, kind);
     }
 }
 
 void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myGeneration,
                                 PluginForgeProcessor::LoadMode mode,
-                                const juce::String& priorSource)
+                                const juce::String& priorSource,
+                                const juce::String& kind)
 {
     // Superseded, or shutting down: nothing this run produces is wanted any more.
     // Checked before touching the processor and again before publishing.
@@ -389,12 +413,19 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
         juce::StringArray argv { pythonExe, scriptPath };
         bool usedRequestFile = false;
 
-        if (priorSource.isNotEmpty())
+        // Use --request-file whenever structured fields are needed (prior_source,
+        // kind). generate.py:331 already consumes `kind` from the request; this
+        // wires it to the UI. The old --prompt path (argv fallback) cannot carry
+        // structured fields, so it is now reserved for the trivial case: no kind
+        // override AND no prior source.
+        const bool needsRequestFile = priorSource.isNotEmpty() || kind.isNotEmpty();
+        if (needsRequestFile)
         {
             requestFile.emplace(".json");
             auto* obj = new juce::DynamicObject();
             obj->setProperty("prompt", promptText);
             obj->setProperty("prior_source", priorSource);
+            obj->setProperty("kind", kind);
             // Forced "\n": juce_File.h:781-784's replaceWithText defaults
             // lineEndings to "\r\n", a trap host/tests/FakeGenerator.h already
             // paid for once (PromptPanelThreadingTest). generate.py's json.loads
@@ -478,6 +509,8 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
             return;
         }
 
+        const int exitCode = child.getExitCode();
+
         // SUBTLE: a killed child makes waitForProcessToFinish return TRUE, not
         // false — it polls isRunning(), and a SIGKILLed process is not running.
         // So the supersede/teardown path arrives HERE, on the success branch,
@@ -507,12 +540,12 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
 
         if (jsonLine.isEmpty())
         {
-            juce::MessageManager::callAsync([safeThis, raw]
+            juce::MessageManager::callAsync([safeThis, raw, exitCode]
             {
                 if (safeThis == nullptr) return;
                 safeThis->stopWorking();
-                safeThis->setError("No JSON in generator output — full output:\n\n" + raw);
-                safeThis->statusLabel.setText("Error: generator produced no result (see errors).",
+                safeThis->setError("No JSON in generator output (exit code " + juce::String(exitCode) + ") — full output:\n\n" + raw);
+                safeThis->statusLabel.setText("Error: generator produced no result (exit " + juce::String(exitCode) + ").",
                                               juce::dontSendNotification);
                 safeThis->generateButton.setEnabled(true);
             });
@@ -523,6 +556,20 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
         // returns a var; getProperty(Identifier, default) gives typed access.
         auto parsed = juce::JSON::parse(jsonLine);
 
+        if (! parsed.isObject())
+        {
+            juce::MessageManager::callAsync([safeThis, raw, exitCode]
+            {
+                if (safeThis == nullptr) return;
+                safeThis->stopWorking();
+                safeThis->setError("Malformed JSON object from generator (exit code " + juce::String(exitCode) + ") — raw output:\n\n" + raw);
+                safeThis->statusLabel.setText("Error: malformed generator payload.",
+                                              juce::dontSendNotification);
+                safeThis->generateButton.setEnabled(true);
+            });
+            return;
+        }
+
         bool success = parsed.getProperty("success", false);
         auto faustCode = parsed.getProperty("faust_code", juce::String()).toString();
         auto errorMsg  = parsed.getProperty("error", juce::String()).toString();
@@ -531,16 +578,25 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
         // generate.py, which is why the default is empty and statusForReason()
         // falls back to the generic text rather than asserting.
         auto reason = parsed.getProperty("reason", juce::String()).toString();
+        // generate.py:381-386: the user asked to carry the prior source (Refine on)
+        // but the request overflowed the token budget, so this is a plain regen
+        // from scratch. The shell surfaces it as a warning on the status line; the
+        // user deserves to know "refine" silently became "start over". Absent on
+        // older generate.py — default false, no warning.
+        const bool priorSourceDropped = parsed.getProperty("prior_source_dropped", false);
 
         if (! success || faustCode.isEmpty())
         {
-            juce::MessageManager::callAsync([safeThis, errorMsg, reason]
+            juce::MessageManager::callAsync([safeThis, errorMsg, reason, exitCode]
             {
                 if (safeThis == nullptr) return;
                 safeThis->stopWorking();
-                safeThis->setError(errorMsg.isNotEmpty()
-                                       ? errorMsg
-                                       : juce::String("Generation failed with no error text."));
+                juce::String fullErr = errorMsg.isNotEmpty()
+                                           ? errorMsg
+                                           : juce::String("Generation failed with no error text.");
+                if (exitCode != 0)
+                    fullErr += "\n\n(Process exited with status code " + juce::String(exitCode) + ")";
+                safeThis->setError(fullErr);
                 safeThis->statusLabel.setText(statusForReason(reason),
                                               juce::dontSendNotification);
                 safeThis->generateButton.setEnabled(true);
@@ -565,8 +621,10 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
         // read of the toggle.
         proc.loadFaustCode(faustCode, juce::String(prompt), mode);
 
-        // UI components must only be touched on the message thread.
-        juce::MessageManager::callAsync([safeThis, faustCode]
+        // UI components must only be touched on the message thread. lastPriorSourceDropped
+        // is also a message-thread member: it is written HERE, inside the callAsync, and
+        // read by the shell on the same thread (priorSourceDroppedForTest()).
+        juce::MessageManager::callAsync([safeThis, faustCode, priorSourceDropped]
         {
             if (safeThis == nullptr) return;
             // generateButton re-enables here, when the subprocess returns; the JIT
@@ -576,6 +634,7 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
             // stops now even though the JIT swap has not landed yet.
             safeThis->stopWorking();
             safeThis->generateButton.setEnabled(true);
+            safeThis->lastPriorSourceDropped = priorSourceDropped;
             safeThis->statusLabel.setText("JIT compiling: " +
                 faustCode.substring(0, 40) + "...", juce::dontSendNotification);
         });
@@ -737,6 +796,11 @@ void PromptPanel::resized()
     generateButton.setBounds(buttonR.removeFromLeft(110));
     buttonR.removeFromLeft(gap);
     historyButton.setBounds(buttonR.removeFromLeft(90));
+    buttonR.removeFromLeft(gap);
+    // Kind selector: generation-time type override (routes to the instrument or
+    // effect prompt). Fixed-ish width; if the band is too narrow the ComboBox
+    // collapses below its text and the user still has History + Generate.
+    kindSelector.setBounds(buttonR.removeFromLeft(90));
     buttonR.removeFromLeft(gap);
     // Takes whatever is left rather than a fixed width, so the toggle simply
     // disappears in a band too narrow for it instead of overlapping History.

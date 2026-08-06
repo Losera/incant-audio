@@ -271,6 +271,25 @@ public:
 
     void exitAudio() { audioBusy.fetch_sub(1, std::memory_order_release); }
 
+    // Waits until no audio-thread section is in flight (audioBusy == 0). The same
+    // drain the compile worker performs (FaustEngine.cpp Step 2:
+    // `while (audioBusy.load(seq_cst) != 0) yield();`) but exposed for callers
+    // that mutate data processBlock reads without swapping the DSP — notably the
+    // audition buffer (PluginProcessor.cpp loadAuditionSample).
+    //
+    // NOT the full compile handshake: does not touch `ready`, so the caller must
+    // have already gated new readers via its own flag (auditionActive = false),
+    // and must call this before the mutation (the buffer move) and not from the
+    // audio thread (it spins).
+    //
+    // Blocking bound: one audio callback (~10 ms at 512 / 48 kHz), identical to
+    // the compile worker's drain.
+    void drainAudioBusy() noexcept
+    {
+        while (audioBusy.load(std::memory_order_seq_cst) != 0)
+            std::this_thread::yield();
+    }
+
     // The host's channel count, and therefore the most a patch may declare in
     // either direction. The output bus is fixed stereo; the INPUT bus is required
     // on the Fx target and optional on the instrument target (PluginProcessor.cpp,
