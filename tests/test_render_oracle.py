@@ -168,6 +168,32 @@ class TestExpectations:
         assert ro.expectation_for("some novel prompt", "trivial") is None
 
 
+class TestAcousticCompliance:
+    """The judge's report path: analyse() with a prompt emits a verdict.
+
+    render_oracle computes the features and bench/spectral_judge.py turns them
+    into a score. Without a prompt the block must be absent — absence of a claim
+    must not read as a passed claim.
+    """
+
+    def test_lowpass_prompt_reports_a_compliant_verdict(self, ro):
+        r = ro.analyse(LOWPASS, prompt="a lowpass filter")
+        assert r["rendered"], r.get("error")
+        ac = r["acoustic_compliance"]
+        assert ac["score"] > 0.5, ac["notes"]
+
+    def test_gain_prompt_is_not_falsely_penalized(self, ro):
+        # No filter/time/dynamics word in the prompt, so no branch can fire.
+        r = ro.analyse(GAIN, prompt="a plain gain stage")
+        assert r["rendered"], r.get("error")
+        ac = r["acoustic_compliance"]
+        assert ac["score"] == 1.0, ac["notes"]
+
+    def test_without_prompt_there_is_no_compliance_block(self, ro):
+        r = ro.analyse(LOWPASS)
+        assert "acoustic_compliance" not in r
+
+
 class TestDeterminism:
     def test_same_patch_gives_same_numbers(self, ro):
         """A seeded probe signal, or it is not an oracle."""

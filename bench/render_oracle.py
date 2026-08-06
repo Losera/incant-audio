@@ -788,7 +788,8 @@ def features(x: np.ndarray, y: np.ndarray, sr: int = SR) -> Features:
 
 def analyse(dsp_source: str, signal_kind: str = "noise", *,
             tail_probe: bool = True,
-            expect_tail_ms: float | None = None) -> dict:
+            expect_tail_ms: float | None = None,
+            prompt: str | None = None) -> dict:
     """Full pipeline. Returns a JSON-serialisable report.
 
     `schema` is 2 from 2026-07-31. Version 1 reports (e.g.
@@ -824,13 +825,41 @@ def analyse(dsp_source: str, signal_kind: str = "noise", *,
 
     report["measurement"] = asdict(m)
     report["features"] = asdict(f)
+
+    if prompt:
+        try:
+            import spectral_judge
+        except ImportError:
+            try:
+                from bench import spectral_judge
+            except ImportError:
+                spectral_judge = None
+        if spectral_judge:
+            thd = spectral_judge.compute_total_harmonic_distortion(y, sr=SR)
+            fdict = {
+                "centroid_shift_oct": f.centroid_shift_oct,
+                "thd": thd,
+                "centroid_out_hz": f.centroid_out_hz,
+                "band_gain_db": dict(f.band_gain_db),
+                "crest_in_db": f.crest_in_db,
+                "crest_out_db": f.crest_out_db,
+            }
+            if tail_probe:
+                fdict["tail_ms"] = float(t.tail_ms)
+            score, notes = spectral_judge.judge_patch_features(prompt, fdict)
+            report["acoustic_compliance"] = {
+                "thd": thd,
+                "score": score,
+                "notes": notes,
+            }
+
     return report
 
 
 def analyse_record(rec: dict, *, expectations: bool = True) -> dict:
     """analyse() one benchmark record, applying its category/prompt expectation."""
     expect = expectation_for(rec.get("prompt"), rec.get("category")) if expectations else None
-    return analyse(rec["code"], expect_tail_ms=expect)
+    return analyse(rec["code"], expect_tail_ms=expect, prompt=rec.get("prompt"))
 
 
 def analyse_corpus(records: list[dict], *, expectations: bool = True,
@@ -1048,6 +1077,9 @@ def main() -> int:
                     help="with --corpus: also exit non-zero on unmet tail expectations")
     ap.add_argument("--expect-tail-ms", type=float, default=None,
                     help="minimum tail in ms this patch must show")
+    ap.add_argument("--prompt", default=None,
+                    help="the natural-language prompt this DSP was generated from; "
+                         "enables the acoustic-compliance judge")
     a = ap.parse_args()
 
     if a.self_test:
@@ -1058,7 +1090,7 @@ def main() -> int:
         ap.error("give a .dsp path, --corpus, or --self-test")
 
     r = analyse(Path(a.dsp).read_text(encoding="utf-8"), a.signal,
-                expect_tail_ms=a.expect_tail_ms)
+                expect_tail_ms=a.expect_tail_ms, prompt=a.prompt)
     if a.json:
         print(json.dumps(r, indent=2))
         return 0 if r.get("rendered") and r["measurement"]["ok"] else 1
@@ -1074,6 +1106,9 @@ def main() -> int:
     print("  band gain (dB): " + "  ".join(f"{k}={v:+.1f}" for k, v in f["band_gain_db"].items()))
     print(f"  centroid {f['centroid_in_hz']:.0f} -> {f['centroid_out_hz']:.0f} Hz "
           f"({f['centroid_shift_oct']:+.2f} oct)")
+    if "acoustic_compliance" in r:
+        ac = r["acoustic_compliance"]
+        print(f"  compliance: score={ac['score']:.2f} thd={ac['thd']:.4f} — {ac['notes']}")
     return 0 if m["ok"] else 1
 
 
