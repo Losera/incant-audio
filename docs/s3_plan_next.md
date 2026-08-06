@@ -1,11 +1,16 @@
 # S3 (Plugin UX) — plan for the next work session
 
-Status: **PLAN, not executed.** Written 2026-07-23 after Task 0 (the PluginEditor
-split) landed & committed (`471d045`, `dc3d423`). Execute top-to-bottom when the
-human is ready. Every JUCE API below was read at `file:line` during planning;
-re-confirm at execution before it lands (COLLABORATION.md §3 Tier 2).
+Status: **historical archive.** Written 2026-07-23 under the retired S-lane / FLEET
+apparatus (`c58a281`). Since written: **§2 (auto-layout) has been executed** — the
+8-knob cap is gone, `ParamGridPanel` now renders all 64 pool slots in a scrollable
+Viewport with kind-aware slider/toggle widgets (`ParamGridPanel.cpp`,
+`PluginEditor.cpp:256-262`). **§1 (PF-006) was reassigned to S2** and the owned-thread
++ cooperative-abort design it retained is what landed in `PromptPanel.cpp`. **§3–4 are
+still open** (BYO-LLM mode affordance; LLM layout-hint post-pass) and remain relevant
+to Track 2/3 toward alpha — that is why this file is kept. Treat the lane framing below
+as historical; the file-area ownership still holds.
 
-Ordering: **1 (PF-006) first** — small, high-severity, self-contained. Then **2
+Ordering as written: **1 (PF-006) first** — small, high-severity, self-contained. Then **2
 (auto-layout)** — the main Wave-1 feature. Then **3** and **4** (follow-ons).
 
 ---
@@ -169,4 +174,5 @@ insufficient in practice.
 - My grid: `host/Source/ParamGridPanel.{h,cpp}` — `MAX_KNOBS`, `refreshParamKnobs`, `resized`.
 - Prompt/LLM bridge (PF-006 lives here): `host/Source/PromptPanel.cpp`.
 - Kind enum: `host/Source/FaustEngine.h:23-30`. Slot↔zone map: `host/Source/ParamMap.h`.
-- Design source: `docs/ui_design_plan.md §3`. Bugs: `docs/BUGS.md` (PF-006). Board: `docs/FLEET.md`.
+- Design source: `docs/ui_design_plan.md §3`. Bugs: `docs/BUGS.md` (PF-006). (The S-lane
+  board this plan referenced is retired — `c58a281`.)

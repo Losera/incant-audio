@@ -1,4 +1,4 @@
-# PluginForge — Status  (2026-08-05)
+# PluginForge — Status  (2026-08-06)
 
 Rewritten each session per COLLABORATION.md §5. Single writer, no merge conflicts.
 Narrative history lives in git.
@@ -16,6 +16,18 @@ touches/depends/provides parallel-safety mechanism session 005 left as an open d
 closed all three remaining STATUS.md Broken items about the keyboard widget, shipped
 `ForgeLookAndFeel.h`, and moved one Assumed claim into Works with a measured number.**
 
+- **The spectral/timbral judge (PF-041/PF-042) now consumes the features render_oracle
+  computes and produces a per-prompt verdict.** `bench/spectral_judge.py` (new) turns
+  `band_gain_db`, `centroid_shift_oct`, `crest_in/out_db` and `tail_ms` into a score
+  (0–1) against the prompt's category. `render_oracle.analyse()` accepts `prompt=` and
+  emits `acoustic_compliance` when a prompt is provided; `analyse_record()` and the CLI
+  (`--prompt`) both plumb it through. Fixed the PF-042 regression: the old time-based
+  branch read a `t60_s` key render_oracle never emits, defaulting 0.0 and penalizing every
+  reverb/delay render. **Verified**: 21 pure-signal unit tests + 3 integration cases in
+  the oracle test file; corpus run 16 passed / 0 failed with a verdict per compiling
+  record; `check.sh fast` green. The judge is **report-only** this round — no `check.sh`
+  scoring gate — until a larger corpus shows the false-positive rate. Closes Broken #9.
+  Next-three #1 below.
 - **`ForgeLookAndFeel.h` exists and is wired in.** `host/Source/ForgeLookAndFeel.h` (new,
   header-only per the seven-`target_sources`-lists constraint in `host/CMakeLists.txt`),
   installed via `setLookAndFeel(&lnf)` in `PluginForgeEditor`'s constructor (never
@@ -91,12 +103,54 @@ closed all three remaining STATUS.md Broken items about the keyboard widget, shi
   session 005 §11 stays a draft; this is data point one.
 - **Four stale claims in this file corrected against the actual repo state**, not
   re-trusted from the prior rewrite: the "uncommitted work" claim (contradicted by four
-  already-landed, already-pushed commits), Broken #13's "takes no lock" half (the lock is
+  already-landed, already-pushed commits), Broken #11's "takes no lock" half (the lock is
   at `bench/score_efficacy.py:558,569`), two citations pointing `ForgeLookAndFeel.h`'s scope
   at the wrong document section, and a `Waiting on you` item asking for a `ux_roadmap.md`
   fix an earlier commit (`5090b55`) had already made. This project's named recurring defect
   is a claim that outlived the thing it described — four instances of it, found by rereading
   rather than recomputing, are fixed inline above and in Broken/Waiting below.
+- **Six more instances of the same recurring defect were found and fixed across the docs,
+  plus two grossly-stale files deleted.** The plan's cleanup table named README's dead
+  `scripts/` commands and the ADR-008 status mismatch; the actual sweep found more. Read against
+  current code, not re-trusted: the "8 of 64 param cap" claim (gone — the grid renders all 64
+  slots scrollably, `PluginEditor.cpp:256-262`), three "blocked on state persistence" claims
+  (landed, `PluginProcessor.cpp:608`), "ParamGridPanel unbuilt" (built + styled,
+  `ForgeLookAndFeel.h`), refine "cannot carry source" (landed, `3a94080`/`5090b55`), and the
+  retired DELEGATE/PAIR/HUMAN-OWNED ritual still described as live in README (retired,
+  `COLLABORATION.md` §9). All fixed in `docs/competitive_landscape.md` (five claims refreshed +
+  ghost `FLEET.md`/P10 citations), `README.md`, `docs/architectural_decisions/README.md`
+  (ADR-008 "Accepted" → provisional + ADR-012), `docs/byo_llm_plan.md` + `docs/s3_plan_next.md`
+  (fleet-era lane framing fixed), and `docs/ui_design_plan.md` (P10 survey retirement noted).
+  `START_HERE.md` (pre-JIT stub) and `docs/handoff_s1_codex.md` (operated the retired fleet
+  board) were deleted — nothing live linked to the latter except the fleet's own retrospective.
+  `docs/BUGS.md` and `docs/next_steps.md` were checked and already reconciled (BUGS.md names
+  the retirement explicitly; next_steps points at `git log` of the deleted survey).
+
+- **The editor is a two-panel authoring screen, not a vertical stack (Track 1.1).** The
+  window is now a full-width title bar, a split region (left preview/grid column | right
+  prompt column, `kLeftFraction = 0.5`, `dividerW = 4`), an optional full-width code band,
+  and a full-width keyboard band. `setSize(900, 500)`, `setResizeLimits(800, 400, 1600, 1200)`.
+  **The band-sum pin was replaced, not relaxed**: the old
+  `static_assert(chromeHeight(Chrome{}) == 422)` described a single-column window that no
+  longer exists, so it was retired in favour of two narrower assertions that survived the
+  build — `rightColumnHeight(Chrome{}) == 276` and `verticalChrome(Chrome{}) == 136`.
+  Both are consumed by `resized()` and summed by `updateWindowSizeForParams()`, keeping the
+  one-source property the `Chrome` struct exists for.
+  **One deliberate deviation from the approved plan, for a contract reason.** The plan put
+  the code editor "in the left column"; it is instead a full-width band *below* the split.
+  In the left column the code band would be absorbed whenever the right column is the taller
+  of the two, and revealing code would leave the window height unchanged — silently breaking
+  scenario 11's grow-on-show contract. Verified against the real numbers rather than
+  reasoned about: scenario 11 measures `500 → 660px` (`136 + 276 + 8 + 240`), scenario 3
+  measures `706px` (`136 + 6 × 95`, the `kMaxGridRows` cap). Both arithmetic identities hold
+  exactly. `tools/check.sh full` green, 25/25; `EditorSessionTest` 192 checks / 0 failures.
+  **Visually confirmed, not inferred from a passing test** — the suite asserts no column
+  geometry, so the rendered snapshots were read directly: `session_03_overflow_40_params.png`
+  (900×706) shows the scrolling 40-param grid left, prompt column right, visible divider
+  seam; `session_11a_code_view_empty.png` (900×660) shows the code band spanning full width
+  below the split and above the keyboard. **Not verified**: never opened in a DAW (Broken #2
+  is unchanged by this), and no human has judged whether the 50/50 split is the right
+  proportion — that is Waiting-on-you #2.
 
 ### Carried forward from 2026-08-04 and earlier — see git log for the full narrative
 
@@ -130,8 +184,12 @@ is not on PATH. Four concrete gaps behind "must take MIDI in any DAW": monophoni
 design, block-granularity MIDI (~10.7 ms jitter), a hardcoded 2.0 s tail length, no MIDI CC
 mapping.
 
-**3. "Refine" does not refine.** *(unfiled, high — unchanged this session.)*
-`LoadMode::Iterate` is a knob-retention policy; the LLM never sees the prior patch.
+**3. "Refine" is a crude binary, not a refinement architecture.** *(unfiled, medium — the
+source-carrying half landed (`3a94080`/`5090b55`); `prior_source_dropped` surfaced
+2026-08-06.)* What remains is product UX: a single toggle conflates "regenerate with
+context" with `LoadMode::Iterate` knob retention. Step 8 of the 12-step workflow
+("additive change — plugin stays the same besides a new addition") needs a dedicated
+"surgical add" mode distinct from a full regen-with-context. That is Track 2 work.
 
 **4. One generation defect is actually evidenced; the rest is sampling.** *(PF-024/PF-032,
 high, unchanged.)* Karplus-Strong's `recursion_cycle` reproduces across four archives; the
@@ -146,8 +204,9 @@ not spent.)*
 
 **8. Knob ordering is Faust's own.** *(PF-038 low.)*
 
-**9. The only fidelity instrument is not interpretable.** *(PF-041 high, PF-042 medium,
-unchanged.)*
+**9. ~~The only fidelity instrument is not interpretable.~~** *(PF-041 high, PF-042 medium,
+closed 2026-08-06 — spectral judge now produces a per-prompt verdict; report-only, not
+yet gated.)*
 
 **10. The declared ollama model cannot hold its own prompt.** *(PF-043, medium, unchanged.)*
 
@@ -167,45 +226,53 @@ a measured 10/10 (see above) and added nothing new in its place.
 
 ## Next three things
 
-1. *(evidence)* **PF-041/PF-042 — the spectral/timbral judge.** Unchanged. Still the thing
-   standing between "compiles and plays the right note" and "sounds like what was asked
-   for" for the instrument corpus. `render_oracle.py`'s `features()` already computes
-   `band_gain_db` and `centroid_shift_oct` for every render — nothing consumes them for a
-   verdict yet. The gap is a missing consumer, not a missing measurement.
-2. **Make Refine carry the source.** Promoted from "displaced" — repeatedly named the
-   highest-leverage gap in the product (`docs/competitive_landscape.md:107-109`) and
-   repeatedly bumped. `LoadMode::Iterate` today is a knob-retention policy; the LLM never
-   sees the prior Faust source, so "refine" cannot mean what a user expects it to mean.
-3. **Get it into a DAW.** Broken #2, long-standing, blocks the one validation this project
+1. **Refine needs a two-mode architecture** (Track 2). The source-carrying half is done
+   (`3a94080`/`5090b55`); `prior_source_dropped` surfaced 2026-08-06. What remains is
+   product UX: a dedicated "surgical add" mode (preserve everything, add only the requested
+   change) vs "regenerate with context" (full re-generation with the prior source as LLM
+   context). The current single toggle conflates these two semantically distinct operations.
+2. **Get it into a DAW.** Broken #2, long-standing, blocks the one validation this project
    cannot claim yet: does a generated plugin actually load and behave in a real host. Needs
    `COPY_PLUGIN_AFTER_BUILD` on, `pluginval` installed, and the four MIDI-fidelity gaps
    named in Broken #2 at minimum triaged, not necessarily fixed, before a first real scan.
+3. *(evidence)* **Adversarial Mechanism A trial.** Session 006's recommendation: run a
+   `touches`-declared-disjoint but actually-coupled brief pair in parallel and measure
+   whether the mechanism catches the coupling. Today's Mechanism A data is one favorable
+   4-brief sample; this trial tests the failure path before any `PreToolUse` hook is built
+   on it.
 
 **Displaced, not urgent.** **A generation-refinement architecture-planning conversation.**
 ADR-021 (2026-08-04) named "acceptance criteria — capturing what a generation was asked for
 so the result can be checked against it" as a real, deliberately deferred, different-from-
-PluginSpec need. The octaver investigation and this session's layered-voice study are two
-data points in that direction, both closed with prompt fixes rather than new architecture —
-the general question (does single-pass generation reliably meet stated intent, and what
-would a refinement/critique pass cost) is still open and larger than either prompt edit.
-Also displaced: `docs/sessions/006-multi-agent-trial-results.md`'s recommendation for a
-second, adversarial Mechanism A trial (one where a `touches`-disjoint-but-actually-coupled
-brief pair is run in parallel for real and either catches or misses something), before any
-`PreToolUse` hook gets built on today's single, favorable-but-thin sample.
+PluginSpec need. The spectral judge (PF-041/PF-042, landed 2026-08-06) partially addresses
+this for category-level compliance; the broader question — does single-pass generation
+reliably meet stated intent, and what would a refinement/critique pass cost — is still open.
+Also displaced: a piano roll (requested, unplanned; needs a note grid and a clock).
 
 ## Waiting on you
 
-1. **Commit today's work, or hold it.** `host/Source/ForgeLookAndFeel.h` (new),
-   `host/Source/PluginEditor.{h,cpp}`, `host/tests/EditorSessionTest.cpp` (scenarios 21-22),
-   `bench/check_layered_voice_generalization.py` (new) + its results JSON, this file's four
-   corrections plus this rewrite, and `docs/sessions/006-briefs/*` +
-   `docs/sessions/006-multi-agent-trial-results.md` are all verified (`tools/check.sh full`
-   green, red-case-proven where applicable) but sit uncommitted on disk pending your
-   decision — per this session's plan, that decision is yours before anything gets pushed.
-2. **The keyboard widget now has a styled look-and-feel to react to.** Open
-   `artifacts/ui_gallery/index.html` (or the two PNGs cited in Works above) and confirm the
-   Catppuccin/teal-pink direction is what was wanted — "does this look right" per
-   COLLABORATION.md §1 is a human judgment this session's own verification cannot make.
+1. **Commit today's work, or hold it.** The Track-0 code — `host/Source/PromptPanel.{h,cpp}`
+   (kind selector, prior_source_dropped surfacing), `host/Source/PluginEditor.{h,cpp}`
+   (compile-success warning, test forwarders), `host/tests/EditorSessionTest.cpp` (scenario 16
+   rewrite, scenarios 23-24), `host/tests/FakeGenerator.h` (prior_source_dropped flag) — and
+   the Track-0 gating/cleanup — `.claude/skills/export/SKILL.md` (gated stub), `START_HERE.md`
+   and `docs/handoff_s1_codex.md` deleted, `README.md` (dead `scripts/` commands, retired
+   three-mode ritual), `docs/competitive_landscape.md` (five stale claims refreshed + ghost
+   FLEET/P10 citations), `docs/architectural_decisions/README.md` (ADR-008 status corrected),
+   `docs/byo_llm_plan.md` + `docs/s3_plan_next.md` (fleet-era citations fixed), `docs/ui_design_plan.md`
+   (P10 survey-retirement noted), this file's corrections plus the rewrite — all sit
+   uncommitted on disk pending your decision. **`tools/check.sh full` is green end-to-end,
+   25/25** — run this session with a live display present, so `EditorSessionTest` genuinely
+   ran all 24 scenarios (kind-selector request, prior_source_dropped surfacing included), not
+   skipped.
+2. **The two-panel layout needs your eye, and so does the styled keyboard.** Open
+   `host/artifacts/images/session_03_overflow_40_params.png` (the split with a full grid) and
+   `session_11a_code_view_empty.png` (the code band revealed), plus
+   `artifacts/ui_gallery/index.html` for the Catppuccin/teal-pink direction. Two specific
+   judgments the test suite structurally cannot make: **is 50/50 the right split** (the grid
+   column is the one that will hold the sectioned UiIr preview, so it may deserve more), and
+   is the dark palette what was wanted. "Does this look right" per COLLABORATION.md §1 is
+   yours.
 3. **The EFFECTS listening pass.** Unchanged from prior rewrites.
    `host/build/PluginForgeHost_artefacts/Debug/Standalone/PluginForge Host` is current.
    Input bus required. VST3 still never installed (`COPY_PLUGIN_AFTER_BUILD FALSE`).

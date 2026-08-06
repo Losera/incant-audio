@@ -1,14 +1,13 @@
 # Competitive Landscape — Prompt-to-Plugin (living doc)
 
-**Lane:** S7 Competitive Research — **read-only / advisory** (FLEET.md roster). S7 advises, never
-edits code or other lanes' files; it routes findings to owning lanes via the FLEET cross-lane log
-and the Advisory feed. **This is the single canonical *living* competitive-intelligence doc** —
-updated as the field moves, not a point-in-time snapshot.
+**Advisory only:** this doc is read-only / advisory — it advises, never edits code or other
+teams' files. (The S-lane / FLEET roster it was written under was retired 2026-07-25,
+`c58a281`.) **This is the single canonical *living* competitive-intelligence doc** — updated as
+the field moves, not a point-in-time snapshot.
 
-**Supersedes / absorbs:** `docs/juce_plugin_survey.md` (P10, 2026-07-20) is the point-in-time,
-read-only predecessor — a one-shot survey of 21 open-source JUCE/Faust repos. This doc is its
-living successor. P10's still-relevant headline is carried forward in "Prior-survey carryover"
-below; the P10 file is left intact (not S7's to edit) as the historical record.
+**Supersedes / absorbs:** the point-in-time P10 survey (2026-07-20, a one-shot survey of 21
+open-source JUCE/Faust repos) is folded in here as the living successor. P10's still-relevant
+headline is carried forward in "Prior-survey carryover" below.
 
 **First landed:** 2026-07-23. **Adversarial stance:** the job of this doc is to find where
 competitors already beat us and where our thesis is *not* actually differentiated — not to
@@ -21,10 +20,11 @@ reassure. Read it as a threat model.
 **Our core thesis is no longer novel, and at least one competitor has already shipped it.**
 "Natural language → DSP → a compiled plugin that runs in your DAW with an auto-generated UI"
 is exactly **Amorph** (Artists in DSP), which is in public open beta *today*, free, VST3/AU,
-Mac+Win — and it auto-generates a knob for **every** parameter. We currently cap the UI at
-**8 of 64** params (STATUS.md Broken #2) and **have never listened to a single generated
-plugin** (STATUS.md "Assumed"). On the two things a user first sees — "does it make sound"
-and "can I turn all the knobs" — the shipping competitor is ahead of us.
+Mac+Win — and it auto-generates a knob for **every** parameter. Our param grid renders all
+64 pool slots in a scrollable viewport (`PluginEditor.cpp:256-262`), but we **have never
+listened to a single generated plugin** — that judgment (COLLABORATION.md §1) is still
+unperformed. On the one thing a user first hears — "does it make sound" — the shipping
+competitor is ahead of us.
 
 We are not out of the game. But our remaining moat is **not** the concept. It is **execution
 discipline**: a closed self-correcting compile loop, RT-safety, and *measured* reliability —
@@ -67,7 +67,7 @@ Sources: MusicRadar deep-dive, KVR, Gearspace, Sonicstate, MusicTech (links at b
 ### pluginmaker.ai — the SaaS play
 - **Browser-based, server-side generation.** No local compile; you get a downloadable binary.
 - **In-browser instant test loop**: on-screen keyboard + sequencer, preview before you commit —
-  a tight iterate/refine UX we do **not** have (ours is blocked on state persistence).
+  a tight iterate/refine UX we do **not** have (ours is single-turn; see Threat #5).
 - Users praised for **"beautiful graphical user interfaces"** vs other vibe-coded plugins.
 - **Pricing (verified 2026-07-23):** Free $0 / 50 one-time credits · Pro **$30/mo** / 3,300
   credits + "Pro mode" quality · Studio **$100/mo** / 12,000 credits · Enterprise custom
@@ -90,12 +90,14 @@ built to measure.
 ## Threats — where a competitor already beats PluginForge
 
 1. **Amorph ships; we don't.** They have a public build people are making plugins with. Our
-   `main` cannot yet persist a patch (Broken #1), shows 8/64 knobs (Broken #2), and has never
-   been heard. *Every day of internal architecture polish is a day Amorph compounds a user base
+   `main` still has never been heard by a human and has never loaded in a DAW (Broken #2).
+   *Every day of internal architecture polish is a day Amorph compounds a user base
    and a patch library.*
-2. **Auto-UI for all params is table stakes we haven't met.** Amorph's headline feature —
-   "knobs for every parameter" — is our open bug. This is S3's Wave-1 work; it is now
-   **competitive parity, not a nice-to-have.**
+2. **Auto-UI is table stakes — our parity is functional, not beautiful.** Amorph's headline
+   feature — "knobs for every parameter" — is now met: all 64 pool slots render in a
+   scrollable grid (`PluginEditor.cpp:256-262`). But the layout is Faust's own knob order
+   (PF-038), the UiIr sectioned layout is still dead code, and there is no design tab. The
+   parity gap is closed; the polish race is not won.
 3. **They have a distribution/monetization story; we have none.** Amorph "The Hub" and
    pluginmaker's marketplace both create a patch-sharing network effect. A lone great generator
    with no sharing layer loses to a good-enough one with a community.
@@ -104,12 +106,15 @@ built to measure.
    quotas (Gemini ~20/day, per STATUS.md) and gate Anthropic behind paid. At any real usage,
    our integrated-LLM design is a **recurring cost liability**; theirs is free forever. This is
    a strategic weakness, not just an ops detail.
-5. **pluginmaker's in-browser test/preview loop beats our (nonexistent) iterate loop.** Our
-   refine/iterate UX is blocked behind state persistence (Broken #1 → S1). They already let you
-   audition and re-roll before download.
+5. **pluginmaker's in-browser test/preview loop beats our (young) iterate loop.** State
+   persistence (`PluginProcessor.cpp:608`) and refine-with-prior-source (`3a94080`/`5090b55`)
+   have landed, but refine is still a single crude toggle — no guided clarification loop, no
+   surgical-add mode (Track 2). They already let you audition and re-roll before download.
 6. **"Beautiful UIs" is a stated competitor strength and our weakest lane.** ParamGridPanel is
-   unbuilt; the Amorph reviewer still called auto-graphics the hard part. Whoever makes the
-   generated UI not-embarrassing wins a real preference.
+   built and styled (`ForgeLookAndFeel.h`), but the generated layout is functional, not
+   designed — Faust's own knob order, one hardcoded theme, no design-tab presets (Track 3). The
+   Amorph reviewer still called auto-graphics the hard part. Whoever makes the generated UI
+   not-embarrassing wins a real preference.
 
 ---
 
@@ -149,12 +154,15 @@ built to measure.
 **Product priorities — a competitive re-rank of the existing backlog:**
 - **P0 — Ship something listenable (P6 battery).** We cannot make *any* "sounds like the words"
   claim, or credibly compete, until one generated plugin has been heard. Competitors are
-  shipping; our biggest risk is polishing internals while unheard. (S4 script + human ears; in
-  STATUS.md "Next three," already #2 — this doc argues it's #1.)
-- **P0 — Lift the 8→64 param auto-UI (S3, Wave-1).** This is now parity with Amorph's headline
-  feature, not an enhancement.
-- **P1 — Land state persistence (S1, Broken #1).** It unblocks the iterate/refine loop that
-  pluginmaker already ships. Our refine loop is our moat #1 (self-correction) made
+  shipping; our biggest risk is polishing internals while unheard. (S4 script + human ears; the
+  EFFECTS listening pass sits in STATUS.md "Waiting on you" — this doc argues it's #1.)
+- **P0 — Make the auto-UI beautiful, not just complete.** All 64 params now render scrollably
+  (parity), but the layout is Faust's own knob order (PF-038), UiIr's sectioned layout is still
+  dead code, and there is one hardcoded theme. Track 1 (two-panel + UiIr) and Track 3 (presets)
+  are where the "beautiful UIs" parity gap actually closes.
+- **P1 — Real refine architecture.** State persistence and refine-with-prior-source have
+  landed; what remains is the two-mode split (surgical-add vs regenerate-with-context) and a
+  guided clarification loop (Track 2). Our refine loop is moat #1 (self-correction) made
   user-visible — it's worth more than it looks on the roadmap.
 - **P1 — Re-establish and then *publish* the benchmark + semantic numbers (S4 → overseer →
   human).** Turns moat #2 from a claim into evidence, into the gap the whole field left open.
@@ -168,7 +176,7 @@ built to measure.
 
 **Non-goals for now (explicitly de-prioritized):**
 - Marketplace / patch-sharing ("The Hub" analog). Real long-term threat (network effects), but
-  premature: you can't share patches you can't yet persist or hear. Park behind persistence + P6.
+  premature: you can't share patches nobody has heard yet. Park behind the P6 listening pass.
 - macOS/Windows/AU parity. We're Linux-first; competitors are Mac/Win. This is a real
   addressable-market gap but a large build; note it, don't chase it mid-beta.
 
@@ -185,9 +193,10 @@ built to measure.
 
 ---
 
-## Prior-survey carryover (from P10, `docs/juce_plugin_survey.md`)
-The point-in-time P10 survey (21 open-source JUCE/Faust repos, 2026-07-20) is folded in here as
-the living doc. Its findings that still bear on strategy:
+## Prior-survey carryover (from the P10 survey, 2026-07-20)
+The point-in-time P10 survey (21 open-source JUCE/Faust repos; the source file was retired
+with the fleet apparatus, `c58a281`) is folded in here as the living doc. Its findings that
+still bear on strategy:
 - **Auto-layout is the right UI floor.** Zero of 19 fixed-param repos used a bare
   `GenericAudioProcessorEditor`, even at 1–2 params — evidence for keeping the planned
   deterministic auto-layout (S3) as the baseline UI rather than a Generic fallback. This
@@ -196,9 +205,15 @@ the living doc. Its findings that still bear on strategy:
 - **A 4th UI paradigm exists** — declarative/GUI-Magic — not yet named in
   `docs/ui_design_plan.md`'s taxonomy. Relevant if we ever expose UI authoring.
 Everything else in P10 was open-source-repo mechanics (build systems, param patterns) with no
-competitor-strategy bearing; it stays in the P10 file as historical detail.
+competitor-strategy bearing; it was historical detail and is not carried forward here.
 
 ## Changelog (living doc)
+- **2026-08-06** — Stale claims refreshed against the current repo: the "8 of 64 param cap"
+  (grid now renders all 64 slots scrollably, `PluginEditor.cpp:256-262`), "blocked on state
+  persistence" (landed, `PluginProcessor.cpp:608`), "ParamGridPanel unbuilt" (built + styled,
+  `ForgeLookAndFeel.h`), and refine "cannot carry source" (landed, `3a94080`/`5090b55`). Threats
+  #2/#5/#6 and the P0/P1 re-rank rewritten around the actual remaining gaps (UiIr dead code,
+  PF-038 knob order, Track 2/3). The one constant: **no generated plugin has been heard yet.**
 - **2026-07-23** — First landed as `competitive_research.md`; renamed to canonical
   `competitive_landscape.md` and made the living successor to P10. Field mapped
   (Amorph / pluginmaker.ai / ChatDSP); BYO-LLM recommendation authorized (req #6).

@@ -35,7 +35,7 @@ description: |
   </example>
 model: inherit
 color: red
-tools: ["Read", "Grep", "Glob", "Bash", "Write"]
+tools: ["View", "Grep", "Glob", "Bash", "Write"]
 ---
 
 You are the generation-stress-tester for PluginForge. Your job: feed hard prompts

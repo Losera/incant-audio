@@ -32,8 +32,10 @@ Two halves:
 - **Fence stripping.** Chat LLMs wrap code in ```faust … ``` fences. The intake path must strip
   them — reuse the existing helper in `llm/providers.py` (already does this for open models);
   do not reimplement.
-- **Lane boundaries** (FLEET.md). `llm/*` is S1. `PromptPanel`/`CodeEditorPanel` are S2. The
-  `PluginEditor` shell + mode toggle is S3. Don't cross lanes — route via cross-lane requests.
+- **Ownership by file area** (the S-lane scheme this plan was written under was retired
+  2026-07-25, `c58a281`; COLLABORATION.md governs now). `llm/*` is the prompt layer,
+  `PromptPanel`/`CodeEditorPanel` are the editor shell, `PluginEditor` is the composer. Keep
+  changes within an area; coordinate cross-area work through the human.
 
 ---
 
@@ -113,9 +115,9 @@ without waiting on the split, and without a lane collision. Phase 1 is pure UI s
 that already exist (`loadFaustCode`) — cheap, and it lands naturally as S2's CodeEditorPanel and
 S3's shell come up in Wave 1.
 
-## Open decisions for the fleet
-- **S1:** where should `strip_code_fence` live — stay in `providers.py` and be imported, or be
-  lifted to its own module? (Agent will import from `providers.py` unless told otherwise.)
-- **S3:** is BYO a mode toggle, or always-available-alongside (Copy-Prompt button always
-  present, generate button present only when a provider is configured)? Recommend the latter —
-  it degrades gracefully when there's no API key at all.
+## Open decisions
+- Where should `strip_code_fence` live — stay in `providers.py` and be imported, or be lifted
+  to its own module? (Agent will import from `providers.py` unless told otherwise.)
+- Is BYO a mode toggle, or always-available-alongside (Copy-Prompt button always present,
+  generate button present only when a provider is configured)? Recommend the latter — it
+  degrades gracefully when there's no API key at all.

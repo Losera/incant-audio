@@ -633,3 +633,180 @@ WebView UI surface, which is what would make bespoke per-plugin graphics easy.
   not silently resolved by this ADR's silence on it.
 - Revisit if: ADR-021's trigger fires on a larger/fresher corpus, or the heuristic
   palette, once built, measurably reads as worse than the current static Theme.
+
+---
+
+## ADR-025 — Dev-cockpit: localhost mirror for development iteration
+
+| | |
+|---|---|
+| **Status** | Proposed |
+| **Date** | 2026-08-06 |
+
+**Context**
+PluginForge's iteration loop requires manual screenshot capture (`tools/screenshot_ui.sh`) and has no structured view of plugin state. Competing tools offer browser-based iteration surfaces with live previews. ADR-019 rejected WebView in the plugin; this builds a complementary localhost mirror instead.
+
+**Decision**
+Build a localhost web server (`dev-cockpit/server.py`) that:
+1. Serves a static HTML iterate surface at `http://localhost:8765/`
+2. Exposes `/api/screenshot` to capture live UI via `tools/screenshot_ui.sh`
+3. Exposes `/api/state` to read plugin state from a file the plugin writes
+
+The plugin remains 100% native JUCE. The browser is a *mirror*, not a component.
+
+**Reasons**
+- Zero C++ dependencies — server is pure Python, UI is static HTML
+- Stays inside ADR-019 — no WebView in the plugin binary
+- Enables future phases (UI IR editor, sample audition control, export workflow)
+- File polling is simplest viable; WebSocket can be added without breaking the browser
+
+**Consequences**
+- Dev-cockpit is a development tool, not a product feature — not shipped with the plugin
+- Screenshot capture requires Hyprland compositor (per `tools/screenshot_ui.sh`)
+- One plugin instance per cockpit session (state file is singleton)
+- Revisit if: a shipped competitor's browser-first iteration loop measurably beats ours
+
+---
+
+## ADR-023 — Export: repo-first, then binary
+
+| | |
+|---|---|
+| **Status** | Proposed |
+| **Date** | 2026-08-06 |
+
+**Context**
+Users want to share generated plugins beyond the PluginForge host. ADR-022 explicitly deferred "a stripped, single-patch-only build" as a bigger undertaking. The current architecture allows a coarse version (host binary + state file), but a genuine export requires CMake + JUCE + pinned Faust patch + themed UI.
+
+**Decision**
+Two-phase export:
+
+**Phase 2a — Repo export:**
+- Generate a git repo with `CMakeLists.txt` (JUCE plugin target, libfaust linkage), `Source/Plugin.cpp` (JIT wrapper), `Source/PluginEditor.cpp` (themed UI), `Patch.dsp` (generated Faust source), and `README.md` (build instructions).
+- The repo is buildable on the target platform (Linux first).
+- The export does NOT include vendored JUCE — the user must have JUCE installed or point `JUCE_PATH`.
+
+**Phase 2b — Binary export (deferred):**
+- Build the repo in a sandbox (Docker/VM).
+- Strip to single-patch VST3/Standalone.
+- Sign and notarize (macOS).
+
+**Reasons**
+- Repo-first is reproducible: user can edit the patch and rebuild.
+- Binary export is complex (codesign, notarization, Windows signing) — defer until repo export proven.
+- Enables user customization (hand-edit the Faust source, add controls).
+
+**Consequences**
+- Requires a "freeze" operation: pin the Faust compiler version, JUCE version, and plugin state.
+- The export repo is NOT a PluginForge project — it is a standalone artifact.
+- No round-trip: edits to the exported repo are not imported back.
+- Revisit if: users consistently ask for binary-only export without source access.
+
+---
+
+## ADR-024 — UI IR: renderer-agnostic layout for generated plugins
+
+| | |
+|---|---|
+| **Status** | Proposed |
+| **Date** | 2026-08-06 |
+
+**Context**
+Generated plugins have no visual identity beyond a 64-slot parameter grid. ADR-022 chose
+heuristic native widgets over a new LLM artifact or WebView, but the grid has no
+structure — no sections, no headings, no per-control style hints. The LLM already knows
+the logical structure of the effect it is generating (which parameters are related, which
+are primary vs secondary), but that knowledge is lost between generation and rendering.
+
+**Decision**
+Introduce `UiIr::Layout` (`host/Source/UiIr.h`): a versioned, renderer-agnostic
+intermediate representation describing how the 64-slot grid should be structured. The IR
+specifies sections (each with a title, column span, and ordered list of control
+references), per-control style tokens (`"arc-knob"`, `"slider"`, `"toggle"`, `"inc-dec"`),
+and size hints (`"sm"`, `"md"`, `"lg"`). No pixel coordinates, no JUCE types — string
+keys and integer spans only, so a future WebView backend reads the same JSON.
+
+The schema is versioned (`Layout.schema == 1` today). Controls present in the compiled
+DSP but absent from the IR are appended to a trailing "Parameters" section, preserving
+backward compatibility — a patch without an IR renders identically to today.
+
+Phase 1a (this decision): the renderer (`ParamGridPanel::applyUiIr`) and the schema
+(`UiIr.h`) are shipped. IRs are hand-authored only; the LLM does not emit this yet.
+
+Phase 1b (gated on prompt headroom): the system prompt teaches the LLM to emit a
+`ui_ir` field alongside Faust code. Requires measuring the token cost against the
+existing ~124-token headroom budget.
+
+**Reasons**
+- Sectioned layout is the first step toward visual identity without leaving native widgets
+- Renderer-agnostic: a WebView can consume the same IR when one arrives (ADR-019)
+- Schema versioning prevents silent breakage across LLM output generations
+- The "append unmentioned controls" invariant preserves zero-IR backward compatibility
+
+**Consequences**
+- `applyUiIr()` is currently unreachable at runtime (no callers in `onFaustCompileSuccess`);
+  wiring it is Track 1.2 of the build order
+- The schema may need expansion (groups, collapsible sections, sub-patches) — version
+  bumping is built into the design
+- Revisit if: the LLM cannot reliably produce IRs within the prompt budget, or the
+  sectioned layout proves worse than the flat grid for most patches
+
+---
+
+## ADR-026 — Sampler / drum machine plugins: deferred
+
+| | |
+|---|---|
+| **Status** | Proposed |
+| **Date** | 2026-08-06 |
+
+**Context**
+Instrument plugins (synths) and effects are the immediate targets. Samplers and drum
+machines are a natural next category, but they require sample playback, which has
+fundamentally different infrastructure: sample loading, memory mapping, time-stretched
+playback, and per-note polyphony — none of which exist in the current Faust-only pipeline.
+
+**Decision**
+Defer samplers and drum machines to a future phase. Faust's `soundfiles.lib` provides
+`so.player`, `so.loop`, `so.loop_speed`, and `so.play_interp` — genuine sample-playback
+primitives — but they require the soundfile at compile time, which constrains the current
+JIT architecture.
+
+When samplers are re-entered, the recommended approach is:
+- A pre-built C++ sample layer handles loading, memory mapping, and voice allocation
+- Faust handles the filtering and effects processing on the loaded samples
+- The two are composed at the plugin level, not inside Faust
+
+**Reasons**
+- Samplers require sample-pack distribution, which is a product/UX question, not just a
+  DSP one — it touches packaging, file format, and user expectation
+- The current Faust JIT pipeline cannot handle compile-time soundfiles without reworking
+  the architecture
+- Effects and instrument (synth) plugins are sufficient for the alpha; adding samplers
+  now would dilute focus
+
+**Consequences**
+- `Kind::Sampler` and `Kind::DrumMachine` are not defined in the current plugin-type
+  taxonomy
+- If samplers are prioritized before the C++ sample layer exists, `soundfiles.lib` can
+  be used with static sample embedding (limited but functional)
+- Revisit if: the alpha reveals that samplers are the dominant use case, or if a Faust
+  upstream change enables runtime sample loading
+
+---
+
+## Status audit — 2026-08-06
+
+ADR-023 and ADR-025 are recorded here as **Proposed**, but their implementation
+code shipped in the same session that drafted them (`docs/sessions/008-vision-architecture.md`):
+
+- ADR-023 (Export): `tools/export_repo.py` and `tools/export/CMakeLists.txt.j2` are
+  staged for commit. The export stub is known-broken (PF-053) and gated behind
+  `.claude/skills/export/SKILL.md` refusal, but the code exists.
+- ADR-025 (Dev-cockpit): `dev-cockpit/server.py` and `dev-cockpit/static/index.html`
+  are staged. The cockpit state export was gated (off by default) by the same session,
+  but the server code ships.
+
+The Status field of both remains **Proposed** pending human review. The decision to
+ship code before ratifying the ADR is itself a decision that should be acknowledged
+or reversed, not silently corrected.

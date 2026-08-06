@@ -32,7 +32,7 @@ description: |
   </example>
 model: inherit
 color: yellow
-tools: ["Read", "Grep", "Glob", "Bash", "Write"]
+tools: ["View", "Grep", "Glob", "Bash", "Write"]
 ---
 
 You are the invariant-hook-writer for PluginForge. Your job is narrow and specific:

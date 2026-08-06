@@ -160,9 +160,10 @@ or compile-thread interaction. Engagement mode: PAIR for the first dynamic-layou
 
 ## 4. P10 — Ecosystem survey spec — **EXECUTED 2026-07-20**
 
-**Results: `docs/juce_plugin_survey.md`** (21 repos, 3 parallel research agents). The spec
-below is retained as the executed design; the findings supersede the assumptions it was
-written to test. Headline: **zero of 19 fixed-param entries used a bare
+**Results: the P10 survey** (21 repos, 3 parallel research agents; the source doc was retired
+2026-07-27 once its conclusions were absorbed here — `git log -- docs/juce_plugin_survey.md`
+has the full text). The spec below is retained as the executed design; the findings supersede
+the assumptions it was written to test. Headline: **zero of 19 fixed-param entries used a bare
 `GenericAudioProcessorEditor`**, even at 1–2 params — so the complexity-ladder question
 posed under "Deliverable" resolved to *nobody ships GenericEditor at any param count*.
 That supports keeping the §3 auto-layout as the UI floor rather than falling back to a
@@ -185,11 +186,12 @@ The original spec, as executed:
 | complexity proxy | LOC, module count |
 | JUCE / Faust version | compat signal |
 
-**Deliverable:** `docs/juce_plugin_survey.md` — the table plus a "complexity ladder"
-summary: how UI sophistication actually scales with param count and project size in the
-wild (does anyone ship GenericEditor past ~10 params? where do custom panels start?).
+**Deliverable:** a survey doc — the table plus a "complexity ladder" summary: how UI
+sophistication actually scales with param count and project size in the wild (does anyone
+ship GenericEditor past ~10 params? where do custom panels start?). *(Delivered as
+`docs/juce_plugin_survey.md`; retired 2026-07-27, conclusions absorbed above.)*
 
 **Execution estimate:** 2–3 parallel research agents (split by seed list), read-only.
 Engagement mode: DELEGATE (research/documentation; human reviews the survey doc).
-**Outcome:** ran 2026-07-20 with 3 agents; `docs/juce_plugin_survey.md` landed with the
-full table. Human review of that doc is still outstanding.
+**Outcome:** ran 2026-07-20 with 3 agents; the survey landed with the full table (since
+retired — see Results above). Human review of the survey doc is still outstanding.
