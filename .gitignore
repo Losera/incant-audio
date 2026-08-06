@@ -19,9 +19,8 @@ build/
 # --- Generated artifacts ---
 artifacts/
 
-# --- Melchior (instrumentation, currently inert) ---
-.melchior/index.db
-.melchior/active.json
+# --- Melchior (private instrumentation, currently inert) ---
+.melchior/
 
 # --- In-source CMake residue -------------------------------------------------
 # cmake was run directly in host/ as well as in host/build/, leaving ~400M of
@@ -60,6 +59,9 @@ bench/results/.run.lock
 
 # agent-session git worktrees (separate checkouts, not repo content)
 .claude/worktrees/
+
+# Claude Code plan-mode working files (transient planning scratch, not content)
+.claude/plans/
 
 # PF-014 real-user prompt log. Local observation data, not repo content: it records
 # what a person actually typed at this machine. Never committed — the benchmark

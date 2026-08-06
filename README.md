@@ -1,58 +1,146 @@
-# PluginForge
+# Incant Audio
 
-LLM-guided program synthesis for real-time DSP audio plugins.
+> **Prompt to Real-Time DSP Audio Plugin in Seconds.**  
+> *Powered by the PluginForge Synthesis Engine.*
 
-**Pipeline:** Natural language prompt → LLM → Faust DSL → LLVM JIT → VST3/AU
+[![C++17](https://img.shields.io/badge/C%2B%2B-17-blue.svg)](https://isocpp.org/)
+[![JUCE 7](https://img.shields.io/badge/JUCE-7.0-orange.svg)](https://juce.com/)
+[![Faust DSP](https://img.shields.io/badge/Faust-2.85.9-red.svg)](https://faust.grame.fr/)
+[![LLVM JIT](https://img.shields.io/badge/LLVM-22.1.8-green.svg)](https://llvm.org/)
+[![License: GPLv3](https://img.shields.io/badge/License-GPLv3-yellow.svg)](LICENSE)
 
-## Setup
+**Incant Audio** turns natural language descriptions into real-time VST3/AU audio plugins and polyphonic synthesizers. Describe the sound or signal processor you want in plain English, and Incant Audio generates, validates, JIT-compiles, and loads native machine code into a live audio plugin—complete with dynamic GUI controls—without stopping playback.
 
-```bash
-./scripts/install_deps.sh
-./scripts/setup_pluginforge.sh
-./scripts/scaffold_files.sh
-cp .env.example .env && $EDITOR .env
+---
+
+## ⚡ Visual Showcase
+
+<div align="center">
+  <img src="artifacts/ui_gallery/04_generator_grouped.png" alt="Incant Audio Grouped Knob UI" width="850" />
+  <p><em>Incant Audio generating a multi-parameter audio effect with grouped controls, parameter mapping, and physical audio units (Hz, dB, ms).</em></p>
+</div>
+
+<br/>
+
+<div align="center">
+  <img src="artifacts/images/session_01_happy_path.png" alt="Incant Audio Auditioning Keyboard" width="850" />
+  <p><em>Prompt input panel, effect selector, and integrated QWERTY & on-screen auditioning keyboard.</em></p>
+</div>
+
+---
+
+## ✨ Key Capabilities
+
+- 🎹 **Audio Effects & Polyphonic Synths**: Describe lowpass filters, tube saturators, stereo choruses, ADSR polyphonic synthesizers, or multi-stage effect chains.
+- ⚡ **Zero-Drop JIT Compilation**: Faust DSL is compiled to native machine code via `libfaust` and `LLVM` on a background thread. Dynamic DSP swapping occurs atomically with zero audio dropouts or lock contention.
+- 🔄 **Self-Correcting LLM Feedback Loop**: If generated DSP fails compilation, compiler error output (`stderr`) is automatically fed back to the LLM for up to 3 repair retries.
+- 🎛️ **Pre-allocated Dynamic Parameter Pool**: A fixed 64-slot dynamic parameter pool maps parameters to physical units (Hz, dB, ms, exponential/logarithmic curves) instantly exposed to host DAWs.
+- 💬 **Live Iteration & Code Inspector**: View generated Faust source code directly inside the host UI. Check the **Refine** toggle to iterate on an existing DSP patch while preserving parameter settings.
+- ⌨️ **Instant QWERTY & MIDI Auditioning**: Audition generated instruments immediately using your computer keyboard (QWERTY layout) or connected MIDI controllers.
+- 🆓 **Provider-Agnostic LLM Layer**: Ships with free-by-default LLM integration out of the box (Gemini, Groq, OpenRouter, or local Ollama).
+
+---
+
+## 🏗️ Architecture & Synthesis Pipeline
+
+```mermaid
+graph LR
+    User["User Prompt"] --> PromptPanel["JUCE Host UI"]
+    PromptPanel --> Router["Microsecond Router\n(Effect vs Instrument)"]
+    Router --> LLM["LLM Provider Adapter\n(Gemini / Groq / Ollama / OpenRouter / Claude)"]
+    LLM --> Faust["Faust DSL Code"]
+    Faust --> Validation{"Faust Compiler Validation"}
+    Validation -- "Syntax Error (max 3 retries)" --> LLM
+    Validation -- "Valid DSP Code" --> JIT["libfaust / LLVM JIT Engine"]
+    JIT --> Swap["Zero-Lock Audio Thread Swap"]
+    Swap --> AudioOut["Real-Time VST3 / AU Audio"]
 ```
 
-## Run the LLM layer
+### Why Faust DSL over raw C++ or JSON IR?
+Generating Faust algebraic DSL instead of raw C++ or JSON intermediate representations guarantees high LLM generation reliability, mathematical conciseness, built-in real-time safety, and instant target-agnostic compilation.
 
+---
+
+## 🚀 Quickstart Guide
+
+### 1. Prerequisites
+- **CMake** 3.22+ & **Ninja**
+- **C++17 Compiler** (GCC, Clang, or MSVC)
+- **Python** 3.10+
+- **JUCE 7** (vendored at `host/JUCE` or system installation)
+- **Faust & LLVM** libraries (`libfaust` 2.85+)
+
+### 2. Environment Setup
+Copy `.env.example` to `.env` and set your preferred free LLM provider API key:
 ```bash
-pf-env
-cd llm && python generate.py
+cp .env.example .env
 ```
+Supported free-tier providers: **Gemini**, **Groq**, **OpenRouter**, or local **Ollama** (`llama3`, `deepseek-r1`). Paid providers (Anthropic Claude) are supported and gated behind `PLUGINFORGE_ALLOW_PAID=1`.
 
-## Build the JUCE host plugin
-
+### 3. Build the JUCE Host Plugin
 ```bash
 cd host
-cmake -B build -DCMAKE_BUILD_TYPE=Debug -DJUCE_PATH=$HOME/JUCE
-cmake --build build --config Debug -- -j$(nproc)
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release -j$(nproc)
 ```
 
-## Agentic architecture
+### 4. Run & Audition
+Launch the standalone host application or load the VST3/AU plugin inside your preferred DAW (Ableton, Reaper, Logic, Bitwig):
+```bash
+./host/build/IncantAudio_artefacts/Release/Standalone/IncantAudio
+```
 
-This repo is built human-with-Claude, under an explicit protocol. The moving parts:
+---
 
-| Piece | Role |
-|---|---|
-| `CLAUDE.md` | **What** the project is — architecture, stack, current status, hard "do not"s |
-| `COLLABORATION.md` | **How** we build it — the three engagement modes (DELEGATE / PAIR / HUMAN-OWNED), pre-task protocol, stop conditions, fail-loud markers, log format |
-| `.claude/hooks/` | Three PreToolUse guards: RT-safety in audio-thread code, write-protection on HUMAN-OWNED files (`llm/prompts/*`, `docs/decisions.md`), bash denylist |
-| `.claude/agents/invariant-hook-writer.md` | Subagent that turns a stated project invariant into a tested, registered hook — or reports it isn't mechanically hookable |
-| `.claude/skills/architecture-planning/` | `/architecture-planning` — router for any new architectural decision (hook? ADR? subagent? loop?) |
-| `.claude/skills/orient/` | `/orient` — session-start digest: live repo state plus the open half of STATUS.md. Start every session with it |
-| `docs/BUGS.md` | The durable, IDed defect registry (`PF-NNN`). STATUS.md's "Broken" is the top-N view of it |
-| `docs/decisions.md` + `docs/architectural_decisions/` | ADRs. HUMAN-OWNED: Claude drafts, the human commits |
+## 🔬 Audio Developer & AI Architecture Deep Dive
 
-Subdirectory READMEs (`host/README.md`, `llm/README.md`, `bench/README.md`) orient you inside
-each area and carry the area-relevant prompts from the series below.
+### Real-Time Safe Audio Thread Handshake
+The DSP engine uses a lock-free `enterAudio()` / `exitAudio()` drain guard bracketing `processBlock`. Faust DSP compilation occurs entirely on a background thread. ParamPool mappings and dynamic DSP pointers publish atomically *before* setting `ready = true`, preventing TOCTOU races and eliminating parameter-lookup errors during live audio playback.
 
-## Working the project with Claude — prompt series
+### Dynamic Parameter Mapping Protocol
+Parameters are pre-allocated once in `PluginProcessor::createParameterLayout()` and dynamic Faust controls are bound using an identity-keyed pool (`ParamIdentity` + `ParamMap`). Normalized host values (0.0 to 1.0) are seamlessly converted to real-world units (Hz, dB, ms).
 
-Copy-paste these into a Claude Code session, in order. Each is tagged with the engagement mode
-it must run under; Claude states the mode before starting (COLLABORATION.md §2) — hold it to that.
+### Automated Verification Ladder
+All codebase changes pass a multi-tier automated test ladder:
+- `tools/check.sh fast` (~2s) — Unit tests & control wiring guards.
+- `tools/check.sh full` (~2min) — System prompt grounding, builds, and ThreadSanitizer (TSan) safety validation.
+- `tools/check.sh audio` (~1min) — Offline render oracle test over the DSP corpus to verify signal safety (no NaN, DC offset, or runaway gain).
 
-**P0 — every session, first thing** *(read-only)*
+---
+
+## 📁 Directory & Codebase Map
 
 ```
-/orient
+PluginForge/
+├── host/                  # JUCE 7 Host Plugin (C++17)
+│   ├── Source/            # FaustEngine, ParamPool, OutputGuard, UI Panels
+│   └── tests/             # Unit, SPSC ring buffer, and integration test suites
+├── llm/                   # Python Synthesis & Validation Pipeline
+│   ├── generate.py        # LLM invocation & Faust validation loop
+│   ├── providers.py       # Adapter for Gemini, Groq, Ollama, OpenRouter, Claude
+│   ├── router.py          # Microsecond regex router (Effect vs Instrument)
+│   └── prompts/           # System prompts with generated Faust stdlib docs
+├── bench/                 # Render Oracle & Offline Perceptual Evaluation
+├── dev-cockpit/           # Web dashboard for real-time telemetry & UI monitoring
+├── examples/              # Idiomatic Faust DSP patches (.dsp)
+├── artifacts/             # Screenshots, UI gallery fixtures, and audio samples
+├── docs/                  # Architectural Decision Records (ADRs) & specs
+└── tools/                 # Build gates, RT-safety checks, and check.sh ladder
 ```
+
+---
+
+## 🤝 Agentic Engineering & Open Governance
+
+Incant Audio is developed via an explicit human-agent pairing protocol:
+- **`CLAUDE.md`**: Project invariants, toolchain configuration, real-time safety rules, and test ladder specs.
+- **`COLLABORATION.md`**: Protocol governing change reports, evidence verification standards, and architectural triggers.
+- **`docs/decisions.md`**: Architectural Decision Records (ADRs).
+- **`docs/BUGS.md`**: Durable ID-tracked defect registry (`PF-NNN`).
+
+---
+
+## 📄 License & Credits
+
+- Core Engine: **GPLv3 / MIT Dual License** (see [LICENSE](LICENSE)).
+- Built with [JUCE Framework](https://juce.com/) and [Faust DSP Compiler](https://faust.grame.fr/).
