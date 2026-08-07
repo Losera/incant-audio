@@ -184,12 +184,16 @@ is not on PATH. Four concrete gaps behind "must take MIDI in any DAW": monophoni
 design, block-granularity MIDI (~10.7 ms jitter), a hardcoded 2.0 s tail length, no MIDI CC
 mapping.
 
-**3. "Refine" is a crude binary, not a refinement architecture.** *(unfiled, medium — the
-source-carrying half landed (`3a94080`/`5090b55`); `prior_source_dropped` surfaced
-2026-08-06.)* What remains is product UX: a single toggle conflates "regenerate with
-context" with `LoadMode::Iterate` knob retention. Step 8 of the 12-step workflow
-("additive change — plugin stays the same besides a new addition") needs a dedicated
-"surgical add" mode distinct from a full regen-with-context. That is Track 2 work.
+**3. ~~"Refine" is a crude binary, not a refinement architecture.~~** *(unfiled, medium,
+closed 2026-08-06 — ADR-011's second amendment.)* The single toggle became a 3-mode
+`ComboBox` (New/Add/Redo); `llm/generate.py` gained `refine_mode` and two new preambles,
+with Add hard-failing on a token-budget overflow instead of silently degrading (Redo's
+policy). **Found and fixed in the same session, not part of the original scope: Add and
+Redo were disabled at construction and NOTHING re-enabled them** — the whole feature was
+selectable only from test code (`ComboBox::setSelectedId` bypasses `isItemEnabled`), never
+from any real mouse click, until `setRefineModesAvailable`'s two call sites landed
+(`EditorSessionTest` scenario 25 is the red-then-green proof). `tools/check.sh full` green;
+213 `EditorSessionTest` checks. Uncommitted — see Waiting on you #1.
 
 **4. One generation defect is actually evidenced; the rest is sampling.** *(PF-024/PF-032,
 high, unchanged.)* Karplus-Strong's `recursion_cycle` reproduces across four archives; the
@@ -217,20 +221,31 @@ yet gated.)*
 
 ## Assumed, never checked
 
-**One claim**, down from two — this session moved the layered-voice claim into Works with
-a measured 10/10 (see above) and added nothing new in its place.
+**Two claims**, same count as before this rewrite — the layered-voice claim moved into
+Works with a measured 10/10 in an earlier session, and this session's refine work adds one
+new claim (below) in its place.
 
 - **The efficacy pilot generalizes to nothing.** *(PF-011, unchanged.)* 125 generations ≈
   437k tokens ≈ 2.2 days on groq. Needs sharding — or ollama, unmetered but CPU-only until
   the box reboots.
+- **Whether the model honours EITHER refine preamble.** *(new 2026-08-06.)* Session 002's
+  original unverified remainder — "whether the model actually honours a folded-in prior
+  source" — is now two claims, not one: `_SURGICAL_PREAMBLE` and `_CONTEXT_PREAMBLE` both
+  need their own live check. `FakeGenerator`-based tests prove the transport (right text
+  reaches the request) end to end; none of them prove the model's OUTPUT actually respects
+  "minimal, surgical, preserve exactly" versus "free to rewrite". One live run per mode,
+  with a marker control (the `scenario16`/`scenario25`/`scenario26` `Zzyzx*` pattern), is
+  the next thing to spend on this.
 
 ## Next three things
 
-1. **Refine needs a two-mode architecture** (Track 2). The source-carrying half is done
-   (`3a94080`/`5090b55`); `prior_source_dropped` surfaced 2026-08-06. What remains is
-   product UX: a dedicated "surgical add" mode (preserve everything, add only the requested
-   change) vs "regenerate with context" (full re-generation with the prior source as LLM
-   context). The current single toggle conflates these two semantically distinct operations.
+1. **Whether the model honours either refine preamble, live.** Replaces the closed item
+   this slot held — the two-mode architecture that made this question exist landed this
+   session (see Broken #3), so it is no longer hypothetical. One groq run in Add mode and
+   one in Redo mode, same starting patch, checking whether the surgical run actually leaves
+   structure/control-names untouched and the context run doesn't. (Item 3's `*(evidence)*`
+   tag is unrelated pre-existing work and stays where it is — this is a second,
+   also-evidence-shaped item, not a claim on that reserved slot.)
 2. **Get it into a DAW.** Broken #2, long-standing, blocks the one validation this project
    cannot claim yet: does a generated plugin actually load and behave in a real host. Needs
    `COPY_PLUGIN_AFTER_BUILD` on, `pluginval` installed, and the four MIDI-fidelity gaps
@@ -251,20 +266,24 @@ Also displaced: a piano roll (requested, unplanned; needs a note grid and a cloc
 
 ## Waiting on you
 
-1. **Commit today's work, or hold it.** The Track-0 code — `host/Source/PromptPanel.{h,cpp}`
-   (kind selector, prior_source_dropped surfacing), `host/Source/PluginEditor.{h,cpp}`
-   (compile-success warning, test forwarders), `host/tests/EditorSessionTest.cpp` (scenario 16
-   rewrite, scenarios 23-24), `host/tests/FakeGenerator.h` (prior_source_dropped flag) — and
-   the Track-0 gating/cleanup — `.claude/skills/export/SKILL.md` (gated stub), `START_HERE.md`
-   and `docs/handoff_s1_codex.md` deleted, `README.md` (dead `scripts/` commands, retired
-   three-mode ritual), `docs/competitive_landscape.md` (five stale claims refreshed + ghost
-   FLEET/P10 citations), `docs/architectural_decisions/README.md` (ADR-008 status corrected),
-   `docs/byo_llm_plan.md` + `docs/s3_plan_next.md` (fleet-era citations fixed), `docs/ui_design_plan.md`
-   (P10 survey-retirement noted), this file's corrections plus the rewrite — all sit
-   uncommitted on disk pending your decision. **`tools/check.sh full` is green end-to-end,
-   25/25** — run this session with a live display present, so `EditorSessionTest` genuinely
-   ran all 24 scenarios (kind-selector request, prior_source_dropped surfacing included), not
-   skipped.
+1. **Commit today's work, or hold it.** Superseded — the file list below is what is
+   uncommitted as of THIS rewrite; the previous version of this item described an earlier,
+   already-superseded uncommitted set from the same day. The refine two-mode change
+   (Broken #3, closed):
+   `host/Source/PromptPanel.{h,cpp}` (`refineSelector` ComboBox, `setRefineModesAvailable`,
+   refusal surfacing), `host/Source/PluginEditor.{h,cpp}` (compile-success refresh call,
+   test forwarders), `host/tests/EditorSessionTest.cpp` (scenarios 25-26, new),
+   `host/tests/FakeGenerator.h` (`writeFailure`'s `priorSourceRefused` param), `llm/generate.py`
+   (`_SURGICAL_PREAMBLE`/`_CONTEXT_PREAMBLE`, `refine_mode`, the surgical hard-fail),
+   `tests/test_generate_unit.py` (9 new cases) — plus this session's docs:
+   `llm/CONTRACT.md`, `INTERFACE.md`, `docs/decisions.md` (ADR-011's second amendment),
+   `docs/sessions/002-refine-loop-and-ui-redesign.md` (forward-pointer only; its frozen plan
+   text below "## 1. Plan, as approved" was not touched), and this file. **`tools/check.sh
+   full` is green end-to-end** (both `llm/generate.py`'s change and the host build/TSan
+   lanes); `EditorSessionTest` is 213 checks / 0 failures across 26 scenarios, run this
+   session with a live display present — up from 24 scenarios / 192 checks this morning,
+   both new ones (25, 26) confirmed to fail red before their fix landed, per COLLABORATION.md's
+   "a control counts only once it has been seen failing."
 2. **The two-panel layout needs your eye, and so does the styled keyboard.** Open
    `host/artifacts/images/session_03_overflow_40_params.png` (the split with a full grid) and
    `session_11a_code_view_empty.png` (the code band revealed), plus

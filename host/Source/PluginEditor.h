@@ -52,9 +52,28 @@ public:
     // test that waited for it would be timing-dependent; this makes the edge-detect
     // in timerCallback() observable without a sleep.
     void         pumpMeterTickForTest() { timerCallback(); }
-    // The Fresh/Refine toggle, driven and read without a click.
-    void         setRefineForTest(bool on) { promptPanel.setRefineForTest(on); }
-    bool         refineEnabledForTest() const { return promptPanel.refineEnabledForTest(); }
+    // The Fresh/Refine toggle, driven and read without a click. PromptPanel's
+    // refineToggle became a 3-mode ComboBox (New=1/Add=2/Redo=3); these forwarders
+    // keep the old boolean surface EditorSessionTest.cpp already depends on:
+    // "on" is the closest equivalent of the old Refine-ON behavior — "Add" sends
+    // the prior source, same as the toggle used to.
+    void         setRefineForTest(bool on) { promptPanel.setRefineForTest(on ? 2 : 1); }
+    bool         refineEnabledForTest() const { return promptPanel.refineModeForTest() != 1; }
+    // The full 3-mode surface, for scenarios that need mode 3 (Redo) or to
+    // assert the exact selection -- deliberately a DIFFERENT name from
+    // setRefineForTest, not an int overload of it: setRefineForTest(1) and
+    // setRefineForTest(true) would then mean opposite things (New vs Add) and
+    // both would silently compile via bool->int promotion.
+    void         setRefineModeForTest(int id) { promptPanel.setRefineForTest(id); }
+    int          refineModeForTest() const { return promptPanel.refineModeForTest(); }
+    // Whether Add/Redo are currently selectable in the real UI (as opposed to
+    // reachable only via setRefineModeForTest, which bypasses isItemEnabled the
+    // same way a test-only accessor is allowed to).
+    bool         refineModeAvailableForTest() const { return promptPanel.refineModeAvailableForTest(); }
+    // True when the LAST generation was refused in surgical (Add) mode because
+    // the prior source overflowed the token budget (generate.py's
+    // prior_source_refused, PromptPanel's failure-branch handling).
+    bool         priorSourceRefusedForTest() const { return promptPanel.priorSourceRefusedForTest(); }
     // The kind selector (generation target) and the prior-source-dropped warning
     // flag (generate.py:381-386), driven and read without a click.
     juce::String kindForTest() const { return promptPanel.kindForTest(); }

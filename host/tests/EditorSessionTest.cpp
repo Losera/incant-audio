@@ -1883,6 +1883,190 @@ process = _ * z, _ * z;
     snapshot(s.editor, "24_prior_source_dropped_surfaced");
 }
 
+// 25 — Add/Redo unlock once a prior source exists, in-session AND across a
+// project reopen (PromptPanel::setRefineModesAvailable).
+//
+// Before this change, refineSelector.setItemEnabled(2/3, false) ran once in the
+// constructor and NOTHING ever re-enabled them: Add and Redo were selectable
+// from test code (setSelectedId does not consult isItemEnabled -- only the
+// popup's own selectIfEnabled does) but unreachable by any mouse click. This is
+// the scenario that fails red against that state.
+void scenario25_refineModesUnlock(const juce::File& tmp)
+{
+    scenario("25. Add/Redo unlock on first patch, and across a project load",
+             "setRefineModesAvailable's two call sites: onFaustCompileSuccess "
+             "within a session, and the PromptPanel constructor seed for a "
+             "restore that completes before the editor -- and its callback -- "
+             "even exist");
+
+    const char* markerPatch = R"(import("stdfaust.lib");
+z = hslider("Zzyzx25", 0.5, 0, 1, 0.01);
+process = _ * z, _ * z;
+)";
+
+    FakeGenerator::install(
+        FakeGenerator::writeSuccessCapturing(tmp, "gen25", markerPatch));
+
+    Session s;
+    check(! s.editor.refineModeAvailableForTest(),
+          "a fresh session offers nothing to Add to or Redo from");
+
+    s.editor.submitPromptForTest("a filter with a distinctive control");
+    const bool live = pumpUntil([&] {
+        return s.editor.statusTextForTest().contains("DSP live");
+    });
+    check(live, "the first generation reached DSP live");
+    check(s.editor.refineModeAvailableForTest(),
+          "Add/Redo unlock the moment a patch is actually live -- "
+          "onFaustCompileSuccess's setRefineModesAvailable call");
+
+    // ── Redo (mode 3) actually reaches the request, end to end ──────────────
+    // Scenario 16 already proves mode 2 (Add) carries prior_source. Mode 3, and
+    // the refine_mode STRING selection (PromptPanel.cpp's refineModeStr switch),
+    // have zero end-to-end coverage before this.
+    s.editor.setRefineModeForTest(3);
+    check(s.editor.refineModeForTest() == 3, "Redo selected");
+    s.editor.submitPromptForTest("make it sound completely different");
+    const bool redoLive = pumpUntil([&] {
+        return s.editor.statusTextForTest().contains("DSP live");
+    });
+    check(redoLive, "the Redo generation reached DSP live");
+    auto redoReq = FakeGenerator::capturedRequestJson(tmp, "gen25");
+    check(redoReq.contains("Zzyzx25"),
+          "Redo: the prior source was carried in the request");
+    // Space after the colon is not cosmetic here -- DynamicObject::writeAsJSON
+    // (juce_DynamicObject.cpp) always emits "key": value, even allOnOneLine.
+    check(redoReq.contains("\"refine_mode\": \"context\""),
+          "Redo: refine_mode reached the request as \"context\", not just the "
+          "prior source -- generate.py needs this to pick _CONTEXT_PREAMBLE "
+          "over the surgical or legacy framing");
+
+    // ── The restore-before-editor half ───────────────────────────────────────
+    // A DAW calls setStateInformation BEFORE createEditor. Session (this file)
+    // constructs processor and editor together and cannot express that order --
+    // by the time any Session's editor exists, its onFaustCompileSuccess is
+    // already wired, so a bug that broke ONLY the constructor seed (3b) would
+    // still pass every Session-based assertion above. Hand-roll the real order.
+    juce::MemoryBlock blob;
+    s.processor.getStateInformation(blob);
+    check(blob.getSize() > 0, "the live session serialised to a non-empty blob");
+
+    PluginForgeProcessor p2;
+    p2.prepareToPlay(48000.0, 512);
+    p2.setStateInformation(blob.getData(), (int) blob.getSize());
+    check(p2.currentSourceForTest().contains("Zzyzx25"),
+          "the restored processor has the source BEFORE any editor exists -- "
+          "setStateInformation commits currentFaustSource synchronously, "
+          "ahead of the (async) restore recompile, same as a real DAW load");
+
+    PluginForgeEditor e2 { p2 };
+    e2.setSize(900, 500);
+    // No pump. Whether or not the restore recompile has finished by now is
+    // irrelevant to this assertion -- setRefineModesAvailable's constructor
+    // seed reads processor.currentSource(), which was ALREADY populated above,
+    // before e2 (and its onFaustCompileSuccess handler) existed at all. If
+    // Add/Redo were unlocked ONLY by onFaustCompileSuccess, this check is false.
+    check(e2.refineModeAvailableForTest(),
+          "a freshly-opened editor over an ALREADY-restored project offers "
+          "Add/Redo from its very first frame, with no generation and no pump");
+
+    snapshot(s.editor, "25_refine_modes_unlock");
+}
+
+// 26 — Add refused: the FAILURE branch, not compile-success
+// (llm/generate.py's _prior_source_refused_response via generate_json's
+// surgical-mode preflight hard-fail).
+//
+// A refusal is success:false, so it can never reach loadFaustCode() or
+// onFaustCompileSuccess. The direct assertion of that routing fact is below:
+// the source of record must be UNCHANGED after a refusal.
+void scenario26_priorSourceRefused(const juce::File& tmp)
+{
+    scenario("26. Add refused: the failure branch, not compile-success",
+             "generate.py's surgical-mode hard-fail must read as a specific, "
+             "actionable failure -- not \"LLM error\", and not a silent no-op");
+
+    const char* markerPatch = R"(import("stdfaust.lib");
+z = hslider("Zzyzx26", 0.5, 0, 1, 0.01);
+process = _ * z, _ * z;
+)";
+
+    // ONE script for the whole scenario -- PromptPanel::generateScript resolves
+    // the fake path once in its OWN constructor (PromptPanel.h), so reinstalling
+    // mid-session (after `Session s` already exists) would be silently ignored,
+    // same trap scenario24's comment names. Dispatch on a marker string in the
+    // PROMPT (simpler and more robust here than grepping quoted JSON structure
+    // like refine_mode) rather than reinstalling. writeFailure/writeSuccess are
+    // called only for the "<name>.json" payload file each writes as a side
+    // effect (detail::writeScript) -- their own wrapper scripts are unused and
+    // overwritten below by the real dispatch script.
+    FakeGenerator::writeSuccess(tmp, "gen26_success", markerPatch);
+    FakeGenerator::writeFailure(tmp, "gen26_refused",
+        "The prior source is too large to fit the token budget in surgical "
+        "(\"Add\") mode. Choose \"Redo\" to regenerate with it as reference "
+        "instead, or shorten the current patch first.",
+        "error", 0, /* priorSourceRefused */ true);
+
+    auto script = tmp.getChildFile("gen26");
+    script.replaceWithText(
+        juce::String("#!/bin/sh\n")
+        + "if grep -q 'REFUSE_ME' \"$2\"; then cat '"
+        + tmp.getChildFile("gen26_refused.json").getFullPathName() + "'; else cat '"
+        + tmp.getChildFile("gen26_success.json").getFullPathName() + "'; fi\n",
+        false, false, "\n");
+    script.setExecutePermission(true);
+    FakeGenerator::install(script);
+
+    Session s;
+
+    // ── First generation: succeed, so there is a real prior source to refuse ──
+    s.editor.submitPromptForTest("a filter with a distinctive control");
+    const bool firstLive = pumpUntil([&] {
+        return s.editor.statusTextForTest().contains("DSP live");
+    });
+    check(firstLive, "the first generation reached DSP live");
+    const auto sourceBeforeRefusal = s.processor.currentSourceForTest();
+    check(sourceBeforeRefusal.contains("Zzyzx26"),
+          "captured the live source before the refusal");
+    check(! s.editor.priorSourceRefusedForTest(), "refused-flag starts false");
+
+    // ── Second generation, in Add mode: the LLM layer refuses ───────────────
+    check(s.editor.refineModeAvailableForTest(), "Add is selectable after a live patch");
+    s.editor.setRefineModeForTest(2);   // Add
+    s.editor.submitPromptForTest("REFUSE_ME add a chorus");
+    const bool errShown = pumpUntil([&] { return s.editor.errorTextForTest().isNotEmpty(); });
+    check(errShown, "the refusal reached the error region");
+
+    // The direct assertion of the routing finding: nothing went live.
+    check(s.processor.currentSourceForTest() == sourceBeforeRefusal,
+          "a refusal must NOT change the source of record -- it never reaches "
+          "loadFaustCode(), unlike a successful generation");
+
+    check(s.editor.priorSourceRefusedForTest(),
+          "the refused-source flag is published");
+    check(! s.editor.statusTextForTest().contains("LLM error"),
+          "the status line does NOT read the generic fallback -- a refusal has "
+          "a specific, actionable fix, and statusForReason(\"error\") alone "
+          "would have said exactly that");
+    check(s.editor.statusTextForTest().contains("Redo"),
+          "the status line names the actual way out");
+    check(s.editor.errorTextForTest().contains("Redo"),
+          "the error region still carries generate.py's own guidance text -- "
+          "setError() runs unconditionally, same as any other failure");
+
+    // ── Resubmit: PF-021's reset lesson, applied to the new flag ────────────
+    s.editor.setRefineModeForTest(1);   // New -- no REFUSE_ME marker, so this
+                                        // prompt dispatches to successPayload.
+    s.editor.submitPromptForTest("something else entirely");
+    check(! s.editor.priorSourceRefusedForTest(),
+          "PF-021's lesson applied to the new flag: submitting again clears the "
+          "stale refusal IMMEDIATELY, before the new run can even finish -- a "
+          "stale refusal must not keep reading as this run's result");
+    pumpUntil([&] { return s.editor.statusTextForTest().contains("DSP live"); }, 8000);
+
+    snapshot(s.editor, "26_prior_source_refused");
+}
+
 } // namespace
 
 int main()
@@ -1890,7 +2074,7 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInit;
 
     std::printf("EditorSessionTest -- a simulated human session against the real editor\n");
-    std::printf("  24 scenarios, no network, no quota, snapshots to artifacts/images/\n");
+    std::printf("  26 scenarios, no network, no quota, snapshots to artifacts/images/\n");
 
     auto tmp = juce::File::getSpecialLocation(juce::File::tempDirectory)
                    .getChildFile("pluginforge_editor_session");
@@ -1921,6 +2105,8 @@ int main()
     scenario22_qwertyMappingStaticContract();
     scenario23_kindSelectorReachesRequest(tmp);
     scenario24_priorSourceDroppedSurfaced(tmp);
+    scenario25_refineModesUnlock(tmp);
+    scenario26_priorSourceRefused(tmp);
 
     tmp.deleteRecursively();
 

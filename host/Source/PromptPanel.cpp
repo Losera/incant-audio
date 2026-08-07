@@ -131,20 +131,27 @@ PromptPanel::PromptPanel(PluginForgeProcessor& p)
     kindSelector.setTooltip("Generation target: routes to the appropriate prompt and compiler rules.");
     addAndMakeVisible(kindSelector);
 
-    // PF-020's residual affordance. Off by default, because Fresh is the correct
-    // default and making it visible must not change it.
-    addAndMakeVisible(refineToggle);
-    refineToggle.setToggleState(false, juce::dontSendNotification);
-    // ASCII only. juce::String(const char*) asserts on any byte above 127
-    // (juce_String.cpp:315) because it cannot know the source encoding — an
-    // em dash here fired the assertion once per panel construction, 12 times in
-    // one EditorSessionTest run. Harmless output, but this project has already
-    // paid for assertion noise once: 19 benign JUCE assertions are what hid
-    // PF-027's real fault through four red CI runs. Use CharPointer_UTF8 if a
-    // non-ASCII character is ever genuinely wanted here.
-    refineToggle.setTooltip(
-        "Off: a new plugin - knobs reset to the new patch's own defaults.\n"
-        "On: refine the current one - knob positions carry over.");
+    // ── Refine selector (New / Add / Redo) ──────────────────────────────────────
+    // Replaces the original single ToggleButton with three semantically distinct
+    // modes. Both "Add" (surgical) and "Redo" (context) send the prior source,
+    // but differ in how the LLM is framed (generate.py's refine_mode field).
+    // "New" is the default: fresh generation, no prior source, LoadMode::Fresh.
+    refineSelector.addItem("New", 1);
+    refineSelector.addItem("Add", 2);
+    refineSelector.addItem("Redo", 3);
+    refineSelector.setSelectedId(1, juce::dontSendNotification); // default = New
+    // Seeded from the processor's source of record, NOT hardcoded false: a DAW
+    // restores state (PluginProcessor::setStateInformation) before createEditor
+    // ever runs, so a project reopened with a live patch must offer Add/Redo from
+    // the first frame, not just after the NEXT same-session generation. See
+    // setRefineModesAvailable's header comment for the second call site
+    // (onFaustCompileSuccess) this pairs with.
+    setRefineModesAvailable(processor.currentSource().isNotEmpty());
+    refineSelector.setTooltip(
+        "New: fresh plugin - knobs reset to the new patch's own defaults.\n"
+        "Add: surgical change to the current patch - preserves structure, changes only the delta.\n"
+        "Redo: regenerate with the current patch as context - may restructure freely.");
+    addAndMakeVisible(refineSelector);
 
     addAndMakeVisible(statusLabel);
     statusLabel.setText("Ready.", juce::dontSendNotification);
@@ -229,9 +236,11 @@ void PromptPanel::submitPrompt()
     // the current result. The human reported exactly this on 2026-07-24.
     clearError();
 
-    // Reset the dropped-source flag on every submit, message thread, so a prior
-    // run's warning never reads as this run's. The worker republishes it on success.
+    // Reset the dropped-source and refused-source flags on every submit, message
+    // thread, so a prior run's warning never reads as this run's. The worker
+    // republishes them on success.
     lastPriorSourceDropped = false;
+    lastPriorSourceRefused = false;
 
     // Prevent double-submit. Re-enabled once the subprocess returns.
     generateButton.setEnabled(false);
@@ -256,21 +265,19 @@ void PromptPanel::submitPrompt()
             return;                     // tearing down: drop the request
 
         pendingPrompt = text;
-        // The load mode is read HERE, on the message thread, from the toggle, and
-        // published with the job. Reading refineToggle on the worker instead would
-        // be a data race on a Component, and would also mean a tick made mid-run
-        // retroactively changed a generation the user had already started.
-        const bool refine = refineToggle.getToggleState();
-        pendingMode = refine
-                          ? PluginForgeProcessor::LoadMode::Iterate
-                          : PluginForgeProcessor::LoadMode::Fresh;
-        // A4: read HERE too, same reasoning -- currentSource() must be read on
-        // this thread, before the worker picks the job up, not from the worker
-        // (which has no business reading processor state outside the job it was
-        // handed). Refine ticked with nothing yet generated (first generation)
-        // leaves this empty, which is what degrades runGeneration to a plain
-        // --prompt request instead of sending an empty/garbage prior_source.
-        pendingPriorSource = refine ? processor.currentSource().trim() : juce::String();
+        // The load mode and refine mode are read HERE, on the message thread, from
+        // the ComboBox, and published with the job. Reading refineSelector on the
+        // worker instead would be a data race on a Component, and would also mean a
+        // selection made mid-run retroactively changed a generation the user had
+        // already started.
+        const int refineSel = refineSelector.getSelectedId();
+        if (refineSel == 1) { // New
+            pendingMode = PluginForgeProcessor::LoadMode::Fresh;
+            pendingPriorSource = juce::String();
+        } else { // Add (surgical) or Redo (context)
+            pendingMode = PluginForgeProcessor::LoadMode::Iterate;
+            pendingPriorSource = processor.currentSource().trim();
+        }
         // Kind is a generation-time choice (not persisted), read on the message
         // thread at submit time alongside the other captures.
         pendingKind = kindSelector.getText().trim();
@@ -414,11 +421,19 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
         bool usedRequestFile = false;
 
         // Use --request-file whenever structured fields are needed (prior_source,
-        // kind). generate.py:331 already consumes `kind` from the request; this
-        // wires it to the UI. The old --prompt path (argv fallback) cannot carry
-        // structured fields, so it is now reserved for the trivial case: no kind
-        // override AND no prior source.
-        const bool needsRequestFile = priorSource.isNotEmpty() || kind.isNotEmpty();
+        // kind, refine_mode). generate.py:331 already consumes `kind` from the
+        // request; this wires it to the UI. The old --prompt path (argv fallback)
+        // cannot carry structured fields, so it is now reserved for the trivial
+        // case: no kind override AND no prior source AND no refine_mode override.
+        const int refineSel = refineSelector.getSelectedId();
+        const juce::String refineModeStr = [&] {
+            switch (refineSel) {
+                case 2: return juce::String("surgical"); // Add
+                case 3: return juce::String("context");  // Redo
+                default: return juce::String();
+            }
+        }();
+        const bool needsRequestFile = priorSource.isNotEmpty() || kind.isNotEmpty() || refineModeStr.isNotEmpty();
         if (needsRequestFile)
         {
             requestFile.emplace(".json");
@@ -426,6 +441,7 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
             obj->setProperty("prompt", promptText);
             obj->setProperty("prior_source", priorSource);
             obj->setProperty("kind", kind);
+            obj->setProperty("refine_mode", refineModeStr);
             // Forced "\n": juce_File.h:781-784's replaceWithText defaults
             // lineEndings to "\r\n", a trap host/tests/FakeGenerator.h already
             // paid for once (PromptPanelThreadingTest). generate.py's json.loads
@@ -585,9 +601,20 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
         // older generate.py — default false, no warning.
         const bool priorSourceDropped = parsed.getProperty("prior_source_dropped", false);
 
+        // generate.py surgical (Add) mode hard-fail (llm/generate.py's
+        // _prior_source_refused_response): the prior source was too large for
+        // the token budget, and — unlike priorSourceDropped's soft degrade in
+        // "Redo"/legacy mode — Add mode refuses rather than silently regenerate
+        // from scratch, because that would break the "minimal, surgical change"
+        // contract the user picked Add for. It is a HARD ERROR: `success` is
+        // false, `reason` is "error" (the ADR-011 enum stays closed; this flag is
+        // the discriminator, not a new reason value), so this belongs in the
+        // `! success` branch below, not the success path above.
+        const bool priorSourceRefused = parsed.getProperty("prior_source_refused", false);
+
         if (! success || faustCode.isEmpty())
         {
-            juce::MessageManager::callAsync([safeThis, errorMsg, reason, exitCode]
+            juce::MessageManager::callAsync([safeThis, errorMsg, reason, exitCode, priorSourceRefused]
             {
                 if (safeThis == nullptr) return;
                 safeThis->stopWorking();
@@ -597,8 +624,28 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
                 if (exitCode != 0)
                     fullErr += "\n\n(Process exited with status code " + juce::String(exitCode) + ")";
                 safeThis->setError(fullErr);
-                safeThis->statusLabel.setText(statusForReason(reason),
-                                              juce::dontSendNotification);
+                // lastPriorSourceRefused is a message-thread member, same
+                // discipline as lastPriorSourceDropped below: written here, read
+                // by the shell on the same thread (priorSourceRefusedForTest()).
+                safeThis->lastPriorSourceRefused = priorSourceRefused;
+                // statusForReason(reason) would say "LLM error (see errors
+                // below)" here -- true (reason IS "error") but useless: a
+                // refusal has one specific, actionable fix, and
+                // statusForReason's own header comment promises "what to DO,
+                // not just what happened". reason stays "error" deliberately
+                // (see the flag's declaration above), so the discriminator has
+                // to be the flag, not a new reason branch inside
+                // statusForReason -- that function's whole contract is reading
+                // `reason` alone.
+                // ASCII only -- juce::String(const char*) asserts on any byte
+                // above 127 (juce_String.cpp:315; see this file's promptInput
+                // setup for where that bit the project once already). Plain
+                // hyphen, not an em dash.
+                safeThis->statusLabel.setText(
+                    priorSourceRefused
+                        ? "Prior patch too large for Add - choose Redo, or simplify the patch."
+                        : statusForReason(reason),
+                    juce::dontSendNotification);
                 safeThis->generateButton.setEnabled(true);
             });
             return;
@@ -665,6 +712,20 @@ void PromptPanel::clearError()
     // defect, because the stale text then reads as this run's result.
     errorBox.setText({}, juce::dontSendNotification);
     errorBox.setVisible(false);
+}
+
+void PromptPanel::setRefineModesAvailable(bool available)
+{
+    refineSelector.setItemEnabled(2, available);
+    refineSelector.setItemEnabled(3, available);
+    // The closed box must never keep DISPLAYING a mode the dropdown no longer
+    // offers — force back to New. Only matters if the source that made Add/Redo
+    // available disappears out from under an open editor (e.g. a source-less
+    // blob restored into a live session) — not a path either call site above
+    // actually drives today, but cheap enough to make correct rather than
+    // merely likely-fine.
+    if (! available && refineSelector.getSelectedId() != 1)
+        refineSelector.setSelectedId(1, juce::dontSendNotification);
 }
 
 // ── Progress animation ──────────────────────────────────────────────────────
@@ -802,9 +863,9 @@ void PromptPanel::resized()
     // collapses below its text and the user still has History + Generate.
     kindSelector.setBounds(buttonR.removeFromLeft(90));
     buttonR.removeFromLeft(gap);
-    // Takes whatever is left rather than a fixed width, so the toggle simply
+    // Takes whatever is left rather than a fixed width, so the selector simply
     // disappears in a band too narrow for it instead of overlapping History.
-    refineToggle.setBounds(buttonR);
+    refineSelector.setBounds(buttonR);
 
     progressLabel.setBounds(progressR);
     statusLabel.setBounds(statusR);

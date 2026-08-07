@@ -86,6 +86,15 @@ proves the transport, not model behaviour. One live groq run with a distinctive 
 control (e.g. `hslider("Zzyzx", …)`, the same name `scenario16` uses for its fake) is the
 next thing to spend on this, not attempted in this session.
 
+**Follow-up, a later session (2026-08-06): the single ON/OFF toggle this session shipped
+became a 3-mode ComboBox** (New/Add/Redo — ADR-011's second amendment, `docs/decisions.md`).
+Part A's `_REFINE_PREAMBLE` is untouched and still the legacy path (`refine_mode` absent);
+Add and Redo select between two NEW preambles via `refine_mode: "surgical" | "context"`.
+This doubles rather than closes the unverified remainder above — two preambles now, neither
+validated against a live model. Tracked in STATUS.md, not re-litigated here; `scenario16`
+(this session) and `scenario25`/`scenario26` (the follow-up) together cover the transport
+for all three modes.
+
 ### Left to do
 
 - **A7** deferred (feeding failed code back into the retry loop — separate change, per the

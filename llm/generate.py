@@ -171,6 +171,45 @@ _REFINE_PREAMBLE = (
     "change: "
 )
 
+# refine_mode == "surgical" ("Add" in the host UI, PromptPanel.h's 3-mode
+# ComboBox). A stricter framing than _REFINE_PREAMBLE above: it is what lets
+# generate_json's preflight (below) HARD-FAIL instead of silently dropping to a
+# full regen when the prior source doesn't fit the token budget — degrading
+# silently would break the "minimal, surgical change" contract the user chose
+# "Add" for. "Redo" (_CONTEXT_PREAMBLE) is the mode that degrades.
+_SURGICAL_PREAMBLE = (
+    "The user is asking you to MODIFY the following existing Faust program with "
+    "a MINIMAL, SURGICAL change. Preserve its structure, signal routing, control "
+    "names, and behavior EXACTLY — only add or modify the specific element the "
+    "request describes. Return the COMPLETE modified program.\n\n```faust\n"
+    "{prior}\n```\n\nApply this surgical change: "
+)
+
+# refine_mode == "context" ("Redo" in the host UI). The prior program is
+# reference material, not a constraint on the shape of the answer — unlike
+# surgical mode, restructuring or rewriting it from scratch is fine.
+_CONTEXT_PREAMBLE = (
+    "The following is the PREVIOUS version of a Faust program, given as "
+    "reference only. You are free to REWRITE it from scratch if that better "
+    "satisfies the request below — do not preserve its structure or control "
+    "names unless doing so actually serves the request.\n\n```faust\n{prior}"
+    "\n```\n\nNew request: "
+)
+
+
+def _refine_preamble_for(refine_mode: str | None) -> str:
+    """Which preamble folds prior_source in, keyed by the host's refine_mode field.
+
+    None (absent) is the legacy path: an older host, or any request that never
+    sets refine_mode, gets exactly the pre-refine_mode _REFINE_PREAMBLE behavior
+    — unchanged, so nothing already relying on it moves.
+    """
+    if refine_mode == "surgical":
+        return _SURGICAL_PREAMBLE
+    if refine_mode == "context":
+        return _CONTEXT_PREAMBLE
+    return _REFINE_PREAMBLE
+
 
 def _call_api(content: str, provider: str, model: str | None = None,
               budget: "providers.Budget | None" = None,
@@ -193,7 +232,8 @@ def generate_faust(user_prompt: str, error_context: str = "",
                    budget: "providers.Budget | None" = None,
                    truncated: bool = False,
                    kind: str | None = None,
-                   prior_source: str | None = None) -> str:
+                   prior_source: str | None = None,
+                   refine_mode: str | None = None) -> str:
     """One generation attempt.
 
     `truncated` and `error_context` are mutually exclusive repair signals, and the
@@ -207,16 +247,18 @@ def generate_faust(user_prompt: str, error_context: str = "",
     retry silently switch prompts mid-generation and repair the code against
     rules the first attempt never saw.
 
-    `prior_source`, when non-empty, is folded in via `_REFINE_PREAMBLE` ahead of
-    `user_prompt` -- the whole point being that it reads as one user message, not
-    a second conversation turn (A3). Every attempt in a retry loop must pass the
-    SAME prior_source too, for the same reason as `kind`: generate_json decides
-    once, before the loop (A6's preflight), whether it fits the token budget at
-    all.
+    `prior_source`, when non-empty, is folded in ahead of `user_prompt` -- the
+    whole point being that it reads as one user message, not a second
+    conversation turn (A3). `refine_mode` ("surgical" | "context" | None) picks
+    WHICH framing does the folding, via `_refine_preamble_for` — None is the
+    legacy `_REFINE_PREAMBLE` path. Every attempt in a retry loop must pass the
+    SAME prior_source and refine_mode too, for the same reason as `kind`:
+    generate_json decides once, before the loop (A6's preflight), whether it
+    fits the token budget at all, against the SAME preamble used here.
     """
     content = user_prompt
     if prior_source:
-        content = _REFINE_PREAMBLE.format(prior=prior_source) + content
+        content = _refine_preamble_for(refine_mode).format(prior=prior_source) + content
     if truncated:
         content += _TRUNCATION_HINT
     elif error_context:
@@ -338,15 +380,29 @@ def generate_json(request: dict) -> dict:
         except Exception:
             pass
 
+    # refine_mode ("surgical" | "context" | absent): picks which preamble folds
+    # prior_source in, both here (for the preflight measurement) and in every
+    # generate_faust call below — see _refine_preamble_for. Absent is the legacy
+    # path: an older host that never sends this field gets exactly today's
+    # _REFINE_PREAMBLE behavior, unchanged.
+    refine_mode = request.get("refine_mode") or None
+
     # A6: decided ONCE, before the loop, same reasoning as `kind` above. Doesn't
-    # fit the token budget → dropped entirely, never truncated (a half program
-    # teaches the model a syntax error the user didn't make — the same failure
-    # class _TRUNCATION_HINT already exists to prevent in the other direction).
+    # fit the token budget → the two refine_mode values diverge here:
+    #   "surgical" ("Add"): HARD-FAIL. Silently dropping to a full regen would
+    #       break the "minimal, surgical change" contract the user chose Add
+    #       for — the user must be told, not handed an unrequested rewrite.
+    #   "context" ("Redo") or absent (legacy): dropped entirely, never
+    #       truncated (a half program teaches the model a syntax error the user
+    #       didn't make — the same failure class _TRUNCATION_HINT already
+    #       exists to prevent in the other direction).
     prior_source = request.get("prior_source") or None
     prior_source_dropped = False
     if prior_source:
-        candidate = _REFINE_PREAMBLE.format(prior=prior_source) + prompt
+        candidate = _refine_preamble_for(refine_mode).format(prior=prior_source) + prompt
         if not providers.preflight_prior_source(system_prompt, candidate, MAX_OUTPUT_TOKENS):
+            if refine_mode == "surgical":
+                return _prior_source_refused_response()
             prior_source, prior_source_dropped = None, True
 
     error_ctx = ""
@@ -356,7 +412,8 @@ def generate_json(request: dict) -> dict:
         try:
             code = generate_faust(prompt, error_ctx, provider, model, budget,
                                   truncated=truncated, kind=kind,
-                                  prior_source=prior_source)
+                                  prior_source=prior_source,
+                                  refine_mode=refine_mode)
         except providers.RateLimited as exc:
             return _failure(attempt, "rate_limited", str(exc))
         except providers.BudgetExhausted as exc:
@@ -408,6 +465,27 @@ def generate_json(request: dict) -> dict:
 def _failure(attempts: int, reason: str, error: str) -> dict:
     return {"success": False, "faust_code": None, "attempts": attempts,
             "error": error, "reason": reason}
+
+
+def _prior_source_refused_response() -> dict:
+    """Surgical (Add) mode's preflight hard-fail (A6). attempts=0: this is a
+    short-circuit before generate_faust is ever called, not a failed attempt.
+
+    `reason` stays "error" -- ADR-011's reason enum is locked to
+    ok|invalid_faust|truncated|timeout|rate_limited|error, and this is a new
+    failure CLASS, not a new reason value. `prior_source_refused` is the
+    additive discriminator, same precedent as `prior_source_dropped` and `kind`
+    (PF-019): every existing consumer reads success/faust_code/error/reason and
+    is unaffected by the extra key.
+    """
+    response = _failure(
+        0, "error",
+        "The prior source is too large to fit the token budget in surgical "
+        '("Add") mode, which requires the whole prior program plus the new '
+        'request to fit in one message. Choose "Redo" to regenerate with it as '
+        "reference instead, or shorten the current patch first.")
+    response["prior_source_refused"] = True
+    return response
 
 
 def _missing_api_key_response(message: str | None = None) -> dict:

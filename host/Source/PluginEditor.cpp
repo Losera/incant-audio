@@ -164,6 +164,14 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
             // just went live. Pushed unconditionally, even while the view is
             // hidden, so revealing it is instant and never shows a stale patch.
             safeThis->codeEditorPanel.showSource(safeThis->processor.currentSource());
+            // Same "source of record already committed" reasoning as showSource()
+            // above: a patch just went live, so Add/Redo now have something to
+            // add to or redo from. The panel's OWN constructor already seeds this
+            // from processor.currentSource() (covers a DAW project load, which
+            // completes before this callback is even wired up) — this call is
+            // what unlocks the modes within a session, after the FIRST generation.
+            safeThis->promptPanel.setRefineModesAvailable(
+                safeThis->processor.currentSource().isNotEmpty());
             safeThis->updateWindowSizeForParams();
         });
     };

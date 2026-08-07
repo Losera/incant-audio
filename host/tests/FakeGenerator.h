@@ -98,17 +98,30 @@ inline juce::File writeSuccess(const juce::File& dir, const juce::String& name,
 // success:false — the LLM-side failure the panel surfaces into the error region.
 // `reason` is an ADR-011 reason: invalid_faust | truncated | timeout |
 // rate_limited | no_credentials | error. `errorText` is raw, newlines and all.
+//
+// `priorSourceRefused` mirrors generate.py's _prior_source_refused_response
+// (llm/generate.py): surgical (Add) mode's preflight hard-fail. When true,
+// `attempts` is forced to 0 regardless of the default below — that response is a
+// short-circuit BEFORE generate_faust is ever called, not a failed attempt, and
+// the two are coupled deliberately rather than exposed as a separate `attempts`
+// parameter (more signature for less fidelity to what production actually sends).
 inline juce::File writeFailure(const juce::File& dir, const juce::String& name,
                                const juce::String& errorText,
                                const juce::String& reason = "error",
-                               int sleepSeconds = 0)
+                               int sleepSeconds = 0,
+                               bool priorSourceRefused = false)
 {
     auto* obj = new juce::DynamicObject();
     obj->setProperty("success", false);
     obj->setProperty("faust_code", juce::var());
-    obj->setProperty("attempts", 3);
+    obj->setProperty("attempts", priorSourceRefused ? 0 : 3);
     obj->setProperty("error", errorText);
     obj->setProperty("reason", reason);
+    // Present only when true, matching generate.py's additive-field precedent
+    // (writeSuccess's priorSourceDropped just above) -- an always-present
+    // `false` would not be the shape of a real response.
+    if (priorSourceRefused)
+        obj->setProperty("prior_source_refused", true);
     // allOnOneLine=true is REQUIRED, not cosmetic. juce::JSON::toString defaults
     // to pretty-printing (juce_JSON.h: `bool allOnOneLine = false`), and
     // PromptPanel scans the output for "the last line that starts with {"

@@ -318,6 +318,77 @@ lifecycle. `_request-file` and `prior_source` are both additive to a wire contra
 already had precedent for growing this way (`kind`, `reason` before it) — no existing
 caller's request or response shape changes.
 
+## ADR-011 — Amendment (2026-08-06): `refine_mode` splits Refine into surgical Add vs contextual Redo
+
+| | |
+|---|---|
+| **Status** | Proposed |
+| **Date** | 2026-08-06 |
+
+**Context**
+The 2026-08-04 amendment above got the prior Faust source to the LLM at all, but left the
+host's Refine control a single ON/OFF toggle, and STATUS.md's Broken #3 named what that
+toggle conflated: a *surgical add* ("preserve the DSP exactly, add only the requested
+change") and a *regenerate with context* ("full re-generation, prior source as reference")
+are semantically different requests, and the toggle could only ever express the second one.
+Step 8 of the 12-step generation workflow ("additive change — plugin stays the same besides
+a new addition") specifically needs the first, which did not exist.
+
+**Decision**
+Additive, same treatment as the 2026-08-04 amendment before it — no existing request or
+response shape changes:
+
+- `PromptPanel`'s single `ToggleButton` becomes a 3-item `ComboBox`: New (id 1, unchanged
+  Fresh behavior) / Add (id 2) / Redo (id 3). Both Add and Redo send `prior_source`
+  (`LoadMode::Iterate`, same as the old toggle's ON state); they differ in the new request
+  field below.
+- The request schema gains an optional `refine_mode: "surgical" | "context"` field, read
+  by `generate_json` (`llm/generate.py`). It selects which of two new preambles —
+  `_SURGICAL_PREAMBLE` ("MINIMAL, SURGICAL change... preserve structure, signal routing,
+  control names, and behavior EXACTLY") or `_CONTEXT_PREAMBLE` ("free to REWRITE it from
+  scratch") — folds `prior_source` into the user message, via `_refine_preamble_for`.
+  `refine_mode` absent (an older host, or no `prior_source` at all) keeps the ORIGINAL
+  `_REFINE_PREAMBLE` byte-for-byte — the legacy path is unchanged, not merely similar.
+- The two modes diverge at the existing token-budget preflight (A6 in the amendment
+  above). `"context"` keeps the established soft-drop: doesn't fit → `prior_source` is
+  cleared and the response carries `prior_source_dropped: true`, same as before this
+  amendment. `"surgical"` HARD-FAILS instead: doesn't fit →
+  `_prior_source_refused_response()` returns `success: false, reason: "error",
+  attempts: 0`, plus additive `prior_source_refused: true`, and `generate_faust` is never
+  called. Silently degrading Add to a full regen would violate the "minimal, surgical
+  change" contract the user picked Add for — soft-dropping is Redo's whole
+  reason to exist, so Add gets the opposite policy on purpose, not a shared one.
+- The host surfaces the refusal from `PromptPanel`'s existing `! success` branch (the same
+  one every other generation failure already takes) — `onFaustCompileSuccess` is provably
+  unreachable for a `success: false` response, so the surfacing does NOT live there.
+  `setError()` already shows generate.py's guidance text unconditionally; the added code is
+  the status line's specific text (`statusForReason("error")` alone would say the generic
+  "LLM error", contradicting that function's own "say what to DO" contract) and wiring the
+  previously-dead `lastPriorSourceRefused` flag.
+- `PromptPanel::setRefineModesAvailable(bool)` gates Add/Redo's `ComboBox` items on whether
+  a prior source exists at all — seeded in the constructor from
+  `processor.currentSource()` (required for a DAW project load, which calls
+  `setStateInformation` before `createEditor` even runs, so `onFaustCompileSuccess` is not
+  yet wired at restore time) AND refreshed from `onFaustCompileSuccess` (required for the
+  same-session case: the first generation in an empty project).
+
+**Reasons**
+- Same reasoning as the 2026-08-04 amendment's own: additive to a wire contract with
+  precedent for growing this way (`kind`, `reason`, `prior_source_dropped` before it).
+- The ADR-011 response `reason` enum stays closed (`ok | invalid_faust | truncated |
+  timeout | rate_limited | error`) — a refusal reuses `"error"` and is discriminated by
+  the new flag, not a sixth reason value, consistent with how `prior_source_dropped`
+  was handled rather than growing the enum.
+
+**Consequences**
+
+| Item | Status |
+|---|---|
+| Add/Redo unreachable in the real UI (`setItemEnabled(2/3, false)` at construction, nothing ever re-enabling them) | Closed 2026-08-06 — `setRefineModesAvailable`, two call sites (see Decision) |
+| `prior_source_refused` read but never surfaced (dead accessor, `priorSourceRefusedForTest()` permanently false) | Closed 2026-08-06 |
+| Whether the model actually honours EITHER new preamble in production | Open — same unverified remainder session 002 already named for the single legacy preamble, now doubled across two framings; no test in this repo can prove it, only that the transport carries the right text (`EditorSessionTest` scenarios 16, 25, 26) |
+| A DAW project load restoring a source-less blob into an already-open editor, then a later restore attempt clearing an offered Add/Redo mid-session | Open, deliberately not built for — `setRefineModesAvailable`'s force-back-to-New guard makes the display consistent if this path is ever exercised, but nothing in the current restore flow drives it |
+
 ## ADR-009 — Verdict (2026-07-19): the rule worked, the prediction did not
 
 | | |
@@ -810,3 +881,10 @@ code shipped in the same session that drafted them (`docs/sessions/008-vision-ar
 The Status field of both remains **Proposed** pending human review. The decision to
 ship code before ratifying the ADR is itself a decision that should be acknowledged
 or reversed, not silently corrected.
+
+- **ADR-011 — Amendment (2026-08-06)** (`refine_mode` / surgical Add vs contextual
+  Redo, above) is the same pattern one more time: `host/Source/PromptPanel.{h,cpp}`,
+  `PluginEditor.{h,cpp}`, `llm/generate.py`, and both test suites are all staged for
+  commit, verified green (`tools/check.sh full`, `EditorSessionTest` 213/213), while
+  the amendment's own Status field reads Proposed. Same acknowledgement, not silent
+  correction.

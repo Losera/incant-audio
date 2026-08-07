@@ -90,6 +90,23 @@ public:
     // submit (PF-021) so a previous failure never reads as the current result.
     void clearError();
 
+    // Message-thread only. Enables/disables "Add" and "Redo" on refineSelector —
+    // there is nothing to add to or redo from until a prior source exists. Two
+    // call sites, both required: the constructor seeds this from
+    // processor.currentSource() (covers a DAW project load and a reopened editor,
+    // where onFaustCompileSuccess fires — if at all — before this panel exists),
+    // and the shell calls it again from onFaustCompileSuccess so a same-session
+    // first generation unlocks the modes without needing a reopen. Deliberately
+    // NOT called from this panel's own generation-success handler: at that point
+    // loadFaustCode() has only been posted, and currentFaustSource only commits
+    // if the JIT compile actually succeeds (PluginProcessor.cpp) — gating here on
+    // "LLM returned code" would arm Add after a patch that never went live, and
+    // the next Add would send an empty prior_source.
+    // If disabling while Add or Redo is selected, forces the selection back to
+    // New — the closed box must never keep displaying a mode the user can no
+    // longer re-pick from the dropdown.
+    void setRefineModesAvailable(bool available);
+
     // Test-only entry point, so the PF-006 threading contract (supersede,
     // teardown-mid-flight) can be exercised headlessly without synthesising
     // keyboard/mouse events. Mirrors PluginForgeProcessor::currentSourceForTest().
@@ -108,9 +125,26 @@ public:
     // what the user is actually being told.
     juce::String statusTextForTest() const { return statusLabel.getText(); }
 
-    // Test-only. The Refine toggle's state, and a way to set it without a click.
-    bool refineEnabledForTest() const { return refineToggle.getToggleState(); }
-    void setRefineForTest(bool on) { refineToggle.setToggleState(on, juce::sendNotification); }
+    // Test-only. The Refine selector's state (New/Add/Redo), and a way to set it
+    // without a click. ID 1="New", 2="Add", 3="Redo". setSelectedId does not
+    // consult isItemEnabled (only the popup's own selectIfEnabled does —
+    // juce_ComboBox.cpp), so this works even while setRefineModesAvailable(false)
+    // has Add/Redo disabled — deliberately, so a test can drive a mode no mouse
+    // click could currently reach.
+    int refineModeForTest() const { return refineSelector.getSelectedId(); }
+    void setRefineForTest(int id) { refineSelector.setSelectedId(id, juce::sendNotification); }
+
+    // Test-only. Whether Add/Redo are currently selectable — i.e. whether
+    // setRefineModesAvailable(true) has ever been called. Reads the widget's own
+    // state rather than a bookkeeping flag, so it can't drift from what the UI
+    // actually offers.
+    bool refineModeAvailableForTest() const { return refineSelector.isItemEnabled(2); }
+
+    // Test-only. True when the LAST generation attempt (successful or not — a
+    // refusal is itself a failure response, generate.py's prior_source_refused)
+    // was refused because the prior source overflowed the token budget in
+    // surgical (Add) mode.
+    bool priorSourceRefusedForTest() const { return lastPriorSourceRefused; }
 
     // Test-only. The kind selector's selected text (Instrument / Effect) and a way
     // to set it without a click.
@@ -141,18 +175,21 @@ private:
     juce::TextButton  generateButton { "Generate" };
     juce::TextButton  historyButton  { "History" };
     juce::ComboBox    kindSelector;
+    juce::ComboBox    refineSelector;
     juce::Label       statusLabel;
     juce::Label       progressLabel;
     juce::TextEditor  errorBox;
 
     // ── Fresh vs Refine (PF-020's open residual) ────────────────────────────
     // LoadMode has existed in the processor since 4a84c1c and defaults correctly;
-    // the user simply had no way to choose it. Unticked (the default) means
-    // LoadMode::Fresh — a new patch is a NEW plugin and does not inherit the
-    // previous one's knob positions by slot index, which is the PF-020 defect.
-    // Ticked means Iterate: keep the current values across the next generation,
-    // which is what "make the resonance stronger" needs.
-    juce::ToggleButton refineToggle { "Refine" };
+    // the user simply had no way to choose it. The ComboBox below replaces the
+    // original single ToggleButton with three modes:
+    //   1 = "New"   → LoadMode::Fresh   (fresh generation, no prior source)
+    //   2 = "Add"   → LoadMode::Iterate (surgical: prior source is authoritative)
+    //   3 = "Redo"  → LoadMode::Iterate (context: prior source is reference)
+    // Both "Add" and "Redo" use Iterate mode (keep surviving param values), but
+    // differ in how the LLM is framed: surgical (minimal change) vs context
+    // (full regeneration with reference).
 
     // Resolved once in the constructor; invalid juce::File (existsAsFile()==false)
     // if generate.py could not be located.
@@ -186,6 +223,12 @@ private:
     // response JSON (generate.py:381-386). Read by the shell to surface a
     // warning. Reset on every new generation.
     bool        lastPriorSourceDropped = false;
+
+    // True when the last generation in surgical (Add) mode was refused because
+    // the prior source exceeded the token budget (generate.py's
+    // prior_source_refused flag). Read by the shell to surface an error.
+    // Reset on every new generation.
+    bool        lastPriorSourceRefused = false;
 
     // ── Generation worker (PF-006) ──────────────────────────────────────────
     // Mirrors FaustEngine's compile worker (FaustEngine.h "Compile worker",

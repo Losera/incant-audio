@@ -127,6 +127,66 @@ class TestGenerateFaustPriorSource:
 
 
 # ---------------------------------------------------------------------------
+# generate_faust() — refine_mode preamble selection (PromptPanel's 3-mode
+# ComboBox: New/Add/Redo)
+# ---------------------------------------------------------------------------
+
+class TestGenerateFaustRefineMode:
+    def test_surgical_uses_surgical_preamble(self):
+        with patch.object(generate.client.messages, "create",
+                          return_value=_api_response(VALID_FAUST)) as mock_create:
+            generate.generate_faust("add a low-pass filter",
+                                    prior_source="process = _ * 0.5;",
+                                    refine_mode="surgical")
+        msgs = mock_create.call_args[1]["messages"]
+        combined = " ".join(m["content"] for m in msgs)
+        assert "MINIMAL, SURGICAL change" in combined
+        assert "process = _ * 0.5;" in combined
+        # NOT the legacy or context framing.
+        assert "MODIFY the following existing Faust program, not write" not in combined
+        assert "free to REWRITE it from scratch" not in combined
+
+    def test_context_uses_context_preamble(self):
+        with patch.object(generate.client.messages, "create",
+                          return_value=_api_response(VALID_FAUST)) as mock_create:
+            generate.generate_faust("make it sound completely different",
+                                    prior_source="process = _ * 0.5;",
+                                    refine_mode="context")
+        msgs = mock_create.call_args[1]["messages"]
+        combined = " ".join(m["content"] for m in msgs)
+        assert "free to REWRITE it from scratch" in combined
+        assert "process = _ * 0.5;" in combined
+        assert "MINIMAL, SURGICAL change" not in combined
+
+    def test_absent_refine_mode_keeps_legacy_preamble(self):
+        """refine_mode=None (the default) must reproduce today's exact framing —
+        an older host, or a request that never sets the field, gets the
+        pre-refine_mode behavior byte for byte."""
+        with patch.object(generate.client.messages, "create",
+                          return_value=_api_response(VALID_FAUST)) as mock_create:
+            generate.generate_faust("make the resonance stronger",
+                                    prior_source="process = _ * 0.5;")
+        msgs = mock_create.call_args[1]["messages"]
+        combined = " ".join(m["content"] for m in msgs)
+        assert generate._REFINE_PREAMBLE.format(prior="process = _ * 0.5;") in combined
+        assert "MINIMAL, SURGICAL change" not in combined
+        assert "free to REWRITE it from scratch" not in combined
+
+    def test_unknown_refine_mode_falls_back_to_legacy_preamble(self):
+        """Degrade, don't fail: a future/typo'd refine_mode value must not crash
+        or silently drop the prior source — same 'degrade, don't fail' rule
+        select_prompt() uses for an unrecognised `kind`."""
+        with patch.object(generate.client.messages, "create",
+                          return_value=_api_response(VALID_FAUST)) as mock_create:
+            generate.generate_faust("make it louder",
+                                    prior_source="process = _ * 0.5;",
+                                    refine_mode="bogus")
+        msgs = mock_create.call_args[1]["messages"]
+        combined = " ".join(m["content"] for m in msgs)
+        assert generate._REFINE_PREAMBLE.format(prior="process = _ * 0.5;") in combined
+
+
+# ---------------------------------------------------------------------------
 # validate_faust()
 # ---------------------------------------------------------------------------
 
@@ -358,6 +418,84 @@ class TestGenerateJsonPriorSourcePreflight:
                 {**self.BASE_REQUEST, "prior_source": "y" * 5000})
         assert result["success"] is False
         assert "prior_source_dropped" not in result
+
+
+# ---------------------------------------------------------------------------
+# generate_json() — refine_mode preflight branching (surgical hard-fail vs
+# context/legacy soft-drop)
+# ---------------------------------------------------------------------------
+
+class TestGenerateJsonRefineModePreflight:
+    BASE_REQUEST = {"prompt": "make it louder", "provider": "anthropic",
+                    "model": "claude-opus-4-6", "max_retries": 1}
+
+    def test_surgical_fitting_is_sent_whole_with_refine_mode(self):
+        with patch.object(generate, "generate_faust", return_value=VALID_FAUST) as mock_gen, \
+             patch.object(generate, "validate_faust", return_value=(True, "")), \
+             patch.object(generate.providers, "preflight_prior_source", return_value=True):
+            result = generate.generate_json(
+                {**self.BASE_REQUEST, "prior_source": "process = _;",
+                 "refine_mode": "surgical"})
+        assert mock_gen.call_args.kwargs["prior_source"] == "process = _;"
+        assert mock_gen.call_args.kwargs["refine_mode"] == "surgical"
+        assert result["success"] is True
+        assert "prior_source_refused" not in result
+        assert "prior_source_dropped" not in result
+
+    def test_surgical_oversized_is_refused_not_dropped(self):
+        """The behavior this whole change exists for: surgical mode must HARD-FAIL
+        rather than silently regenerate from scratch, which would violate the
+        'minimal, surgical change' contract Add promises."""
+        with patch.object(generate, "generate_faust") as mock_gen, \
+             patch.object(generate.providers, "preflight_prior_source", return_value=False):
+            result = generate.generate_json(
+                {**self.BASE_REQUEST, "prior_source": "y" * 5000,
+                 "refine_mode": "surgical"})
+        mock_gen.assert_not_called()          # short-circuit: no generation attempted
+        assert result["success"] is False
+        assert result["attempts"] == 0
+        assert result["prior_source_refused"] is True
+        assert "prior_source_dropped" not in result
+        assert "Redo" in result["error"]      # tells the user the actual way out
+
+    def test_context_oversized_is_dropped_not_refused(self):
+        """Redo keeps today's soft-drop behavior -- only Add hard-fails."""
+        with patch.object(generate, "generate_faust", return_value=VALID_FAUST) as mock_gen, \
+             patch.object(generate, "validate_faust", return_value=(True, "")), \
+             patch.object(generate.providers, "preflight_prior_source", return_value=False):
+            result = generate.generate_json(
+                {**self.BASE_REQUEST, "prior_source": "y" * 5000,
+                 "refine_mode": "context"})
+        assert mock_gen.call_args.kwargs["prior_source"] is None
+        assert result["prior_source_dropped"] is True
+        assert "prior_source_refused" not in result
+
+    def test_context_fitting_uses_context_preamble_for_the_preflight_measurement(self):
+        """The preflight must measure the SAME preamble generate_faust will
+        actually send -- measuring the wrong (shorter/longer) one would admit a
+        request generate_faust then can't fit, or reject one it could."""
+        with patch.object(generate, "generate_faust", return_value=VALID_FAUST), \
+             patch.object(generate, "validate_faust", return_value=(True, "")), \
+             patch.object(generate.providers, "preflight_prior_source",
+                          return_value=True) as mock_preflight:
+            generate.generate_json(
+                {**self.BASE_REQUEST, "prior_source": "process = _;",
+                 "refine_mode": "context"})
+        candidate = mock_preflight.call_args[0][1]
+        assert "free to REWRITE it from scratch" in candidate
+
+    def test_refine_mode_absent_reproduces_legacy_drop_behavior(self):
+        """No refine_mode field at all (an older host, or New/fresh mode which
+        never sends prior_source anyway) must behave exactly as before this
+        change: drop, never refuse."""
+        with patch.object(generate, "generate_faust", return_value=VALID_FAUST) as mock_gen, \
+             patch.object(generate, "validate_faust", return_value=(True, "")), \
+             patch.object(generate.providers, "preflight_prior_source", return_value=False):
+            result = generate.generate_json(
+                {**self.BASE_REQUEST, "prior_source": "y" * 5000})
+        assert mock_gen.call_args.kwargs["refine_mode"] is None
+        assert result["prior_source_dropped"] is True
+        assert "prior_source_refused" not in result
 
 
 # ---------------------------------------------------------------------------
