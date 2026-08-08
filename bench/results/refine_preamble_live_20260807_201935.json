@@ -1,0 +1,54 @@
+{
+  "brief": "STATUS.md 'Assumed, never checked' #2 / 'Next three things' #1: live refine-preamble verification",
+  "claim_under_test": "the model honours the refine preamble for its mode: surgical (Add) keeps existing structure and control names exactly; context (Redo) is free to rewrite from scratch",
+  "provider": "groq",
+  "model": "openai/gpt-oss-120b",
+  "kind_pinned": "effect",
+  "generated_at": "2026-08-07T20:20:39.177004+00:00",
+  "prior_source": "import(\"stdfaust.lib\");\nz = hslider(\"ZzyzxLive\",0.5,0,1,0.01);\ncore = _ * z;\nprocess = core, core;\n",
+  "verdicts": {
+    "add_surgical": "honoured",
+    "redo_context": "honoured"
+  },
+  "records": [
+    {
+      "run": "add_surgical",
+      "request": {
+        "prompt": "add a low-pass filter before the output",
+        "prior_source": "import(\"stdfaust.lib\");\nz = hslider(\"ZzyzxLive\",0.5,0,1,0.01);\ncore = _ * z;\nprocess = core, core;\n",
+        "kind": "effect",
+        "refine_mode": "surgical"
+      },
+      "response": {
+        "success": true,
+        "faust_code": "import(\"stdfaust.lib\");\nz = hslider(\"ZzyzxLive\",0.5,0,1,0.01);\ncore = _ * z;\nfiltered = core : fi.lowpass(2, 1000);\nprocess = filtered, filtered;",
+        "attempts": 1,
+        "error": null,
+        "reason": "ok",
+        "kind": "effect"
+      },
+      "verdict": "honoured",
+      "detail": "attempts=1 reason=ok prior_source_dropped=None prior_source_refused=None"
+    },
+    {
+      "run": "redo_context",
+      "request": {
+        "prompt": "rewrite this from scratch as a stereo chorus with rate and depth controls",
+        "prior_source": "import(\"stdfaust.lib\");\nz = hslider(\"ZzyzxLive\",0.5,0,1,0.01);\ncore = _ * z;\nprocess = core, core;\n",
+        "kind": "effect",
+        "refine_mode": "context"
+      },
+      "response": {
+        "success": true,
+        "faust_code": "import(\"stdfaust.lib\");\nmaxDel = 4096;\nrate = hslider(\"Rate [unit:Hz]\", 1.0, 0.01, 8, 0.01) : si.smoo;\ndepth = hslider(\"Depth\", 0.5, 0, 1, 0.01) : si.smoo;\nmix = 0.5;\nlfo(f) = os.lf_triangle(f) * 0.5 + 0.5;\nvoice(f, x) = de.fdelay(maxDel, (10.0 + 15.0 * depth * lfo(f)) * ma.SR * 0.001, x);\nchorusCh(f, x) = x * (1 - mix) + voice(f, x) * mix;\nprocess = chorusCh(rate, _), chorusCh(rate * 1.13, _);",
+        "attempts": 1,
+        "error": null,
+        "reason": "ok",
+        "kind": "effect"
+      },
+      "verdict": "honoured",
+      "detail": "attempts=1 reason=ok prior_source_dropped=None prior_source_refused=None"
+    }
+  ],
+  "unverified_remainder": "One run per mode is a single stochastic draw, not a rate. Covered: groq/openai-gpt-oss-120b, the effects prompt, one prompt per mode, one specific prior patch. NOT covered: instruments (kind=INSTRUMENT), gemini/ollama/anthropic, other phrasings, the legacy refine_mode=None path, longer prior patches. 'Preserve exactly' is judged by marker/helper survival plus a successful compile, not a semantic diff. Redo non-preservation is only demonstrated when the model actually drops the marker."
+}

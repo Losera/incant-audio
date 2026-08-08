@@ -1,4 +1,4 @@
-# PluginForge — Status  (2026-08-06)
+# PluginForge — Status  (2026-08-07)
 
 Rewritten each session per COLLABORATION.md §5. Single writer, no merge conflicts.
 Narrative history lives in git.
@@ -11,11 +11,33 @@ behind HEAD.
 
 ## Works — and how we know
 
-**This session ran four briefs (three parallel, one sequenced) as a live trial of the
-touches/depends/provides parallel-safety mechanism session 005 left as an open decision,
-closed all three remaining STATUS.md Broken items about the keyboard widget, shipped
-`ForgeLookAndFeel.h`, and moved one Assumed claim into Works with a measured number.**
+**This session ran the first live verification of either refine preamble — the Assumed
+claim #2 and Next-three #1 open since 2026-08-06: one Add-mode (surgical) and one Redo-mode
+(context) groq run on the same starting patch, through the exact product path the host
+uses. Both were honoured, with a committed evidence artifact (first bullet below). All
+bullets before it are carried from the previous session, unchanged.**
 
+- **The model honours either refine preamble, verified live — 2/2.**
+  `bench/check_refine_preamble_live.py` (new) ran one Add-mode (`refine_mode:"surgical"` →
+  `_SURGICAL_PREAMBLE`) and one Redo-mode (`"context"` → `_CONTEXT_PREAMBLE`) groq run on the
+  SAME starting patch — a 4-line stereo scaler carrying a marker control
+  `hslider("ZzyzxLive",…)` and a named helper `core` — through the exact product path the
+  host uses (`llm/generate.py --request-file`, cwd=llm, `PLUGINFORGE_PROVIDER=groq` from
+  `.env`, `kind` pinned to `effect`), differing only in `refine_mode` and prompt. Both
+  requests, ADR-011 responses and faust outputs are recorded verbatim in
+  `bench/results/refine_preamble_live_20260807_201935.json`. **Add**: the model preserved
+  `ZzyzxLive` AND `core` exactly and added exactly one line — `filtered = core :
+  fi.lowpass(2,1000); process = filtered, filtered;` — minimal, surgical, structure
+  untouched. **Redo**: asked to "rewrite this from scratch as a stereo chorus with rate and
+  depth controls", the model produced a from-scratch chorus (`Rate [unit:Hz]` and `Depth`
+  sliders, `process = chorusCh(rate, _), chorusCh(rate * 1.13, _);`) with zero trace of the
+  prior's marker or helper. Both compiled (`faust` exit 0, re-checked independently after
+  `generate_json`'s own `validate_faust`). Closes Assumed #2 and Next-three #1.
+  `tools/check.sh fast` green; no product code touched. **Narrowed, not unconditional**:
+  one run per mode is a single stochastic draw, not a rate; single provider/model
+  (groq/`openai/gpt-oss-120b`), the effects prompt, one prompt per mode, one specific prior
+  patch; "preserve exactly" is judged by marker/helper survival plus a successful compile,
+  not a semantic diff. The full unverified remainder is recorded inside the artifact.
 - **The spectral/timbral judge (PF-041/PF-042) now consumes the features render_oracle
   computes and produces a per-prompt verdict.** `bench/spectral_judge.py` (new) turns
   `band_gain_db`, `centroid_shift_oct`, `crest_in/out_db` and `tail_ms` into a score
@@ -221,48 +243,36 @@ yet gated.)*
 
 ## Assumed, never checked
 
-**Two claims**, same count as before this rewrite — the layered-voice claim moved into
-Works with a measured 10/10 in an earlier session, and this session's refine work adds one
-new claim (below) in its place.
+**One claim** — the refine-preamble claim moved into Works this session with a live 2/2
+measurement (see the first Works bullet above); the efficacy pilot remains.
 
 - **The efficacy pilot generalizes to nothing.** *(PF-011, unchanged.)* 125 generations ≈
   437k tokens ≈ 2.2 days on groq. Needs sharding — or ollama, unmetered but CPU-only until
   the box reboots.
-- **Whether the model honours EITHER refine preamble.** *(new 2026-08-06.)* Session 002's
-  original unverified remainder — "whether the model actually honours a folded-in prior
-  source" — is now two claims, not one: `_SURGICAL_PREAMBLE` and `_CONTEXT_PREAMBLE` both
-  need their own live check. `FakeGenerator`-based tests prove the transport (right text
-  reaches the request) end to end; none of them prove the model's OUTPUT actually respects
-  "minimal, surgical, preserve exactly" versus "free to rewrite". One live run per mode,
-  with a marker control (the `scenario16`/`scenario25`/`scenario26` `Zzyzx*` pattern), is
-  the next thing to spend on this.
 
 ## Next three things
 
-1. **Whether the model honours either refine preamble, live.** Replaces the closed item
-   this slot held — the two-mode architecture that made this question exist landed this
-   session (see Broken #3), so it is no longer hypothetical. One groq run in Add mode and
-   one in Redo mode, same starting patch, checking whether the surgical run actually leaves
-   structure/control-names untouched and the context run doesn't. (Item 3's `*(evidence)*`
-   tag is unrelated pre-existing work and stays where it is — this is a second,
-   also-evidence-shaped item, not a claim on that reserved slot.)
-2. **Get it into a DAW.** Broken #2, long-standing, blocks the one validation this project
+1. **Get it into a DAW.** Broken #2, long-standing, blocks the one validation this project
    cannot claim yet: does a generated plugin actually load and behave in a real host. Needs
    `COPY_PLUGIN_AFTER_BUILD` on, `pluginval` installed, and the four MIDI-fidelity gaps
    named in Broken #2 at minimum triaged, not necessarily fixed, before a first real scan.
-3. *(evidence)* **Adversarial Mechanism A trial.** Session 006's recommendation: run a
+2. *(evidence)* **Adversarial Mechanism A trial.** Session 006's recommendation: run a
    `touches`-declared-disjoint but actually-coupled brief pair in parallel and measure
    whether the mechanism catches the coupling. Today's Mechanism A data is one favorable
    4-brief sample; this trial tests the failure path before any `PreToolUse` hook is built
    on it.
+3. **The generation-refinement architecture-planning conversation.** ADR-021 named
+   "acceptance criteria — capturing what a generation was asked for so the result can be
+   checked against it" as a real, deliberately deferred need; the spectral judge (PF-041/
+   PF-042) partially addresses category-level compliance, and this session's live 2/2
+   refine-preamble result (Works above) is the first datum on the refinement side. Promoted
+   from Displaced: with the model now shown to respect both refine modes, the broader
+   question — does single-pass generation reliably meet stated intent, and what would a
+   refinement/critique pass cost — is the natural next planning conversation.
 
-**Displaced, not urgent.** **A generation-refinement architecture-planning conversation.**
-ADR-021 (2026-08-04) named "acceptance criteria — capturing what a generation was asked for
-so the result can be checked against it" as a real, deliberately deferred, different-from-
-PluginSpec need. The spectral judge (PF-041/PF-042, landed 2026-08-06) partially addresses
-this for category-level compliance; the broader question — does single-pass generation
-reliably meet stated intent, and what would a refinement/critique pass cost — is still open.
-Also displaced: a piano roll (requested, unplanned; needs a note grid and a clock).
+**Displaced, not urgent.** **A piano roll** (requested, unplanned; needs a note grid and a
+clock). The generation-refinement architecture-planning conversation was promoted to
+Next-three #3 this session.
 
 ## Waiting on you
 
