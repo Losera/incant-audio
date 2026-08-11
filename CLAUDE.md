@@ -11,7 +11,7 @@ Three names are in play right now and the mismatch is deliberate, not an oversig
 |---|---|
 | `README.md:1` | **Incant Audio** — "Powered by the PluginForge Synthesis Engine" |
 | Everything else (this file, `STATUS.md`, `COLLABORATION.md`, all of `docs/`) | PluginForge |
-| GitHub remote | `Losera/audio-smith` |
+| GitHub remote | `Losera/incant-audio` — **already renamed upstream.** The local `origin` still said `audio-smith` until 2026-08-11 and only worked via GitHub's redirect; it now points at the real name. If a fetch ever 404s, check this first. |
 | The window title the user sees, `PRODUCT_NAME` in `host/CMakeLists.txt` | PluginForge |
 
 **No rename of identifiers, namespaces, CMake targets, `PLUGINFORGE_*` env vars, or the
