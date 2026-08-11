@@ -1,6 +1,7 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "PluginProcessor.h"
+#include "GenerationProfiles.generated.h"
 #include <atomic>
 #include <condition_variable>
 #include <mutex>
@@ -148,11 +149,14 @@ public:
 
     // Test-only. The kind selector's selected text (Instrument / Effect) and a way
     // to set it without a click.
-    juce::String kindForTest() const { return kindSelector.getText(); }
+    juce::String kindForTest() const { return PF_IS_SYNTH != 0 ? "Instrument" : "Effect"; }
     void setKindForTest(const juce::String& kind)
     {
-        kindSelector.setText(kind, juce::sendNotification);
+        if (kind.equalsIgnoreCase(kindForTest()))
+            familySelector.setSelectedId(2, juce::sendNotification);
     }
+    juce::String familyForTest() const;
+    void setFamilyForTest(const juce::String& family);
 
     // Test-only. True if the last successful generation reported that the prior
     // source was dropped due to token-budget overflow (generate.py's
@@ -168,13 +172,15 @@ private:
     void showHistoryMenu();
     void pushHistory(const juce::String& prompt);
     void restoreFromHistory(const juce::String& prompt);
+    void updateAutoFamilyLabel();
+    juce::String selectedFamilyId() const;
 
     PluginForgeProcessor& processor;
 
     PromptTextEditor promptInput;
     juce::TextButton  generateButton { "Generate" };
     juce::TextButton  historyButton  { "History" };
-    juce::ComboBox    kindSelector;
+    juce::ComboBox    familySelector;
     juce::ComboBox    refineSelector;
     juce::Label       statusLabel;
     juce::Label       progressLabel;
@@ -239,7 +245,8 @@ private:
     void runGeneration(const juce::String& prompt, juce::uint64 myGeneration,
                        PluginForgeProcessor::LoadMode mode,
                        const juce::String& priorSource,
-                       const juce::String& kind);
+                       const juce::String& kind,
+                       const juce::String& family);
     void shutdownWorker();
 
     std::thread             worker;
@@ -266,6 +273,7 @@ private:
     // Kind (instrument/effect) AS OF SUBMIT, same thread/mutex reasoning as
     // pendingPriorSource: read on message thread, published with the job.
     juce::String            pendingKind;              // guarded by jobMutex
+    juce::String            pendingFamily;            // guarded by jobMutex
     bool                    hasJob   = false;
     bool                    stopping = false;   // guarded by jobMutex
 

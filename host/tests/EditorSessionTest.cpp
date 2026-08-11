@@ -1759,7 +1759,7 @@ void scenario22_qwertyMappingStaticContract()
     snapshot(s.editor, "22_qwerty_mapping_static_contract");
 }
 
-// 23 — The kind selector (Instrument / Effect) reaches the LLM request (ADR-011).
+// 23 — The family selector reaches the LLM request with the build-fixed kind.
 //
 // `kind` existed in generate.py's request schema (select_prompt at :85-95, read
 // at :331) but nothing in the host ever sent it: the workflow-step-2 type
@@ -1778,13 +1778,12 @@ void scenario23_kindSelectorReachesRequest(const juce::File& tmp)
 
     Session s;
 
-    check(s.editor.kindForTest()
-              == juce::String(PF_IS_SYNTH ? "Instrument" : "Effect"),
-          "kind selector defaults to the build target (PF_IS_SYNTH)");
+    check(s.editor.kindForTest() == juce::String(PF_IS_SYNTH ? "Instrument" : "Effect"),
+          "kind is fixed to the build target (PF_IS_SYNTH)");
 
-    const juce::String chosen = PF_IS_SYNTH ? "Effect" : "Instrument";
-    s.editor.setKindForTest(chosen);
-    check(s.editor.kindForTest() == chosen, "kind selector accepts the override");
+    const juce::String chosen = PF_IS_SYNTH ? "drum_synth" : "granular_effect";
+    s.editor.setFamilyForTest(chosen);
+    check(s.editor.familyForTest() == chosen, "family selector accepts a compatible profile");
 
     s.editor.submitPromptForTest("a small patch, kind must ride along");
     const bool live = pumpUntil([&] {
@@ -1797,9 +1796,11 @@ void scenario23_kindSelectorReachesRequest(const juce::File& tmp)
     auto req = FakeGenerator::capturedRequestJson(tmp, "gen23");
     check(req.isNotEmpty(), "a request.json was written");
     const auto parsed = juce::JSON::parse(req);
-    check(parsed.getProperty("kind", "").toString() == chosen,
-          "the request JSON's kind field carries the selector's choice -- "
-          "generate.py:331 reads exactly this field to pick the prompt");
+    check(parsed.getProperty("kind", "").toString()
+              == juce::String(PF_IS_SYNTH ? "instrument" : "effect"),
+          "the request JSON carries the build-fixed host role");
+    check(parsed.getProperty("family", "").toString() == chosen,
+          "the request JSON carries the selected generation family");
 
     snapshot(s.editor, "23_kind_selector_reaches_request");
 }

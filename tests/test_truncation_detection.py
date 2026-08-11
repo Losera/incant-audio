@@ -211,4 +211,5 @@ class TestGenerateHandlesTruncation:
             payload = generate.generate_json({"prompt": "a filter"})
         # `kind` is additive, 2026-08-01; "a filter" routes to the effects prompt.
         assert payload == {"success": True, "faust_code": FAUST, "attempts": 1,
-                           "error": None, "reason": "ok", "kind": "effect"}
+                           "error": None, "reason": "ok", "kind": "effect",
+                           "family": "effect", "family_source": "auto"}

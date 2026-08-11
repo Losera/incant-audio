@@ -26,6 +26,7 @@ from dotenv import load_dotenv
 sys.path.insert(0, str(Path(__file__).parent))
 import providers  # noqa: E402
 import router  # noqa: E402
+import generation_profiles  # noqa: E402
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 
@@ -233,7 +234,8 @@ def generate_faust(user_prompt: str, error_context: str = "",
                    truncated: bool = False,
                    kind: str | None = None,
                    prior_source: str | None = None,
-                   refine_mode: str | None = None) -> str:
+                   refine_mode: str | None = None,
+                   system_prompt: str | None = None) -> str:
     """One generation attempt.
 
     `truncated` and `error_context` are mutually exclusive repair signals, and the
@@ -264,12 +266,14 @@ def generate_faust(user_prompt: str, error_context: str = "",
     elif error_context:
         content += f"\n\nYour previous output had this compiler error — fix it:\n{error_context}"
 
-    _, system_prompt = select_prompt(user_prompt, kind)
+    if system_prompt is None:
+        _, system_prompt = select_prompt(user_prompt, kind)
     return _call_api(content, provider, model, budget, system_prompt)
 
 
 def validate_faust(faust_code: str,
-                   budget: "providers.Budget | None" = None) -> tuple[bool, str]:
+                   budget: "providers.Budget | None" = None,
+                   profile: "generation_profiles.Profile | None" = None) -> tuple[bool, str]:
     """Returns (is_valid, error_message).
 
     PF-019: with a Budget, the compiler subprocess timeout is clamped to what is
@@ -286,28 +290,96 @@ def validate_faust(faust_code: str,
     # generation dies on what should have been a recoverable attempt.
     # Reproduced 2026-07-21 against faust on the Arch dev box; regression test in
     # tests/test_faust_validator_unit.py::test_non_utf8_compiler_output.
-    with tempfile.NamedTemporaryFile(suffix=".dsp", mode="w", encoding="utf-8",
-                                     delete=False) as f:
-        f.write(faust_code)
-        tmp = f.name
     timeout = FAUST_VALIDATE_TIMEOUT_S
     if budget is not None:
         timeout = max(2.0, min(timeout, budget.remaining()))
+    with tempfile.NamedTemporaryFile(suffix=".dsp", mode="w", encoding="utf-8",
+                                     delete=False) as handle:
+        handle.write(faust_code)
+        source = Path(handle.name)
+    output = Path(str(source) + ".cpp")
+    metadata_path = Path(str(source) + ".json")
     try:
         result = subprocess.run(
-            ["faust", "-lang", "cpp", tmp, "-o", "/dev/null"],
+            ["faust", "-json", "-lang", "cpp", str(source), "-o", str(output)],
             capture_output=True, text=True, timeout=timeout,
             encoding="utf-8", errors="replace",
         )
-        return result.returncode == 0, result.stderr.strip()
+        if result.returncode != 0:
+            return False, result.stderr.strip()
+        if profile is None:
+            return True, ""
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        return _validate_profile_metadata(metadata, profile)
     except subprocess.TimeoutExpired:
         # A patch the compiler cannot finish is an invalid patch, not a crash.
         # Report it as a compile error so the retry loop can feed it back.
         return False, (f"faust compiler did not finish within {timeout:.0f}s — "
                        f"the generated patch is likely pathological "
                        f"(unbounded delay, runaway recursion).")
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return False, f"Faust metadata validation failed: {exc}"
     finally:
-        os.unlink(tmp)
+        for path in (source, output, metadata_path):
+            if path.exists():
+                os.unlink(path)
+
+
+def _ui_labels(items: list[dict]) -> set[str]:
+    labels: set[str] = set()
+    for item in items:
+        label = item.get("label")
+        if isinstance(label, str):
+            labels.add(label.strip().lower())
+        children = item.get("items")
+        if isinstance(children, list):
+            labels.update(_ui_labels(children))
+    return labels
+
+
+def _validate_profile_metadata(metadata: dict,
+                               profile: generation_profiles.Profile) -> tuple[bool, str]:
+    """Deterministic intent checks on compiler-produced facts, never source regexes."""
+    inputs = int(metadata.get("inputs", -1))
+    outputs = int(metadata.get("outputs", -1))
+    labels = _ui_labels(metadata.get("ui") or [])
+
+    if outputs not in (1, 2):
+        return False, (f"family {profile.id} requires one or two audio outputs; "
+                       f"the compiled patch has {outputs}")
+    if profile.kind == "effect" and inputs not in (1, 2):
+        return False, (f"family {profile.id} must process one or two audio inputs; "
+                       f"the compiled patch has {inputs}")
+    if profile.kind == "instrument" and inputs != 0:
+        return False, (f"family {profile.id} must generate sound with zero audio inputs; "
+                       f"the compiled patch has {inputs}")
+
+    if profile.id in ("synth", "drum_synth"):
+        roles = (
+            "gate" in labels,
+            bool(labels.intersection({"freq", "key"})),
+            bool(labels.intersection({"gain", "vel", "velocity"})),
+        )
+        if not all(roles):
+            return False, (f"family {profile.id} requires the complete MIDI voice contract: "
+                           "gate, freq or key, and gain, vel, or velocity")
+
+    if profile.id == "granular_effect":
+        groups = {
+            "grain size": ("grain size", "size"),
+            "density": ("density",),
+            "position/delay": ("position", "delay"),
+            "pitch/spray": ("pitch", "spray"),
+            "feedback": ("feedback",),
+            "mix": ("mix", "dry/wet", "dry wet"),
+        }
+        missing = [name for name, terms in groups.items()
+                   if not any(any(term in label for term in terms) for label in labels)]
+        if missing:
+            return False, ("family granular_effect is missing required controls: "
+                           + ", ".join(missing))
+
+    return True, ""
 
 
 def generate_with_retry(user_prompt: str, max_retries: int = 3,
@@ -371,14 +443,23 @@ def generate_json(request: dict) -> dict:
     # the same kind — see generate_faust's note on why re-routing per attempt
     # would repair code against rules the first attempt never saw.
     kind, system_prompt = select_prompt(prompt, request.get("kind"))
+    try:
+        profile, family_source = generation_profiles.resolve(
+            prompt, kind, request.get("family")
+        )
+    except ValueError as exc:
+        return _failure(0, "error", str(exc))
 
     # Dynamic stdlib token headroom optimization (PLUGINFORGE_DYNAMIC_STDLIB=1 default)
     if os.environ.get("PLUGINFORGE_DYNAMIC_STDLIB", "1") != "0":
         try:
             import prompt_builder
-            system_prompt = prompt_builder.build_dynamic_prompt(prompt)
+            system_prompt = prompt_builder.build_dynamic_prompt(
+                prompt, base_system_prompt=system_prompt
+            )
         except Exception:
             pass
+    system_prompt = generation_profiles.append_brief(system_prompt, profile)
 
     # refine_mode ("surgical" | "context" | absent): picks which preamble folds
     # prior_source in, both here (for the preflight measurement) and in every
@@ -413,7 +494,8 @@ def generate_json(request: dict) -> dict:
             code = generate_faust(prompt, error_ctx, provider, model, budget,
                                   truncated=truncated, kind=kind,
                                   prior_source=prior_source,
-                                  refine_mode=refine_mode)
+                                  refine_mode=refine_mode,
+                                  system_prompt=system_prompt)
         except providers.RateLimited as exc:
             return _failure(attempt, "rate_limited", str(exc))
         except providers.BudgetExhausted as exc:
@@ -430,7 +512,7 @@ def generate_json(request: dict) -> dict:
             continue
 
         truncated = False
-        valid, error = validate_faust(code, budget)
+        valid, error = validate_faust(code, budget, profile)
         if valid:
             # `kind` is ADDITIVE, same treatment as `reason` under PF-019: every
             # existing consumer reads success/faust_code/error and is unaffected
@@ -442,7 +524,8 @@ def generate_json(request: dict) -> dict:
             # and threading it through is a separate change. A failed instrument
             # request is currently indistinguishable from a failed effect one.
             response = {"success": True, "faust_code": code, "attempts": attempt,
-                       "error": None, "reason": "ok", "kind": kind}
+                       "error": None, "reason": "ok", "kind": kind,
+                       "family": profile.id, "family_source": family_source}
             if prior_source_dropped:
                 # Additive, same treatment as `kind` above: every existing
                 # consumer reads success/faust_code/error and is unaffected by

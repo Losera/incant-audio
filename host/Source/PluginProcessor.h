@@ -101,12 +101,14 @@ public:
 
     // Persisted-state schema version. Bump when the blob layout changes; setState
     // rejects a blob whose version it does not understand rather than misreading it.
-    // 2 as of 2026-08-02: the blob now carries the slot -> ParamIdentity map and
+    // 3 as of 2026-08-11: the blob also carries the resolved generation family
+    // and whether it was explicit, inferred, defaulted, or migrated. Version 2
+    // introduced the slot -> ParamIdentity map and
     // the id-derivation scheme that produced it. A REAL bump, not an amendment
     // like <SlotLabels> or `uiStyle` were: those were fields nothing depended on,
     // whereas a v1 blob genuinely lacks information a v2 restore uses, and the two
     // take different code paths (see setStateInformation).
-    static constexpr int kStateSchemaVersion = 2;
+    static constexpr int kStateSchemaVersion = 3;
 
     // How a newly loaded patch treats the macro values already in the APVTS.
     //
@@ -137,7 +139,9 @@ public:
     // State restore must pass Iterate — it has just written the saved values and
     // resetting them would discard exactly what it restored.
     void loadFaustCode(const juce::String& faustCode, const juce::String& prompt = {},
-                       LoadMode mode = LoadMode::Fresh);
+                       LoadMode mode = LoadMode::Fresh,
+                       const juce::String& family = {},
+                       const juce::String& familySource = {});
 
     // Set by the editor to surface a Faust compile failure (as opposed to an
     // LLM-generation failure, which the editor already handles from its own
@@ -213,15 +217,23 @@ public:
     // the drain sees that processBlock's fetch_add and spins until it exits.
     // (Rationale: FaustEngine.h:255-270.)
     //
-    // loadAuditionSample: MESSAGE THREAD ONLY. Reads a WAV into a local buffer,
-    // drains audioBusy, then moves it into auditionBuffer.
+    // loadAuditionSample: NON-AUDIO THREAD ONLY. Reads audio into a local buffer,
+    // drains audioBusy, then moves it into auditionBuffer. The sample browser calls
+    // it from its worker so file decoding never blocks the message thread.
     //
     // auditionPos is atomic, relaxed, only written by the audio thread; reset to
     // 0 on every load/set. auditionActive is atomic and written only on the
     // message thread.
     void loadAuditionSample(const juce::File& wavFile);
+    enum class AuditionMode { Stopped = 0, OneShot = 1, Loop = 2 };
+    void setAuditionMode(AuditionMode mode);
+    AuditionMode auditionMode() const noexcept
+    {
+        return static_cast<AuditionMode>(auditionModeValue.load(std::memory_order_relaxed));
+    }
+    void retriggerAudition() noexcept { auditionPos.store(0, std::memory_order_relaxed); }
     void setAuditionActive(bool active);
-    bool isAuditionActive() const noexcept { return auditionActive.load(std::memory_order_relaxed); }
+    bool isAuditionActive() const noexcept { return auditionMode() != AuditionMode::Stopped; }
 
     // Set by the editor to surface true JIT-ready status (ADR-011 "point E":
     // the Generate button re-enables when the subprocess returns, but the DSP
@@ -263,6 +275,8 @@ public:
     // Test-only accessor for the retained prompt, so the state round-trip test
     // can assert what setState restored without reaching into private members.
     juce::String currentPromptForTest() const;
+    juce::String currentFamily() const;
+    juce::String currentFamilySource() const;
 
     // Test-only alias retained so the existing harnesses keep reading the way
     // they were written. Prefer currentSource() in new code.
@@ -333,8 +347,10 @@ private:
     // side, seq_cst on the read side in processBlock, relaxed in isAuditionActive
     // (a UI snapshot, not part of the handshake).
     std::atomic<bool> auditionActive { false };
+    std::atomic<int> auditionModeValue { static_cast<int>(AuditionMode::Stopped) };
     std::atomic<size_t> auditionPos { 0 };
     juce::AudioBuffer<float> auditionBuffer;  // 2-channel, pre-loaded from WAV
+    std::atomic<double> preparedSampleRate { 44100.0 };
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
@@ -363,6 +379,8 @@ private:
     mutable std::mutex metaMutex;
     juce::String       currentFaustSource;
     juce::String       currentPrompt;
+    juce::String       currentGenerationFamily { PF_IS_SYNTH ? "synth" : "effect" };
+    juce::String       currentGenerationFamilySource { "legacy_default" };
     // The user's chosen control style, by name (see ParamGridPanel::ControlStyleName).
     // Stored as a string rather than an int so the state blob stays readable and a
     // future style can be added without renumbering an enum that is already on disk.
@@ -399,6 +417,8 @@ private:
     std::atomic<bool> prepared { false };
     juce::String      pendingRestoreSource;
     juce::String      pendingRestorePrompt;
+    juce::String      pendingRestoreFamily;
+    juce::String      pendingRestoreFamilySource;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PluginForgeProcessor)
 };
