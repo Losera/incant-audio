@@ -100,24 +100,40 @@ public:
         // variadic pack with only a static_assert on the count
         // (juce_LookAndFeel_V4.h:58-65).
         //
-        // defaultFill/highlightedFill echo the meterCool -> meterHot gradient
-        // PluginEditor::paint() already uses for the output level meter
-        // (PluginEditor.cpp:290-295) -- the one accent motif already
-        // established in this UI, rather than inventing a second one.
-        // highlightedText is Theme::base (dark) for contrast against
-        // highlightedFill's lighter meterHot pink wherever text sits on top of
-        // it (TextButton::textColourOnId, PopupMenu highlighted text, etc. --
-        // juce_LookAndFeel_V4.cpp:1338,1374).
+        // ONE ACCENT. Both fill slots are Theme::accent (the blue), and that
+        // is a design decision rather than an oversight.
+        //
+        // These two slots used to be accent -> meterHot, echoing the level
+        // meter's gradient. Under Catppuccin that read as teal thumb + pink
+        // track and merely looked busy; under Tokyo Night it was actively wrong,
+        // and rendering the palette change is what exposed it. V4 wires
+        // Slider::thumbColourId from defaultFill and BOTH
+        // Slider::trackColourId and Slider::rotarySliderFillColourId from
+        // highlightedFill (juce_LookAndFeel_V4.cpp:1399-1401), so every slider
+        // in the product was drawing its VALUE in the same orange the meter uses
+        // to mean "you are about to clip". A colour that means "hot" everywhere
+        // means nothing anywhere.
+        //
+        // So: the accent marks value and focus, and nothing else. The level
+        // meter keeps its cool->hot gradient because PluginEditor::paint()
+        // draws it from the Theme tokens directly rather than through the
+        // scheme (PluginEditor.cpp:290-295) -- which leaves meterHot's orange
+        // the ONLY orange in the UI, and therefore still a signal.
+        //
+        // highlightedText stays Theme::background (dark) wherever text
+        // sits on top of highlightedFill (TextButton::textColourOnId, PopupMenu
+        // highlighted text -- juce_LookAndFeel_V4.cpp:1338,1374); dark-on-#7aa2f7
+        // is a stronger pairing than it was on the old pink.
         setColourScheme ({
-            Theme::base,        // windowBackground
-            Theme::mantle,      // widgetBackground
-            Theme::mantle,      // menuBackground
-            Theme::overlay,     // outline
-            Theme::text,        // defaultText
-            Theme::meterCool,   // defaultFill
-            Theme::base,        // highlightedText
-            Theme::meterHot,    // highlightedFill
-            Theme::text         // menuText
+            Theme::background,  // windowBackground
+            Theme::surface,     // widgetBackground
+            Theme::surface,     // menuBackground
+            Theme::outline,     // outline
+            Theme::textPrimary, // defaultText
+            Theme::accent,      // defaultFill      -- slider thumb
+            Theme::background,  // highlightedText
+            Theme::accent,      // highlightedFill  -- slider track + rotary fill
+            Theme::textPrimary  // menuText
         });
     }
 
