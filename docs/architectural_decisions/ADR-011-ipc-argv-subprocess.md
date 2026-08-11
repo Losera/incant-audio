@@ -6,8 +6,9 @@
 ## Context
 
 `PluginEditor` needs the Faust code that `llm/generate.py` produces. The mechanism shipped on
-2026-07-16 without a decision being recorded first — `docs/decisions_reconstructed.md` flags
-Decision [011] as the last Open item. This ADR ratifies (rather than re-litigates) the shipped
+2026-07-16 without a decision being recorded first — the since-deleted
+`docs/decisions_reconstructed.md` flagged Decision [011] as the last Open item (that file was
+removed 2026-08-11 as superseded; `git log` has it). This ADR ratifies (rather than re-litigates) the shipped
 mechanism, now that it has survived a month of use and a full build.
 
 ## Decision
