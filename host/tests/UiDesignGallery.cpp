@@ -65,17 +65,29 @@ bool pumpUntil(std::function<bool()> done, int timeoutMs = 20000)
 // Declaration order is the contract: the processor is declared FIRST so it is
 // destroyed LAST, because PromptPanel holds a raw PluginForgeProcessor& and
 // joins its worker in ~PromptPanel (PromptPanel.h:63-68).
+// The default width/height MUST stay inside PluginForgeEditor's own
+// setResizeLimits(...) range (PluginEditor.cpp:26). Component::setSize does NOT
+// consult the constrainer -- only the resizer/peer path does -- so passing a
+// width below the minimum silently succeeds and photographs a window the product
+// can never display. This harness did exactly that from the two-panel rewrite
+// until 2026-08-11: it asked for 480x460 against a 800x400 minimum, so every PNG
+// in the gallery, and every window[] in the frozen reference manifest, described
+// a ~238px-per-column layout no user has ever seen. The design instrument was
+// measuring a shape the product does not have.
+constexpr int kDefaultW = 900;   // == PluginEditor.cpp:19's setSize
+constexpr int kDefaultH = 500;
+
 struct Session
 {
     PluginForgeProcessor processor;
     PluginForgeEditor    editor { processor };
 
-    Session()
+    explicit Session(int w = kDefaultW, int h = kDefaultH)
     {
         processor.prepareToPlay(48000.0, 512);
         // Without a size the grid has zero bounds and every widget lands at 0x0:
         // constructed, but visually meaningless, and the snapshot comes out blank.
-        editor.setSize(480, 460);
+        editor.setSize(w, h);
     }
 };
 
@@ -156,10 +168,16 @@ juce::String recordToJson(const Record& r)
 // will not compile or a grid that never settles — never on a layout the author
 // happens to dislike.
 bool renderFixture(const juce::File& dsp, const juce::File& outDir, Record& rec,
-                   const juce::String& styleName = "faithful")
+                   const juce::String& styleName = "faithful", int width = kDefaultW)
 {
+    // The width suffix is omitted at kDefaultW so the routine single-width run
+    // produces exactly the record names the reference manifest already carries.
+    // Adding "__w900" everywhere would rename all 18 records and turn the very
+    // first --widths run into an all-NEW-FIXTURE diff, which is the noise this
+    // change exists to remove.
     rec.name = dsp.getFileNameWithoutExtension()
-             + (styleName == "faithful" ? juce::String() : "__" + styleName);
+             + (styleName == "faithful" ? juce::String() : "__" + styleName)
+             + (width == kDefaultW      ? juce::String() : "__w" + juce::String(width));
     rec.png  = rec.name + ".png";
 
     const auto source = dsp.loadFileAsString();
@@ -169,7 +187,7 @@ bool renderFixture(const juce::File& dsp, const juce::File& outDir, Record& rec,
         return false;
     }
 
-    Session s;
+    Session s { width, kDefaultH };
     // Set BEFORE the compile, the way a reopened project does it, so this also
     // exercises the path where a style is already stored when widgets are built.
     s.processor.setUiStyle(styleName);
@@ -258,11 +276,50 @@ int main(int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInit;
 
+    // Flags are pulled out first so the two positional args keep their existing
+    // meaning and position regardless of where a flag appears.
+    juce::StringArray positional;
+    juce::Array<int>  widths;
+
+    for (int i = 1; i < argc; ++i)
+    {
+        const juce::String a { argv[i] };
+
+        if (a.startsWith("--widths="))
+        {
+            juce::StringArray parts;
+            parts.addTokens(a.fromFirstOccurrenceOf("=", false, false), ",", "");
+            for (auto& p : parts)
+            {
+                const int w = p.trim().getIntValue();
+                // Reject rather than clamp: a width below PluginForgeEditor's own
+                // minimum is exactly the bug this flag was added to expose, so
+                // silently repairing it would reintroduce it one level up.
+                if (w < 400 || w > 4000)
+                {
+                    std::printf("UiDesignGallery: --widths value out of range: %s\n",
+                                p.trim().toRawUTF8());
+                    return 2;
+                }
+                widths.addIfNotAlreadyThere(w);
+            }
+        }
+        else
+        {
+            positional.add(a);
+        }
+    }
+
+    // Default to the single real default width. A full sweep is 3x the JIT
+    // compiles, so the routine loop must not pay for it unless asked.
+    if (widths.isEmpty())
+        widths.add(kDefaultW);
+
     const auto cwd = juce::File::getCurrentWorkingDirectory();
-    const auto fixtureDir = argc > 1 ? juce::File(argv[1])
-                                     : cwd.getChildFile("host/tests/ui_fixtures");
-    const auto outDir     = argc > 2 ? juce::File(argv[2])
-                                     : cwd.getChildFile("artifacts/ui_gallery");
+    const auto fixtureDir = positional.size() > 0 ? juce::File(positional[0])
+                                                  : cwd.getChildFile("host/tests/ui_fixtures");
+    const auto outDir     = positional.size() > 1 ? juce::File(positional[1])
+                                                  : cwd.getChildFile("artifacts/ui_gallery");
 
     if (! fixtureDir.isDirectory())
     {
@@ -282,8 +339,12 @@ int main(int argc, char** argv)
         return 2;
     }
 
+    juce::StringArray widthLabels;
+    for (const auto w : widths) widthLabels.add(juce::String(w));
+
     std::printf("UiDesignGallery — %d fixtures from %s\n",
                 fixtures.size(), fixtureDir.getFullPathName().toRawUTF8());
+    std::printf("  widths: %s\n", widthLabels.joinIntoString(", ").toRawUTF8());
     std::printf("  out: %s\n\n", outDir.getFullPathName().toRawUTF8());
 
     juce::Array<Record> records;
@@ -294,12 +355,13 @@ int main(int argc, char** argv)
     const char* kStyles[] = { "faithful", "rotary", "horizontal" };
     for (const auto& f : fixtures)
         for (const auto* st : kStyles)
-        {
-            Record r;
-            if (! renderFixture(f, outDir, r, st))
-                ++broken;
-            records.add(r);
-        }
+            for (const auto w : widths)
+            {
+                Record r;
+                if (! renderFixture(f, outDir, r, st, w))
+                    ++broken;
+                records.add(r);
+            }
 
     // ── manifest.json ───────────────────────────────────────────────────────
     // The diffable half. tools/ui_iterate.sh compares this against the committed

@@ -404,6 +404,31 @@ jobs:
           path: artifacts/images/session_*.png
           if-no-files-found: warn
 
+      # The UI design instrument. Runs the gallery + semantic layout diff through
+      # tools/ui_iterate.sh so CI and the local ladder share one implementation of
+      # the xvfb wrapper and the diff.
+      #
+      # The step FAILS only on harness failure (a fixture that stopped compiling,
+      # a grid that never settled) -- ui_iterate.sh reserves its exit code for
+      # exactly that and prints layout drift as a report. Drift is expected while
+      # iterating on the design and must not gate a PR.
+      - name: Run UiDesignGallery + layout diff (under xvfb)
+        env:
+          # CI configures into build-ci, not the host/build tree check.sh uses.
+          PF_BUILD_DIR: build-ci
+        run: timeout 900 tools/ui_iterate.sh --no-build
+
+      # This is the fast visual-review surface for a PR: one HTML page plus the
+      # PNGs, downloadable from the run. Reviewing "does it look right" from a
+      # diff of drawing code is not a thing anyone can actually do.
+      - name: Upload UI design gallery
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-design-gallery
+          path: artifacts/ui_gallery/
+          if-no-files-found: warn
+
       # Decision (P3 "if TSan runtime in Actions is questionable"): RUN it, not
       # build-only. Rationale: the harness is cheap (~20 tiny JIT compiles +
       # a fixed 5 s window, well under a minute locally) and it is the only

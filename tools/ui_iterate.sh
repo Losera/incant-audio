@@ -6,6 +6,12 @@
 #   tools/ui_iterate.sh              build, render, diff against the reference
 #   tools/ui_iterate.sh --accept     adopt the current manifest as the reference
 #   tools/ui_iterate.sh --no-build   render with whatever is already built
+#   tools/ui_iterate.sh --open       open the contact sheet when it is written
+#   tools/ui_iterate.sh --widths=700,900,1280
+#                                    render each fixture at several window widths
+#
+# ENV. PF_BUILD_DIR overrides where the harness binary is looked for
+# (default host/build; CI sets build-ci).
 #
 # WHAT IT IS FOR. §3's B (LLM layout hints) and C (deterministic auto-layout)
 # both change what the parameter grid looks like, and before this there was no
@@ -30,17 +36,30 @@ cd "$(dirname "$0")/.."
 
 BUILD=1
 ACCEPT=0
+OPEN=0
+GALLERY_ARGS=()
 for arg in "$@"; do
   case "$arg" in
     --accept)   ACCEPT=1 ;;
     --no-build) BUILD=0 ;;
-    -h|--help)  sed -n '2,28p' "$0"; exit 0 ;;
+    --open)     OPEN=1 ;;
+    # Passed through to the harness. --widths renders the same fixture at more
+    # than one window width, which is the only way the responsive behaviour of a
+    # two-column split is visible to anything but a human dragging the corner.
+    --widths=*) GALLERY_ARGS+=("$arg") ;;
+    -h|--help)  sed -n '2,34p' "$0"; exit 0 ;;
     *) echo "ui_iterate.sh: unknown option '$arg'" >&2; exit 2 ;;
   esac
 done
 
 OUT=artifacts/ui_gallery
 REF=host/tests/ui_fixtures/reference_manifest.json
+
+# Where the harness binary lives. Defaults to the tree tools/check.sh configures;
+# CI configures into build-ci instead (.github/workflows/test.yml) and sets this,
+# so both callers share one implementation of the render + diff rather than CI
+# growing a second copy that drifts.
+BUILD_DIR="${PF_BUILD_DIR:-host/build}"
 
 # ── 1. Build ────────────────────────────────────────────────────────────────
 if [[ $BUILD -eq 1 ]]; then
@@ -52,9 +71,9 @@ if [[ $BUILD -eq 1 ]]; then
   # hardcode the Debug path, so it aborted "not built" immediately after a
   # successful build on any tree whose cache had not already been set to Debug
   # by tools/check.sh. Matches check.sh:92-94.
-  cmake -S host -B host/build -G Ninja -DCMAKE_BUILD_TYPE=Debug >/dev/null 2>&1 || {
+  cmake -S host -B "$BUILD_DIR" -G Ninja -DCMAKE_BUILD_TYPE=Debug >/dev/null 2>&1 || {
     echo "  cmake configure FAILED" >&2; exit 1; }
-  if ! ninja -C host/build UiDesignGallery 2>&1 | tail -n 5; then
+  if ! ninja -C "$BUILD_DIR" UiDesignGallery 2>&1 | tail -n 5; then
     echo "  build FAILED" >&2; exit 1
   fi
 fi
@@ -62,9 +81,9 @@ fi
 # Locate rather than assume: every other consumer in this repo resolves harness
 # binaries with a bare find (check.sh:123, :140-141, :151; test.yml:271, :333),
 # because the <Config> path segment varies with generator and build type.
-BIN="$(find host/build -type f -name UiDesignGallery 2>/dev/null | head -n1)"
+BIN="$(find "$BUILD_DIR" -type f -name UiDesignGallery 2>/dev/null | head -n1)"
 [[ -n "$BIN" && -x "$BIN" ]] || {
-  echo "ui_iterate.sh: UiDesignGallery not found under host/build (build it first)" >&2
+  echo "ui_iterate.sh: UiDesignGallery not found under $BUILD_DIR (build it first)" >&2
   exit 1; }
 
 # ── 2. Render ───────────────────────────────────────────────────────────────
@@ -78,6 +97,20 @@ BIN="$(find host/build -type f -name UiDesignGallery 2>/dev/null | head -n1)"
 # and survives direct invocation, which an env var here does not) and paste the
 # failing output next to it.
 echo "── rendering fixtures"
+
+# ── Rotate the previous run aside, for the A/B the contact sheet renders ─────
+# You cannot judge "sleeker" from one picture; only against the one before it.
+# The reference manifest answers "did anything MOVE", which is a different and
+# narrower question than "does this look better" -- and the second question is
+# the one a design pass actually has to answer. Keeping the prior PNGs costs
+# nothing (artifacts/ is gitignored) and is the single biggest reviewer-speed
+# win available here.
+if [[ -d "$OUT" ]] && compgen -G "$OUT/*.png" >/dev/null; then
+  rm -rf "$OUT/prev"
+  mkdir -p "$OUT/prev"
+  cp "$OUT"/*.png "$OUT/prev/" 2>/dev/null || true
+fi
+
 RUNNER=()
 if [[ -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]]; then
   if command -v xvfb-run >/dev/null 2>&1; then
@@ -89,7 +122,7 @@ if [[ -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]]; then
   fi
 fi
 
-"${RUNNER[@]}" "$BIN"
+"${RUNNER[@]}" "$BIN" ${GALLERY_ARGS+"${GALLERY_ARGS[@]}"}
 RENDER_RC=$?
 
 if [[ $RENDER_RC -ne 0 ]]; then
@@ -100,14 +133,29 @@ if [[ $RENDER_RC -ne 0 ]]; then
   exit $RENDER_RC
 fi
 
-# ── 3. Contact sheet ────────────────────────────────────────────────────────
+# ── 3. Diff first, so the contact sheet can carry it ────────────────────────
+# Ordering matters: the sheet takes the diff as an argument, so the diff has to
+# exist before the sheet is written. The diff is captured to a file rather than
+# recomputed, so the page and the terminal cannot disagree about what changed.
+DIFF_TXT="$OUT/layout_diff.txt"
+: > "$DIFF_TXT"
+if [[ $ACCEPT -eq 0 && -f "$REF" ]]; then
+  python3 tools/ui_layout_diff.py "$REF" "$OUT/manifest.json" > "$DIFF_TXT" 2>&1 || true
+fi
+
+# ── 4. Contact sheet ────────────────────────────────────────────────────────
 echo
 echo "── contact sheet"
-python3 tools/ui_contact_sheet.py "$OUT/manifest.json" "$OUT/index.html" || {
+python3 tools/ui_contact_sheet.py "$OUT/manifest.json" "$OUT/index.html" "$DIFF_TXT" || {
   echo "  contact sheet FAILED" >&2; exit 1; }
 echo "  $OUT/index.html"
 
-# ── 4. Diff against the reference ───────────────────────────────────────────
+if [[ $OPEN -eq 1 ]]; then
+  # Best-effort: never let a missing opener fail a render that succeeded.
+  command -v xdg-open >/dev/null 2>&1 && xdg-open "$OUT/index.html" >/dev/null 2>&1 &
+fi
+
+# ── 5. Report the diff ──────────────────────────────────────────────────────
 echo
 if [[ $ACCEPT -eq 1 ]]; then
   cp "$OUT/manifest.json" "$REF"
@@ -125,7 +173,13 @@ if [[ ! -f "$REF" ]]; then
 fi
 
 echo "── layout diff vs $REF"
-if python3 tools/ui_layout_diff.py "$REF" "$OUT/manifest.json"; then
+# Replayed from the captured file rather than recomputed, so the terminal and
+# the contact sheet are guaranteed to be reporting the same run.
+# ui_layout_diff.py prints its own "look at the contact sheet / --accept" advice
+# on a non-empty diff, so nothing is added here.
+if [[ -s "$DIFF_TXT" ]]; then
+  cat "$DIFF_TXT"
+else
   echo "   no change."
 fi
 exit 0
