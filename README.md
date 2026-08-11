@@ -7,9 +7,9 @@
 [![JUCE 7](https://img.shields.io/badge/JUCE-7.0-orange.svg)](https://juce.com/)
 [![Faust DSP](https://img.shields.io/badge/Faust-2.85.9-red.svg)](https://faust.grame.fr/)
 [![LLVM JIT](https://img.shields.io/badge/LLVM-22.1.8-green.svg)](https://llvm.org/)
-[![License: GPLv3](https://img.shields.io/badge/License-GPLv3-yellow.svg)](LICENSE)
+[![License: Proprietary](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE)
 
-**Incant Audio** turns natural language descriptions into real-time VST3/AU audio plugins and polyphonic synthesizers. Describe the sound or signal processor you want in plain English, and Incant Audio generates, validates, JIT-compiles, and loads native machine code into a live audio plugin—complete with dynamic GUI controls—without stopping playback.
+**Incant Audio** turns natural language descriptions into real-time VST3 audio effects and polyphonic synthesizers. Describe the sound or signal processor you want in plain English, and Incant Audio generates, validates, JIT-compiles, and loads native machine code into a live audio plugin—complete with dynamic GUI controls—without stopping playback.
 
 ---
 
@@ -53,7 +53,7 @@ graph LR
     Validation -- "Syntax Error (max 3 retries)" --> LLM
     Validation -- "Valid DSP Code" --> JIT["libfaust / LLVM JIT Engine"]
     JIT --> Swap["Zero-Lock Audio Thread Swap"]
-    Swap --> AudioOut["Real-Time VST3 / AU Audio"]
+    Swap --> AudioOut["Real-Time VST3 Audio"]
 ```
 
 ### Why Faust DSL over raw C++ or JSON IR?
@@ -67,7 +67,7 @@ Generating Faust algebraic DSL instead of raw C++ or JSON intermediate represent
 - **CMake** 3.22+ & **Ninja**
 - **C++17 Compiler** (GCC, Clang, or MSVC)
 - **Python** 3.10+
-- **JUCE 7** (vendored at `host/JUCE` or system installation)
+- **JUCE 7.0.9** (pass its checkout with `-DJUCE_PATH=...`)
 - **Faust & LLVM** libraries (`libfaust` 2.85+)
 
 ### 2. Environment Setup
@@ -80,15 +80,31 @@ Supported free-tier providers: **Gemini**, **Groq**, **OpenRouter**, or local **
 ### 3. Build the JUCE Host Plugin
 ```bash
 cd host
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release -j$(nproc)
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DJUCE_PATH="$HOME/JUCE"
+cmake --build build --target PluginForgeHost_Standalone PluginForgeHost_VST3 \
+  PluginForgeSynth_Standalone PluginForgeSynth_VST3
 ```
 
 ### 4. Run & Audition
-Launch the standalone host application or load the VST3/AU plugin inside your preferred DAW (Ableton, Reaper, Logic, Bitwig):
+Launch either standalone application:
 ```bash
-./host/build/IncantAudio_artefacts/Release/Standalone/IncantAudio
+./build/PluginForgeHost_artefacts/Release/Standalone/PluginForge\ Host
+./build/PluginForgeSynth_artefacts/Release/Standalone/PluginForge\ Synth
 ```
+
+The VST3 bundles are written beneath each target's `Release/VST3` directory. To
+create a versioned archive or install a packaged build locally, see
+[`docs/distribution.md`](docs/distribution.md).
+
+### Known generation limitations
+
+- The default Ollama model needs a larger context than its stock 4096-token
+  setting. Create/use a model with `num_ctx 16384` before selecting Ollama; the
+  stock configuration can truncate generated Faust silently. See PF-043 in
+  [`docs/BUGS.md`](docs/BUGS.md).
+- A known generated noise-gate fixture compiles but renders silence because its
+  threshold is converted from dB twice. Compile success alone does not establish
+  audible output; see PF-032 in [`docs/BUGS.md`](docs/BUGS.md).
 
 ---
 
@@ -142,5 +158,7 @@ Incant Audio is developed via an explicit human-agent pairing protocol:
 
 ## 📄 License & Credits
 
-- Core Engine: **GPLv3 / MIT Dual License** (see [LICENSE](LICENSE)).
+- Core Engine: **Proprietary; all rights reserved** (see [LICENSE](LICENSE)).
+- JUCE, Faust, LLVM, and other dependencies remain subject to their own terms.
+  Public or commercial distribution requires a separate dependency-license review.
 - Built with [JUCE Framework](https://juce.com/) and [Faust DSP Compiler](https://faust.grame.fr/).

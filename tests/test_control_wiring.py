@@ -844,6 +844,17 @@ class TestLadderRunsWhatCIRuns:
                 "only in the --target list. A compile is not a test."
             )
 
+    def test_recent_local_harnesses_are_not_omitted_from_ci(self):
+        ci = WORKFLOW.read_text()
+        for harness in ("AuditionThreadingTest", "ValidationGateTest"):
+            assert harness in self._ci_harnesses(), (
+                f"{harness} runs in tools/check.sh full but is absent from CI's "
+                "behavioural harness build list."
+            )
+            assert ci.count(harness) >= 2, (
+                f"{harness} is named in CI's build list but has no run step."
+            )
+
     def test_a_display_dependent_harness_is_skipped_not_hung(self):
         # PromptPanelThreadingTest constructs juce::Components and pumps the message
         # loop; with no display it HANGS rather than failing, which is why CI wraps it

@@ -1,0 +1,55 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  linux-package:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build pkg-config faust faust-common libfaust2t64 \
+            libasound2-dev libfreetype-dev libx11-dev libxext-dev \
+            libxrender-dev libxrandr-dev libxinerama-dev libxcursor-dev \
+            libxcomposite-dev
+
+      - name: Fetch JUCE 7.0.9
+        run: git clone --depth 1 --branch 7.0.9 https://github.com/juce-framework/JUCE.git "$HOME/JUCE"
+
+      - name: Build release artifacts
+        run: |
+          cmake -S host -B host/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DJUCE_PATH="$HOME/JUCE"
+          cmake --build host/build --target \
+            PluginForgeHost_Standalone PluginForgeHost_VST3 \
+            PluginForgeSynth_Standalone PluginForgeSynth_VST3
+
+      - name: Package
+        run: tools/package_release.sh host/build dist
+
+      - name: Verify package checksum
+        run: cd dist && sha256sum -c *.tar.gz.sha256
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pluginforge-linux-x86_64
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+
+      - name: Publish tagged release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/*.sha256 --generate-notes

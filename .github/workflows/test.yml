@@ -187,7 +187,7 @@ jobs:
       # internals (PluginEditor.h:42-48, ParamGridPanel.h:91) and a rename there
       # would otherwise break the design instrument silently with CI green.
       - name: Build behavioural test harnesses
-        run: cmake --build build-ci --target OfflineRenderTest OfflineSynthRenderTest PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery ParamIdentityTest NoteRingTest NoteRingTsanTest
+        run: cmake --build build-ci --target OfflineRenderTest OfflineSynthRenderTest PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery ParamIdentityTest NoteRingTest NoteRingTsanTest AuditionThreadingTest ValidationGateTest
 
       # OutputGuardTest / ParamMapTest / StatePersistenceTest — 96 checks that had
       # CMake targets and were run by NOTHING until 2026-07-30. PF-029 inverted:
@@ -197,9 +197,9 @@ jobs:
       # NoteRingTest joined 2026-08-03. Its TSan twin runs in its own step below,
       # NOT here: this loop preloads the CPU shim, and NoteRingTsanTest neither
       # JITs nor wants a non-instrumented .so preloaded into a TSan binary.
-      - name: Run the pure harnesses (OutputGuard, ParamMap, StatePersistence, ParamIdentity, NoteRing)
+      - name: Run the pure harnesses (OutputGuard, ParamMap, StatePersistence, ParamIdentity, NoteRing, ValidationGate)
         run: |
-          for t in OutputGuardTest ParamMapTest StatePersistenceTest ParamIdentityTest NoteRingTest; do
+          for t in OutputGuardTest ParamMapTest StatePersistenceTest ParamIdentityTest NoteRingTest ValidationGateTest; do
             BIN="$(find build-ci -type f -name "$t" | head -n 1)"
             if [ -z "$BIN" ]; then
               echo "$t binary not found" >&2
@@ -219,6 +219,15 @@ jobs:
           BIN="$(find build-ci -type f -name NoteRingTsanTest | head -n 1)"
           if [ -z "$BIN" ]; then
             echo "NoteRingTsanTest binary not found" >&2
+            exit 1
+          fi
+          TSAN_OPTIONS="halt_on_error=1" timeout 300 "$BIN"
+
+      - name: Run AuditionThreadingTest under ThreadSanitizer
+        run: |
+          BIN="$(find build-ci/AuditionThreadingTest_artefacts -type f -name AuditionThreadingTest | head -n 1)"
+          if [ -z "$BIN" ]; then
+            echo "AuditionThreadingTest binary not found" >&2
             exit 1
           fi
           TSAN_OPTIONS="halt_on_error=1" timeout 300 "$BIN"
