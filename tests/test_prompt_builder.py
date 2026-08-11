@@ -31,3 +31,15 @@ def test_dynamic_prompt_builder_preserves_headroom():
     
     slack = providers.headroom_tokens(dynamic_prompt, providers.MAX_OUTPUT_TOKENS)
     assert slack > 300, f"Expected >300 tokens slack, got {slack}"
+
+
+def test_dynamic_prompt_filters_the_selected_base_instead_of_effects_default():
+    instrument_path = ROOT / "llm" / "prompts" / "instrument_prompt.txt"
+    instrument = instrument_path.read_text()
+    dynamic_prompt = prompt_builder.build_dynamic_prompt(
+        "a sawtooth synth", base_system_prompt=instrument
+    )
+
+    assert "An instrument MUST declare exactly these three controls" in dynamic_prompt
+    assert "gate" in dynamic_prompt
+    assert dynamic_prompt != prompt_builder.build_dynamic_prompt("a sawtooth synth")

@@ -87,10 +87,14 @@ def filter_stdlib_block(stdlib_block: str, domains: Set[str]) -> str:
     return "\n".join(filtered_lines)
 
 
-def build_dynamic_prompt(user_prompt: str, base_system_prompt_path: Optional[Path] = None) -> str:
+def build_dynamic_prompt(user_prompt: str, base_system_prompt_path: Optional[Path] = None,
+                         base_system_prompt: Optional[str] = None) -> str:
     """Build a dynamic system prompt with headroom-optimized stdlib references."""
+    if base_system_prompt is not None and base_system_prompt_path is not None:
+        raise ValueError("pass base_system_prompt or base_system_prompt_path, not both")
     target_path = base_system_prompt_path or SYSTEM_PROMPT_PATH
-    full_prompt = target_path.read_text(encoding="utf-8")
+    full_prompt = (base_system_prompt if base_system_prompt is not None
+                   else target_path.read_text(encoding="utf-8"))
     
     begin_marker = "# BEGIN GENERATED STDLIB REFERENCE"
     end_marker = "# END GENERATED STDLIB REFERENCE"

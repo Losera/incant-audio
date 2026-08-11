@@ -5,6 +5,7 @@
 #include "CodeEditorPanel.h"
 #include "ParamGridPanel.h"
 #include "KeyboardPanel.h"
+#include "SampleBrowserPanel.h"
 #include "ForgeLookAndFeel.h"
 
 // ── PluginForgeEditor ───────────────────────────────────────────────────────
@@ -78,6 +79,8 @@ public:
     // flag (generate.py:381-386), driven and read without a click.
     juce::String kindForTest() const { return promptPanel.kindForTest(); }
     void         setKindForTest(const juce::String& kind) { promptPanel.setKindForTest(kind); }
+    juce::String familyForTest() const { return promptPanel.familyForTest(); }
+    void         setFamilyForTest(const juce::String& family) { promptPanel.setFamilyForTest(family); }
     bool         priorSourceDroppedForTest() const { return promptPanel.priorSourceDroppedForTest(); }
     // Dev-cockpit state export — OFF by default. Nothing is written anywhere
     // until a caller (the Standalone app or the /cockpit skill) opts in via
@@ -165,6 +168,8 @@ private:
         int keyboardH   = 64;   // KeyboardPanel -- ALWAYS present (unlike codeH
                                 // below, unavailability is dimming, not removal;
                                 // see host/Source/KeyboardPanel.h)
+        int gapSamples  = 8;
+        int samplesH    = 64;
         int gapCode     = 8;    // gap above the code band
         int codeH       = 240;  // CodeEditorPanel, a full-width band ABOVE the
                                 // keyboard and only while that panel is visible.
@@ -190,7 +195,8 @@ private:
     // The code band is added by the caller only when the panel is visible.
     static constexpr int verticalChrome(const Chrome& c)
     {
-        return c.margin + c.titleH + c.gapKeyboard + c.keyboardH + c.margin;
+        return c.margin + c.titleH + c.gapSamples + c.samplesH
+             + c.gapKeyboard + c.keyboardH + c.margin;
     }
 
     // The two sums are pinned by a static_assert at the top of resized() — NOT here.
@@ -224,6 +230,7 @@ private:
     CodeEditorPanel codeEditorPanel;
     ParamGridPanel  paramGridPanel;
     KeyboardPanel   keyboardPanel;
+    SampleBrowserPanel sampleBrowserPanel;
 
     // Disclosure for the read-only Faust view. Off by default: the code is for
     // the user who wants it, and a no-code tool must not open on a wall of DSL.
@@ -238,14 +245,6 @@ private:
     // Called from the processor's onUiStyleChanged and on construction, so a
     // reopened project and a second editor both come up in the chosen style.
     void applyControlStyle(const juce::String& styleName);
-
-    // ── Audition dropdown ──────────────────────────────────────────────────
-    // Selects a reference sample to feed through the live DSP for auditioning
-    // generated effects. "Off" disables audition; selecting a sample loads and
-    // activates it. Samples live in artifacts/samples/ and are discovered
-    // relative to the executable.
-    juce::ComboBox auditionSelector { "Audition" };
-    void auditionSampleChanged();
 
     // ── Level meter (shell-owned) ────────────────────────────────────────────
     juce::Rectangle<int> meterBounds;      // set in resized(), painted in paint()
