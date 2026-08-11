@@ -31,21 +31,21 @@ KeyboardPanel::KeyboardPanel(PluginForgeProcessor& p)
 
     // ── Theme ────────────────────────────────────────────────────────────────
     // ColourIds verified against juce_MidiKeyboardComponent.h:155-164.
-    keyboardComponent.setColour(juce::MidiKeyboardComponent::whiteNoteColourId, Theme::text);
-    keyboardComponent.setColour(juce::MidiKeyboardComponent::blackNoteColourId, Theme::crust);
-    keyboardComponent.setColour(juce::MidiKeyboardComponent::keyDownOverlayColourId, Theme::meterCool);
+    keyboardComponent.setColour(juce::MidiKeyboardComponent::whiteNoteColourId, Theme::textPrimary);
+    keyboardComponent.setColour(juce::MidiKeyboardComponent::blackNoteColourId, Theme::surfaceSunken);
+    keyboardComponent.setColour(juce::MidiKeyboardComponent::keyDownOverlayColourId, Theme::accent);
     keyboardComponent.setColour(juce::MidiKeyboardComponent::mouseOverKeyOverlayColourId,
-                                Theme::meterCool.withAlpha(0.35f));
-    keyboardComponent.setColour(juce::MidiKeyboardComponent::textLabelColourId, Theme::subtext);
-    keyboardComponent.setColour(juce::MidiKeyboardComponent::keySeparatorLineColourId, Theme::overlay);
-    keyboardComponent.setColour(juce::MidiKeyboardComponent::shadowColourId, Theme::mantle);
+                                Theme::accent.withAlpha(0.35f));
+    keyboardComponent.setColour(juce::MidiKeyboardComponent::textLabelColourId, Theme::textSecondary);
+    keyboardComponent.setColour(juce::MidiKeyboardComponent::keySeparatorLineColourId, Theme::outline);
+    keyboardComponent.setColour(juce::MidiKeyboardComponent::shadowColourId, Theme::surface);
 
     addAndMakeVisible(keyboardComponent);
 
     disabledLabel.setText("Load an instrument to play", juce::dontSendNotification);
     disabledLabel.setJustificationType(juce::Justification::centred);
     disabledLabel.setFont(Theme::Type::caption());
-    disabledLabel.setColour(juce::Label::textColourId, juce::Colour(0xff9399b2));
+    disabledLabel.setColour(juce::Label::textColourId, Theme::textSecondary);
     addChildComponent(disabledLabel);
 
     setPlayable(false);   // no voice contract until a patch actually declares one

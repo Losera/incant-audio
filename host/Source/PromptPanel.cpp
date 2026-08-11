@@ -161,7 +161,7 @@ PromptPanel::PromptPanel(PluginForgeProcessor& p)
     // timerCallback while a subprocess is in flight.
     addChildComponent(progressLabel);
     progressLabel.setJustificationType(juce::Justification::centredLeft);
-    progressLabel.setColour(juce::Label::textColourId, Theme::yellow);
+    progressLabel.setColour(juce::Label::textColourId, Theme::progress);
 
     // Error region: read-only (juce_TextEditor.h:130), multi-line + word-wrapped
     // (:78), with scrollbars (:156) and no caret (:140). Starts hidden; shown by
@@ -171,8 +171,8 @@ PromptPanel::PromptPanel(PluginForgeProcessor& p)
     errorBox.setReadOnly(true);
     errorBox.setScrollbarsShown(true);
     errorBox.setCaretVisible(false);
-    errorBox.setColour(juce::TextEditor::backgroundColourId, Theme::mantle);
-    errorBox.setColour(juce::TextEditor::textColourId,       Theme::errorText);
+    errorBox.setColour(juce::TextEditor::backgroundColourId, Theme::surface);
+    errorBox.setColour(juce::TextEditor::textColourId,       Theme::danger);
     errorBox.setFont(Theme::Type::mono());
 }
 

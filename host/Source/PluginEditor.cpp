@@ -429,7 +429,7 @@ void PluginForgeEditor::writeCockpitState()
 
 void PluginForgeEditor::paint(juce::Graphics& g)
 {
-    g.fillAll(Theme::base);
+    g.fillAll(Theme::background);
     g.setColour(juce::Colours::white);
     g.setFont(Theme::Type::title());
     // Title lives in the top-margin+title band so it reads as a shell header, not
@@ -442,7 +442,7 @@ void PluginForgeEditor::paint(juce::Graphics& g)
     // line down the middle of the dividerW gap. Set in resized().
     if (dividerX > 0)
     {
-        g.setColour(Theme::crust);
+        g.setColour(Theme::surfaceSunken);
         g.fillRect(juce::Rectangle<int>(dividerX, chrome.margin + chrome.titleH,
                                         1, getHeight() - (chrome.margin + chrome.titleH)
                                               - chrome.margin - chrome.gapKeyboard
@@ -451,7 +451,7 @@ void PluginForgeEditor::paint(juce::Graphics& g)
 
     // ── Output level meter (post-DSP peak) ──────────────────────────────────
     auto track = meterBounds.toFloat();
-    g.setColour(Theme::crust);
+    g.setColour(Theme::surfaceSunken);
     g.fillRoundedRectangle(track, 3.0f);
 
     // Map linear peak → meter fraction with a gentle curve so quiet material
@@ -461,7 +461,7 @@ void PluginForgeEditor::paint(juce::Graphics& g)
     {
         auto fill = track.withWidth(track.getWidth() * frac);
         g.setGradientFill(juce::ColourGradient(
-            Theme::meterCool, track.getX(), 0.0f,
+            Theme::accent, track.getX(), 0.0f,
             Theme::meterHot, track.getRight(), 0.0f,
             false));
         g.fillRoundedRectangle(fill, 3.0f);

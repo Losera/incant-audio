@@ -9,8 +9,6 @@
 //
 // Colour names describe UI roles rather than a palette family, so a future
 // palette change remains one file instead of a grep-and-replace across panels.
-// The temporary aliases below preserve the original names for one migration
-// commit; new code must use the role tokens.
 //
 // `juce::Colour(uint32)` is `explicit` and not `constexpr` (verified against
 // juce_Colour.h:57), but wraps nothing but a uint32 -- a plain `inline const`
@@ -63,20 +61,6 @@ inline const juce::Colour accent        { 0xff7aa2f7 };  // values, focus, and m
 inline const juce::Colour progress      { 0xffe0af68 };  // in-progress / working state
 inline const juce::Colour danger        { 0xfff7768e };  // error-region text
 inline const juce::Colour meterHot      { 0xffff9e64 };  // clipping-proximity signal only
-
-// Transitional aliases: remove after call sites migrate to role names. Keeping
-// them for one commit makes the palette change independently reviewable from
-// the mechanical rename and prevents unrelated panels changing in this commit.
-inline const juce::Colour base      = background;
-inline const juce::Colour mantle    = surface;
-inline const juce::Colour crust     = surfaceSunken;
-inline const juce::Colour raised    = surfaceRaised;
-inline const juce::Colour overlay   = outline;
-inline const juce::Colour text      = textPrimary;
-inline const juce::Colour subtext   = textSecondary;
-inline const juce::Colour meterCool = accent;
-inline const juce::Colour yellow    = progress;
-inline const juce::Colour errorText = danger;
 
 // ── Geometry ────────────────────────────────────────────────────────────────
 // A deliberately small scale. New layout values should compose these tokens;

@@ -8,7 +8,7 @@ CodeEditorPanel::CodeEditorPanel(PluginForgeProcessor& p)
     header.setText("Generated Faust (read-only)", juce::dontSendNotification);
     header.setJustificationType(juce::Justification::centredLeft);
     header.setFont(Theme::Type::body());
-    header.setColour(juce::Label::textColourId, Theme::subtext);
+    header.setColour(juce::Label::textColourId, Theme::textSecondary);
 
     addAndMakeVisible(editor);
     // Phase 3a is the view alone. Editing lands with a Compile button, not before
@@ -17,10 +17,10 @@ CodeEditorPanel::CodeEditorPanel(PluginForgeProcessor& p)
     // (juce_CodeEditorComponent.h:237).
     editor.setReadOnly(true);
     editor.setScrollbarThickness(8);
-    editor.setColour(juce::CodeEditorComponent::backgroundColourId, Theme::mantle);
-    editor.setColour(juce::CodeEditorComponent::defaultTextColourId, Theme::text);
-    editor.setColour(juce::CodeEditorComponent::lineNumberBackgroundId, Theme::crust);
-    editor.setColour(juce::CodeEditorComponent::lineNumberTextId, Theme::overlay);
+    editor.setColour(juce::CodeEditorComponent::backgroundColourId, Theme::surface);
+    editor.setColour(juce::CodeEditorComponent::defaultTextColourId, Theme::textPrimary);
+    editor.setColour(juce::CodeEditorComponent::lineNumberBackgroundId, Theme::surfaceSunken);
+    editor.setColour(juce::CodeEditorComponent::lineNumberTextId, Theme::outline);
     editor.setFont(Theme::Type::mono());
 
     // Seed from whatever is already live, so a panel revealed AFTER a compile
@@ -53,5 +53,5 @@ void CodeEditorPanel::resized()
 
 void CodeEditorPanel::paint(juce::Graphics& g)
 {
-    g.fillAll(Theme::mantle);
+    g.fillAll(Theme::surface);
 }
