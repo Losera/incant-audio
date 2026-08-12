@@ -2131,6 +2131,61 @@ void scenario27_cockpitMirrorEnvVar(const juce::File& tmp)
     statePath.deleteFile();
 }
 
+// Broken #1 (STATUS.md): PluginForgeEditor had no keyStateChanged() override
+// at all before this session. KeyboardPanel's on-screen keyboard is a SIBLING
+// of the prompt box and every toolbar button, not their ancestor, and JUCE's
+// own key-state dispatch walks UP the parent chain from whatever currently
+// holds keyboard focus (juce::ComponentPeer::handleKeyUpOrDown,
+// juce_ComponentPeer.cpp:224-243) -- so a QWERTY key only ever reached the
+// piano's own keyStateChanged() (the method that actually turns a held key
+// into a note, juce_MidiKeyboardComponent.cpp:254-283) if the piano itself
+// already held keyboard focus, which only happened if the user clicked it
+// first. This scenario is a direct unit test of the new override: it proves
+// the SHELL now asks the keyboard on every key transition, not that JUCE's
+// own dispatch mechanics work (that is JUCE's contract, cited above by
+// file:line, not ours to re-test) and not that a real physical keypress
+// reaches this call -- see the WHAT THIS DOES NOT PROVE note below.
+void scenario28_qwertyRoutingReachesKeyboard()
+{
+    scenario("28. Computer keyboard reaches the keyboard panel regardless of focus",
+             "the piano is a sibling of the prompt box, not an ancestor -- "
+             "PluginForgeEditor had no keyStateChanged() override at all, so "
+             "JUCE's dispatch never reached the piano unless it was clicked "
+             "first (Broken #1)");
+
+    Session s;
+
+    check(s.editor.keyboardRouteCallCountForTest() == 0,
+          "nothing has routed yet");
+
+    // Direct unit test of the override, not a simulation of JUCE's dispatch
+    // walk (see the class-level comment above for why that walk is JUCE's
+    // contract, not ours to re-verify): calling the public override exercises
+    // exactly the same body a real dispatch would invoke once it reaches this
+    // component, which -- per getTargetForKeyPress() falling back to the
+    // top-level component when nothing has explicit focus
+    // (juce_ComponentPeer.cpp:164-175) -- is precisely what happens on a
+    // fresh window before the user has clicked anything at all.
+    s.editor.keyStateChanged(true);
+    check(s.editor.keyboardRouteCallCountForTest() == 1,
+          "the down-transition is routed to the keyboard panel");
+    s.editor.keyStateChanged(false);
+    check(s.editor.keyboardRouteCallCountForTest() == 2,
+          "the up-transition is routed too -- KeyboardPanel needs both to "
+          "track held notes, not just the down edge");
+
+    // WHAT THIS DOES NOT PROVE. Whether a REAL physical keypress reaches this
+    // call. juce::KeyPress::isCurrentlyDown() (juce_KeyPress.cpp:59-64) reads
+    // actual OS/compositor key state, unfakeable from process code -- no
+    // synthetic-input tool exists on this machine (wtype/ydotool/xdotool all
+    // absent). That hop is exactly as unverified after this commit as before
+    // it; only the shell's OWN routing decision, upstream of that hop, is new
+    // and tested here. See STATUS.md's Broken #1 entry for the precise
+    // boundary.
+
+    snapshot(s.editor, "28_qwerty_routing");
+}
+
 } // namespace
 
 int main()
@@ -2138,7 +2193,7 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInit;
 
     std::printf("EditorSessionTest -- a simulated human session against the real editor\n");
-    std::printf("  27 scenarios, no network, no quota, snapshots to artifacts/images/\n");
+    std::printf("  28 scenarios, no network, no quota, snapshots to artifacts/images/\n");
 
     auto tmp = juce::File::getSpecialLocation(juce::File::tempDirectory)
                    .getChildFile("pluginforge_editor_session");
@@ -2172,6 +2227,7 @@ int main()
     scenario25_refineModesUnlock(tmp);
     scenario26_priorSourceRefused(tmp);
     scenario27_cockpitMirrorEnvVar(tmp);
+    scenario28_qwertyRoutingReachesKeyboard();
 
     tmp.deleteRecursively();
 

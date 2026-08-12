@@ -199,14 +199,21 @@ stereo/mono arity fix, ADR-020's latch/report split) is unchanged and carried th
 Registry with IDs, severity and discovery dates: `docs/BUGS.md`.
 
 **1. The keyboard's QWERTY/computer-keyboard path has a static-contract test, not an
-end-to-end one.** *(unfiled, medium — narrowed this session, not fully closed.)* Scenario
-22 proves `setKeyPressBaseOctave(4)` and `setAvailableRange(36, 96)` agree with each other
-and with JUCE's default QWERTY offset table. It does **not** prove a real keypress produces
-a note — no synthetic-input tool exists on this machine (wtype/ydotool/xdotool all absent),
-and this remains true everywhere else in the repo too. A regression that broke real keypress
-handling while leaving the static constants untouched would still pass all 213 current
-checks undetected. Closing this fully needs either a compositor-level input tool on this
-machine or a different verification strategy entirely.
+end-to-end one.** *(unfiled, medium — narrowed this session, not fully closed.)* The
+shell-level routing gap — `PluginEditor` never asked `KeyboardPanel` about key state at
+all, regardless of focus — is now closed: `PluginEditor::keyStateChanged` forwards
+unconditionally to `KeyboardPanel::routeKeyStateChanged`, and scenario 28 proves the shell
+now asks the keyboard on every key transition, confirmed red-then-green per
+COLLABORATION.md. Scenario 22 separately proves `setKeyPressBaseOctave(4)` and
+`setAvailableRange(36, 96)` agree with each other and with JUCE's default QWERTY offset
+table. Neither test, nor anything else in the repo, proves a real keypress produces a
+note — `juce::KeyPress::isCurrentlyDown()` reads actual OS/compositor key state, and no
+synthetic-input tool exists on this machine (wtype/ydotool/xdotool all absent). This is
+the **OS→JUCE dispatch hop**, and it remains exactly as unverified as before scenario 28.
+A regression that broke this hop while leaving the shell-level routing and the static
+constants untouched would still pass all 223 current checks undetected. Closing this
+fully needs either a compositor-level input tool on this machine or a different
+verification strategy entirely.
 
 **2. It has never been in a DAW.** *(Unchanged.)* `COPY_PLUGIN_AFTER_BUILD FALSE`
 (`host/CMakeLists.txt`) means the VST3 has never been installed or scanned, and pluginval

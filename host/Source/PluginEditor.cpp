@@ -437,6 +437,11 @@ void PluginForgeEditor::writeCockpitState()
     juce::File(cockpitStatePath).replaceWithText(json, false, false, "\n");
 }
 
+bool PluginForgeEditor::keyStateChanged(bool isKeyDown)
+{
+    return keyboardPanel.routeKeyStateChanged(isKeyDown);
+}
+
 void PluginForgeEditor::paint(juce::Graphics& g)
 {
     g.fillAll(Theme::background);

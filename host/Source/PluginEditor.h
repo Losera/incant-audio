@@ -29,6 +29,20 @@ public:
     void paint(juce::Graphics&) override;
     void resized() override;
 
+    // Computer-keyboard (QWERTY) routing seam, added 2026-08-12. See
+    // KeyboardPanel::routeKeyStateChanged() for why this exists: the piano is
+    // a sibling of every other panel here, not their ancestor, so it never
+    // received key-state events from JUCE's own dispatch unless it already
+    // held keyboard focus. This override makes the editor itself the
+    // fallback target JUCE's dispatch walks up to
+    // (juce::ComponentPeer::getTargetForKeyPress falls back to the top-level
+    // component when nothing has explicit focus, juce_ComponentPeer.cpp:164
+    // -175) and forwards unconditionally -- juce::TextEditor's own
+    // keyStateChanged override already stops this walk while the prompt box
+    // holds focus, so normal typing there is unaffected without any guard
+    // needed here.
+    bool keyStateChanged(bool isKeyDown) override;
+
     // ── Test-only surface (host/tests/EditorSessionTest.cpp) ────────────────
     // Forwarders, not accessors to the panels themselves: a test that could reach
     // `promptPanel` could also reach past what it is asserting, and the panels'
@@ -116,6 +130,14 @@ public:
     void keyboardNoteOnForTest(int note, float velocity)  { keyboardPanel.noteOnForTest(note, velocity); }
     void keyboardNoteOffForTest(int note)                 { keyboardPanel.noteOffForTest(note); }
     bool keyboardPlayableForTest() const                  { return keyboardPanel.isPlayableForTest(); }
+    // How many times keyStateChanged() (above) has forwarded into
+    // KeyboardPanel. Proves the SHELL-LEVEL routing this session added --
+    // that the editor asks the keyboard on every key transition regardless of
+    // focus -- not that a real physical keypress reaches this call; that hop
+    // is juce::KeyPress::isCurrentlyDown() reading actual OS/compositor
+    // state, untestable without a synthetic-input tool this machine doesn't
+    // have (STATUS.md Broken #1).
+    int  keyboardRouteCallCountForTest() const            { return keyboardPanel.routeKeyStateChangedCallCountForTest(); }
 
 private:
     // 30Hz UI tick: pulls processor.outputLevel (relaxed atomic, written on the

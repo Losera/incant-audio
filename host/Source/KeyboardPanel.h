@@ -81,6 +81,30 @@ public:
         keyboardState.noteOff(kMidiChannel, note, 0.0f);
     }
 
+    // ── Computer-keyboard (QWERTY) routing seam, added 2026-08-12 ───────────
+    // keyboardComponent is a SIBLING of the editor's other panels (the prompt
+    // box, the toolbar buttons), not an ancestor of whatever the user last
+    // clicked. JUCE's own key-state dispatch walks UP the parent chain from
+    // whichever component currently holds keyboard focus
+    // (juce::ComponentPeer::handleKeyUpOrDown, juce_ComponentPeer.cpp:224-243),
+    // so it only ever reached keyboardComponent's own keyStateChanged()
+    // (juce_MidiKeyboardComponent.cpp:254-283, which is what turns a held
+    // QWERTY key into a note) when the piano itself already held focus --
+    // which, before this method existed, only happened if the user clicked
+    // the piano first. PluginForgeEditor::keyStateChanged() calls this on
+    // every key transition so the piano no longer needs to be the walk's
+    // starting point. Safe to call unconditionally: juce::TextEditor
+    // deliberately swallows this same walk while IT holds focus
+    // ("(overridden to avoid forwarding key events to the parent)",
+    // juce_TextEditor.cpp:2189-2205), so normal typing in the prompt box is
+    // unaffected -- this call is simply never reached while that is true.
+    bool routeKeyStateChanged(bool isKeyDown)
+    {
+        ++routeCallCountForTest;
+        return keyboardComponent.keyStateChanged(isKeyDown);
+    }
+    int routeKeyStateChangedCallCountForTest() const { return routeCallCountForTest; }
+
 private:
     // juce::MidiKeyboardState::Listener. Fires synchronously from
     // keyboardState.noteOn()/noteOff() -- called either by
@@ -110,6 +134,7 @@ private:
     juce::Label disabledLabel;
 
     bool playable = false;
+    int  routeCallCountForTest = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(KeyboardPanel)
 };
