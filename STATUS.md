@@ -204,15 +204,19 @@ shell-level routing gap — `PluginEditor` never asked `KeyboardPanel` about key
 all, regardless of focus — is now closed: `PluginEditor::keyStateChanged` forwards
 unconditionally to `KeyboardPanel::routeKeyStateChanged`, and scenario 28 proves the shell
 now asks the keyboard on every key transition, confirmed red-then-green per
-COLLABORATION.md. Scenario 22 separately proves `setKeyPressBaseOctave(4)` and
-`setAvailableRange(36, 96)` agree with each other and with JUCE's default QWERTY offset
-table. Neither test, nor anything else in the repo, proves a real keypress produces a
-note — `juce::KeyPress::isCurrentlyDown()` reads actual OS/compositor key state, and no
-synthetic-input tool exists on this machine (wtype/ydotool/xdotool all absent). This is
-the **OS→JUCE dispatch hop**, and it remains exactly as unverified as before scenario 28.
-A regression that broke this hop while leaving the shell-level routing and the static
-constants untouched would still pass all 223 current checks undetected. Closing this
-fully needs either a compositor-level input tool on this machine or a different
+COLLABORATION.md. Scenario 22 separately proves `setKeyPressBaseOctave()` and
+`setAvailableRange()` agree with each other and with JUCE's default QWERTY offset table —
+read from the live `KeyboardPanel` object since C5 (new octave `[<]`/`[>]` controls added
+`currentOctaveForTest()`/`availableRange{Low,High}ForTest()`, replacing the literal
+constants scenario 22 used to copy by hand), and scenario 29 proves the octave controls
+keep both in lockstep across the full 0-8 clamp range. Neither test, nor anything else in
+the repo, proves a real keypress produces a note — `juce::KeyPress::isCurrentlyDown()`
+reads actual OS/compositor key state, and no synthetic-input tool exists on this machine
+(wtype/ydotool/xdotool all absent). This is the **OS→JUCE dispatch hop**, and it remains
+exactly as unverified as before scenario 28. A regression that broke this hop while
+leaving the shell-level routing and the live-read mapping checks untouched would still
+pass all 233 current checks undetected. Closing this fully needs either a
+compositor-level input tool on this machine or a different
 verification strategy entirely.
 
 **2. It has never been in a DAW.** *(Unchanged.)* `COPY_PLUGIN_AFTER_BUILD FALSE`

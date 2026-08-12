@@ -29,6 +29,24 @@ KeyboardPanel::KeyboardPanel(PluginForgeProcessor& p)
     // mapped notes up with the visible range above).
     keyboardComponent.setKeyPressBaseOctave(4);
 
+    // Mouse-Y sets velocity on the on-screen keyboard (top = loud, bottom =
+    // quiet, JUCE's own convention) -- one ctor line, not a subclass, contra
+    // docs/sessions/010-alpha-ui-architecture.md §4's original description
+    // (juce_MidiKeyboardComponent.h:73). Computer-keyboard input has no mouse
+    // position, so it always uses the fixed 1.0f the first argument sets.
+    keyboardComponent.setVelocity(1.0f, true);
+
+    // ── Octave controls (C5) ────────────────────────────────────────────────
+    addAndMakeVisible(octaveDownButton);
+    addAndMakeVisible(octaveUpButton);
+    addAndMakeVisible(octaveLabel);
+    octaveDownButton.onClick = [this] { shiftOctave(-1); };
+    octaveUpButton.onClick   = [this] { shiftOctave(+1); };
+    octaveLabel.setJustificationType(juce::Justification::centred);
+    octaveLabel.setFont(Theme::Type::caption());
+    octaveLabel.setColour(juce::Label::textColourId, Theme::textSecondary);
+    updateOctaveLabel();   // sets the initial "Oct: 4" text and button enablement
+
     // ── Theme ────────────────────────────────────────────────────────────────
     // ColourIds verified against juce_MidiKeyboardComponent.h:155-164.
     keyboardComponent.setColour(juce::MidiKeyboardComponent::whiteNoteColourId, Theme::textPrimary);
@@ -58,8 +76,49 @@ KeyboardPanel::~KeyboardPanel()
 
 void KeyboardPanel::resized()
 {
-    keyboardComponent.setBounds(getLocalBounds());
+    // Control-row strip on top (C5), piano below. Carved from the SAME
+    // keyboardH the panel already had -- PluginEditor.h's Chrome struct grew
+    // keyboardH 64->72 in the prior commit specifically to make this split
+    // possible; that height change is not repeated here. disabledLabel keeps
+    // covering the whole panel (unchanged) so "nothing to play" still reads
+    // as a full-panel state, octave controls included.
+    auto area = getLocalBounds();
+    auto controlRow = area.removeFromTop(kControlRowH);
+
+    controlRow.removeFromLeft(4);
+    octaveDownButton.setBounds(controlRow.removeFromLeft(24));
+    octaveLabel.setBounds(controlRow.removeFromLeft(48));
+    octaveUpButton.setBounds(controlRow.removeFromLeft(24));
+
+    keyboardComponent.setBounds(area);
     disabledLabel.setBounds(getLocalBounds());
+}
+
+void KeyboardPanel::shiftOctave(int delta)
+{
+    const int newOctave = juce::jlimit(kMinOctave, kMaxOctave, currentOctave + delta);
+    if (newOctave == currentOctave)
+        return;   // idempotent at the clamp boundary, like setPlayable() above
+
+    currentOctave = newOctave;
+    const int semitoneShift = 12 * (currentOctave - kDefaultOctave);
+
+    // Both calls move together -- see the class-header comment on
+    // shiftOctave() in KeyboardPanel.h for why the clamps below never
+    // invert the range.
+    keyboardComponent.setKeyPressBaseOctave(currentOctave);
+    keyboardComponent.setAvailableRange(
+        juce::jlimit(0, 127, kDefaultAvailableLow  + semitoneShift),
+        juce::jlimit(0, 127, kDefaultAvailableHigh + semitoneShift));
+
+    updateOctaveLabel();
+}
+
+void KeyboardPanel::updateOctaveLabel()
+{
+    octaveLabel.setText("Oct: " + juce::String(currentOctave), juce::dontSendNotification);
+    octaveDownButton.setEnabled(currentOctave > kMinOctave);
+    octaveUpButton.setEnabled(currentOctave < kMaxOctave);
 }
 
 void KeyboardPanel::setPlayable(bool canPlay)

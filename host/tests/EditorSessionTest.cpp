@@ -1662,7 +1662,7 @@ void scenario21_allNotesOffReleasesHeldNoteOnDisable()
     snapshot(s.editor, "21_allnotesoff_releases_held_note");
 }
 
-// 22 — QWERTY / computer-keyboard mapping: the STATIC contract only.
+// 22 — QWERTY / computer-keyboard mapping is internally self-consistent.
 //
 // WHY THIS IS SCOPED THE WAY IT IS. juce_MidiKeyboardComponent.cpp's
 // keyStateChanged() (the private override that answers a real OS keypress)
@@ -1679,38 +1679,33 @@ void scenario21_allNotesOffReleasesHeldNoteOnDisable()
 // NOT COVERED: real keypress-to-note firing. Nothing on this machine can
 // synthesize a keypress the compositor and JUCE's KeyPress::isCurrentlyDown()
 // will see as real, so end-to-end QWERTY input is untested here and untested
-// anywhere else in this repo. This scenario only checks that the STATIC
-// mapping KeyboardPanel configures is internally self-consistent -- it does
-// NOT prove that a keypress, on this or any machine, actually produces a
-// note.
+// anywhere else in this repo. This scenario only checks that the mapping
+// KeyboardPanel configures is internally self-consistent -- it does NOT
+// prove that a keypress, on this or any machine, actually produces a note.
 //
-// WHAT IS CHECKED INSTEAD, and why it has to be literal constants rather than
-// a live query: juce::MidiKeyboardComponent keeps the key-press base octave
-// (keyMappingOctave) PRIVATE with no getter (juce_MidiKeyboardComponent.h:263)
-// and KeyboardPanel.h exposes no accessor for its own keyboardComponent (and
-// adding one is out of this brief's scope -- KeyboardPanel.h/.cpp are not to
-// be touched). So this checks the values actually read out of
-// KeyboardPanel.cpp today, against JUCE's own default key-mapping table,
-// rather than introspecting a live object:
-//   * KeyboardPanel.cpp:20  keyboardComponent.setAvailableRange(36, 96);
-//   * KeyboardPanel.cpp:30  keyboardComponent.setKeyPressBaseOctave(4);
-//   * juce_MidiKeyboardComponent.cpp:36,38-39 -- the DEFAULT qwerty map
-//     ("awsedftgyhujkolp;", 17 characters) assigns each key an offset-from-C
-//     of 0..16 via setKeyPressForNote(). setKeyPressForNote's own doc comment
-//     (juce_MidiKeyboardComponent.h:120-127) gives the formula in words --
-//     "this value + (12 * the current base octave)" -- and the actual runtime
-//     arithmetic matches it exactly (juce_MidiKeyboardComponent.cpp:260,
-//     `12 * keyMappingOctave + keyPressNotes.getUnchecked(i)`).
-// If a future edit changes any of those three numbers without updating this
-// scenario, this only fails once a human rereads and rewrites the assertion
-// below -- it is not wired to the source text, because there is no live
-// accessor to wire it to. That is the honest limit of a "static contract"
-// check, which is why every constant's origin is named above rather than
-// left to be taken on faith.
-void scenario22_qwertyMappingStaticContract()
+// REWIRED 2026-08-12 (C5): this used to read three literal constants copied
+// by hand from KeyboardPanel.cpp, because juce::MidiKeyboardComponent keeps
+// keyMappingOctave PRIVATE with no getter and KeyboardPanel exposed no
+// accessor of its own -- adding one was explicitly out of scope for the
+// session that wrote this scenario. C5 added exactly that accessor
+// (KeyboardPanel::currentOctaveForTest(), availableRange{Low,High}ForTest(),
+// reached through the editor's keyboardOctaveForTest()/
+// keyboardAvailableLow/HighForTest() forwarders) to build the octave [<]/[>]
+// controls, and those literals would have gone silently false the moment a
+// user clicked one -- the old comment block said as much: "this only fails
+// once a human rereads and rewrites the assertion". Now it reads the live
+// object instead. What is still NOT introspected: JUCE's own default qwerty
+// map ("awsedftgyhujkolp;", 17 characters, offsets 0..16 via
+// setKeyPressForNote(), juce_MidiKeyboardComponent.cpp:36,38-39) has no
+// accessor at all and remains a cited constant, per
+// juce_MidiKeyboardComponent.h:120-127's documented formula
+// "this value + (12 * the current base octave)".
+void scenario22_qwertyMappingLiveContract()
 {
-    scenario("22. QWERTY mapping is internally self-consistent (STATIC CONTRACT ONLY)",
-             "no synthetic-input tool exists on this machine -- see NOT COVERED above");
+    scenario("22. QWERTY mapping is internally self-consistent",
+             "reads the live KeyboardPanel object (C5) -- runtime octave "
+             "controls would otherwise make copied literals silently false "
+             "instead of failing");
 
     // Session still constructed: this at least proves KeyboardPanel builds
     // and lays out under these exact settings, the same construction path a
@@ -1718,11 +1713,11 @@ void scenario22_qwertyMappingStaticContract()
     Session s;
     check(s.editor.getHeight() > 0, "the editor (and its KeyboardPanel) constructed");
 
-    // ── The mapping arithmetic, from the constants cited above ─────────────
-    const int availableLow   = 36;
-    const int availableHigh  = 96;
-    const int baseOctave     = 4;
-    const int qwertyKeyCount = 17;                    // "awsedftgyhujkolp;"
+    // ── The mapping arithmetic: two literals read live, one still cited ────
+    const int availableLow   = s.editor.keyboardAvailableLowForTest();
+    const int availableHigh  = s.editor.keyboardAvailableHighForTest();
+    const int baseOctave     = s.editor.keyboardOctaveForTest();
+    const int qwertyKeyCount = 17;                    // "awsedftgyhujkolp;" -- JUCE's fixed default table, not KeyboardPanel state
     const int lowestOffset   = 0;
     const int highestOffset  = qwertyKeyCount - 1;     // 16
 
@@ -1735,7 +1730,8 @@ void scenario22_qwertyMappingStaticContract()
           juce::String("every QWERTY-mapped note (") + juce::String(mappedLow) + ".."
               + juce::String(mappedHigh) + ") falls inside the visible range ("
               + juce::String(availableLow) + ".." + juce::String(availableHigh)
-              + ") -- setKeyPressBaseOctave(4) lines up with setAvailableRange(36, 96)");
+              + ") -- setKeyPressBaseOctave() lines up with setAvailableRange(), "
+                "read live so it cannot silently drift");
 
     // ── The other half: nothing on the construction path locks NoteRing's
     //    forbidden call ─────────────────────────────────────────────────────
@@ -2186,6 +2182,51 @@ void scenario28_qwertyRoutingReachesKeyboard()
     snapshot(s.editor, "28_qwerty_routing");
 }
 
+// 29 — Octave [<]/[>] controls shift the QWERTY base octave and the piano's
+// visible range together, clamped to the 0-8 octave range
+// docs/sessions/010-alpha-ui-architecture.md §4 specifies ("shifts the
+// MidiKeyboardComponent range and setKeyPressBaseOctave() by +-1. Range
+// clamped 0-8"). Drives KeyboardPanel::shiftOctave() through the editor's
+// forwarder -- the SAME method the [<]/[>] buttons' onClick calls
+// (KeyboardPanel.h), not a parallel test-only path.
+void scenario29_octaveControlsShiftRangeTogether()
+{
+    scenario("29. Octave controls shift QWERTY base and visible range together, clamped 0-8",
+             "KeyboardPanel::shiftOctave(), driven the same way the [<]/[>] "
+             "buttons' onClick drives it");
+
+    Session s;
+
+    check(s.editor.keyboardOctaveForTest() == 4, "starts at the construction default, octave 4");
+    check(s.editor.keyboardAvailableLowForTest() == 36 && s.editor.keyboardAvailableHighForTest() == 96,
+          "starts at the construction default range, 36..96");
+
+    s.editor.shiftKeyboardOctaveForTest(1);
+    check(s.editor.keyboardOctaveForTest() == 5, "shiftOctave(+1) advances to octave 5");
+    check(s.editor.keyboardAvailableLowForTest() == 48 && s.editor.keyboardAvailableHighForTest() == 108,
+          "the visible range shifts by the same +12 semitones, staying in lockstep");
+
+    // Drive to the top clamp (5 more ups: octave 5 -> 10, clamped to 8).
+    for (int i = 0; i < 5; ++i)
+        s.editor.shiftKeyboardOctaveForTest(1);
+    check(s.editor.keyboardOctaveForTest() == 8, "clamps at octave 8, per session 010 section 4's spec");
+    check(s.editor.keyboardAvailableLowForTest() == 84 && s.editor.keyboardAvailableHighForTest() == 127,
+          "range clamps to MIDI's own ceiling (144 would be invalid) instead of overshooting");
+    s.editor.shiftKeyboardOctaveForTest(1);
+    check(s.editor.keyboardOctaveForTest() == 8, "one more up-shift past the clamp is a no-op, not an assert");
+
+    // Drive to the bottom clamp (8 downs from octave 8 lands on 0).
+    for (int i = 0; i < 8; ++i)
+        s.editor.shiftKeyboardOctaveForTest(-1);
+    check(s.editor.keyboardOctaveForTest() == 0, "clamps at octave 0");
+    check(s.editor.keyboardAvailableLowForTest() == 0 && s.editor.keyboardAvailableHighForTest() == 48,
+          "range clamps to MIDI's own floor (-12 would be invalid) instead of undershooting");
+    s.editor.shiftKeyboardOctaveForTest(-1);
+    check(s.editor.keyboardOctaveForTest() == 0, "one more down-shift past the clamp is a no-op, not an assert");
+
+    snapshot(s.editor, "29_octave_controls");
+}
+
 } // namespace
 
 int main()
@@ -2193,7 +2234,7 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInit;
 
     std::printf("EditorSessionTest -- a simulated human session against the real editor\n");
-    std::printf("  28 scenarios, no network, no quota, snapshots to artifacts/images/\n");
+    std::printf("  29 scenarios, no network, no quota, snapshots to artifacts/images/\n");
 
     auto tmp = juce::File::getSpecialLocation(juce::File::tempDirectory)
                    .getChildFile("pluginforge_editor_session");
@@ -2221,13 +2262,14 @@ int main()
     scenario19_keyboardSurvivesCompileSwap();
     scenario20_keyboardDisabledForEffect();
     scenario21_allNotesOffReleasesHeldNoteOnDisable();
-    scenario22_qwertyMappingStaticContract();
+    scenario22_qwertyMappingLiveContract();
     scenario23_kindSelectorReachesRequest(tmp);
     scenario24_priorSourceDroppedSurfaced(tmp);
     scenario25_refineModesUnlock(tmp);
     scenario26_priorSourceRefused(tmp);
     scenario27_cockpitMirrorEnvVar(tmp);
     scenario28_qwertyRoutingReachesKeyboard();
+    scenario29_octaveControlsShiftRangeTogether();
 
     tmp.deleteRecursively();
 

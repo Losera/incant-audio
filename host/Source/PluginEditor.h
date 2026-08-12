@@ -139,6 +139,15 @@ public:
     // have (STATUS.md Broken #1).
     int  keyboardRouteCallCountForTest() const            { return keyboardPanel.routeKeyStateChangedCallCountForTest(); }
 
+    // Octave controls (C5), same forwarder rationale as the block above:
+    // shiftOctave() is production code (the [<]/[>] buttons' onClick calls it
+    // directly), not a test-only duplicate -- these just reach through the
+    // private panel the same way keyboardNoteOnForTest() etc. already do.
+    int  keyboardOctaveForTest() const             { return keyboardPanel.currentOctaveForTest(); }
+    int  keyboardAvailableLowForTest() const       { return keyboardPanel.availableRangeLowForTest(); }
+    int  keyboardAvailableHighForTest() const      { return keyboardPanel.availableRangeHighForTest(); }
+    void shiftKeyboardOctaveForTest(int delta)     { keyboardPanel.shiftOctave(delta); }
+
 private:
     // 30Hz UI tick: pulls processor.outputLevel (relaxed atomic, written on the
     // audio thread) into displayLevel with instant attack / exponential decay,
