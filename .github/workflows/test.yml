@@ -107,9 +107,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pytest
+          python tools/gen_voice_contract.py --check
+          python tools/gen_presentation_prompt.py --check
           python tools/gen_stdlib_block.py --check
           python tools/gen_stdlib_block.py --verify-prompt
           pytest tests/test_prompt_stdlib.py -v
+          pytest tests/test_prompt_claims.py::TestClaimsHoldAgainstTheCompiler -v
 
       # The audio gate. Renders compiled Faust offline and asserts the output is
       # usable — no NaN/Inf, not silent, no DC runaway, no runaway gain — and that
@@ -189,49 +192,6 @@ jobs:
       - name: Build behavioural test harnesses
         run: cmake --build build-ci --target OfflineRenderTest OfflineSynthRenderTest PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery ParamIdentityTest NoteRingTest NoteRingTsanTest AuditionThreadingTest ValidationGateTest
 
-      # OutputGuardTest / ParamMapTest / StatePersistenceTest — 96 checks that had
-      # CMake targets and were run by NOTHING until 2026-07-30. PF-029 inverted:
-      # there CI ran what the ladder did not, here neither ran them. All three are
-      # pure and fast — no display, no network, no JIT for two of the three — so
-      # the omission never had a cost justification.
-      # NoteRingTest joined 2026-08-03. Its TSan twin runs in its own step below,
-      # NOT here: this loop preloads the CPU shim, and NoteRingTsanTest neither
-      # JITs nor wants a non-instrumented .so preloaded into a TSan binary.
-      - name: Run the pure harnesses (OutputGuard, ParamMap, StatePersistence, ParamIdentity, NoteRing, ValidationGate)
-        run: |
-          for t in OutputGuardTest ParamMapTest StatePersistenceTest ParamIdentityTest NoteRingTest ValidationGateTest; do
-            BIN="$(find build-ci -type f -name "$t" | head -n 1)"
-            if [ -z "$BIN" ]; then
-              echo "$t binary not found" >&2
-              exit 1
-            fi
-            echo "::group::$t"
-            LD_PRELOAD="$PF_LD_PRELOAD" timeout 300 "$BIN"
-            echo "::endgroup::"
-          done
-
-      # NoteRing's release/acquire pairing under a real producer and a real
-      # consumer thread. No LD_PRELOAD: the target links libtsan directly and
-      # does not JIT, so it needs neither the shim nor the preloaded runtime that
-      # ParamPoolTsanTest does.
-      - name: Run NoteRingTsanTest under ThreadSanitizer
-        run: |
-          BIN="$(find build-ci -type f -name NoteRingTsanTest | head -n 1)"
-          if [ -z "$BIN" ]; then
-            echo "NoteRingTsanTest binary not found" >&2
-            exit 1
-          fi
-          TSAN_OPTIONS="halt_on_error=1" timeout 300 "$BIN"
-
-      - name: Run AuditionThreadingTest under ThreadSanitizer
-        run: |
-          BIN="$(find build-ci/AuditionThreadingTest_artefacts -type f -name AuditionThreadingTest | head -n 1)"
-          if [ -z "$BIN" ]; then
-            echo "AuditionThreadingTest binary not found" >&2
-            exit 1
-          fi
-          TSAN_OPTIONS="halt_on_error=1" timeout 300 "$BIN"
-
       # ── PF-036: pin the JIT's target CPU for every harness that JITs ────────
       # GitHub's hosted fleet mixes EPYC 7763 (Zen 3, no AVX-512), Xeon 8573C
       # (AVX-512 present and enabled) and EPYC 9V74 (Azure Genoa: names itself
@@ -287,6 +247,49 @@ jobs:
             exit 1
           fi
           LD_PRELOAD="$PWD/build-ci/libpf_cpu_shim.so" timeout 300 "$BIN"
+
+      # OutputGuardTest / ParamMapTest / StatePersistenceTest — 96 checks that had
+      # CMake targets and were run by NOTHING until 2026-07-30. PF-029 inverted:
+      # there CI ran what the ladder did not, here neither ran them. All three are
+      # pure and fast — no display, no network, no JIT for two of the three — so
+      # the omission never had a cost justification.
+      # NoteRingTest joined 2026-08-03. Its TSan twin runs in its own step below,
+      # NOT here: this loop preloads the CPU shim, and NoteRingTsanTest neither
+      # JITs nor wants a non-instrumented .so preloaded into a TSan binary.
+      - name: Run the pure harnesses (OutputGuard, ParamMap, StatePersistence, ParamIdentity, NoteRing, ValidationGate)
+        run: |
+          for t in OutputGuardTest ParamMapTest StatePersistenceTest ParamIdentityTest NoteRingTest ValidationGateTest; do
+            BIN="$(find build-ci -type f -name "$t" | head -n 1)"
+            if [ -z "$BIN" ]; then
+              echo "$t binary not found" >&2
+              exit 1
+            fi
+            echo "::group::$t"
+            LD_PRELOAD="$PF_LD_PRELOAD" timeout 300 "$BIN"
+            echo "::endgroup::"
+          done
+
+      # NoteRing's release/acquire pairing under a real producer and a real
+      # consumer thread. No LD_PRELOAD: the target links libtsan directly and
+      # does not JIT, so it needs neither the shim nor the preloaded runtime that
+      # ParamPoolTsanTest does.
+      - name: Run NoteRingTsanTest under ThreadSanitizer
+        run: |
+          BIN="$(find build-ci -type f -name NoteRingTsanTest | head -n 1)"
+          if [ -z "$BIN" ]; then
+            echo "NoteRingTsanTest binary not found" >&2
+            exit 1
+          fi
+          TSAN_OPTIONS="halt_on_error=1" timeout 300 "$BIN"
+
+      - name: Run AuditionThreadingTest under ThreadSanitizer
+        run: |
+          BIN="$(find build-ci/AuditionThreadingTest_artefacts -type f -name AuditionThreadingTest | head -n 1)"
+          if [ -z "$BIN" ]; then
+            echo "AuditionThreadingTest binary not found" >&2
+            exit 1
+          fi
+          TSAN_OPTIONS="halt_on_error=1" timeout 300 "$BIN"
 
       # The audio path's own gate. No network, no API key, no quota: the corpus is
       # hand-written Faust, so this measures the AUDIO path, never generation
@@ -349,6 +352,12 @@ jobs:
             echo "::endgroup::"
           fi
           exit $rc
+
+      # Semantic complement to OfflineRenderTest's safety battery: drive the
+      # capture mode with MIDI notes and assert the rendered fundamental follows
+      # the requested pitch. This exact invocation mirrors tools/check.sh full.
+      - name: Run the instrument pitch gate
+        run: pytest tests/test_pitch_gate.py -q -m integration
 
       # The same corpus compiled as the instrument target. Its unique payload is
       # the build-time trait block: acceptsMidi(), the release tail and the bus

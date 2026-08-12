@@ -40,10 +40,11 @@ remain human-gated under `COLLABORATION.md`.
 - [ ] **P0.2 Correct build claims and quickstart paths.** Replace the stale `IncantAudio`
   artifact paths with actual PluginForge effect/synth paths. Either narrow current claims
   to VST3 + Standalone or approve a macOS/AU build plan. Verify commands from a clean build.
-- [ ] **P0.3 Close the CI/ladder coverage mismatch.** Build and run
-  `AuditionThreadingTest` and `ValidationGateTest` in CI, then add a structural check for
-  ladder-to-CI coverage (the existing guard checks only CI-to-ladder). Verify the guard red
-  case and a green workflow definition.
+- [ ] **P0.3 Close the CI/ladder coverage mismatch.** `AuditionThreadingTest` and
+  `ValidationGateTest` already build and run in CI. The ladder-to-CI structural check now
+  classifies the reporting-only presentation metric and requires every deterministic gate;
+  CI now includes the four gates it was missing. The guard was seen red before the workflow
+  fix and is locally green afterward; remote green CI remains the completion gate.
 - [ ] **P0.4 Perform the first installed-host smoke test.** Install both effect and synth
   VST3 bundles to an explicit user-local scan path, run pluginval, then scan/load each in one
   DAW. Record OS, host/pluginval versions, artifact hashes, scan result, generation helper
