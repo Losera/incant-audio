@@ -2067,6 +2067,70 @@ process = _ * z, _ * z;
     snapshot(s.editor, "26_prior_source_refused");
 }
 
+// setCockpitStatePath() (PluginEditor.h) previously had no caller anywhere in
+// the repo: cockpitEnabled defaulted false and stayed false forever, so
+// dev-cockpit/server.py's /api/state could only ever 503. Armed 2026-08-12 via
+// a PLUGINFORGE_COCKPIT_STATE env var read in the constructor. Confirms both
+// halves: default OFF when the var is unset (unchanged shipping behaviour),
+// and armed + actually writing valid JSON when it is set.
+void scenario27_cockpitMirrorEnvVar(const juce::File& tmp)
+{
+    scenario("27. Dev-cockpit mirror: env-var opt-in, default off",
+             "setCockpitStatePath() had zero callers before this session -- "
+             "/api/state could only ever 503. The mirror must stay off by "
+             "default and actually write when opted in.");
+
+    // Default: no env var set (the ambient test process should not have it).
+    {
+        Session s;
+        check(! s.editor.cockpitEnabledForTest(),
+              "default OFF -- PLUGINFORGE_COCKPIT_STATE unset, no write ever "
+              "armed, matching the shipping plugin's default behaviour");
+        check(s.editor.cockpitStatePathForTest().isEmpty(),
+              "no path recorded when never armed");
+    }
+
+    // Opt in: set the env var BEFORE constructing the editor -- it is read once,
+    // in the constructor, same as PLUGINFORGE_PYTHON in PromptPanel.cpp.
+    const auto statePath = tmp.getChildFile("cockpit_state.json");
+    statePath.deleteFile();
+#if JUCE_WINDOWS
+    _putenv_s("PLUGINFORGE_COCKPIT_STATE", statePath.getFullPathName().toRawUTF8());
+#else
+    setenv("PLUGINFORGE_COCKPIT_STATE", statePath.getFullPathName().toRawUTF8(), 1);
+#endif
+
+    {
+        Session s;
+        check(s.editor.cockpitEnabledForTest(), "armed when the env var is set");
+        check(s.editor.cockpitStatePathForTest() == statePath.getFullPathName(),
+              "the recorded path is exactly the env var's value");
+
+        // writeCockpitState() fires every 3rd tick (~10Hz at the 30Hz meter
+        // timer) -- three direct calls is deterministic, no wall-clock wait.
+        s.editor.pumpMeterTickForTest();
+        s.editor.pumpMeterTickForTest();
+        s.editor.pumpMeterTickForTest();
+
+        check(statePath.existsAsFile(), "the state file was actually written, "
+              "not just armed -- the earlier bug was silent: nothing called "
+              "setCockpitStatePath, and nothing would have failed loudly either");
+
+        auto parsed = juce::JSON::parse(statePath.loadFileAsString());
+        check(parsed.isObject(), "the written file is valid JSON");
+        check(parsed.getProperty("windowWidth", juce::var()).isInt(),
+              "and has the shape writeCockpitState() actually produces, not "
+              "just non-empty bytes");
+    }
+
+#if JUCE_WINDOWS
+    _putenv_s("PLUGINFORGE_COCKPIT_STATE", "");
+#else
+    unsetenv("PLUGINFORGE_COCKPIT_STATE");
+#endif
+    statePath.deleteFile();
+}
+
 } // namespace
 
 int main()
@@ -2074,7 +2138,7 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInit;
 
     std::printf("EditorSessionTest -- a simulated human session against the real editor\n");
-    std::printf("  26 scenarios, no network, no quota, snapshots to artifacts/images/\n");
+    std::printf("  27 scenarios, no network, no quota, snapshots to artifacts/images/\n");
 
     auto tmp = juce::File::getSpecialLocation(juce::File::tempDirectory)
                    .getChildFile("pluginforge_editor_session");
@@ -2107,6 +2171,7 @@ int main()
     scenario24_priorSourceDroppedSurfaced(tmp);
     scenario25_refineModesUnlock(tmp);
     scenario26_priorSourceRefused(tmp);
+    scenario27_cockpitMirrorEnvVar(tmp);
 
     tmp.deleteRecursively();
 

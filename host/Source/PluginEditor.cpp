@@ -104,6 +104,16 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
 
     startTimerHz(30);   // level-meter repaint tick (see timerCallback)
 
+    // Dev-cockpit mirror (session 010 §7), armed 2026-08-12. OFF by default --
+    // setCockpitStatePath() previously had no caller anywhere in the repo, so
+    // cockpitEnabled was always false and dev-cockpit/server.py's /api/state
+    // could only ever 503. Opt in with PLUGINFORGE_COCKPIT_STATE set to the path
+    // server.py reads (its STATE_FILE, hardcoded to /tmp/pluginforge_state.json)
+    // to enable the read-only mirror the /cockpit skill expects.
+    auto cockpitPath = juce::SystemStats::getEnvironmentVariable("PLUGINFORGE_COCKPIT_STATE", {});
+    if (cockpitPath.isNotEmpty())
+        setCockpitStatePath(cockpitPath);
+
     // ── Route the processor's compile callbacks to the child panels ──────────
     // Both fire on FaustEngine's compile thread (see PluginProcessor.h), so each
     // hops to the message thread via SafePointer + callAsync before touching any
