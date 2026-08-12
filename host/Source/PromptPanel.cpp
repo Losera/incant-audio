@@ -830,10 +830,11 @@ void PromptPanel::restoreFromHistory(const juce::String& prompt)
 void PromptPanel::resized()
 {
     // Bounds-robust: the panel lays its children out inside whatever rectangle the
-    // shell hands it. It fills out fully once S3 widens the band (FLEET req #17);
-    // in the current fixed 108px band the error region and progress row simply
-    // collapse to zero height rather than overflow. juce::Rectangle::removeFrom*
-    // clamps to the space available, so nothing overruns or asserts.
+    // shell hands it (Chrome::promptH -- 220px as of 2026-08-12, not the 108px this
+    // comment named when it was written pre-split). In a shallow band the error
+    // region and progress row simply collapse to zero height rather than overflow.
+    // juce::Rectangle::removeFrom* clamps to the space available, so nothing
+    // overruns or asserts.
     auto area = getLocalBounds();
     const int gap = 6, buttonH = 28, progressH = 18, statusH = 20;
 
@@ -842,7 +843,16 @@ void PromptPanel::resized()
     auto statusR = area.removeFromBottom(statusH);
     auto progressR = area.removeFromBottom(progressH);
     area.removeFromBottom(gap);
-    auto buttonR = area.removeFromBottom(buttonH);
+
+    // Two rows since 2026-08-12, was one. generateButton(110) + historyButton(90)
+    // + kindSelector(90) + refineSelector used to share a single buttonH row, which
+    // fit the old 50/50 split's ~432px right column but not 65/35's ~232-302px one
+    // (session 010 §3) -- refineSelector was dropping to 0px at the 900px default.
+    // Splitting into actions (bottom) + generation options (above) fits comfortably
+    // at both the default width and kMinWindowW; see PluginEditor.h's Chrome::promptH.
+    auto actionRow = area.removeFromBottom(buttonH);   // generateButton, historyButton
+    area.removeFromBottom(gap);
+    auto genRow = area.removeFromBottom(buttonH);       // kindSelector, refineSelector
     area.removeFromBottom(gap);
 
     // Remaining top area splits between the prompt (min 60px per Prompt B, growing
@@ -854,18 +864,18 @@ void PromptPanel::resized()
     area.removeFromTop(gap);
     errorBox.setBounds(area);   // may be zero-height until S3 widens the band
 
-    generateButton.setBounds(buttonR.removeFromLeft(110));
-    buttonR.removeFromLeft(gap);
-    historyButton.setBounds(buttonR.removeFromLeft(90));
-    buttonR.removeFromLeft(gap);
+    generateButton.setBounds(actionRow.removeFromLeft(110));
+    actionRow.removeFromLeft(gap);
+    historyButton.setBounds(actionRow.removeFromLeft(90));
+
     // Kind selector: generation-time type override (routes to the instrument or
     // effect prompt). Fixed-ish width; if the band is too narrow the ComboBox
     // collapses below its text and the user still has History + Generate.
-    kindSelector.setBounds(buttonR.removeFromLeft(90));
-    buttonR.removeFromLeft(gap);
+    kindSelector.setBounds(genRow.removeFromLeft(90));
+    genRow.removeFromLeft(gap);
     // Takes whatever is left rather than a fixed width, so the selector simply
-    // disappears in a band too narrow for it instead of overlapping History.
-    refineSelector.setBounds(buttonR);
+    // disappears in a band too narrow for it instead of overlapping kindSelector.
+    refineSelector.setBounds(genRow);
 
     progressLabel.setBounds(progressR);
     statusLabel.setBounds(statusR);

@@ -433,10 +433,11 @@ void PluginForgeEditor::paint(juce::Graphics& g)
     g.setColour(juce::Colours::white);
     g.setFont(Theme::Type::title());
     // Title lives in the top-margin+title band so it reads as a shell header, not
-    // as part of either column. chrome.titleH matches the reservation in resized().
-    g.drawText("PluginForge",
-               getLocalBounds().removeFromTop(chrome.margin + chrome.titleH),
-               juce::Justification::centred);
+    // as part of either column. Left-aligned (was centred) since 2026-08-12: the
+    // disclosure row now shares this band on the right (titleTextBounds, set in
+    // resized()), and centring the text would risk it drifting under those
+    // controls as the window resizes.
+    g.drawText("PluginForge", titleTextBounds, juce::Justification::centredLeft);
 
     // Divider between the left (grid) and right (prompt) columns. Drawn as a thin
     // line down the middle of the dividerW gap. Set in resized().
@@ -470,10 +471,12 @@ void PluginForgeEditor::paint(juce::Graphics& g)
 
 void PluginForgeEditor::resized()
 {
-    // Two-panel authoring screen. The window is a full-width title bar, a split
-    // region (left preview/grid column | right prompt column), an optional full-
-    // width code band, and a full-width keyboard band at the bottom. Every band
-    // comes from `chrome`; updateWindowSizeForParams() sums the same numbers via
+    // Two-panel authoring screen. The window is a full-width title bar (title
+    // text left, disclosure row right — moved here 2026-08-12, see Chrome::
+    // promptH's comment), a split region (left preview/grid column | right
+    // prompt column), an optional full-width code band, and a full-width
+    // keyboard band at the bottom. Every band comes from `chrome`;
+    // updateWindowSizeForParams() sums the same numbers via
     // rightColumnHeight()/verticalChrome(), so window arithmetic cannot drift from
     // what is carved here. Do not reintroduce a literal.
     //
@@ -481,9 +484,8 @@ void PluginForgeEditor::resized()
     // one fires, update the height baselines in the same commit as the band change
     // — do not relax it. (Lives here, not at class scope: `Chrome{}` needs default
     // member initializers the enclosing class has not finished declaring yet.)
-    static_assert(rightColumnHeight(Chrome{}) == 276,
-                  "Right column: promptH(220) + gapMeter(8) + meterH(14) "
-                  "+ gapRow(10) + rowH(24) = 276.");
+    static_assert(rightColumnHeight(Chrome{}) == 242,
+                  "Right column: promptH(220) + gapMeter(8) + meterH(14) = 242.");
     static_assert(verticalChrome(Chrome{}) == 144,
                   "Vertical chrome: margin(16) + titleH(32) + gapKeyboard(8) "
                   "+ keyboardH(72) + margin(16) = 144.");
@@ -491,7 +493,19 @@ void PluginForgeEditor::resized()
     const auto& c = chrome;
 
     auto area = getLocalBounds().reduced(c.margin);
-    area.removeFromTop(c.titleH);                 // full-width title spacer
+    auto titleArea = area.removeFromTop(c.titleH);
+
+    // Disclosure row: claims the right side of the title band, same left-to-
+    // right order and widths it had as its own row before the 65/35 split left
+    // the right column too narrow for it (see Chrome::promptH's comment).
+    // Whatever remains on the left is the title text's bounds, read by paint().
+    codeToggle.setBounds(titleArea.removeFromRight(110));
+    titleArea.removeFromRight(6);
+    styleToggle.setBounds(titleArea.removeFromRight(120));
+    titleArea.removeFromRight(6);
+    auditionSelector.setBounds(titleArea.removeFromRight(juce::jmin(160, titleArea.getWidth())));
+    titleArea.removeFromRight(6);
+    titleTextBounds = titleArea;
 
     // Keyboard: full-width band at the bottom, ALWAYS laid out (see the
     // addAndMakeVisible comment in the constructor) so an effect patch's dimmed
@@ -524,18 +538,10 @@ void PluginForgeEditor::resized()
     // inside the panel; no dedicated header band is carved here.
     paramGridPanel.setBounds(leftCol);
 
-    // Right column, top to bottom: prompt → meter → disclosure row. Any vertical
-    // slack (the column is taller than rightColumnHeight when the left grid is
-    // tall) falls between the disclosure row and the bottom edge.
+    // Right column, top to bottom: prompt → meter. Any vertical slack (the
+    // column is taller than rightColumnHeight when the left grid is tall) falls
+    // below the meter.
     promptPanel.setBounds(rightCol.removeFromTop(c.promptH));
     rightCol.removeFromTop(c.gapMeter);
     meterBounds = rightCol.removeFromTop(c.meterH);
-    rightCol.removeFromTop(c.gapRow);
-
-    auto row = rightCol.removeFromTop(c.rowH);
-    codeToggle.setBounds(row.removeFromRight(110));
-    row.removeFromRight(6);
-    styleToggle.setBounds(row.removeFromRight(120));
-    row.removeFromRight(6);
-    auditionSelector.setBounds(row.removeFromLeft(juce::jmin(160, row.getWidth())));
 }

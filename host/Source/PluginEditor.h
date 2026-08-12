@@ -149,16 +149,21 @@ private:
     struct Chrome
     {
         int margin      = 16;   // reduced() inset, counted every edge
-        int titleH      = 32;   // full-width title bar spacer (title painted in it)
+        int titleH      = 32;   // full-width title bar: title text (left) + the
+                                // disclosure row (right) since 2026-08-12
         int dividerW    = 4;    // gap between the left and right columns
 
         // Right column, top to bottom (fixed content; the grid column flexes).
+        // The disclosure/mode row (codeToggle, styleToggle, auditionSelector)
+        // used to live here as its own rowH band; moved into the title bar
+        // 2026-08-12 (see rightColumnHeight()) because 65/35 leaves the right
+        // column too narrow to hold both that row and PromptPanel's own button
+        // row (generateButton/historyButton/kindSelector/refineSelector) --
+        // at the 900px default, refineSelector was dropping to 0px.
         int promptH     = 220;  // PromptPanel: multi-line prompt + buttons +
                                 // progress + status + a scrollable error region
         int gapMeter    = 8;
         int meterH      = 14;
-        int gapRow      = 10;
-        int rowH        = 24;   // the disclosure / mode row
 
         // Full-width bottom bands.
         int gapKeyboard = 8;    // gap above the keyboard band
@@ -184,11 +189,13 @@ private:
     // hold the sectioned UiIr preview and was judged to deserve more than half.
     static constexpr float kLeftFraction = 0.65f;
 
-    // The right column's fixed vertical content: prompt + meter + disclosure row.
+    // The right column's fixed vertical content: prompt + meter. The disclosure
+    // row moved to the title bar 2026-08-12 (see Chrome::promptH's comment), so
+    // this dropped gapRow(10) + rowH(24) -- 276 -> 242.
     // The split region is the taller of this and the (variable) grid column.
     static constexpr int rightColumnHeight(const Chrome& c)
     {
-        return c.promptH + c.gapMeter + c.meterH + c.gapRow + c.rowH;
+        return c.promptH + c.gapMeter + c.meterH;
     }
 
     // Everything outside the split region: title bar, both margins, keyboard band.
@@ -220,6 +227,13 @@ private:
     // The x of the divider between the two columns, set in resized(), read in
     // paint() to draw the seam. In window coordinates.
     int dividerX = 0;
+
+    // The title band's leftover after the disclosure controls (codeToggle,
+    // styleToggle, auditionSelector — moved here 2026-08-12 from the right
+    // column's own row, which the 65/35 split left too narrow for them; see
+    // rightColumnHeight()'s comment) claim their space on the right. Set in
+    // resized(), painted in paint() — same pattern as dividerX/meterBounds.
+    juce::Rectangle<int> titleTextBounds;
 
     PluginForgeProcessor& processor;
 
