@@ -20,10 +20,10 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
 
     // Resizable: prompt band and grid both flex, and the code band appears/disappears
     // under the split. Minimum width keeps both columns wide enough to be usable
-    // (~380px each after margins + divider); minimum height keeps the fixed right
-    // column visible.
+    // at the 65/35 split (432 grid + 232 prompt at kMinWindowW, after margins +
+    // divider); minimum height keeps the fixed right column visible.
     setResizable(true, true);
-    setResizeLimits(800, kMinWindowH, 1600, 1200);
+    setResizeLimits(kMinWindowW, kMinWindowH, 1600, 1200);
 
     addAndMakeVisible(promptPanel);
     addAndMakeVisible(paramGridPanel);
@@ -484,9 +484,9 @@ void PluginForgeEditor::resized()
     static_assert(rightColumnHeight(Chrome{}) == 276,
                   "Right column: promptH(220) + gapMeter(8) + meterH(14) "
                   "+ gapRow(10) + rowH(24) = 276.");
-    static_assert(verticalChrome(Chrome{}) == 136,
+    static_assert(verticalChrome(Chrome{}) == 144,
                   "Vertical chrome: margin(16) + titleH(32) + gapKeyboard(8) "
-                  "+ keyboardH(64) + margin(16) = 136.");
+                  "+ keyboardH(72) + margin(16) = 144.");
 
     const auto& c = chrome;
 

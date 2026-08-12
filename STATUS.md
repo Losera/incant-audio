@@ -150,12 +150,17 @@ bullets before it are carried from the previous session, unchanged.**
 
 - **The editor is a two-panel authoring screen, not a vertical stack (Track 1.1).** The
   window is now a full-width title bar, a split region (left preview/grid column | right
-  prompt column, `kLeftFraction = 0.5`, `dividerW = 4`), an optional full-width code band,
-  and a full-width keyboard band. `setSize(900, 500)`, `setResizeLimits(800, 400, 1600, 1200)`.
+  prompt column, `kLeftFraction = 0.65`, `dividerW = 4`), an optional full-width code band,
+  and a full-width keyboard band. `setSize(900, 500)`, `setResizeLimits(700, 400, 1600, 1200)`.
+  **65/35, updated 2026-08-12 (session 010 §3, answering Waiting-on-you #2 below): the grid
+  column holds the sectioned UiIr preview and was judged to deserve more than half. This
+  went through you directly this session, not a screenshot read — see the plan review that
+  landed it.** `keyboardH` also grew 64→72 (room for session 010 §4's inline octave/scale
+  controls, not yet built).
   **The band-sum pin was replaced, not relaxed**: the old
   `static_assert(chromeHeight(Chrome{}) == 422)` described a single-column window that no
   longer exists, so it was retired in favour of two narrower assertions that survived the
-  build — `rightColumnHeight(Chrome{}) == 276` and `verticalChrome(Chrome{}) == 136`.
+  build — `rightColumnHeight(Chrome{}) == 276` and `verticalChrome(Chrome{}) == 144`.
   Both are consumed by `resized()` and summed by `updateWindowSizeForParams()`, keeping the
   one-source property the `Chrome` struct exists for.
   **One deliberate deviation from the approved plan, for a contract reason.** The plan put
@@ -163,16 +168,19 @@ bullets before it are carried from the previous session, unchanged.**
   In the left column the code band would be absorbed whenever the right column is the taller
   of the two, and revealing code would leave the window height unchanged — silently breaking
   scenario 11's grow-on-show contract. Verified against the real numbers rather than
-  reasoned about: scenario 11 measures `500 → 660px` (`136 + 276 + 8 + 240`), scenario 3
-  measures `706px` (`136 + 6 × 95`, the `kMaxGridRows` cap). Both arithmetic identities hold
+  reasoned about: scenario 11 measures `500 → 668px` (`144 + 276 + 8 + 240`), scenario 3
+  measures `714px` (`144 + 6 × 95`, the `kMaxGridRows` cap). Both arithmetic identities hold
   exactly. `tools/check.sh full` green, 25/25; `EditorSessionTest` 192 checks / 0 failures.
   **Visually confirmed, not inferred from a passing test** — the suite asserts no column
   geometry, so the rendered snapshots were read directly: `session_03_overflow_40_params.png`
-  (900×706) shows the scrolling 40-param grid left, prompt column right, visible divider
-  seam; `session_11a_code_view_empty.png` (900×660) shows the code band spanning full width
+  (900×714) shows the scrolling 40-param grid left, prompt column right, visible divider
+  seam; `session_11a_code_view_empty.png` (900×668) shows the code band spanning full width
   below the split and above the keyboard. **Not verified**: never opened in a DAW (Broken #2
-  is unchanged by this), and no human has judged whether the 50/50 split is the right
-  proportion — that is Waiting-on-you #2.
+  is unchanged by this). **Known defect at 65/35, found 2026-08-12, not yet fixed as of this
+  entry**: the right column's own control rows (the disclosure row — code/style toggle,
+  audition selector — and `PromptPanel`'s button row) were sized for the old 50/50 column
+  and no longer fit; at the default 900px window the refine-mode selector disappears
+  entirely. Fix in flight — see the corresponding item below.
 
 ### Carried forward from 2026-08-04 and earlier — see git log for the full narrative
 
@@ -196,7 +204,7 @@ end-to-end one.** *(unfiled, medium — narrowed this session, not fully closed.
 and with JUCE's default QWERTY offset table. It does **not** prove a real keypress produces
 a note — no synthetic-input tool exists on this machine (wtype/ydotool/xdotool all absent),
 and this remains true everywhere else in the repo too. A regression that broke real keypress
-handling while leaving the static constants untouched would still pass all 176 current
+handling while leaving the static constants untouched would still pass all 213 current
 checks undetected. Closing this fully needs either a compositor-level input tool on this
 machine or a different verification strategy entirely.
 
@@ -276,32 +284,18 @@ Next-three #3 this session.
 
 ## Waiting on you
 
-1. **Commit today's work, or hold it.** Superseded — the file list below is what is
-   uncommitted as of THIS rewrite; the previous version of this item described an earlier,
-   already-superseded uncommitted set from the same day. The refine two-mode change
-   (Broken #3, closed):
-   `host/Source/PromptPanel.{h,cpp}` (`refineSelector` ComboBox, `setRefineModesAvailable`,
-   refusal surfacing), `host/Source/PluginEditor.{h,cpp}` (compile-success refresh call,
-   test forwarders), `host/tests/EditorSessionTest.cpp` (scenarios 25-26, new),
-   `host/tests/FakeGenerator.h` (`writeFailure`'s `priorSourceRefused` param), `llm/generate.py`
-   (`_SURGICAL_PREAMBLE`/`_CONTEXT_PREAMBLE`, `refine_mode`, the surgical hard-fail),
-   `tests/test_generate_unit.py` (9 new cases) — plus this session's docs:
-   `llm/CONTRACT.md`, `INTERFACE.md`, `docs/decisions.md` (ADR-011's second amendment),
-   `docs/sessions/002-refine-loop-and-ui-redesign.md` (forward-pointer only; its frozen plan
-   text below "## 1. Plan, as approved" was not touched), and this file. **`tools/check.sh
-   full` is green end-to-end** (both `llm/generate.py`'s change and the host build/TSan
-   lanes); `EditorSessionTest` is 213 checks / 0 failures across 26 scenarios, run this
-   session with a live display present — up from 24 scenarios / 192 checks this morning,
-   both new ones (25, 26) confirmed to fail red before their fix landed, per COLLABORATION.md's
-   "a control counts only once it has been seen failing."
-2. **The two-panel layout needs your eye, and so does the styled keyboard.** Open
-   `host/artifacts/images/session_03_overflow_40_params.png` (the split with a full grid) and
-   `session_11a_code_view_empty.png` (the code band revealed), plus
-   `artifacts/ui_gallery/index.html` for the Catppuccin/teal-pink direction. Two specific
-   judgments the test suite structurally cannot make: **is 50/50 the right split** (the grid
-   column is the one that will hold the sectioned UiIr preview, so it may deserve more), and
-   is the dark palette what was wanted. "Does this look right" per COLLABORATION.md §1 is
-   yours.
+1. **Superseded 2026-08-12** — the refine two-mode file list this item used to carry is
+   long since committed. Session 010's alpha UI pass is now the live uncommitted work on
+   `feat/ui-design-system`; see the plan at `.claude/plans/you-are-a-lead-steady-cake.md`
+   for the current step-by-step (palette done, 65/35 split landing this session, keyboard/
+   prompt/cockpit reconciled and queued behind it).
+2. **Resolved 2026-08-12: 65/35, not 50/50.** Session 010 §1/§3 made the call — the grid
+   column holds the sectioned UiIr preview and deserves more than half — and it landed this
+   session (see the "editor is a two-panel authoring screen" entry above). That resolves
+   this item's first question. The second — **is the dark palette (now Tokyo Night, not
+   Catppuccin) what was wanted** — is still open; look at `artifacts/ui_gallery/index.html`
+   after the next `tools/ui_iterate.sh --accept`. "Does this look right" per COLLABORATION.md
+   §1 is yours.
 3. **The EFFECTS listening pass.** Unchanged from prior rewrites.
    `host/build/PluginForgeHost_artefacts/Debug/Standalone/PluginForge Host` is current.
    Input bus required. VST3 still never installed (`COPY_PLUGIN_AFTER_BUILD FALSE`).

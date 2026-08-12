@@ -162,9 +162,12 @@ private:
 
         // Full-width bottom bands.
         int gapKeyboard = 8;    // gap above the keyboard band
-        int keyboardH   = 64;   // KeyboardPanel -- ALWAYS present (unlike codeH
+        int keyboardH   = 72;   // KeyboardPanel -- ALWAYS present (unlike codeH
                                 // below, unavailability is dimming, not removal;
-                                // see host/Source/KeyboardPanel.h)
+                                // see host/Source/KeyboardPanel.h). 64->72
+                                // (docs/sessions/010 §3): reserves room for the
+                                // inline octave/scale controls step 3 adds; the
+                                // 8px is unfilled until that step lands.
         int gapCode     = 8;    // gap above the code band
         int codeH       = 240;  // CodeEditorPanel, a full-width band ABOVE the
                                 // keyboard and only while that panel is visible.
@@ -177,7 +180,9 @@ private:
     };
 
     // The left column's share of the split region's width.
-    static constexpr float kLeftFraction = 0.5f;
+    // 0.5f -> 0.65f (docs/sessions/010 §3): the grid column was the one that will
+    // hold the sectioned UiIr preview and was judged to deserve more than half.
+    static constexpr float kLeftFraction = 0.65f;
 
     // The right column's fixed vertical content: prompt + meter + disclosure row.
     // The split region is the taller of this and the (variable) grid column.
@@ -200,6 +205,13 @@ private:
     // agreement with these sums is the actual contract.
 
     static constexpr int kMinWindowH   = 400;  // matches setResizeLimits minimum
+    // 800->700 (docs/sessions/010 §3): 65/35 needs less width than 50/50 did.
+    // At 700 (see resized()): splitW = 700 - margin*2(32) = 668; leftW =
+    // round((668 - dividerW(4)) * 0.65) = 432; rightW = 668 - 4 - 432 = 232.
+    // Session 010 §3 originally claimed 400/264 (a 60/40 ratio, not 65/35) --
+    // wrong arithmetic, corrected in the 2026-08-12 reconciliation note in
+    // docs/sessions/010-alpha-ui-architecture.md.
+    static constexpr int kMinWindowW   = 700;  // matches setResizeLimits minimum
     static constexpr int kMaxGridRows  = 6;    // rows shown before the grid scrolls
 
     // The band budget in force. A single instance today; step 7 makes it per-mode.
