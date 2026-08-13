@@ -194,10 +194,14 @@ jobs:
       # PluginForgeEditor, which nothing had ever constructed. It found PF-033 on
       # its first green run — the editor's unconditional default-seeding was
       # overwriting every value a state restore had just put back.
-      # UiDesignGallery is built but not run: it makes no assertions, so there is
-      # nothing to assert on here. It is compiled because it reaches into editor
-      # internals (PluginEditor.h:42-48, ParamGridPanel.h:91) and a rename there
-      # would otherwise break the design instrument silently with CI green.
+      # UiDesignGallery is built here and RUN separately below (commit 1c035b1,
+      # predating this comment's "built but not run" -- stale claim corrected
+      # 2026-08-13). It makes no assertions of its own, but rendering the
+      # fixture matrix is still worth doing in CI: it is compiled because it
+      # reaches into editor internals (PluginEditor.h:42-48, ParamGridPanel.h:91)
+      # and a rename there would otherwise break the design instrument silently
+      # with CI green, and running it catches a fixture that will not compile
+      # or a grid that never settles (see the "Run UiDesignGallery" step below).
       - name: Build behavioural test harnesses
         run: cmake --build build-ci --target OfflineRenderTest OfflineSynthRenderTest PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery ParamIdentityTest NoteRingTest NoteRingTsanTest AuditionThreadingTest ValidationGateTest
 

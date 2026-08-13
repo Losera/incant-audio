@@ -3,6 +3,16 @@
 **Date:** 2026-08-07
 **Status:** Design locked, ready for implementation
 
+**2026-08-13 RECONCILIATION NOTE (C7).** This plan was written against a mental
+model, not a reading, of the code, and implementation (sessions after 010,
+through C1-C6 and the subsequent merge with main's "deterministic plugin
+families and sample browser" work) both corrected several of its numbers and
+deliberately deviated from parts of it. Amended in place, per section, below
+-- the original text stays as the record of what was decided and why; each
+note says what actually shipped and, where it differs, why. Do not treat any
+number or claim in the unmarked sections below as current without checking
+the note for that section first.
+
 ---
 
 ## 1. Decisions Made
@@ -40,6 +50,22 @@ Replace Catppuccin Mocha tokens in `Theme.h` with Tokyo Night palette. The struc
 | `meterHot` | `#f38ba8` | `#f9e2af` | Amber — hot end of level meter |
 
 The ForgeLookAndFeel ColourScheme maps directly: `meterCool` becomes the `defaultFill` (accent), `meterHot` stays `highlightedFill`. The visual identity shifts from teal/pink to blue/amber while retaining the same structural roles.
+
+**2026-08-13 RECONCILIATION NOTE.** Every token name above was renamed on
+implementation (`host/Source/Theme.h`) to describe UI role rather than
+palette family, so a future palette change stays a one-file edit:
+`base`->`background`, `mantle`->`surface`, `crust`->`surfaceSunken`,
+`text`->`textPrimary`, `subtext`->`textSecondary`, `overlay`->`outline`,
+`yellow`->`progress`, `errorText`->`danger`, `meterCool`->`accent`. A new
+token, `surfaceRaised` (`#242536`, cards and raised controls), was added with
+no equivalent here. One value deliberately deviates from this table, flagged
+in the approved implementation plan: this table sets `meterHot` to `#e0af68`
+-- identical to `yellow`/`progress`. That is a real role collision (the
+meter's hot end and the "generation in progress" state would read as the same
+colour whenever both are on screen), so the shipped `meterHot` is Tokyo
+Night's orange `#ff9e64` instead; `progress` kept `#e0af68`. Every other value
+in the table above matches what shipped. See `Theme.h`'s own header comment
+for the measured contrast ratios that were not part of this plan.
 
 ---
 
@@ -107,6 +133,34 @@ static_assert(rightColumnHeight(Chrome{}) == 276);  // unchanged
 static_assert(verticalChrome(Chrome{}) == 144);     // was 136: keyboardH 64→72
 ```
 
+**2026-08-13 RECONCILIATION NOTE.** This section's arithmetic was wrong twice
+over, and both errors were corrected in the code rather than here until now.
+First: `minLeftW(400) + minRightW(264) = 664`, not the `700` the "Minimum
+window width" heading claims -- that 700 is actually
+`2*margin(32) + minLeftW + minRightW` with the divider folded into
+`minLeftW`'s 400, a 60/40 split at 700px, not 65/35 (corrected in `d26e990`'s
+commit message and `PluginEditor.h`'s own comment, which spells out the real
+arithmetic: `splitW = 700 - margin*2(32) = 668; leftW = round((668 -
+dividerW(4)) * 0.65) = 432; rightW = 668 - 4 - 432 = 232`). Second, and
+unrelated to the first: the disclosure row (`codeToggle`/`styleToggle`, plus
+the now-removed `auditionSelector`) moved into the title band on `a087af2`
+because 65/35 left the right column too narrow to hold both it and
+`PromptPanel`'s own button row -- so `rightColumnHeight` DROPPED `gapRow(10) +
+rowH(24)`, landing at **242**, not the 276 both this section and the
+`static_assert` above still claim. `verticalChrome` moved a third time, for a
+reason this plan never anticipated: main's "deterministic plugin families and
+sample browser" PR added a `SampleBrowserPanel` full-width band
+(`gapSamples(8) + samplesH(64)`) that landed via the 2026-08-13 merge
+alongside `keyboardH`'s 72. Current values, both verified against
+`PluginEditor.h`/`.cpp` as of that merge:
+```cpp
+static_assert(rightColumnHeight(Chrome{}) == 242,
+              "promptH(220) + gapMeter(8) + meterH(14) = 242.");
+static_assert(verticalChrome(Chrome{}) == 216,
+              "margin(16) + titleH(32) + gapSamples(8) + samplesH(64) "
+              "+ gapKeyboard(8) + keyboardH(72) + margin(16) = 216.");
+```
+
 ---
 
 ## 4. Keyboard: Inline Controls + QWERTY Fix
@@ -145,6 +199,31 @@ Add to the keyboard band (above the piano keys, inside the same `KeyboardPanel`)
 
 Grow `keyboardH` from 64 to 72 to accommodate the control row. The control row is ~24px (buttons + dropdown), the piano keys remain ~48px.
 
+**2026-08-13 RECONCILIATION NOTE.** The Broken #1 closure plan above is
+impossible as written and was abandoned, not implemented: `keyPressed()` is
+not the method that fires notes from a real QWERTY press --
+`juce::MidiKeyboardComponent::keyStateChanged()` is (continuous held-state
+polling, a different JUCE virtual entirely) -- and the real defect (C4) was
+never a missing test but a missing SHELL-LEVEL route: `PluginForgeEditor` had
+no `keyStateChanged()` override at all, so JUCE's own dispatch walk never
+reached the piano unless it already held keyboard focus. The fix added
+exactly that override, forwarding unconditionally to
+`KeyboardPanel::routeKeyStateChanged()`, and scenario 28 proves the shell
+routes on every key transition -- what it does NOT and cannot prove is that a
+real OS keypress reaches this call at all (`KeyPress::isCurrentlyDown()`
+reads actual compositor state; no synthetic-input tool exists on this
+machine). This narrows Broken #1, it does not close it, and no test in this
+repo closes it. The **scale dropdown was cut** (C5, user's explicit answer):
+no supporting JUCE API exists for it, and building one would need a
+`drawWhiteNote`/`drawBlackNote`-overriding subclass, materially more work than
+this section implied. Octave buttons (`[<]`/`[>]`) and mouse-Y velocity both
+shipped as described, with one correction: velocity-by-mouse-Y is one ctor
+line (`setVelocity(1.0f, true)`, `juce_MidiKeyboardComponent.h:73`), not a
+custom keyboard-component subclass. `keyboardH` did grow 64->72 as planned,
+and the control row IS 24px (`KeyboardPanel::kControlRowH`) with the piano at
+48px -- but the control row holds only the octave buttons, since the scale
+dropdown never shipped.
+
 ---
 
 ## 5. Prompt Workflow: History + Progress + Errors
@@ -174,6 +253,38 @@ Replace the 200-char truncation in `errorTextForTest()`:
 - Parse Faust stderr for line numbers and show them in the error text (the retry loop already gets the full stderr)
 - Keep the 200-char truncation in the status label (brief feedback), but show the full error in the expandable region below
 
+**2026-08-13 RECONCILIATION NOTE.** All three pieces of this section shipped,
+eventually (C6, 2026-08-12), but not as specced, and prompt history in
+particular is already built and this doc's own §9 (below) still calls it
+deferred -- read that note too.
+
+- **History**: no `historyDropdown` ComboBox. The shipped mechanism is the
+  pre-existing `historyButton` + `PopupMenu` (a dropdown would have
+  duplicated it), plus up-arrow CYCLING through entries (a walking index,
+  clamped at the oldest, reset on any real edit) rather than always
+  recalling just the newest. It is also now genuinely persisted in the state
+  blob (schemaVersion 3, a `<PromptHistory>` child) -- this section's
+  "persisted in state blob (Phase 1)" was aspirational when written; Phase 1
+  (state persistence) had not landed yet at the time, but had landed
+  (`c34bbb6`) before C6 shipped this specific field.
+- **Generation progress**: the attempt counter (1/3, 2/3, 3/3) was CUT --
+  it contradicts "overseer FLEET ruling #2a" (`PromptPanel.h`'s own citation):
+  the one-shot subprocess exposes no live attempt count, so a counter would
+  be fabricated, not observed. What shipped is a single indeterminate pulse
+  label ("Working... Ns"), no separate phase indicator
+  (Generating/Compiling/Success/Error) beyond that.
+- **Error display**: the "Copy" button was never built. Everything else
+  shipped: `setError()` now actually gets called with the FULL,
+  untruncated Faust stderr (it existed as a public method, documented for
+  exactly this, since before this session -- nothing called it until C6),
+  the status label keeps the 200-char-capped prefix, and the offending line
+  is parsed and highlighted in the code view. One correction to "Parse Faust
+  stderr for line numbers": the format is not a fixed `line N:` -- Faust's
+  own diagnostic reads `dsp:<line> : ERROR : ...`, and the spacing around
+  the first colon is NOT stable across Faust versions (this machine's
+  2.85.9 omits the space; CI's installed Faust includes it) -- found because
+  the naive parser passed every local test and then silently failed in CI.
+
 ---
 
 ## 6. Code Editor Polish
@@ -198,6 +309,27 @@ Parse Faust stderr for line numbers (format: `line N: error: ...`) and highlight
 ### Keyboard shortcut
 
 Add `Cmd/Ctrl+Shift+C` to toggle code visibility (replaces the "Show code" button click for power users). The button stays for discoverability.
+
+**2026-08-13 RECONCILIATION NOTE.** The "Alpha choice: option 2" (regex-based
+Faust keyword highlighting) was never built. As of this note the shipped
+editor still uses option 1 -- a `nullptr` tokeniser, monochrome
+(`CodeEditorPanel.h`'s own comment explains why: JUCE ships no Faust
+tokeniser, and a hand-written one is still-deferred future work, not
+something this alpha attempted). **Line numbers needed no work at all**:
+`CodeEditorComponent` shows them by default (`juce_CodeEditorComponent.cpp:
+468`); there was never a flag to flip. Error line highlighting DID ship
+(C6) -- `CodeEditorPanel::highlightErrorLine(int)`, parsing Faust's `dsp:
+<line>` diagnostic (see §5's note above on why that parse has to tolerate
+version-dependent spacing) and selecting/scrolling to the line via the
+editor's own text-selection highlight, not custom paint code. It also pushes
+the ATTEMPTED source into the code view on a compile failure, not just the
+last successful one (`PF-022` keeps the source-of-record pointed at the last
+SUCCESS, so without this the highlight would point at an arbitrary line in
+unrelated, already-working code). The `Ctrl+Shift+C` shortcut shipped as
+specced (C6), as a `PluginForgeEditor::keyPressed()` override -- a genuinely
+different JUCE virtual from the keyboard-routing `keyStateChanged()` override
+C4 added (one-shot press/release chord vs. continuous held-state polling);
+the two are deliberately not unified into one override.
 
 ---
 
@@ -224,6 +356,25 @@ Add `Cmd/Ctrl+Shift+C` to toggle code visibility (replaces the "Show code" butto
 **Theme preview (read-only):**
 - Display the current Theme.h palette values as color swatches in the browser
 - This is observation-only for the alpha — no runtime theme editing
+
+**2026-08-13 RECONCILIATION NOTE.** Only the read-only half of this section
+shipped, and even that took until C3 (2026-08-12): `setCockpitStatePath()`
+had zero callers anywhere in the repo until then, so `cockpitEnabled` was
+permanently false and `/api/state` could only ever 503 no matter what any
+doc claimed. C3 armed it (opt-in via `PLUGINFORGE_COCKPIT_STATE`), so the
+mirror this section's "Current state" describes now genuinely works. The
+**prompt input, live sync, and both new endpoints (`/api/generate`,
+`/api/set-prompt`) were never built** and are explicitly deferred to a
+separate architecture conversation, not merely unstarted: a synchronous
+generate in `server.py`'s single-threaded `HTTPServer` would block the
+100ms `/api/state` poll, and a browser-triggered generation would race the
+plugin's own generation subprocess for the same free-tier quota with no
+mutual exclusion anywhere. Neither problem has a stated solution. One more
+correction, independent of the above: this section's implied CLI shape
+(`generate.py --prompt <file>`) is not what the plugin's own bridge uses --
+`--prompt` takes the prompt TEXT directly; the JSON-payload-in-a-file mode
+this section actually needs is `--request-file <path>`, a separate flag.
+Theme swatches were never built either.
 
 ---
 
@@ -281,6 +432,17 @@ Add `Cmd/Ctrl+Shift+C` to toggle code visibility (replaces the "Show code" butto
 - **CLAP output** — deferred (JUCE 7.0.9 has no CLAP wrapper; needs JUCE 8 or clap-wrapper submodule)
 - **iPlug2 integration** — confirmed rejected
 
+**2026-08-13 RECONCILIATION NOTE.** The "State persistence... deferred"
+bullet was already false by the time most of this plan's other sections
+shipped: P11 landed in `c34bbb6`, well before session 010's own
+implementation work began, and `CLAUDE.md` had already flagged the doc that
+kept calling it an empty stub as "worse than a missing one, because a reader
+cannot tell which half to trust." Prompt history specifically DID land in
+the persisted blob (C6, schemaVersion 3, `<PromptHistory>`) -- the
+parenthetical here is simply no longer true. The other five bullets remain
+accurate as of this note: none of the visual-system pass, UiIr emission,
+draggable splitter, full tokenizer, or CLAP output have shipped.
+
 ---
 
 ## 10. Verification
@@ -291,6 +453,17 @@ Add `Cmd/Ctrl+Shift+C` to toggle code visibility (replaces the "Show code" butto
 - `UiDesignGallery` — regenerate PNGs to show the new palette and 65/35 split
 - Manual: open Standalone, verify the palette shift, keyboard controls, prompt history, error expansion
 - Manual: open browser dev-cockpit, verify prompt input → generation → status update
+
+**2026-08-13 RECONCILIATION NOTE.** The first bullet is wrong and was known
+to be wrong well before this note: `tools/check.sh fast` is pytest-only (no
+build, no C++), so it cannot see a broken `static_assert` or anything else
+in `host/`, and this entire body of work is C++. Every commit across C1-C6
+was gated on `tools/check.sh full` instead, the level that actually
+configures cmake and builds. "Manual: open Standalone" and "open browser
+dev-cockpit" both remain genuinely undone as of this note -- every session
+since has flagged them as non-delegable and none has closed them; see the
+live `STATUS.md` "Waiting on you" section, not this doc, for their current
+status.
 
 ---
 
