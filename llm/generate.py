@@ -28,6 +28,7 @@ import providers  # noqa: E402
 import router  # noqa: E402
 import generation_profiles  # noqa: E402
 import error_classes  # noqa: E402
+import voice_contract  # noqa: E402
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 
@@ -369,6 +370,28 @@ def _ui_labels(items: list[dict]) -> set[str]:
     return labels
 
 
+def _ui_labels_exact(items: list[dict]) -> set[str]:
+    """Like _ui_labels, but case-PRESERVING.
+
+    _ui_labels's lowercasing is correct for the granular_effect check below
+    (matching human-readable label text against expected words), but it made
+    the synth/drum_synth voice-contract check below accept e.g.
+    hslider("Freq", ...) -- a label FaustEngine::extractVoiceControls
+    (exact-case match, host/Source/FaustEngine.cpp) then silently refused to
+    recognise, producing a "successful" generation with a dead keyboard. The
+    voice-contract check needs the same casing FaustEngine actually enforces.
+    """
+    labels: set[str] = set()
+    for item in items:
+        label = item.get("label")
+        if isinstance(label, str):
+            labels.add(label.strip())
+        children = item.get("items")
+        if isinstance(children, list):
+            labels.update(_ui_labels_exact(children))
+    return labels
+
+
 def _validate_profile_metadata(metadata: dict,
                                profile: generation_profiles.Profile) -> tuple[bool, str]:
     """Deterministic intent checks on compiler-produced facts, never source regexes."""
@@ -387,14 +410,27 @@ def _validate_profile_metadata(metadata: dict,
                        f"the compiled patch has {inputs}")
 
     if profile.id in ("synth", "drum_synth"):
-        roles = (
-            "gate" in labels,
-            bool(labels.intersection({"freq", "key"})),
-            bool(labels.intersection({"gain", "vel", "velocity"})),
-        )
-        if not all(roles):
-            return False, (f"family {profile.id} requires the complete MIDI voice contract: "
-                           "gate, freq or key, and gain, vel, or velocity")
+        # EXACT case, not the lowercased `labels` above: this must agree with
+        # FaustEngine::extractVoiceControls's exact-case match
+        # (host/Source/FaustEngine.cpp), read from the same canonical source
+        # (llm/voice_contract.json) that header is generated from -- not a
+        # fourth hand-typed copy of the label set. See voice_contract.py and
+        # _ui_labels_exact's docstring for why this cannot reuse `labels`.
+        exact_labels = _ui_labels_exact(metadata.get("ui") or [])
+        zones = voice_contract.zone_labels()
+        zone_ok = {
+            zone: bool(exact_labels & accepted)
+            for zone, accepted in zones.items()
+        }
+        if not all(zone_ok.values()):
+            missing = [zone for zone, ok in zone_ok.items() if not ok]
+            accepted_desc = "; ".join(
+                f"{zone} needs one of {'/'.join(sorted(zones[zone]))}" for zone in missing
+            )
+            return False, (
+                f"family {profile.id} requires the complete MIDI voice contract with "
+                f"EXACT case ({accepted_desc}); declared UI labels were "
+                f"{sorted(exact_labels) or ['<none>']}")
 
     if profile.id == "granular_effect":
         groups = {

@@ -114,6 +114,28 @@ def test_profile_validator_distinguishes_generator_from_effect():
     assert "must process" in error
 
 
+def test_profile_validator_rejects_miscased_voice_contract_labels():
+    # The bug this test pins: _ui_labels() used to lowercase every label
+    # before the synth/drum_synth membership check, so hslider("Freq", ...)
+    # (or any other-cased spelling) passed generate.py's validation while
+    # FaustEngine::extractVoiceControls (exact-case match,
+    # host/Source/FaustEngine.cpp) silently refused to recognise it -- a
+    # "successful" generation whose keyboard the host then disabled with no
+    # error surfaced anywhere. Confirmed red against the pre-fix
+    # implementation this session (labels.lower()'d before the membership
+    # check accepted this exact input), confirmed green against the fix
+    # (voice_contract.py's exact-case zone_labels()).
+    valid, error = generate._validate_profile_metadata(
+        _metadata(0, ["Gate", "Freq", "Gain", "Cutoff"]), _profile("synth")
+    )
+    assert valid is False
+    assert "EXACT case" in error
+    # Every zone is missing at the exact-case level, even though a
+    # case-insensitive reading would call all three present -- the error
+    # should name all three, not silently accept a partial match.
+    assert "gate" in error and "freq" in error and "gain" in error
+
+
 def test_granular_profile_requires_affordance_controls():
     valid, error = generate._validate_profile_metadata(
         _metadata(2, ["Grain Size", "Density", "Delay", "Pitch", "Feedback", "Mix"]),
