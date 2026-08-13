@@ -147,7 +147,7 @@ level_full() {
               PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim \
               OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery \
               ParamIdentityTest NoteRingTest NoteRingTsanTest ValidationGateTest \
-              SoundfetchClientTest
+              SoundfetchClientTest GenerationProfilesAutoTest
 
     # ── Three harnesses that existed and ran nowhere ─────────────────────────
     # Found 2026-07-30 while surveying the measurement surface: OutputGuardTest
@@ -185,9 +185,15 @@ level_full() {
     # the three above, just discovered by a user report instead of a survey.
     # Pure juce_core, no display, no network (SOUNDFETCH_BIN points at a local
     # disposable script; nothing here spawns the real soundfetch CLI).
+    # GenerationProfilesAutoTest joined the same day: EditorSessionTest never
+    # builds with -DPF_IS_SYNTH=1, so it cannot reach
+    # GenerationProfiles::resolveAuto()'s instrument-side branch -- exactly
+    # the one the generator/synth-override fix touches. Pure juce_core, same
+    # shape as SoundfetchClientTest.
     local pure
     for pure in OutputGuardTest ParamMapTest StatePersistenceTest ParamIdentityTest \
-                NoteRingTest ValidationGateTest SoundfetchClientTest; do
+                NoteRingTest ValidationGateTest SoundfetchClientTest \
+                GenerationProfilesAutoTest; do
       local bin
       bin="$(find host/build -type f -name "$pure" 2>/dev/null | head -n1)"
       if [[ -n "$bin" ]]; then
