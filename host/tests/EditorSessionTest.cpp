@@ -2392,6 +2392,94 @@ void scenario32_ctrlShiftCTogglesCodeView()
     snapshot(s.editor, "32_ctrl_shift_c_toggle");
 }
 
+// 33 — "Generate a synth, then play a note": the end-to-end path NOTHING
+// covered before this scenario.
+//
+// Every prior keyboard scenario (17-21, 28-29) drives the keyboard against a
+// patch loaded DIRECTLY via processor.loadFaustCode() or
+// noteOnForTest()/noteOffForTest(), never through the real prompt->subprocess
+// ->compile pipeline. Every FakeGenerator scenario that DOES go through that
+// pipeline (1, 4-5, 8-9, 16, 23-27, 31) generates an EFFECT patch and never
+// touches the keyboard afterwards. This is the first scenario to drive both
+// halves in one run, and it is a real regression guard on the WIRING between
+// "a generation just completed" and "the keyboard responds" -- PluginEditor's
+// 30Hz timer calling keyboardPanel.setPlayable(isInstrumentForTest()) after
+// onFaustCompileSuccess, and KeyboardPanel forwarding into the SAME NoteRing
+// path a direct loadFaustCode() call would use.
+//
+// BE HONEST ABOUT WHAT THIS DOES NOT CATCH, checked directly this session
+// rather than assumed:
+//   - NOT the setPlayable(false) constructor no-op (scenario 20's job).
+//     Verified by temporarily reintroducing that bug: this scenario stayed
+//     GREEN. The reason is structural, not an oversight -- a successful synth
+//     generation drives a genuine playable:false->true transition through
+//     the 30Hz timer, which is NOT idempotent (setPlayable's `canPlay ==
+//     playable` guard only no-ops a call that changes nothing), so it applies
+//     the widgets correctly regardless of whether the CONSTRUCTOR'S initial
+//     application was ever a no-op. The constructor bug only matters for
+//     states that stay false throughout (a fresh editor, an effect patch) --
+//     exactly scenario 20's two cases, not this one's.
+//   - NOT the "generator" family's silent unplayable-synth routing trap, and
+//     NOT the generate.py/FaustEngine label-casing mismatch. Both live in the
+//     REAL llm/generate.py (generation_profiles.py's family resolution and
+//     _ui_labels()'s lowercasing, respectively) -- FakeGenerator substitutes
+//     a canned response for the whole subprocess, so neither ever runs here.
+//     Those need Python-level tests, added alongside their own fixes.
+// What this scenario actually is: the previously-absent "does the wiring
+// work end to end for a well-formed patch" position -- necessary, and worth
+// having, but not a substitute for targeted regression tests on each of the
+// three bugs it was written alongside.
+void scenario33_generateThenPlay(const juce::File& tmp)
+{
+    scenario("33. generate a synth, then play a note",
+             "the end-to-end path: prompt -> subprocess -> compile -> a real "
+             "note actually sounds -- no prior scenario drove both halves at once");
+
+    FakeGenerator::install(
+        FakeGenerator::writeSuccess(tmp, "gen33_synth.sh", kGatedSawSynthPatch));
+
+    Session s;
+    check(! s.editor.keyboardPlayableForTest(),
+          "before generation: the keyboard starts unplayable (no patch loaded yet)");
+
+    s.editor.submitPromptForTest("a plucky saw synth");
+    const bool live = pumpUntil([&] {
+        return s.editor.statusTextForTest().contains("DSP live");
+    });
+    check(live, "the generation reached 'DSP live' through the real subprocess bridge");
+
+    s.editor.pumpMeterTickForTest();   // the 30Hz poll that enables the keyboard
+    check(s.editor.keyboardPlayableForTest(),
+          "after generation: the keyboard reports playable for a real voice contract");
+    check(s.editor.keyboardEnabledForTest(),
+          "after generation: the keyboard WIDGET is enabled, not just the flag");
+    check(s.editor.keyboardAlphaForTest() >= 1.0f,
+          "after generation: the keyboard is full-alpha, not dimmed");
+    check(! s.editor.keyboardDisabledLabelVisibleForTest(),
+          "after generation: \"Load an instrument to play\" is gone");
+
+    render(s.processor, 10);
+    check(s.processor.outputLevel.load(std::memory_order_relaxed) < 0.05f,
+          "silent with no note held");
+
+    s.editor.keyboardNoteOnForTest(69, 1.0f);
+    render(s.processor, 40);
+    const float held = s.processor.outputLevel.load(std::memory_order_relaxed);
+    check(held > 0.02f,
+          juce::String("a note played after generation actually SOUNDS (peak ")
+              + juce::String(held, 5) + ")");
+    check(s.processor.droppedKeyboardNotes() == 0, "no keyboard event was dropped");
+
+    s.editor.keyboardNoteOffForTest(69);
+    render(s.processor, 60);   // past en.adsr's 0.2s release
+    const float tail = s.processor.outputLevel.load(std::memory_order_relaxed);
+    check(tail < held * 0.1f,
+          juce::String("the note releases (tail ") + juce::String(tail, 6)
+              + " vs held " + juce::String(held, 5) + ")");
+
+    snapshot(s.editor, "33_generate_then_play");
+}
+
 } // namespace
 
 int main()
@@ -2399,7 +2487,7 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInit;
 
     std::printf("EditorSessionTest -- a simulated human session against the real editor\n");
-    std::printf("  32 scenarios, no network, no quota, snapshots to artifacts/images/\n");
+    std::printf("  33 scenarios, no network, no quota, snapshots to artifacts/images/\n");
 
     auto tmp = juce::File::getSpecialLocation(juce::File::tempDirectory)
                    .getChildFile("pluginforge_editor_session");
@@ -2438,6 +2526,7 @@ int main()
     scenario30_faustStderrWireAndLineHighlight();
     scenario31_promptHistoryCycles(tmp);
     scenario32_ctrlShiftCTogglesCodeView();
+    scenario33_generateThenPlay(tmp);
 
     tmp.deleteRecursively();
 
