@@ -103,10 +103,19 @@ jobs:
         with:
           python-version: "3.12"
 
+      # requirements.txt, not a piecemeal `pip install pytest` -- this job's
+      # Python env is one venv shared across every later step, and the pitch-gate
+      # step below (pytest tests/test_pitch_gate.py) imports bench/run_benchmark.py,
+      # which needs python-dotenv. That's declared in requirements.txt but was
+      # never installed here, only in the OTHER job -- installing the whole file
+      # once, early, closes this as a class rather than pinning one more package
+      # by hand each time a new step needs something requirements.txt already
+      # declares. numpy/scipy stay a separate, deliberate install below: they are
+      # NOT in requirements.txt on purpose (see that step's own comment).
       - name: Verify system prompt against the installed Faust stdlib
         run: |
           python -m pip install --upgrade pip
-          pip install pytest
+          pip install -r requirements.txt
           python tools/gen_voice_contract.py --check
           python tools/gen_presentation_prompt.py --check
           python tools/gen_stdlib_block.py --check
