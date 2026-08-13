@@ -88,10 +88,20 @@ PromptPanel::PromptPanel(PluginForgeProcessor& p)
             ++historyBrowseIndex;
         restoreFromHistory(promptHistory[historyBrowseIndex]);
     };
-    // A REAL edit (as opposed to our own dontSendNotification recall writes)
-    // ends the browse -- see PromptTextEditor.h's browsingHistory comment.
+    // ONE std::function slot, TWO independent reasons to run on every text
+    // change -- main's family Auto-label needs the live prompt text, and C6's
+    // history-walk needs to know a REAL edit (as opposed to our own
+    // dontSendNotification recall writes) happened, ending the browse (see
+    // PromptTextEditor.h's browsingHistory comment). Discovered during the
+    // 2026-08-13 merge as a collision `git merge` cannot see: both sides
+    // assigned onTextChange at different insertion points, so nothing
+    // conflicted -- the second assignment would have silently overwritten the
+    // first at runtime, with no build error and only a maybe-test-failure
+    // depending on which side lost. Combined here rather than left as two
+    // statements precisely so a future editor cannot split them apart again.
     promptInput.onTextChange = [this]
     {
+        updateAutoFamilyLabel();
         historyBrowseIndex = -1;
         promptInput.setBrowsingHistory(false);
     };
@@ -140,19 +150,27 @@ PromptPanel::PromptPanel(PluginForgeProcessor& p)
     addAndMakeVisible(historyButton);
     historyButton.onClick = [this] { showHistoryMenu(); };
 
-    // ── Kind selector (Instrument / Effect) ────────────────────────────────
-    // ADR-011's `kind` field already exists in generate.py:331's request schema
-    // and router.py's classify() — this wires it to the UI. Default matches
-    // the build target so a synth-build opens with "Instrument" and vice-versa;
-    // the user can override per-generation (it is NOT persisted).
-    kindSelector.addItem("Effect", 1);
-    kindSelector.addItem("Instrument", 2);
+    // Host role is fixed by the VST/JUCE target. Families are selectable only
+    // within that role; Auto's deterministic result remains visible while typing.
+    familySelector.addItem("Auto", 1);
+    if (PF_IS_SYNTH != 0)
     {
-        const int idx = PF_IS_SYNTH != 0 ? 2 : 1;
-        kindSelector.setSelectedId(idx, juce::dontSendNotification);
+        familySelector.addItem("Synth", 2);
+        familySelector.addItem("Drum Synth", 3);
+        familySelector.addItem("Generator / Drone", 4);
     }
-    kindSelector.setTooltip("Generation target: routes to the appropriate prompt and compiler rules.");
-    addAndMakeVisible(kindSelector);
+    else
+    {
+        familySelector.addItem("Effect", 2);
+        familySelector.addItem("Granular Effect", 3);
+    }
+    familySelector.setSelectedId(1, juce::dontSendNotification);
+    familySelector.setTooltip("Generation family. Auto resolves deterministically from the prompt.");
+    familySelector.onChange = [this] { updateAutoFamilyLabel(); };
+    addAndMakeVisible(familySelector);
+    if (processor.currentFamilySource() == "explicit")
+        setFamilyForTest(processor.currentFamily());
+    updateAutoFamilyLabel();
 
     // ── Refine selector (New / Add / Redo) ──────────────────────────────────────
     // Replaces the original single ToggleButton with three semantically distinct
@@ -301,9 +319,8 @@ void PromptPanel::submitPrompt()
             pendingMode = PluginForgeProcessor::LoadMode::Iterate;
             pendingPriorSource = processor.currentSource().trim();
         }
-        // Kind is a generation-time choice (not persisted), read on the message
-        // thread at submit time alongside the other captures.
-        pendingKind = kindSelector.getText().trim();
+        pendingKind = PF_IS_SYNTH != 0 ? "instrument" : "effect";
+        pendingFamily = selectedFamilyId();
         // Stamp and job published under ONE lock — see the SUBTLE note on
         // `generation` in the header for why re-reading the atomic at pickup was
         // a race that made a run discard itself.
@@ -329,6 +346,51 @@ void PromptPanel::submitPromptForTest(const juce::String& text)
     submitPrompt();
 }
 
+juce::String PromptPanel::selectedFamilyId() const
+{
+    if (familySelector.getSelectedId() == 1)
+        return "auto";
+
+    const int id = familySelector.getSelectedId();
+    if (PF_IS_SYNTH != 0)
+    {
+        if (id == 3) return "drum_synth";
+        if (id == 4) return "generator";
+        return "synth";
+    }
+    return id == 3 ? "granular_effect" : "effect";
+}
+
+juce::String PromptPanel::familyForTest() const
+{
+    if (selectedFamilyId() != "auto")
+        return selectedFamilyId();
+    return GenerationProfiles::resolveAuto(promptInput.getText(), PF_IS_SYNTH != 0).id;
+}
+
+void PromptPanel::setFamilyForTest(const juce::String& family)
+{
+    if (family.equalsIgnoreCase("auto")) { familySelector.setSelectedId(1); return; }
+    if (PF_IS_SYNTH != 0)
+    {
+        if (family == "drum_synth") familySelector.setSelectedId(3);
+        else if (family == "generator") familySelector.setSelectedId(4);
+        else if (family == "synth") familySelector.setSelectedId(2);
+    }
+    else
+    {
+        if (family == "granular_effect") familySelector.setSelectedId(3);
+        else if (family == "effect") familySelector.setSelectedId(2);
+    }
+}
+
+void PromptPanel::updateAutoFamilyLabel()
+{
+    const auto displayName = juce::String(
+        GenerationProfiles::resolveAuto(promptInput.getText(), PF_IS_SYNTH != 0).displayName);
+    familySelector.changeItemText(1, "Auto -> " + displayName);
+}
+
 // ── Generation worker ───────────────────────────────────────────────────────
 void PromptPanel::workerLoop()
 {
@@ -339,6 +401,7 @@ void PromptPanel::workerLoop()
         auto mode = PluginForgeProcessor::LoadMode::Fresh;
         juce::String priorSource;
         juce::String kind;
+        juce::String family;
         {
             std::unique_lock<std::mutex> lock(jobMutex);
             jobCv.wait(lock, [this] { return hasJob || stopping; });
@@ -349,17 +412,19 @@ void PromptPanel::workerLoop()
             mode         = pendingMode;
             priorSource  = pendingPriorSource;
             kind         = pendingKind;
+            family       = pendingFamily;
             hasJob       = false;
         }
 
-        runGeneration(prompt, myGeneration, mode, priorSource, kind);
+        runGeneration(prompt, myGeneration, mode, priorSource, kind, family);
     }
 }
 
 void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myGeneration,
                                 PluginForgeProcessor::LoadMode mode,
                                 const juce::String& priorSource,
-                                const juce::String& kind)
+                                const juce::String& kind,
+                                const juce::String& family)
 {
     // Superseded, or shutting down: nothing this run produces is wanted any more.
     // Checked before touching the processor and again before publishing.
@@ -464,6 +529,7 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
             obj->setProperty("prompt", promptText);
             obj->setProperty("prior_source", priorSource);
             obj->setProperty("kind", kind);
+            obj->setProperty("family", family);
             obj->setProperty("refine_mode", refineModeStr);
             // Forced "\n": juce_File.h:781-784's replaceWithText defaults
             // lineEndings to "\r\n", a trap host/tests/FakeGenerator.h already
@@ -617,6 +683,8 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
         // generate.py, which is why the default is empty and statusForReason()
         // falls back to the generic text rather than asserting.
         auto reason = parsed.getProperty("reason", juce::String()).toString();
+        auto resolvedFamily = parsed.getProperty("family", family).toString();
+        auto familySource = parsed.getProperty("family_source", "explicit").toString();
         // generate.py:381-386: the user asked to carry the prior source (Refine on)
         // but the request overflowed the token budget, so this is a plain regen
         // from scratch. The shell surfaces it as a warning on the status line; the
@@ -689,7 +757,8 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
         // DAW-saved session persists what was asked for, not just the code.
         // `mode` is the one captured at submit (see submitPrompt), not a fresh
         // read of the toggle.
-        proc.loadFaustCode(faustCode, juce::String(prompt), mode);
+        proc.loadFaustCode(faustCode, juce::String(prompt), mode,
+                           resolvedFamily, familySource);
 
         // UI components must only be touched on the message thread. lastPriorSourceDropped
         // is also a message-thread member: it is written HERE, inside the callAsync, and
@@ -888,7 +957,7 @@ void PromptPanel::resized()
     // at both the default width and kMinWindowW; see PluginEditor.h's Chrome::promptH.
     auto actionRow = area.removeFromBottom(buttonH);   // generateButton, historyButton
     area.removeFromBottom(gap);
-    auto genRow = area.removeFromBottom(buttonH);       // kindSelector, refineSelector
+    auto genRow = area.removeFromBottom(buttonH);       // familySelector, refineSelector
     area.removeFromBottom(gap);
 
     // Remaining top area splits between the prompt (min 60px per Prompt B, growing
@@ -904,13 +973,17 @@ void PromptPanel::resized()
     actionRow.removeFromLeft(gap);
     historyButton.setBounds(actionRow.removeFromLeft(90));
 
-    // Kind selector: generation-time type override (routes to the instrument or
-    // effect prompt). Fixed-ish width; if the band is too narrow the ComboBox
-    // collapses below its text and the user still has History + Generate.
-    kindSelector.setBounds(genRow.removeFromLeft(90));
+    // Family selector: generation-time family override, replacing the old
+    // Instrument/Effect kind selector (main, "deterministic plugin families";
+    // kind is now fixed to the build target, PluginEditor.h's kindForTest()).
+    // Wider than kindSelector was (150 vs 90) -- "Drum Synth"/"Granular Effect"
+    // and the "Auto -> <resolved>" label both need more room than "Effect" did.
+    // Fixed-ish width; if the band is too narrow the ComboBox collapses below
+    // its text and the user still has History + Generate.
+    familySelector.setBounds(genRow.removeFromLeft(150));
     genRow.removeFromLeft(gap);
     // Takes whatever is left rather than a fixed width, so the selector simply
-    // disappears in a band too narrow for it instead of overlapping kindSelector.
+    // disappears in a band too narrow for it instead of overlapping familySelector.
     refineSelector.setBounds(genRow);
 
     progressLabel.setBounds(progressR);

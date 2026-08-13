@@ -220,7 +220,8 @@ class TestTypedReason:
         # contract, and a field appearing unannounced is exactly what it is here
         # to catch. "x" carries no instrument words, so the router says effect.
         assert payload == {"success": True, "faust_code": FAUST, "attempts": 1,
-                           "error": None, "reason": "ok", "kind": "effect"}
+                           "error": None, "reason": "ok", "kind": "effect",
+                           "family": "effect", "family_source": "auto"}
 
     def test_every_response_carries_a_reason(self):
         """The host switches on this field; it must never be absent."""

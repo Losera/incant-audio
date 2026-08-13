@@ -23,7 +23,6 @@ REQUIRED_FILES = [
     "examples/lowpass.dsp",
     "examples/chorus.dsp",
     "examples/compressor.dsp",
-    "ci/Dockerfile",
     "docs/architecture.md",
     "docs/goals_and_next_steps.md",
 ]

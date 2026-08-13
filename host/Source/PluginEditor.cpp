@@ -45,7 +45,10 @@ int parseFaustErrorLine(const juce::String& error)
 
 PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
     : AudioProcessorEditor(&p), processor(p),
-      promptPanel(p), codeEditorPanel(p), paramGridPanel(p), keyboardPanel(p)
+      promptPanel(p), codeEditorPanel(p), paramGridPanel(p), keyboardPanel(p),
+      sampleBrowserPanel([&p](const juce::File& file) { p.loadAuditionSample(file); },
+                         [&p](int mode) { p.setAuditionMode(
+                             static_cast<PluginForgeProcessor::AuditionMode>(mode)); })
 {
     // setLookAndFeel(&lnf), NOT setDefaultLookAndFeel: the latter is
     // process-global, and this plugin can share a process with the DAW and
@@ -75,6 +78,7 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
     // setPlayable), not by removing the control from the window, so the user
     // is never left wondering whether playing is possible at all.
     addAndMakeVisible(keyboardPanel);
+    addAndMakeVisible(sampleBrowserPanel);
 
     // The read-only Faust view (ux_roadmap Phase 3a). Still an invisible child
     // with no layout space UNTIL the user asks for it: this is a no-code tool and
@@ -88,44 +92,6 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
 
     addAndMakeVisible(styleToggle);
     styleToggle.onClick = [this] { cycleControlStyle(); };
-
-    // ── Audition sample selector ────────────────────────────────────────────
-    // Populates with .wav files found relative to the executable (dev layout)
-    // or in the standard JUCE audio file search paths. "Off" is always item 0.
-    auditionSelector.addItem("Audition: Off", 1);
-
-    // Search for .wav files in artifacts/samples/ relative to the executable
-    auto exeDir = juce::File::getSpecialLocation(juce::File::currentExecutableFile)
-                      .getParentDirectory();
-    // Try multiple relative paths (dev layout vs installed)
-    const char* sampleDirs[] = {
-        "../../artifacts/samples",   // host/build/.../Standalone/ → artifacts/
-        "../artifacts/samples",      // host/build/.../ → artifacts/
-        "artifacts/samples",         // running from repo root
-    };
-    juce::StringArray sampleFiles;
-    for (const auto* rel : sampleDirs)
-    {
-        auto sampleDir = exeDir.getChildFile(rel);
-        if (sampleDir.isDirectory())
-        {
-            for (const auto& f : juce::RangedDirectoryIterator(sampleDir, false, "*.wav"))
-            {
-                const auto name = f.getFile().getFileNameWithoutExtension();
-                if (sampleFiles.indexOf(name) < 0)
-                    sampleFiles.add(name);
-            }
-            break;
-        }
-    }
-    sampleFiles.sortNatural();
-    int id = 2;
-    for (const auto& name : sampleFiles)
-        auditionSelector.addItem(name, id++);
-
-    auditionSelector.setSelectedId(1, juce::dontSendNotification);
-    auditionSelector.onChange = [this] { auditionSampleChanged(); };
-    addAndMakeVisible(auditionSelector);
 
     // Come up in whatever style is stored, not the default -- a project reopened
     // with rotaries must not snap back to sliders. Applied before any compile, so
@@ -242,36 +208,6 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
             safeThis->updateWindowSizeForParams();
         });
     };
-}
-
-void PluginForgeEditor::auditionSampleChanged()
-{
-    const int selectedId = auditionSelector.getSelectedId();
-    if (selectedId <= 1)
-    {
-        // "Off" or nothing selected — stop audition
-        processor.setAuditionActive(false);
-        return;
-    }
-
-    const auto sampleName = auditionSelector.getText();
-    // Search for the .wav file in the same directories as the dropdown population
-    auto exeDir = juce::File::getSpecialLocation(juce::File::currentExecutableFile)
-                      .getParentDirectory();
-    const char* sampleDirs[] = {
-        "../../artifacts/samples",
-        "../artifacts/samples",
-        "artifacts/samples",
-    };
-    for (const auto* rel : sampleDirs)
-    {
-        auto wavFile = exeDir.getChildFile(rel).getChildFile(sampleName + ".wav");
-        if (wavFile.existsAsFile())
-        {
-            processor.loadAuditionSample(wavFile);
-            return;
-        }
-    }
 }
 
 void PluginForgeEditor::applyControlStyle(const juce::String& styleName)
@@ -576,8 +512,9 @@ void PluginForgeEditor::resized()
     // Two-panel authoring screen. The window is a full-width title bar (title
     // text left, disclosure row right — moved here 2026-08-12, see Chrome::
     // promptH's comment), a split region (left preview/grid column | right
-    // prompt column), an optional full-width code band, and a full-width
-    // keyboard band at the bottom. Every band comes from `chrome`;
+    // prompt column), an optional full-width code band, a full-width sample-
+    // browser band, and a full-width keyboard band at the bottom. Every band
+    // comes from `chrome`;
     // updateWindowSizeForParams() sums the same numbers via
     // rightColumnHeight()/verticalChrome(), so window arithmetic cannot drift from
     // what is carved here. Do not reintroduce a literal.
@@ -588,9 +525,9 @@ void PluginForgeEditor::resized()
     // member initializers the enclosing class has not finished declaring yet.)
     static_assert(rightColumnHeight(Chrome{}) == 242,
                   "Right column: promptH(220) + gapMeter(8) + meterH(14) = 242.");
-    static_assert(verticalChrome(Chrome{}) == 144,
-                  "Vertical chrome: margin(16) + titleH(32) + gapKeyboard(8) "
-                  "+ keyboardH(72) + margin(16) = 144.");
+    static_assert(verticalChrome(Chrome{}) == 216,
+                  "Vertical chrome: margin(16) + titleH(32) + gapSamples(8) "
+                  "+ samplesH(64) + gapKeyboard(8) + keyboardH(72) + margin(16) = 216.");
 
     const auto& c = chrome;
 
@@ -605,8 +542,6 @@ void PluginForgeEditor::resized()
     titleArea.removeFromRight(6);
     styleToggle.setBounds(titleArea.removeFromRight(120));
     titleArea.removeFromRight(6);
-    auditionSelector.setBounds(titleArea.removeFromRight(juce::jmin(160, titleArea.getWidth())));
-    titleArea.removeFromRight(6);
     titleTextBounds = titleArea;
 
     // Keyboard: full-width band at the bottom, ALWAYS laid out (see the
@@ -615,6 +550,9 @@ void PluginForgeEditor::resized()
     auto keyboardArea = area.removeFromBottom(c.keyboardH);
     keyboardPanel.setBounds(keyboardArea);
     area.removeFromBottom(c.gapKeyboard);
+
+    sampleBrowserPanel.setBounds(area.removeFromBottom(c.samplesH));
+    area.removeFromBottom(c.gapSamples);
 
     // Code editor: full-width band above the keyboard, only while visible.
     // Placing it here (rather than inside the left column, as the plan diagram

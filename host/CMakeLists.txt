@@ -17,6 +17,8 @@ add_subdirectory(${JUCE_PATH} JUCE)
 set(PF_CORE_SOURCES
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
+    Source/SampleBrowserPanel.cpp
+    Source/SoundfetchClient.cpp
     Source/PromptPanel.cpp
     Source/CodeEditorPanel.cpp
     Source/ParamGridPanel.cpp
@@ -153,6 +155,8 @@ target_sources(ParamPoolTsanTest PRIVATE
     tests/ParamPoolConcurrencyTest.cpp
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
+    Source/SampleBrowserPanel.cpp
+    Source/SoundfetchClient.cpp
     Source/PromptPanel.cpp
     Source/CodeEditorPanel.cpp
     Source/ParamGridPanel.cpp
@@ -197,6 +201,8 @@ target_sources(AuditionThreadingTest PRIVATE
     tests/AuditionThreadingTest.cpp
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
+    Source/SampleBrowserPanel.cpp
+    Source/SoundfetchClient.cpp
     Source/PromptPanel.cpp
     Source/CodeEditorPanel.cpp
     Source/ParamGridPanel.cpp
@@ -357,6 +363,8 @@ target_sources(StatePersistenceTest PRIVATE
     tests/StatePersistenceTest.cpp
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
+    Source/SampleBrowserPanel.cpp
+    Source/SoundfetchClient.cpp
     Source/PromptPanel.cpp
     Source/CodeEditorPanel.cpp
     Source/ParamGridPanel.cpp
@@ -404,6 +412,8 @@ target_sources(ValidationGateTest PRIVATE
     tests/ValidationGateTest.cpp
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
+    Source/SampleBrowserPanel.cpp
+    Source/SoundfetchClient.cpp
     Source/PromptPanel.cpp
     Source/CodeEditorPanel.cpp
     Source/ParamGridPanel.cpp
@@ -453,6 +463,8 @@ target_sources(PromptPanelThreadingTest PRIVATE
     tests/PromptPanelThreadingTest.cpp
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
+    Source/SampleBrowserPanel.cpp
+    Source/SoundfetchClient.cpp
     Source/PromptPanel.cpp
     Source/CodeEditorPanel.cpp
     Source/ParamGridPanel.cpp
@@ -508,6 +520,8 @@ target_sources(OfflineRenderTest PRIVATE
     tests/OfflineRenderTest.cpp
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
+    Source/SampleBrowserPanel.cpp
+    Source/SoundfetchClient.cpp
     Source/PromptPanel.cpp
     Source/CodeEditorPanel.cpp
     Source/ParamGridPanel.cpp
@@ -607,6 +621,8 @@ target_sources(EditorSessionTest PRIVATE
     tests/EditorSessionTest.cpp
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
+    Source/SampleBrowserPanel.cpp
+    Source/SoundfetchClient.cpp
     Source/PromptPanel.cpp
     Source/CodeEditorPanel.cpp
     Source/ParamGridPanel.cpp
@@ -718,6 +734,8 @@ target_sources(UiDesignGallery PRIVATE
     tests/UiDesignGallery.cpp
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
+    Source/SampleBrowserPanel.cpp
+    Source/SoundfetchClient.cpp
     Source/PromptPanel.cpp
     Source/CodeEditorPanel.cpp
     Source/ParamGridPanel.cpp

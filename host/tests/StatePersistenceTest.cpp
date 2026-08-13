@@ -83,6 +83,8 @@ bool loadAndAwaitCompile(PluginForgeProcessor& p,
                          const juce::String& prompt,
                          PluginForgeProcessor::LoadMode mode
                              = PluginForgeProcessor::LoadMode::Fresh,
+                         const juce::String& family = {},
+                         const juce::String& familySource = {},
                          int timeoutMs = 15000)
 {
     std::mutex m;
@@ -96,7 +98,7 @@ bool loadAndAwaitCompile(PluginForgeProcessor& p,
         cv.notify_all();
     };
 
-    p.loadFaustCode(source, prompt, mode);
+    p.loadFaustCode(source, prompt, mode, family, familySource);
 
     std::unique_lock<std::mutex> lock(m);
     const bool ok = cv.wait_for(lock, std::chrono::milliseconds(timeoutMs),
@@ -128,7 +130,8 @@ int main()
         // reset them to the patch's defaults, which is what the PF-020 block below
         // asserts separately.
         check(loadAndAwaitCompile(a, kSource, kPrompt,
-                                  PluginForgeProcessor::LoadMode::Iterate),
+                                  PluginForgeProcessor::LoadMode::Iterate,
+                                  "granular_effect", "explicit"),
               "compile completed before serialising");
 
         // C6: prompt history is now part of the persisted state.
@@ -151,6 +154,10 @@ int main()
                       == PluginForgeProcessor::kStateSchemaVersion,
                   "schemaVersion matches current");
             check(root.getChildWithName("STATE").isValid(), "STATE child present");
+            check(root.getProperty("generationFamily").toString() == "granular_effect",
+                  "generation family is persisted");
+            check(root.getProperty("familySource").toString() == "explicit",
+                  "family resolution source is persisted");
             check(! root.getChildWithName("SlotLabels").isValid(),
                   "no SlotLabels node — dropped from v1 2026-07-27");
 
@@ -195,6 +202,9 @@ int main()
         check(restoredHistory.size() == 2, "prompt history: both entries restored");
         check(restoredHistory[0] == "a warm lowpass" && restoredHistory[1] == "add a chorus",
               "prompt history: order preserved");
+
+        check(b.currentFamily() == "granular_effect", "generation family restored");
+        check(b.currentFamilySource() == "explicit", "family resolution source restored");
     }
 
     // ── v2 BACK-COMPAT: a blob saved before prompt history still restores ────
@@ -308,6 +318,8 @@ int main()
         checkNear(getSlot(v1, 63), 1.0f,  "v1: macro_63 restored");
         check(v1.currentSourceForTest() == kSource, "v1: Faust source restored");
         check(v1.currentPromptForTest() == kPrompt, "v1: prompt restored");
+        check(v1.currentFamily() == "effect", "v1: family migrates to the effect default");
+        check(v1.currentFamilySource() == "legacy_default", "v1: family source records migration");
     }
 
     // ── An UNKNOWN id scheme falls back rather than mis-mapping ──────────────

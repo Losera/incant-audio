@@ -5,6 +5,7 @@
 #include "CodeEditorPanel.h"
 #include "ParamGridPanel.h"
 #include "KeyboardPanel.h"
+#include "SampleBrowserPanel.h"
 #include "ForgeLookAndFeel.h"
 
 // ── PluginForgeEditor ───────────────────────────────────────────────────────
@@ -100,6 +101,8 @@ public:
     // flag (generate.py:381-386), driven and read without a click.
     juce::String kindForTest() const { return promptPanel.kindForTest(); }
     void         setKindForTest(const juce::String& kind) { promptPanel.setKindForTest(kind); }
+    juce::String familyForTest() const { return promptPanel.familyForTest(); }
+    void         setFamilyForTest(const juce::String& family) { promptPanel.setFamilyForTest(family); }
     bool         priorSourceDroppedForTest() const { return promptPanel.priorSourceDroppedForTest(); }
     // Dev-cockpit state export — OFF by default. Nothing is written anywhere
     // until a caller (the Standalone app or the /cockpit skill) opts in via
@@ -203,12 +206,14 @@ private:
         int dividerW    = 4;    // gap between the left and right columns
 
         // Right column, top to bottom (fixed content; the grid column flexes).
-        // The disclosure/mode row (codeToggle, styleToggle, auditionSelector)
-        // used to live here as its own rowH band; moved into the title bar
-        // 2026-08-12 (see rightColumnHeight()) because 65/35 leaves the right
-        // column too narrow to hold both that row and PromptPanel's own button
-        // row (generateButton/historyButton/kindSelector/refineSelector) --
-        // at the 900px default, refineSelector was dropping to 0px.
+        // The disclosure/mode row (codeToggle, styleToggle, and the since-
+        // removed auditionSelector -- superseded by SampleBrowserPanel, see
+        // samplesH below) used to live here as its own rowH band; moved into
+        // the title bar 2026-08-12 (see rightColumnHeight()) because 65/35
+        // leaves the right column too narrow to hold both that row and
+        // PromptPanel's own button row (generateButton/historyButton/
+        // familySelector [renamed from kindSelector]/refineSelector) -- at
+        // the 900px default, refineSelector was dropping to 0px.
         int promptH     = 220;  // PromptPanel: multi-line prompt + buttons +
                                 // progress + status + a scrollable error region
         int gapMeter    = 8;
@@ -222,6 +227,11 @@ private:
                                 // (docs/sessions/010 §3): reserves room for the
                                 // inline octave/scale controls step 3 adds; the
                                 // 8px is unfilled until that step lands.
+        int gapSamples  = 8;    // gap above the sample-browser band
+        int samplesH    = 64;   // SampleBrowserPanel -- full-width, ALWAYS
+                                // present (main, "deterministic plugin families
+                                // and sample browser"); placed above the
+                                // keyboard band, below the (optional) code band.
         int gapCode     = 8;    // gap above the code band
         int codeH       = 240;  // CodeEditorPanel, a full-width band ABOVE the
                                 // keyboard and only while that panel is visible.
@@ -251,7 +261,8 @@ private:
     // The code band is added by the caller only when the panel is visible.
     static constexpr int verticalChrome(const Chrome& c)
     {
-        return c.margin + c.titleH + c.gapKeyboard + c.keyboardH + c.margin;
+        return c.margin + c.titleH + c.gapSamples + c.samplesH
+             + c.gapKeyboard + c.keyboardH + c.margin;
     }
 
     // The two sums are pinned by a static_assert at the top of resized() — NOT here.
@@ -278,10 +289,11 @@ private:
     int dividerX = 0;
 
     // The title band's leftover after the disclosure controls (codeToggle,
-    // styleToggle, auditionSelector — moved here 2026-08-12 from the right
-    // column's own row, which the 65/35 split left too narrow for them; see
-    // rightColumnHeight()'s comment) claim their space on the right. Set in
-    // resized(), painted in paint() — same pattern as dividerX/meterBounds.
+    // styleToggle — moved here 2026-08-12 from the right column's own row,
+    // which the 65/35 split left too narrow for them; see rightColumnHeight()'s
+    // comment; auditionSelector also lived here but is superseded by
+    // SampleBrowserPanel, see samplesH above) claim their space on the right.
+    // Set in resized(), painted in paint() — same pattern as dividerX/meterBounds.
     juce::Rectangle<int> titleTextBounds;
 
     PluginForgeProcessor& processor;
@@ -299,6 +311,7 @@ private:
     CodeEditorPanel codeEditorPanel;
     ParamGridPanel  paramGridPanel;
     KeyboardPanel   keyboardPanel;
+    SampleBrowserPanel sampleBrowserPanel;
 
     // Disclosure for the read-only Faust view. Off by default: the code is for
     // the user who wants it, and a no-code tool must not open on a wall of DSL.
@@ -313,14 +326,6 @@ private:
     // Called from the processor's onUiStyleChanged and on construction, so a
     // reopened project and a second editor both come up in the chosen style.
     void applyControlStyle(const juce::String& styleName);
-
-    // ── Audition dropdown ──────────────────────────────────────────────────
-    // Selects a reference sample to feed through the live DSP for auditioning
-    // generated effects. "Off" disables audition; selecting a sample loads and
-    // activates it. Samples live in artifacts/samples/ and are discovered
-    // relative to the executable.
-    juce::ComboBox auditionSelector { "Audition" };
-    void auditionSampleChanged();
 
     // ── Level meter (shell-owned) ────────────────────────────────────────────
     juce::Rectangle<int> meterBounds;      // set in resized(), painted in paint()
