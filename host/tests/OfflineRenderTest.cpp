@@ -173,7 +173,7 @@ bool loadAndAwait(PluginForgeProcessor& p, const juce::String& source,
         std::lock_guard<std::mutex> lock(m);
         done = true; ok = true; cv.notify_all();
     };
-    p.onFaustCompileFailure = [&](const juce::String&)
+    p.onFaustCompileFailure = [&](const juce::String&, const juce::String&)
     {
         std::lock_guard<std::mutex> lock(m);
         done = true; ok = false; cv.notify_all();

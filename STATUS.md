@@ -215,7 +215,7 @@ reads actual OS/compositor key state, and no synthetic-input tool exists on this
 (wtype/ydotool/xdotool all absent). This is the **OS→JUCE dispatch hop**, and it remains
 exactly as unverified as before scenario 28. A regression that broke this hop while
 leaving the shell-level routing and the live-read mapping checks untouched would still
-pass all 233 current checks undetected. Closing this fully needs either a
+pass all 251 current checks undetected. Closing this fully needs either a
 compositor-level input tool on this machine or a different
 verification strategy entirely.
 

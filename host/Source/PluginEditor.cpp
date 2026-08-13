@@ -1,6 +1,37 @@
 #include "PluginEditor.h"
 #include "Theme.h"
 
+namespace
+{
+// Faust's own diagnostic format, confirmed against a live compile error
+// (FaustEngine.cpp:799 passes the literal filename "dsp" to
+// createDSPFactoryFromString, so a syntax error reads "dsp:2 : ERROR :
+// syntax error, unexpected IDENT", observed running EditorSessionTest's own
+// compile-failure fixture): "dsp:<line>" appears once, near the start of the
+// message. Not every failure carries a line at all -- e.g. "the Faust
+// program has no output" (FaustEngine.cpp:393) -- so this returns 0 (no
+// line) rather than guessing, and CodeEditorPanel::highlightErrorLine()
+// treats <= 0 as a no-op.
+int parseFaustErrorLine(const juce::String& error)
+{
+    const auto marker = juce::String("dsp:");
+    const int start = error.indexOf(marker);
+    if (start < 0)
+        return 0;
+
+    int i = start + marker.length();
+    int line = 0;
+    bool sawDigit = false;
+    while (i < error.length() && juce::CharacterFunctions::isDigit(error[i]))
+    {
+        line = line * 10 + (error[i] - '0');
+        sawDigit = true;
+        ++i;
+    }
+    return sawDigit ? line : 0;
+}
+}
+
 PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
     : AudioProcessorEditor(&p), processor(p),
       promptPanel(p), codeEditorPanel(p), paramGridPanel(p), keyboardPanel(p)
@@ -126,13 +157,28 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
     // handled inside PromptPanel) in the status line. Uses the canonical
     // onFaustCompileFailure name; the deprecated onFaustCompileError alias in
     // PluginProcessor.h is now assigned by nothing and can be removed.
-    processor.onFaustCompileFailure = [safeThis](const juce::String& error)
+    processor.onFaustCompileFailure = [safeThis](const juce::String& error,
+                                                  const juce::String& attemptedSource)
     {
-        juce::MessageManager::callAsync([safeThis, error]
+        juce::MessageManager::callAsync([safeThis, error, attemptedSource]
         {
             if (safeThis == nullptr) return;
             safeThis->promptPanel.setStatus(
                 "Faust compile error: " + error.substring(0, 200));
+            // Full, untruncated stderr (C6) -- PromptPanel.h's setError() has
+            // documented "the shell can route Faust-compiler stderr here
+            // instead of truncating into the status label" since before this
+            // call existed; this is what actually wires it.
+            safeThis->promptPanel.setError(error);
+            // Show what was actually ATTEMPTED, not the source of record --
+            // PF-022 means currentSource() still holds the last SUCCESSFUL
+            // compile, so without this the code view would keep showing old,
+            // unrelated code while highlightErrorLine() pointed at an
+            // arbitrary line inside it. attemptedSource is the same string
+            // FaustEngine just failed to compile, threaded through
+            // onFaustCompileFailure's second parameter for exactly this.
+            safeThis->codeEditorPanel.showSource(attemptedSource);
+            safeThis->codeEditorPanel.highlightErrorLine(parseFaustErrorLine(error));
         });
     };
 
@@ -440,6 +486,36 @@ void PluginForgeEditor::writeCockpitState()
 bool PluginForgeEditor::keyStateChanged(bool isKeyDown)
 {
     return keyboardPanel.routeKeyStateChanged(isKeyDown);
+}
+
+bool PluginForgeEditor::keyPressed(const juce::KeyPress& key)
+{
+    // Ctrl+Shift+C toggles the read-only code view (C6). A one-shot
+    // press/release chord -- juce::Component::keyPressed, a DIFFERENT virtual
+    // from keyStateChanged above (continuous held-state polling, what C4's
+    // seam answers). They serve different purposes and are deliberately not
+    // unified into one override.
+    //
+    // Fires even while the prompt box holds focus. Verified against primary
+    // source, not assumed: juce::TextEditor overrides keyPressed too
+    // (juce_TextEditor.cpp:2141), but for Ctrl+Shift+C it consumes nothing --
+    // TextEditorKeyMapper::invokeKeyFunction (juce_TextEditorKeyMapper.h:38-
+    // 107) only matches 'c' against ModifierKeys::commandModifier (plain
+    // Ctrl+C, for copy) via KeyPress's exact-modifier-set equality, never
+    // commandModifier|shiftModifier; and TextEditor::keyPressed's own
+    // fallback only inserts a character when getTextCharacter() is printable
+    // (juce_TextEditor.cpp:2170), which a Ctrl-held key is not. So
+    // TextEditor::keyPressed returns false for this chord, and JUCE's own
+    // dispatch walk -- ComponentPeer::handleKeyPress climbing
+    // getParentComponent() on a false return, juce_ComponentPeer.cpp:185-189,
+    // the same walk C4's comment cites for keyStateChanged -- reaches this
+    // override without this editor needing to compete with typing.
+    if (key == juce::KeyPress('c', juce::ModifierKeys::ctrlModifier | juce::ModifierKeys::shiftModifier, 0))
+    {
+        setCodeViewVisible(! codeEditorPanel.isVisible());
+        return true;
+    }
+    return false;
 }
 
 void PluginForgeEditor::paint(juce::Graphics& g)

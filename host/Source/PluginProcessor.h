@@ -106,7 +106,12 @@ public:
     // like <SlotLabels> or `uiStyle` were: those were fields nothing depended on,
     // whereas a v1 blob genuinely lacks information a v2 restore uses, and the two
     // take different code paths (see setStateInformation).
-    static constexpr int kStateSchemaVersion = 2;
+    // 3 as of 2026-08-12 (C6): the blob now carries the prompt-history list. Also
+    // a real bump, same reasoning: a v1/v2 blob has no PromptHistory node, and
+    // setStateInformation's response is "restore with empty history", the same
+    // do-nothing fallback the v1-ParamMap case established -- not a value any
+    // older blob was ever written with, so there is nothing to migrate.
+    static constexpr int kStateSchemaVersion = 3;
 
     // How a newly loaded patch treats the macro values already in the APVTS.
     //
@@ -147,7 +152,15 @@ public:
     // compile thread, not the message thread. Whoever assigns this must hop to the
     // message thread themselves before touching any UI component, the same way
     // PluginEditor's existing callbacks do via juce::MessageManager::callAsync.
-    std::function<void(const juce::String& error)> onFaustCompileFailure;
+    //
+    // The second parameter (added 2026-08-12, C6) is the source that was
+    // ATTEMPTED, not the source of record -- PF-022 means currentFaustSource
+    // still holds the last SUCCESSFUL compile, so a caller wanting to show or
+    // annotate what actually failed (e.g. CodeEditorPanel::highlightErrorLine)
+    // needs this rather than currentSource(). It is available here for free:
+    // loadFaustCode()'s compile lambda already captures faustCode by value.
+    std::function<void(const juce::String& error, const juce::String& attemptedSource)>
+        onFaustCompileFailure;
 
     // DEPRECATED transitional alias for onFaustCompileFailure. The rename (FLEET
     // req #7) pairs Success/Failure; the old name lived in the editor's call site
@@ -264,6 +277,21 @@ public:
     // can assert what setState restored without reaching into private members.
     juce::String currentPromptForTest() const;
 
+    // ── Prompt history (C6) ──────────────────────────────────────────────────
+    // The processor is the persisted source of truth, same relationship as
+    // uiStyle()/setUiStyle(): PromptPanel computes the de-duplicated,
+    // most-recent-first, cap-enforced list (it already did, session-locally,
+    // before C6) and hands the WHOLE list here on every push, rather than the
+    // processor re-implementing that policy. getStateInformation() serialises
+    // whatever is here; setStateInformation() calls setPromptHistory() so a
+    // freshly-constructed PromptPanel can seed from it the same way it already
+    // seeds refine-availability from currentSource().
+    juce::StringArray promptHistorySnapshot() const;
+    void setPromptHistory(const juce::StringArray& history);
+
+    // Test-only alias, same pattern as currentSourceForTest() above.
+    juce::StringArray promptHistoryForTest() const { return promptHistorySnapshot(); }
+
     // Test-only alias retained so the existing harnesses keep reading the way
     // they were written. Prefer currentSource() in new code.
     juce::String currentSourceForTest() const { return currentSource(); }
@@ -363,6 +391,7 @@ private:
     mutable std::mutex metaMutex;
     juce::String       currentFaustSource;
     juce::String       currentPrompt;
+    juce::StringArray  promptHistory;   // most-recent-first; see setPromptHistory() above
     // The user's chosen control style, by name (see ParamGridPanel::ControlStyleName).
     // Stored as a string rather than an int so the state blob stays readable and a
     // future style can be added without renumbering an enum that is already on disk.

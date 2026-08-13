@@ -43,6 +43,14 @@ public:
     // needed here.
     bool keyStateChanged(bool isKeyDown) override;
 
+    // Ctrl+Shift+C toggles the read-only code view (C6). A DIFFERENT JUCE
+    // virtual from keyStateChanged above -- this is a one-shot press/release
+    // chord, not continuous held-state polling, and they are deliberately not
+    // unified into one override; see PluginEditor.cpp's keyPressed() for the
+    // full reasoning and the primary-source citations for why this still
+    // fires while the prompt box holds focus.
+    bool keyPressed(const juce::KeyPress& key) override;
+
     // ── Test-only surface (host/tests/EditorSessionTest.cpp) ────────────────
     // Forwarders, not accessors to the panels themselves: a test that could reach
     // `promptPanel` could also reach past what it is asserting, and the panels'
@@ -119,6 +127,16 @@ public:
     bool         codeVisibleForTest() const { return codeEditorPanel.isVisible(); }
     juce::String codeTextForTest() const { return codeEditorPanel.displayedSourceForTest(); }
     bool         codeIsReadOnlyForTest() const { return codeEditorPanel.isReadOnlyForTest(); }
+    // 1-based Faust line number the last Faust compile error highlighted, or 0
+    // if nothing has been highlighted yet (C6).
+    int          codeHighlightedLineForTest() const { return codeEditorPanel.highlightedLineForTest(); }
+
+    // Number of entries in the in-session prompt history (C6) -- what the
+    // persisted-state round trip and the cycling scenario both check.
+    int          promptHistoryCountForTest() const { return promptPanel.historyCountForTest(); }
+    juce::String promptTextForTest() const { return promptPanel.promptTextForTest(); }
+    void         setPromptTextForTest(const juce::String& text) { promptPanel.setPromptTextForTest(text); }
+    void         recallPromptHistoryForTest() { promptPanel.recallHistoryForTest(); }
 
     // ── On-screen / computer keyboard (host/Source/KeyboardPanel.*) ─────────
     // Forwarders, same rationale as the grid accessors above: the panel stays

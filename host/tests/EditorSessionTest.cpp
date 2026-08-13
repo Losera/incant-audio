@@ -2227,6 +2227,139 @@ void scenario29_octaveControlsShiftRangeTogether()
     snapshot(s.editor, "29_octave_controls");
 }
 
+// 30 — Faust compiler stderr reaches the error region untruncated, and the
+// offending line is highlighted in the read-only code view (C6).
+void scenario30_faustStderrWireAndLineHighlight()
+{
+    scenario("30. Faust stderr reaches the error region untruncated, offending line highlighted",
+             "onFaustCompileFailure used to truncate into the 200-char status "
+             "line only; PromptPanel.h's setError() was public and unused by "
+             "the shell until this session");
+
+    Session s;
+
+    // Same fixture scenario 5 uses -- "process = this is not faust;" is line
+    // 2 (line 1 is the import), and the same real Faust error format
+    // ("dsp:2 : ERROR : ...") this session's own check.sh run produced.
+    s.processor.loadFaustCode("import(\"stdfaust.lib\");\nprocess = this is not faust;",
+                              "a broken patch");
+    const bool surfaced = pumpUntil([&] {
+        return s.editor.errorTextForTest().isNotEmpty();
+    });
+    check(surfaced, "the compile failure reaches the error region");
+
+    // Faust's real message here happens to be short (~47 chars, well under
+    // the 200-char status cap), so length alone cannot distinguish "the wire
+    // exists" from "nothing got truncated because nothing was long enough
+    // to". Assert the actual relationship instead: the status line is
+    // EXACTLY a 200-char-capped prefix of what the error region holds, which
+    // only holds regardless of message length if setError() is receiving the
+    // same untruncated string setStatus()'s truncation is derived from.
+    const auto errorText = s.editor.errorTextForTest();
+    check(s.editor.statusTextForTest()
+              == "Faust compile error: " + errorText.substring(0, 200),
+          "the status line is exactly the 200-char-capped prefix of the full error text");
+    check(errorText.contains("unexpected IDENT"),
+          "the error region carries the real Faust diagnostic through to its end, "
+          "not a generic or cut-off string");
+    check(s.editor.codeTextForTest().contains("this is not faust"),
+          "the code view now shows the ATTEMPTED source -- PF-022 never gave "
+          "this patch a source of record to fall back to");
+    check(s.editor.codeHighlightedLineForTest() == 2,
+          "the offending line (2, the process line) is highlighted");
+
+    snapshot(s.editor, "30_faust_stderr_wire_and_highlight");
+}
+
+// 31 — Up-arrow cycles through prompt history, walking to progressively
+// older entries and stopping at the oldest rather than wrapping (C6).
+void scenario31_promptHistoryCycles(const juce::File& tmp)
+{
+    scenario("31. Up-arrow cycles through prompt history, oldest-clamped",
+             "PromptPanel::onRecallHistory used to always return "
+             "promptHistory[0] -- needed a walking index");
+
+    // A 30s-sleeping fake, same pattern as scenario 9: this test only cares
+    // about pushHistory()'s SYNCHRONOUS effect (it runs before the worker
+    // thread is even started), never about the subprocess completing, so
+    // teardown mid-flight (already proven safe by scenario 9) is fine here.
+    FakeGenerator::install(
+        FakeGenerator::writeSuccess(tmp, "gen31.sh", FakeGenerator::trivialPatch(), 30));
+
+    Session s;
+
+    s.editor.submitPromptForTest("first prompt");
+    s.editor.submitPromptForTest("second prompt");
+    s.editor.submitPromptForTest("third prompt");
+    check(s.editor.promptHistoryCountForTest() == 3, "three prompts retained");
+
+    // A REAL edit (sendNotification, like actual typing) resets the walking
+    // index -- so the very first recall below demonstrably WRITES "third
+    // prompt" rather than the box merely still holding it from the last submit.
+    // TextEditor::textChanged() POSTS onTextChange as a command message
+    // (juce_TextEditor.cpp:1299-1300) rather than firing it synchronously --
+    // pump so it has actually landed before the recall that depends on it.
+    s.editor.setPromptTextForTest("something the user is typing right now");
+    pump(50);
+
+    s.editor.recallPromptHistoryForTest();
+    check(s.editor.promptTextForTest() == "third prompt", "first Up recalls the newest entry");
+
+    s.editor.recallPromptHistoryForTest();
+    check(s.editor.promptTextForTest() == "second prompt", "second Up walks one entry older");
+
+    s.editor.recallPromptHistoryForTest();
+    check(s.editor.promptTextForTest() == "first prompt", "third Up reaches the oldest entry");
+
+    s.editor.recallPromptHistoryForTest();
+    check(s.editor.promptTextForTest() == "first prompt",
+          "a fourth Up stays at the oldest entry rather than wrapping");
+
+    // A real edit between recalls resets the walk back to the newest entry,
+    // not wherever it had reached.
+    s.editor.setPromptTextForTest("editing again");
+    pump(50);
+    s.editor.recallPromptHistoryForTest();
+    check(s.editor.promptTextForTest() == "third prompt",
+          "an edit between recalls resets the walk to the newest entry");
+
+    snapshot(s.editor, "31_prompt_history_cycles");
+}
+
+// 32 — Ctrl+Shift+C toggles the read-only code view (C6), a one-shot chord
+// distinct from C4's continuous held-state routing.
+void scenario32_ctrlShiftCTogglesCodeView()
+{
+    scenario("32. Ctrl+Shift+C toggles the code view",
+             "PluginForgeEditor::keyPressed(), a DIFFERENT JUCE virtual from "
+             "C4's keyStateChanged() -- a one-shot chord, not continuous "
+             "held-state polling");
+
+    Session s;
+    check(! s.editor.codeVisibleForTest(), "starts hidden, same default as scenario 11");
+
+    const juce::KeyPress chord('c',
+        juce::ModifierKeys::ctrlModifier | juce::ModifierKeys::shiftModifier, 0);
+
+    check(s.editor.keyPressed(chord), "the chord is consumed (returns true)");
+    check(s.editor.codeVisibleForTest(), "first press shows the code view");
+
+    check(s.editor.keyPressed(chord), "the chord is consumed again");
+    check(! s.editor.codeVisibleForTest(), "second press hides it again");
+
+    // A close cousin that must NOT trigger it: plain Ctrl+C (copy).
+    // TextEditorKeyMapper matches 'c' against an EXACT modifier set
+    // (juce_TextEditorKeyMapper.h:90) -- commandModifier alone, never
+    // commandModifier|shiftModifier -- so this is a genuinely different
+    // KeyPress, not a subset match.
+    const juce::KeyPress plainCtrlC('c', juce::ModifierKeys::ctrlModifier, 0);
+    check(! s.editor.keyPressed(plainCtrlC),
+          "plain Ctrl+C is not consumed by this override -- it is not the toggle chord");
+    check(! s.editor.codeVisibleForTest(), "...and does not toggle the code view");
+
+    snapshot(s.editor, "32_ctrl_shift_c_toggle");
+}
+
 } // namespace
 
 int main()
@@ -2234,7 +2367,7 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInit;
 
     std::printf("EditorSessionTest -- a simulated human session against the real editor\n");
-    std::printf("  29 scenarios, no network, no quota, snapshots to artifacts/images/\n");
+    std::printf("  32 scenarios, no network, no quota, snapshots to artifacts/images/\n");
 
     auto tmp = juce::File::getSpecialLocation(juce::File::tempDirectory)
                    .getChildFile("pluginforge_editor_session");
@@ -2270,6 +2403,9 @@ int main()
     scenario27_cockpitMirrorEnvVar(tmp);
     scenario28_qwertyRoutingReachesKeyboard();
     scenario29_octaveControlsShiftRangeTogether();
+    scenario30_faustStderrWireAndLineHighlight();
+    scenario31_promptHistoryCycles(tmp);
+    scenario32_ctrlShiftCTogglesCodeView();
 
     tmp.deleteRecursively();
 

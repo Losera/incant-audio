@@ -19,9 +19,12 @@ bool PromptTextEditor::keyPressed(const juce::KeyPress& key)
         return true;   // consumed — do NOT also insert a newline
     }
 
-    // Up-arrow on an empty box recalls the most recent prompt (upKey :198). When
-    // the box has text, Up is normal caret movement, so only intercept when empty.
-    if (key.getKeyCode() == juce::KeyPress::upKey && getText().isEmpty() && onRecallHistory)
+    // Up-arrow recalls/cycles through history (upKey :198, C6): intercepted when
+    // the box is empty (first recall) OR it is still showing an unmodified
+    // recalled entry (browsingHistory -- see the header comment). Otherwise Up
+    // is normal caret movement.
+    if (key.getKeyCode() == juce::KeyPress::upKey && (getText().isEmpty() || browsingHistory)
+        && onRecallHistory)
     {
         onRecallHistory();
         return true;
@@ -75,9 +78,29 @@ PromptPanel::PromptPanel(PluginForgeProcessor& p)
     promptInput.onSubmit        = [this] { submitPrompt(); };
     promptInput.onRecallHistory = [this]
     {
-        if (! promptHistory.isEmpty())
-            restoreFromHistory(promptHistory[0]);
+        if (promptHistory.isEmpty())
+            return;
+        // First press (index -1): jump to the newest entry. Each further
+        // press while browsingHistory holds walks one entry OLDER; clamped at
+        // the oldest retained entry rather than wrapping, so repeated Up
+        // presses settle instead of cycling back to something already seen.
+        if (historyBrowseIndex + 1 < promptHistory.size())
+            ++historyBrowseIndex;
+        restoreFromHistory(promptHistory[historyBrowseIndex]);
     };
+    // A REAL edit (as opposed to our own dontSendNotification recall writes)
+    // ends the browse -- see PromptTextEditor.h's browsingHistory comment.
+    promptInput.onTextChange = [this]
+    {
+        historyBrowseIndex = -1;
+        promptInput.setBrowsingHistory(false);
+    };
+
+    // Seed from the processor -- the persisted source of truth since C6, same
+    // relationship PluginEditor.cpp's applyControlStyle() has to
+    // processor.uiStyle(). Covers a DAW project load: setStateInformation
+    // typically runs before the editor (and this panel) is even constructed.
+    promptHistory = processor.promptHistorySnapshot();
 
     // Resolution order: PLUGINFORGE_LLM_SCRIPT env override, else walk upward from
     // the binary looking for llm/generate.py. Verified against the real layouts
@@ -782,6 +805,12 @@ void PromptPanel::pushHistory(const juce::String& prompt)
     promptHistory.insert(0, p);
     while (promptHistory.size() > kHistoryMax)
         promptHistory.remove(promptHistory.size() - 1);
+
+    // Mirror to the processor (C6) -- the persisted source of truth. This
+    // panel already owns the dedup/cap policy above; the processor just
+    // stores whatever list results, the same division of labour
+    // PluginForgeProcessor::setUiStyle() has with its callers.
+    processor.setPromptHistory(promptHistory);
 }
 
 void PromptPanel::showHistoryMenu()
@@ -815,7 +844,13 @@ void PromptPanel::showHistoryMenu()
                 return;
             const int idx = result - 1;
             if (idx >= 0 && idx < safeThis->promptHistory.size())
+            {
+                // Sync the walking index to the clicked entry (C6) so a
+                // subsequent up-arrow continues cycling from here rather than
+                // restarting at the newest entry.
+                safeThis->historyBrowseIndex = idx;
                 safeThis->restoreFromHistory(safeThis->promptHistory[idx]);
+            }
         });
 }
 
@@ -824,6 +859,7 @@ void PromptPanel::restoreFromHistory(const juce::String& prompt)
     promptInput.setText(prompt, juce::dontSendNotification);
     promptInput.moveCaretToEnd();
     promptInput.grabKeyboardFocus();
+    promptInput.setBrowsingHistory(true);   // C6: lets up-arrow keep cycling
 }
 
 // ── Layout ──────────────────────────────────────────────────────────────────

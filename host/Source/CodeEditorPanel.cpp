@@ -35,6 +35,10 @@ void CodeEditorPanel::showSource(const juce::String& faustSource)
     // loadContent resets the document and clears its undo history
     // (juce_CodeEditorComponent.h:65-69). That is the intent: this is a view of
     // the current patch, not an accumulating buffer.
+    // New source makes any earlier highlight stale -- clear it rather than
+    // leaving a selection that no longer points at the line it was drawn for.
+    lastHighlightedLine = 0;
+
     if (faustSource.isEmpty())
     {
         editor.loadContent("// No patch compiled yet.\n"
@@ -42,6 +46,30 @@ void CodeEditorPanel::showSource(const juce::String& faustSource)
         return;
     }
     editor.loadContent(faustSource);
+}
+
+void CodeEditorPanel::highlightErrorLine(int faustLineNumber)
+{
+    if (faustLineNumber <= 0)
+        return;   // this particular error carried no line info -- nothing to point at
+
+    const int numLines = document.getNumLines();
+    if (numLines <= 0)
+        return;
+
+    // CodeDocument lines are 0-based (juce_CodeDocument.h:129-130: "Lines are
+    // numbered from zero"); Faust's are 1-based. Clamp into range rather than
+    // reject an out-of-range line outright -- a stale line number from an
+    // error against a slightly different source is still closer to useful
+    // pointing at the nearest real line than pointing at nothing.
+    const int zeroIndexed = juce::jlimit(0, numLines - 1, faustLineNumber - 1);
+    const juce::CodeDocument::Position start(document, zeroIndexed, 0);
+    const juce::CodeDocument::Position end(document, zeroIndexed,
+                                            document.getLine(zeroIndexed).length());
+    editor.selectRegion(start, end);
+    editor.scrollToKeepLinesOnScreen({ zeroIndexed, zeroIndexed + 1 });
+
+    lastHighlightedLine = faustLineNumber;
 }
 
 void CodeEditorPanel::resized()
