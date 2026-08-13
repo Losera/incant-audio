@@ -219,6 +219,45 @@ pass all 251 current checks undetected. Closing this fully needs either a
 compositor-level input tool on this machine or a different
 verification strategy entirely.
 
+**Narrowed further, 2026-08-13 (session 013), against a direct user report ("after
+generating a synth, the keyboard is not playable").** Three real, separate bugs found
+and fixed, none of them the OS→JUCE hop above:
+- **PF-057, fixed.** `KeyboardPanel`'s constructor called `setPlayable(false)` against
+  a `playable` member already reading `false` — an idempotent no-op that meant the
+  widget was never actually disabled/dimmed/labelled on construction. The keyboard
+  *looked* playable while every note was silently discarded. Scenario 20 extended with
+  6 widget-level assertions (not just the flag); confirmed red against the reproduced
+  bug, green against the fix.
+- **PF-058, fixed.** Auto family resolution could route "a generative synth" to the
+  mute `generator` family (kind instrument, zero voice contract by design), silently.
+  Fixed data-driven in `generation_profiles.json`; new `GenerationProfilesAutoTest`
+  covers the C++ preview mirror EditorSessionTest cannot reach (it never builds with
+  `-DPF_IS_SYNTH=1`).
+- **PF-059, fixed.** `generate.py`'s voice-contract gate lowercased UI labels before
+  checking them; `FaustEngine::extractVoiceControls` matches exact case. A patch
+  declaring `hslider("Freq", ...)` passed generation and was silently rejected by the
+  host. New `voice_contract.py` reads the same canonical JSON the C++ header is
+  generated from.
+- **Also implemented, verified (280/280 `EditorSessionTest`), left UNCOMMITTED**
+  (working tree had concurrent edits in the same files at session close — not staged
+  to avoid guessing at unrelated in-flight work): `keyStateChanged` now suppresses
+  forwarding while any `juce::TextEditor` holds focus (JUCE's `TextEditor::
+  keyStateChanged` swallows key-DOWN but not key-UP while focused, and
+  `MidiKeyboardComponent::keyStateChanged` ignores its own parameter and re-polls
+  every mapped key on every call — so a key-up from ordinary fast-typing rollover
+  could fire a spurious note for a letter never registered as down); and
+  `KeyboardPanel::focusForPlaying()`, called from `onFaustCompileSuccess` for a
+  successful instrument generation, so QWERTY works without clicking the piano first.
+  New scenario 34 covers both, red-then-green confirmed by temporary reverts. Scan
+  for `focusForPlaying`/`isTextEditorFocusTarget` in `git status` before starting new
+  work — reconcile or commit this before it goes stale.
+
+None of PF-057/058/059 is the OS→JUCE dispatch hop — that remains exactly as
+unverified as the paragraph above states. What changed is that a generated synth now
+reaches a state where that hop is the ONLY remaining unverified link, instead of being
+masked behind three shell-level bugs that made the keyboard non-functional before a
+physical key was ever involved.
+
 **2. It has never been in a DAW.** *(Unchanged.)* `COPY_PLUGIN_AFTER_BUILD FALSE`
 (`host/CMakeLists.txt`) means the VST3 has never been installed or scanned, and pluginval
 is not on PATH. Four concrete gaps behind "must take MIDI in any DAW": monophonic by
@@ -257,6 +296,23 @@ yet gated.)*
 
 **11. `score_efficacy.py --judge` spends quota.** *(unfiled, unchanged.)* Takes a lock
 (`bench/score_efficacy.py:558,569`); the quota cost itself is the remaining, real half.
+
+**12. ~~Sample search failed on every query.~~** *(PF-054/PF-055, critical, closed
+2026-08-13.)* Had no BUGS.md entry and zero tests despite three independent, fatal,
+live-confirmed defects: `SoundfetchClient` resolved a bare `"soundfetch"` name never
+on PATH on this machine (only installed inside venvs), and JUCE's
+`ChildProcess::start()` returns true even when `execvp()` fails in the forked child,
+so the friendly "unavailable" message was dead code (PF-054); the default provider's
+own logging corrupted the JSON via JUCE's default stream-merge flags (PF-055). Fixed:
+resolve `<python> -m soundfetch` (mirrors `PromptPanel`'s existing interpreter
+discovery), capture stdout only, detect the execvp-failure exit-code signature. New
+`SoundfetchClientTest` (0 tests before this session), red-then-green confirmed
+against the pre-fix implementation, plus a live smoke test against the real venv
+(clean JSON on stdout, 52 lines of noise on stderr, confirming the fix's assumptions
+against production). **PF-056 remains open and is not a code defect**: the configured
+Freesound key is sent and rejected (HTTP 403) — needs a replacement key from
+freesound.org. Internet Archive (the default provider) now works; Freesound will
+report the real 403 instead of failing silently once PF-054/055 are live.
 
 ---
 
@@ -318,3 +374,13 @@ Next-three #3 this session.
 6. **`UDHR.md` and `IDEAS.md`** — still untracked, still yours, still left alone.
    `sesh_new.md` was removed this session at your instruction (copied to session scratchpad
    first, since it was untracked and unrecoverable via git otherwise).
+7. **New 2026-08-13: the QWERTY-after-generation fix is implemented and verified
+   (280/280 `EditorSessionTest`) but deliberately left UNCOMMITTED.** It touches
+   `KeyboardPanel.h/.cpp`, `PluginEditor.h/.cpp`, `EditorSessionTest.cpp` — files
+   whose working-tree state at session close held more than this one fix. Full detail
+   in Broken #1's session-013 addendum above and `docs/sessions/013-*.md`. Yours to
+   review and commit (or ask for it to be re-derived cleanly) once reconciled with
+   whatever else is in flight there.
+8. **New 2026-08-13: a replacement Freesound API key.** Broken #12 / PF-056 — the
+   configured key is sent and rejected (HTTP 403). Code can't fix a revoked/expired
+   credential; get a new one from freesound.org when convenient.
