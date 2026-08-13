@@ -136,7 +136,7 @@ CURATED: list[tuple[str, list[tuple[str, str, str]]]] = [
         ("ef", "cubicnl",            "cubic nonlinearity -- soft saturation / drive"),
     ]),
     ("Reverb", [
-        ("re", "stereo_freeverb",   "Freeverb, stereo"),
+        ("re", "stereo_freeverb",   "Freeverb, stereo; spread is a constant, not a slider"),
     ]),
     ("Echo / utility effects", [
         ("ef", "echo",         "feedback echo; first arg is the MAXIMUM duration"),
