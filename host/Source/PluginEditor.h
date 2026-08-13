@@ -151,6 +151,11 @@ public:
     void keyboardNoteOnForTest(int note, float velocity)  { keyboardPanel.noteOnForTest(note, velocity); }
     void keyboardNoteOffForTest(int note)                 { keyboardPanel.noteOffForTest(note); }
     bool keyboardPlayableForTest() const                  { return keyboardPanel.isPlayableForTest(); }
+    // Widget-level readback -- see KeyboardPanel.h's comment on why this is
+    // distinct from (and the thing that actually caught) the flag above.
+    bool keyboardEnabledForTest() const           { return keyboardPanel.keyboardEnabledForTest(); }
+    float keyboardAlphaForTest() const            { return keyboardPanel.keyboardAlphaForTest(); }
+    bool keyboardDisabledLabelVisibleForTest() const { return keyboardPanel.disabledLabelVisibleForTest(); }
     // How many times keyStateChanged() (above) has forwarded into
     // KeyboardPanel. Proves the SHELL-LEVEL routing this session added --
     // that the editor asks the keyboard on every key transition regardless of

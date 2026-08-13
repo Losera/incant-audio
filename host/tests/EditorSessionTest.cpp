@@ -1541,10 +1541,32 @@ void scenario20_keyboardDisabledForEffect()
              "nothing consumes");
 
     Session s;
+
+    // Asserted BEFORE loading anything: this is the constructor no-op bug's
+    // exact reproduction -- a fresh editor whose keyboard has never received
+    // a real setPlayable() transition (isInstrument() defaults false, so the
+    // 30Hz timer's setPlayable(false) call is ALSO a no-op the first time it
+    // fires). Before KeyboardPanel.cpp's applyPlayableVisuals() fix, this
+    // failed: the flag read false correctly, but the widgets stayed enabled,
+    // full-alpha and unlabelled -- a keyboard that looks and feels playable
+    // while every note is silently discarded.
+    check(! s.editor.keyboardPlayableForTest(), "fresh editor: flag starts disabled");
+    check(! s.editor.keyboardEnabledForTest(),
+          "fresh editor: the keyboard widget itself starts disabled, not just the flag");
+    check(s.editor.keyboardAlphaForTest() < 1.0f,
+          "fresh editor: the keyboard is visibly dimmed");
+    check(s.editor.keyboardDisabledLabelVisibleForTest(),
+          "fresh editor: \"Load an instrument to play\" is showing");
+
     check(loadAndSettle(s, kTinyPatch, 1), "a plain effect (Gain) compiled");
     s.editor.pumpMeterTickForTest();
     check(! s.editor.keyboardPlayableForTest(),
           "the keyboard reports disabled for a patch with no voice contract");
+    check(! s.editor.keyboardEnabledForTest(),
+          "effect patch: the keyboard widget stays disabled");
+    check(s.editor.keyboardAlphaForTest() < 1.0f, "effect patch: the keyboard stays dimmed");
+    check(s.editor.keyboardDisabledLabelVisibleForTest(),
+          "effect patch: the disabled label stays visible");
 
     // Even a note that reaches the ring -- bypassing the disabled UI, the way
     // this test-only entry point does; see KeyboardPanel::noteOnForTest --

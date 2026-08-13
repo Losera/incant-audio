@@ -54,6 +54,14 @@ public:
     void setPlayable(bool canPlay);
     bool isPlayableForTest() const { return playable; }
 
+    // Widget-level readback, distinct from isPlayableForTest()'s flag: this is
+    // what actually proved the constructor no-op bug (the flag was correctly
+    // false from the very first frame; the WIDGETS silently were not --
+    // KeyboardPanel.cpp's applyPlayableVisuals() comment has the full story).
+    bool keyboardEnabledForTest() const  { return keyboardComponent.isEnabled(); }
+    float keyboardAlphaForTest() const   { return keyboardComponent.getAlpha(); }
+    bool disabledLabelVisibleForTest() const { return disabledLabel.isVisible(); }
+
     // ── Test-only producer entry points (host/tests/EditorSessionTest.cpp) ──
     // Drive keyboardState.noteOn()/noteOff() directly -- exactly what a mouse
     // click on the component or a mapped computer-keypress does internally
@@ -149,6 +157,18 @@ private:
     static constexpr int kControlRowH          = 24;   // top strip; piano gets the remaining 48 of keyboardH's 72
 
     void updateOctaveLabel();
+
+    // Applies `playable`'s CURRENT value to the widgets (enabled/alpha/label).
+    // Split out of setPlayable() so the constructor can apply the true initial
+    // state without going through setPlayable()'s idempotence guard, which
+    // would otherwise no-op it (playable's member initializer already reads
+    // false, matching the ctor's setPlayable(false) call — "unchanged" by
+    // definition, so the widgets never actually got dimmed/disabled/labelled
+    // until the first REAL transition arrived, which for an effect patch
+    // never comes). No keyboardState side effects here (see setPlayable) --
+    // this only ever mirrors state onto widgets, safe to call before any note
+    // could exist.
+    void applyPlayableVisuals();
 
     PluginForgeProcessor& processor;
 
