@@ -177,7 +177,8 @@ host/Source/PluginProcessor.* lifecycle, state blob, load path (Fresh/Iterate mo
 host/Source/ParamPool.*       64-slot parameter pre-allocation
 host/Source/ParamMap.h        0–1 ↔ real units (Hz/dB/ms), log/exp/linear curves
 host/Source/OutputGuard.*     NaN/DC/limit/runaway safety net before the speakers
-host/Source/*Panel.*          editor shell: prompt, code editor (stub), param grid
+host/Source/*Panel.*          editor shell: prompt, code editor, param grid, keyboard,
+                              sample browser
 llm/generate.py               LLM call + Faust validation + retry loop
 llm/providers.py              five providers, three adapters, free-only rule
 llm/prompts/system_prompt.txt the one prompt (stdlib block is generated)
