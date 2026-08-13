@@ -133,16 +133,17 @@ static_assert(rightColumnHeight(Chrome{}) == 276);  // unchanged
 static_assert(verticalChrome(Chrome{}) == 144);     // was 136: keyboardH 64→72
 ```
 
-**2026-08-13 RECONCILIATION NOTE.** This section's arithmetic was wrong twice
-over, and both errors were corrected in the code rather than here until now.
-First: `minLeftW(400) + minRightW(264) = 664`, not the `700` the "Minimum
-window width" heading claims -- that 700 is actually
-`2*margin(32) + minLeftW + minRightW` with the divider folded into
-`minLeftW`'s 400, a 60/40 split at 700px, not 65/35 (corrected in `d26e990`'s
-commit message and `PluginEditor.h`'s own comment, which spells out the real
-arithmetic: `splitW = 700 - margin*2(32) = 668; leftW = round((668 -
-dividerW(4)) * 0.65) = 432; rightW = 668 - 4 - 432 = 232`). Second, and
-unrelated to the first: the disclosure row (`codeToggle`/`styleToggle`, plus
+**2026-08-13 RECONCILIATION NOTE.** This section had two separate defects,
+both corrected in the code rather than here until now. First: the `minW`
+formula's own SUM checks out (`2*margin(16) + dividerW(4) + minLeftW(400) +
+minRightW(264) = 700`), but the `400`/`264` split it feeds in is not the
+65/35 this section's heading claims -- `400 / (400+264) ≈ 60.2%`, a 60/40
+split (`PluginEditor.h`'s own comment: "Session 010 §3 originally claimed
+400/264 (a 60/40 ratio, not 65/35)"). The actual 65/35 arithmetic, from that
+same comment: `splitW = 700 - margin*2(32) = 668; leftW = round((668 -
+dividerW(4)) * 0.65) = 432; rightW = 668 - 4 - 432 = 232` (corrected in
+`d26e990`'s commit message). Second, and unrelated to the first: the
+disclosure row (`codeToggle`/`styleToggle`, plus
 the now-removed `auditionSelector`) moved into the title band on `a087af2`
 because 65/35 left the right column too narrow to hold both it and
 `PromptPanel`'s own button row -- so `rightColumnHeight` DROPPED `gapRow(10) +
