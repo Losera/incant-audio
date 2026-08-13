@@ -40,75 +40,18 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from score_efficacy import is_transport_error  # noqa: E402  (reused, not reimplemented)
 
-# ── The taxonomy ──────────────────────────────────────────────────────────────
-#
-# Ordered most-specific first. A Faust error line can satisfy more than one rule
-# ("invalid delay parameter range" also contains "invalid"), so order is load-bearing
-# and the first match wins.
-#
-# Each class names a DISTINCT prompt defect, because the point of this module is to
-# tell you what to change. If two classes would be fixed by the same edit, they should
-# be one class.
-
-OK = "ok"
-TRANSPORT = "transport"          # never reached the compiler; not a generation outcome
-TRUNCATED = "truncated"          # cut off at the output limit; an output-budget defect
-HALLUCINATED_SYMBOL = "hallucinated_symbol"
-UNBOUND_VARIABLE = "unbound_variable"
-ROUTING_ARITY = "routing_arity"
-DELAY_RANGE = "delay_range"
-RECURSION_CYCLE = "recursion_cycle"
-DUPLICATE_SYMBOL = "duplicate_symbol"
-SYNTAX = "syntax"                # carries the unexpected token in .detail
-TYPE_MISMATCH = "type_mismatch"
-INCOMPLETE = "incomplete"
-UNCLASSIFIED = "unclassified"
-
-# Fix hints are part of the taxonomy, not decoration: a class whose fix nobody can state
-# is a class that will never be acted on.
-FIX_HINT = {
-    HALLUCINATED_SYMBOL: "invented/mis-namespaced stdlib function — namespace rule",
-    UNBOUND_VARIABLE: "used a name it never bound — function-parameter rule",
-    ROUTING_ARITY: "split/merge (<: :>) arity — routing-algebra section",
-    DELAY_RANGE: "delay max must be a compile-time constant — bounded-delay rule",
-    RECURSION_CYCLE: "~ loop with no delay in the feedback path — recursion example",
-    DUPLICATE_SYMBOL: "symbol defined twice — ADR-009 duplicate-process rule",
-    SYNTAX: "malformed program — often a construct the prompt recommends but never shows",
-    TYPE_MISMATCH: "signal/number confusion",
-    INCOMPLETE: "empty or near-empty program",
-    TRUNCATED: "output budget, not the model's competence",
-    TRANSPORT: "request never produced a program — exclude from compile rate",
-    UNCLASSIFIED: "unrecognised — add a rule if it recurs",
-}
-
-_RULES: list[tuple[str, re.Pattern]] = [
-    # Arity FIRST: "2 outputs must equal 1 input" would otherwise be caught by nothing
-    # specific and fall through to unclassified, and it is one of PF-024's four.
-    # Two wordings, both real. BUGS.md paraphrases the P6 failure as "2 outputs must
-    # equal 1 input"; Faust 2.85.5 actually emits "The number of outputs [2] of A must
-    # be equal to the number of inputs [1] of ...". Both are matched — the paraphrase
-    # because it is what the registry recorded, the real one because it is what the
-    # compiler says.
-    (ROUTING_ARITY, re.compile(
-        r"outputs?\s+must\s+equal|inputs?\s+must\s+equal"
-        r"|number of (outputs|inputs)|sequential composition|i/?o mismatch", re.I)),
-    # Likewise two wordings. The P6 run recorded "invalid delay parameter range:
-    # interval(0,2.1e9,0)". Reproducing an unbounded delay on 2.85.5 gives instead
-    # "possible negative values of : int(min(Delay(...)))  used in delay expression".
-    # Same defect — a non-constant or unclamped delay argument — so same class. Missing
-    # the second form would have silently filed it as `unclassified`.
-    (DELAY_RANGE, re.compile(
-        r"invalid delay parameter range|invalid delay"
-        r"|used in delay expression|negative values of\s*:\s*int\(min\(Delay", re.I)),
-    (RECURSION_CYCLE, re.compile(r"endless evaluation cycle|evaluation cycle", re.I)),
-    (DUPLICATE_SYMBOL, re.compile(r"multiple definitions of symbol|redefinition", re.I)),
-    (HALLUCINATED_SYMBOL, re.compile(
-        r"undefined symbol|cannot find symbol|no such (function|symbol)", re.I)),
-    (TYPE_MISMATCH, re.compile(r"type mismatch|cannot (implicitly )?convert|incompatible types", re.I)),
-    # SYNTAX last among compiler rules: it is the least informative, and several of the
-    # rules above also emit the word "error".
-    (SYNTAX, re.compile(r"syntax error|parse error|unexpected", re.I)),
-]
+# The taxonomy (class names, FIX_HINT, the regex rule table) moved to
+# llm/error_classes.py on 2026-08-13 so generate.py's production retry loop
+# and this benchmark harness classify errors with the SAME rules rather than
+# two copies that can drift — see that module's docstring for the full
+# rationale (it makes the same argument this file already made against
+# reimplementing is_transport_error, applied to itself).
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "llm"))
+from error_classes import (  # noqa: E402
+    OK, TRANSPORT, TRUNCATED, HALLUCINATED_SYMBOL, UNBOUND_VARIABLE,
+    ROUTING_ARITY, DELAY_RANGE, RECURSION_CYCLE, DUPLICATE_SYMBOL, SYNTAX,
+    TYPE_MISMATCH, INCOMPLETE, UNCLASSIFIED, FIX_HINT, _RULES,
+)
 
 # The token in `syntax error, unexpected WITH` / `unexpected IDENT`. Kept because it is
 # the whole diagnostic value of a syntax failure.

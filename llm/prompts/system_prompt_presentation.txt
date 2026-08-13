@@ -65,6 +65,9 @@ programs fail after inventing a function name.
   must be a compile-time constant, because it sizes the buffer, and the live delay
   must be clamped inside it with : min(MAX-1) : max(1). si.smoo produces
   intermediate values that the slider's own range does not bound.
+- re.stereo_freeverb's LAST argument, spread, is a buffer-sizing constant like
+  de.delay's first argument (a literal like 30, in samples) — NOT a slider,
+  unlike fb1/fb2/damp.
 - with { } binds to the definition immediately before it; it is not a top-level
   statement. Every definition inside the block ends with a semicolon, and the
   closing brace is followed by one: process = out with { out = _ * 0.5; };
@@ -125,7 +128,7 @@ Distortion / saturation:
   ef.cubicnl(drive, offset)                     cubic nonlinearity -- soft saturation / drive
 
 Reverb:
-  re.stereo_freeverb(fb1, fb2, damp, spread)    Freeverb, stereo
+  re.stereo_freeverb(fb1, fb2, damp, spread)    Freeverb, stereo; spread is a constant, not a slider
 
 Echo / utility effects:
   ef.echo(maxDuration, duration, feedback)      feedback echo; first arg is the MAXIMUM duration

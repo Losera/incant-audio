@@ -41,10 +41,22 @@ bool PromptTextEditor::keyPressed(const juce::KeyPress& key)
 //
 // An unknown or absent reason falls back to the generic text — a newer host must
 // keep working against an older generate.py.
-static juce::String statusForReason(const juce::String& reason)
+//
+// retryAfterSeconds (added 2026-08-13, additive per ADR-011's "existing
+// consumers are unaffected by an extra key" precedent): the provider's own
+// stated wait, from providers.RateLimited.retry_after via generate.py's
+// failure dict. 0.0 (absent, or an older generate.py) falls back to the
+// original generic wording -- "wait a moment" is honest when there is
+// nothing more specific to say.
+static juce::String statusForReason(const juce::String& reason, double retryAfterSeconds = 0.0)
 {
     if (reason == "rate_limited")
+    {
+        if (retryAfterSeconds > 0.0)
+            return "Rate limited by the provider — try again in "
+                 + juce::String(juce::roundToInt(retryAfterSeconds)) + "s.";
         return "Rate limited by the provider — wait a moment and try again.";
+    }
     if (reason == "timeout")
         return "Timed out before a valid patch — try a simpler prompt.";
     if (reason == "invalid_faust")
@@ -683,6 +695,10 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
         // generate.py, which is why the default is empty and statusForReason()
         // falls back to the generic text rather than asserting.
         auto reason = parsed.getProperty("reason", juce::String()).toString();
+        // Additive (2026-08-13): present only when reason == "rate_limited",
+        // per generate.py's _failure(). 0.0 on any older generate.py or any
+        // other reason -- statusForReason() falls back to generic wording.
+        const double retryAfterSeconds = parsed.getProperty("retry_after", 0.0);
         auto resolvedFamily = parsed.getProperty("family", family).toString();
         auto familySource = parsed.getProperty("family_source", "explicit").toString();
         // generate.py:381-386: the user asked to carry the prior source (Refine on)
@@ -705,7 +721,7 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
 
         if (! success || faustCode.isEmpty())
         {
-            juce::MessageManager::callAsync([safeThis, errorMsg, reason, exitCode, priorSourceRefused]
+            juce::MessageManager::callAsync([safeThis, errorMsg, reason, exitCode, priorSourceRefused, retryAfterSeconds]
             {
                 if (safeThis == nullptr) return;
                 safeThis->stopWorking();
@@ -735,7 +751,7 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
                 safeThis->statusLabel.setText(
                     priorSourceRefused
                         ? "Prior patch too large for Add - choose Redo, or simplify the patch."
-                        : statusForReason(reason),
+                        : statusForReason(reason, retryAfterSeconds),
                     juce::dontSendNotification);
                 safeThis->generateButton.setEnabled(true);
             });

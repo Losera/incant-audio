@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import providers  # noqa: E402
 import router  # noqa: E402
 import generation_profiles  # noqa: E402
+import error_classes  # noqa: E402
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 
@@ -122,9 +123,21 @@ client = providers.anthropic_client()
 #   worst case here  = GENERATION_BUDGET_S (all LLM work, budget-enforced)
 #                    + one FAUST_VALIDATE_TIMEOUT_S (the last attempt's compile)
 #                    + interpreter startup/import
-#                    = 100 + 15 + ~2  = ~117s
+#                    = 140 + 15 + ~2  = ~157s
 #   host cap         = 180s
-_DEFAULT_GENERATION_BUDGET_S = 100.0
+#
+# 100->140 (2026-08-13). Confirmed live (logs/prompts.jsonl) that groq's own
+# Retry-After hints on a 429 (37s/25s/51s observed) routinely exceeded what a
+# 100s budget could ever honour -- providers.Budget.can_sleep() requires
+# delay+5s <= remaining, so a real, server-stated wait was refused almost
+# every time and a recoverable throttle became a hard rate_limited failure.
+# 140s does not fix the root cause (see providers.RateLimited's retry_after
+# and PromptPanel::statusForReason() for the actual fix, and
+# llm/prompt_builder.py's core-floor fix for reducing how often the bucket
+# fills in the first place) -- it only widens the window this budget alone
+# can absorb, while keeping the 23s of margin below the host cap the
+# arithmetic above still requires.
+_DEFAULT_GENERATION_BUDGET_S = 140.0
 FAUST_VALIDATE_TIMEOUT_S = 15.0
 
 
@@ -156,6 +169,25 @@ _TRUNCATION_HINT = (
     "comments, fewer helper definitions, and prefer a stdlib function over "
     "reimplementing one. Emit only the Faust source."
 )
+
+
+def _classified_error_context(error: str) -> str:
+    """Raw compiler error, plus a class-specific repair hint if one is wired.
+
+    Same reasoning as _TRUNCATION_HINT above, for a different signal: raw
+    stderr alone can name the defect without naming the fix. Confirmed live
+    (logs/prompts.jsonl, 2026-08-13T04:37-04:46Z) that this actually
+    matters — "a simple reverb" failed the IDENTICAL delay-range error 3
+    attempts in a row, even though system_prompt.txt already has the
+    bounded-delay rule, because raw stderr ("interval(0,2.14748e+09,0)")
+    names no expression, no line, and no remedy. See
+    llm/error_classes.py's RETRY_HINT for which classes are wired and why
+    only one is so far — each needs its own evidence, not just a plausible
+    guess. A class with no hint gets exactly today's behaviour: raw stderr,
+    unchanged.
+    """
+    klass = error_classes.classify_error(error)
+    return error + error_classes.RETRY_HINT.get(klass, "")
 
 # A3: how a refine request's prior Faust source folds into the existing user
 # message — no new prompt file, see docs/sessions/002-refine-loop-and-ui-redesign.md
@@ -390,8 +422,12 @@ def generate_with_retry(user_prompt: str, max_retries: int = 3,
     truncated = False
     budget = generation_budget()
     for attempt in range(1, max_retries + 1):
+        # See the matching comment in generate_json's loop: the classified
+        # hint is for what the MODEL sees next, kept separate from error_ctx
+        # itself (printed to the user above on failure, unhinted).
+        repair_context = _classified_error_context(error_ctx) if error_ctx else ""
         try:
-            code = generate_faust(user_prompt, error_ctx, provider=provider, model=model,
+            code = generate_faust(user_prompt, repair_context, provider=provider, model=model,
                                   budget=budget, truncated=truncated)
         except providers.OutputTruncated as exc:
             print(f"[!] Attempt {attempt} was cut off at the output limit: {exc}\n")
@@ -490,14 +526,22 @@ def generate_json(request: dict) -> dict:
     truncated = False
     attempt = 0
     for attempt in range(1, max_retries + 1):
+        # Classified hint appended only for what the MODEL sees next, not for
+        # error_ctx itself -- error_ctx also feeds the final failure/timeout
+        # messages below, which are user-facing, not LLM-directed repair
+        # text. Same separation _TRUNCATION_HINT already keeps (it is never
+        # part of a _failure() call, only ever appended inside
+        # generate_faust's own content-building). A no-op when error_ctx is
+        # empty (first attempt) or unclassified.
+        repair_context = _classified_error_context(error_ctx) if error_ctx else ""
         try:
-            code = generate_faust(prompt, error_ctx, provider, model, budget,
+            code = generate_faust(prompt, repair_context, provider, model, budget,
                                   truncated=truncated, kind=kind,
                                   prior_source=prior_source,
                                   refine_mode=refine_mode,
                                   system_prompt=system_prompt)
         except providers.RateLimited as exc:
-            return _failure(attempt, "rate_limited", str(exc))
+            return _failure(attempt, "rate_limited", str(exc), retry_after=exc.retry_after)
         except providers.BudgetExhausted as exc:
             return _failure(attempt, "timeout", str(exc))
         except providers.OutputTruncated as exc:
@@ -545,9 +589,18 @@ def generate_json(request: dict) -> dict:
     return _failure(max_retries, "invalid_faust", error_ctx)
 
 
-def _failure(attempts: int, reason: str, error: str) -> dict:
-    return {"success": False, "faust_code": None, "attempts": attempts,
-            "error": error, "reason": reason}
+def _failure(attempts: int, reason: str, error: str,
+             retry_after: float | None = None) -> dict:
+    result = {"success": False, "faust_code": None, "attempts": attempts,
+              "error": error, "reason": reason}
+    if retry_after is not None:
+        # Additive, same treatment as `kind`/`prior_source_dropped` elsewhere
+        # in this file (PF-019): every existing consumer reads
+        # success/faust_code/error/reason and is unaffected by an extra key
+        # present only on rate_limited failures. Lets PromptPanel show "try
+        # again in 37s" instead of a dead end -- see providers.RateLimited.
+        result["retry_after"] = retry_after
+    return result
 
 
 def _prior_source_refused_response() -> dict:

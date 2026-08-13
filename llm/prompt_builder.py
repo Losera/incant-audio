@@ -11,8 +11,43 @@ import re
 from pathlib import Path
 from typing import Dict, List, Set, Optional
 
+import providers
+
 PROMPT_DIR = Path(__file__).resolve().parent / "prompts"
 SYSTEM_PROMPT_PATH = PROMPT_DIR / "system_prompt.txt"
+
+# Prefixes retained regardless of matched domain: the primitives a correct
+# patch of almost any kind needs (oscillators, filters, envelopes, noise,
+# basic signal routing, math, and the voice/filter-model namespace).
+#
+# FIXED 2026-08-13. Domain filtering used to gate every one of these too,
+# which silently violated the prompt's own "Use ONLY functions from the
+# Faust standard library reference below" claim: a "subtractive synth"
+# prompt matched only the `oscillator` domain (via router.py's "synth"/
+# "subtractive" keywords) and lost `fi.*` entirely -- even though subtractive
+# synthesis IS filtering an oscillator. `ve.` and `no.` were not in ns_map
+# under ANY domain, so they were stripped from every filtered prompt,
+# unconditionally, including instrument_prompt.txt's own prose teaching
+# `ve.moog_vcf`/`ve.moogLadder` (instrument_prompt.txt:71-73). Confirmed live:
+# a groq 429 for "an additive synth with reverb delay and chorus" showed
+# `Requested` token counts varying 5177-7258 across retries of the SAME
+# prompt -- that spread is this filtering, so it is a throughput lever, not
+# just headroom hygiene, and has to stay correct under pressure, not merely
+# smaller. Only the long tail below (delay/reverb/dynamics-specific
+# namespaces) stays domain-gated.
+CORE_PREFIXES = {"os.", "fi.", "en.", "no.", "si.", "ba.", "ma.", "ve."}
+
+# Minimum unfiltered headroom (providers.headroom_tokens units) required to
+# skip filtering entirely. NOT zero: measured against system_prompt.txt,
+# several real prompts sit at 191-207 tokens of unfiltered headroom --
+# technically positive (the request would be admitted), but filtering the
+# SAME prompts brings that up to ~524, and 191-207 is not a safe margin to
+# skip a free improvement for (one longer user prompt, or a later addition
+# this function can't see -- generation_profiles.append_brief, a refine
+# preamble -- erases it). Chosen to match the margin the pre-existing
+# headroom test in tests/test_prompt_builder.py already asserted before this
+# fix (it used a bare ">300" threshold on the FILTERED result).
+_MIN_UNFILTERED_HEADROOM = 300
 
 # Keywords mapped to Faust library domains
 DOMAIN_KEYWORDS: Dict[str, Set[str]] = {
@@ -54,25 +89,29 @@ def extract_relevant_domains(prompt_text: str) -> Set[str]:
 
 
 def filter_stdlib_block(stdlib_block: str, domains: Set[str]) -> str:
-    """Filter lines of the stdlib reference block to retain relevant functions."""
+    """Filter lines of the stdlib reference block to retain relevant functions.
+
+    Only the LONG TAIL below is domain-gated -- CORE_PREFIXES (module level)
+    is always retained regardless of `domains`, so this can never strip a
+    namespace the prompt's own prose depends on. Namespaces already in
+    CORE_PREFIXES (fi., os., en., ba.) are intentionally absent from this map:
+    matching their domain adds nothing new, since the floor already covers
+    them.
+    """
     lines = stdlib_block.splitlines()
     filtered_lines: List[str] = []
-    
-    # Prefix mapping for namespaces
+
+    # Prefix mapping for namespaces NOT in the always-included core floor.
     ns_map = {
-        "filter": ["fi.", "pf."],
-        "oscillator": ["os."],
+        "filter": ["pf."],
         "time": ["de.", "re.", "ef."],
-        "dynamics": ["co.", "ma.", "ef."],
-        "envelope": ["en.", "ba."]
+        "dynamics": ["co.", "ef."],
     }
-    
-    allowed_prefixes = set()
+
+    allowed_prefixes = set(CORE_PREFIXES)
     for d in domains:
         for p in ns_map.get(d, []):
             allowed_prefixes.add(p)
-    # Always include basic math/unit/signal helpers
-    allowed_prefixes.update(["ba.", "si.", "ma."])
 
     for line in lines:
         # Keep headers, section dividers, and process notes
@@ -106,9 +145,24 @@ def build_dynamic_prompt(user_prompt: str, base_system_prompt_path: Optional[Pat
     end_idx = full_prompt.index(end_marker)
     
     raw_stdlib_block = full_prompt[start_idx:end_idx]
+    unfiltered = (full_prompt[:start_idx] + "\n" + raw_stdlib_block.strip()
+                  + "\n" + full_prompt[end_idx:])
+
+    # Filtering is a FALLBACK for token pressure, not an unconditional
+    # transform -- if the unfiltered prompt fits with a REAL margin, keep
+    # the whole reference rather than risk dropping something the prose
+    # depends on. Bare positivity is not enough margin -- see
+    # _MIN_UNFILTERED_HEADROOM's comment. `+ user_prompt` approximates the
+    # full request; later additions (generation_profiles.append_brief, a
+    # refine preamble) aren't visible here, so this is a conservative
+    # estimate, not the final admission check -- providers.py's own TPM
+    # preflight is still the authority.
+    if providers.headroom_tokens(unfiltered + user_prompt) > _MIN_UNFILTERED_HEADROOM:
+        return unfiltered
+
     domains = extract_relevant_domains(user_prompt)
     trimmed_stdlib_block = filter_stdlib_block(raw_stdlib_block, domains)
-    
+
     return full_prompt[:start_idx] + "\n" + trimmed_stdlib_block.strip() + "\n" + full_prompt[end_idx:]
 
 
