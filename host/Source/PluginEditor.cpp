@@ -5,21 +5,32 @@ namespace
 {
 // Faust's own diagnostic format, confirmed against a live compile error
 // (FaustEngine.cpp:799 passes the literal filename "dsp" to
-// createDSPFactoryFromString, so a syntax error reads "dsp:2 : ERROR :
-// syntax error, unexpected IDENT", observed running EditorSessionTest's own
-// compile-failure fixture): "dsp:<line>" appears once, near the start of the
-// message. Not every failure carries a line at all -- e.g. "the Faust
-// program has no output" (FaustEngine.cpp:393) -- so this returns 0 (no
-// line) rather than guessing, and CodeEditorPanel::highlightErrorLine()
-// treats <= 0 as a no-op.
+// createDSPFactoryFromString): "dsp<optional space>:<optional space><line>"
+// appears once, near the start of the message. The spacing is NOT fixed
+// across Faust versions -- this machine's Faust 2.85.9 emits "dsp:2 : ERROR
+// : syntax error, unexpected IDENT" (no space before the first colon), while
+// CI's installed Faust emits "dsp : 2 : ERROR : syntax error" (a space
+// before it), discovered when this exact parse silently returned 0 in CI
+// (PR #4's build-host run) despite passing locally -- so both spacings are
+// tolerated rather than the one this machine happens to produce. Not every
+// failure carries a line at all -- e.g. "the Faust program has no output"
+// (FaustEngine.cpp:393) -- so this returns 0 (no line) rather than guessing,
+// and CodeEditorPanel::highlightErrorLine() treats <= 0 as a no-op.
 int parseFaustErrorLine(const juce::String& error)
 {
-    const auto marker = juce::String("dsp:");
-    const int start = error.indexOf(marker);
-    if (start < 0)
+    int i = error.indexOf("dsp");
+    if (i < 0)
         return 0;
+    i += 3;
 
-    int i = start + marker.length();
+    while (i < error.length() && error[i] == ' ')
+        ++i;
+    if (i >= error.length() || error[i] != ':')
+        return 0;
+    ++i;
+    while (i < error.length() && error[i] == ' ')
+        ++i;
+
     int line = 0;
     bool sawDigit = false;
     while (i < error.length() && juce::CharacterFunctions::isDigit(error[i]))
