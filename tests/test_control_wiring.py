@@ -867,6 +867,88 @@ class TestLadderRunsWhatCIRuns:
 
 
 # ---------------------------------------------------------------------------
+class TestPfLdPreloadIsSetBeforeItIsRead:
+    """GitHub step exports must precede every step that consumes them.
+
+    PF-036's preload was attached to the pure-harness command, but its value was
+    only written to ``$GITHUB_ENV`` by a later step. GitHub accepts an empty
+    ``LD_PRELOAD``, so the workflow looked wired while the shim did no work.
+    """
+
+    VARIABLES = ("PF_LD_PRELOAD", "PF_LD_PRELOAD_TSAN")
+
+    @staticmethod
+    def _ordered_steps() -> list[tuple[str, str]]:
+        parts = re.split(r"\n\s*-\s*name:\s*", WORKFLOW.read_text())
+        steps = []
+        for part in parts[1:]:
+            name, _, body = part.partition("\n")
+            steps.append((name.strip(), body))
+        assert steps, "parsed no named steps from .github/workflows/test.yml"
+        return steps
+
+    @staticmethod
+    def _reads(body: str, variable: str) -> bool:
+        # The boundary prevents PF_LD_PRELOAD matching inside its _TSAN sibling.
+        return re.search(rf"\$(?:\{{{variable}\}}|{variable}\b)", body) is not None
+
+    def test_each_preload_export_precedes_every_consumer(self):
+        steps = self._ordered_steps()
+        for variable in self.VARIABLES:
+            writers = [
+                index
+                for index, (_, body) in enumerate(steps)
+                if re.search(rf"echo\s+[^\n]*\b{variable}=.*GITHUB_ENV", body)
+            ]
+            assert len(writers) == 1, (
+                f"expected exactly one $GITHUB_ENV writer for {variable}, got "
+                f"{len(writers)}"
+            )
+            writer = writers[0]
+            early_readers = [
+                name
+                for index, (name, body) in enumerate(steps)
+                if index < writer and self._reads(body, variable)
+            ]
+            assert not early_readers, (
+                f"{variable} is consumed before its $GITHUB_ENV writer by "
+                f"{early_readers}. GitHub makes an empty LD_PRELOAD valid, so the "
+                "PF-036 shim would be silently inert."
+            )
+
+
+class TestLadderOnlyStepsAreDeliberate:
+    """Important full-ladder checks must run in CI or be explicitly exempted."""
+
+    REQUIRED_IN_CI = (
+        "tools/gen_voice_contract.py --check",
+        "tools/gen_presentation_prompt.py --check",
+        "tests/test_prompt_claims.py::TestClaimsHoldAgainstTheCompiler",
+        "tests/test_pitch_gate.py -q -m integration",
+    )
+    LOCAL_ONLY = {
+        # Reporting-only quality metric: --report never gates and always exits 0.
+        "bench/presentation_checker.py --report",
+    }
+
+    def test_important_full_checks_are_classified(self):
+        ladder = CHECK_SH.read_text()
+        for marker in (*self.REQUIRED_IN_CI, *self.LOCAL_ONLY):
+            assert marker in ladder, (
+                f"classified full-ladder marker {marker!r} no longer appears in "
+                "tools/check.sh; remove or update the classification deliberately"
+            )
+
+    def test_non_exempt_full_checks_also_run_in_ci(self):
+        ci = WORKFLOW.read_text()
+        missing = [marker for marker in self.REQUIRED_IN_CI if marker not in ci]
+        assert not missing, (
+            f"tools/check.sh full runs {missing}, but CI does not. Add them to CI "
+            "or document a concrete local-only reason in LOCAL_ONLY."
+        )
+
+
+# ---------------------------------------------------------------------------
 class TestEveryPromptIsGuarded:
     """Every file in llm/prompts/ must be covered by the prompt controls.
 
