@@ -11,12 +11,27 @@ juce::File SoundfetchClient::defaultCacheRoot()
         .getChildFile("Incant-Audio").getChildFile("Samples");
 }
 
-juce::String SoundfetchClient::executable() const
+juce::StringArray SoundfetchClient::commandPrefix() const
 {
+    // SOUNDFETCH_BIN is an escape hatch that bypasses Python resolution
+    // entirely -- kept for anyone who already points it at a soundfetch
+    // executable directly (e.g. a venv's bin/soundfetch on PATH).
     if (auto configured = juce::SystemStats::getEnvironmentVariable("SOUNDFETCH_BIN", {});
         configured.isNotEmpty())
-        return configured;
-    return "soundfetch";
+        return { configured };
+
+    // Resolution order mirrors PromptPanel's interpreter discovery for
+    // llm/generate.py (ADR-011, PromptPanel.cpp:462-467): a soundfetch-specific
+    // override for an installed/venv layout the system python3 can't import
+    // soundfetch from, falling back to the shared PLUGINFORGE_PYTHON override,
+    // then the bare "python3" PATH lookup. `<python> -m soundfetch` rather than
+    // a `soundfetch` binary name removes the PATH-visibility requirement that
+    // made every query fail on this machine (soundfetch only ever installed
+    // inside venvs, never on PATH).
+    auto pythonExe = juce::SystemStats::getEnvironmentVariable(
+        "PLUGINFORGE_SOUNDFETCH_PYTHON",
+        juce::SystemStats::getEnvironmentVariable("PLUGINFORGE_PYTHON", "python3"));
+    return { pythonExe, "-m", "soundfetch" };
 }
 
 juce::var SoundfetchClient::run(const juce::StringArray& args, juce::String& error)
@@ -27,20 +42,40 @@ juce::var SoundfetchClient::run(const juce::StringArray& args, juce::String& err
         activeProcess = &process;
     }
 
-    juce::StringArray command { executable() };
+    juce::StringArray command = commandPrefix();
     command.addArray(args);
-    if (! process.start(command))
+
+    // wantStdOut only: soundfetch's --json payload is clean on stdout, but its
+    // logging (logging.basicConfig(level=INFO), unconditional -- soundfetch's
+    // own cli.py has no --quiet flag) and Internet-Archive progress lines
+    // ("archive metadata: n/50") go to stderr. juce::ChildProcess::start()'s
+    // default streamFlags merge both into one pipe (juce_ChildProcess.h:76),
+    // which corrupted every Internet Archive search's JSON -- confirmed by
+    // running the exact command this session: stdout alone parses, the merged
+    // stream does not. Errors are reported structurally inside the JSON
+    // payload itself ({"ok": false, "error": {...}}), so discarding stderr
+    // loses no user-facing information.
+    if (! process.start(command, juce::ChildProcess::wantStdOut))
     {
-        error = "Soundfetch is unavailable. Install soundfetch 0.4+ or set SOUNDFETCH_BIN.";
+        // Only reachable if fork()/pipe() itself failed
+        // (juce_SharedCode_posix.h's ActiveProcess ctor) -- NOT for a missing
+        // executable. A missing python3 or an uninstalled soundfetch module
+        // still makes fork() succeed; execvp fails in the CHILD, which the
+        // parent's childPID (already captured before the child could fail)
+        // has no way to see. That case surfaces after the process exits,
+        // below, not here.
+        error = "Soundfetch failed to launch (fork/pipe error).";
+        juce::Logger::writeToLog("PluginForge: soundfetch launch failed (fork/pipe) for: "
+                                  + command.joinIntoString(" "));
         const juce::ScopedLock lock(processLock);
         activeProcess = nullptr;
         return {};
     }
 
-    if (! process.waitForProcessToFinish(60000))
+    if (! process.waitForProcessToFinish(kTimeoutMs))
     {
         process.kill();
-        error = "Soundfetch timed out after 60 seconds.";
+        error = "Soundfetch timed out after " + juce::String(kTimeoutMs / 1000) + " seconds.";
     }
     const auto output = process.readAllProcessOutput().trim();
     const auto exitCode = process.getExitCode();
@@ -48,10 +83,28 @@ juce::var SoundfetchClient::run(const juce::StringArray& args, juce::String& err
         const juce::ScopedLock lock(processLock);
         activeProcess = nullptr;
     }
+
+    // execvp-failure signature: juce_SharedCode_posix.h's child branch calls
+    // execvp() then _exit(-1) on failure, which becomes exit code 255 to the
+    // parent -- and nothing was ever written to the pipe, since exec never
+    // handed control to the target program. A real soundfetch failure always
+    // emits a JSON error object on stdout instead, so this pair of conditions
+    // is specific to "the interpreter or module could not be found/run".
+    if (error.isEmpty() && exitCode == 255 && output.isEmpty())
+    {
+        error = "Soundfetch is unavailable: could not run \"" + command.joinIntoString(" ")
+              + "\". Install soundfetch 0.4+ so `<python> -m soundfetch` resolves, then set "
+                "PLUGINFORGE_SOUNDFETCH_PYTHON (or SOUNDFETCH_BIN) to point at it.";
+        juce::Logger::writeToLog("PluginForge: " + error);
+        return {};
+    }
+
     auto parsed = juce::JSON::parse(output);
     if (parsed.isVoid() || parsed.isUndefined())
     {
         if (error.isEmpty()) error = output.isNotEmpty() ? output : "Soundfetch returned no JSON.";
+        juce::Logger::writeToLog("PluginForge: soundfetch produced no parseable JSON (exit "
+                                  + juce::String(exitCode) + "): " + output);
         return {};
     }
     if (exitCode != 0 && error.isEmpty())

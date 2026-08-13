@@ -29,6 +29,7 @@ private:
     SoundfetchClient client;
     std::thread worker;
     std::atomic<bool> closing { false };
+    std::atomic<bool> working { false };
 
     juce::ComboBox provider;
     juce::TextEditor query;

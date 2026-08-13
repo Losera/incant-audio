@@ -88,6 +88,20 @@ void SampleBrowserPanel::filesDropped(const juce::StringArray& files, int, int)
 
 void SampleBrowserPanel::startWork(std::function<void()> work)
 {
+    // Re-entrancy guard, not just a courtesy: query.onReturnKey calls
+    // beginSearch() unconditionally (SampleBrowserPanel.cpp's ctor), bypassing
+    // searchButton's enabled state the way a click on the disabled button
+    // would be. Pressing Enter twice before a search returns would otherwise
+    // reach worker.join() below while the prior worker is still blocked in a
+    // network call that can now legitimately run close to kTimeoutMs (60s,
+    // SoundfetchClient.h) -- freezing this whole editor's message thread for
+    // however long remains. `working` is only ever touched from the message
+    // thread (set here; cleared in finishWork's callAsync, also message-
+    // thread-only), so the check needs no lock.
+    if (working.load())
+        return;
+    working.store(true);
+
     if (worker.joinable()) worker.join();
     searchButton.setEnabled(false);
     downloadButton.setEnabled(false);
@@ -118,6 +132,7 @@ void SampleBrowserPanel::finishWork(std::function<void()> action)
     {
         if (safe == nullptr) return;
         action();
+        safe->working.store(false);
         safe->searchButton.setEnabled(true);
         safe->localButton.setEnabled(true);
     });

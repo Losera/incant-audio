@@ -203,7 +203,7 @@ jobs:
       # with CI green, and running it catches a fixture that will not compile
       # or a grid that never settles (see the "Run UiDesignGallery" step below).
       - name: Build behavioural test harnesses
-        run: cmake --build build-ci --target OfflineRenderTest OfflineSynthRenderTest PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery ParamIdentityTest NoteRingTest NoteRingTsanTest AuditionThreadingTest ValidationGateTest
+        run: cmake --build build-ci --target OfflineRenderTest OfflineSynthRenderTest PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery ParamIdentityTest NoteRingTest NoteRingTsanTest AuditionThreadingTest ValidationGateTest SoundfetchClientTest
 
       # ── PF-036: pin the JIT's target CPU for every harness that JITs ────────
       # GitHub's hosted fleet mixes EPYC 7763 (Zen 3, no AVX-512), Xeon 8573C
@@ -269,9 +269,13 @@ jobs:
       # NoteRingTest joined 2026-08-03. Its TSan twin runs in its own step below,
       # NOT here: this loop preloads the CPU shim, and NoteRingTsanTest neither
       # JITs nor wants a non-instrumented .so preloaded into a TSan binary.
-      - name: Run the pure harnesses (OutputGuard, ParamMap, StatePersistence, ParamIdentity, NoteRing, ValidationGate)
+      # SoundfetchClientTest joined 2026-08-13: SoundfetchClient.cpp had zero
+      # tests despite three fatal, live-confirmed defects. Pure and fast like
+      # its neighbors here -- no display, no network (SOUNDFETCH_BIN points at
+      # a disposable local script, not the real soundfetch CLI).
+      - name: Run the pure harnesses (OutputGuard, ParamMap, StatePersistence, ParamIdentity, NoteRing, ValidationGate, SoundfetchClient)
         run: |
-          for t in OutputGuardTest ParamMapTest StatePersistenceTest ParamIdentityTest NoteRingTest ValidationGateTest; do
+          for t in OutputGuardTest ParamMapTest StatePersistenceTest ParamIdentityTest NoteRingTest ValidationGateTest SoundfetchClientTest; do
             BIN="$(find build-ci -type f -name "$t" | head -n 1)"
             if [ -z "$BIN" ]; then
               echo "$t binary not found" >&2
