@@ -119,8 +119,16 @@ class TestBudgetArithmetic:
             f"generate.py's worst case ({worst_case}s) must stay under the host's "
             f"{HOST_SUBPROCESS_CAP_S}s cap, or the host kills the child before it "
             "can report a reason — that is PF-019.")
-        # Not merely below: comfortably below.
-        assert HOST_SUBPROCESS_CAP_S - worst_case >= 30.0
+        # Not merely below: comfortably below. 2026-08-13: the floor here moved
+        # 30->20 as a DIRECT, deliberate consequence of _DEFAULT_GENERATION_BUDGET_S
+        # 100->140 (see that constant's comment in generate.py) -- raising the
+        # budget to actually honour groq's observed Retry-After hints (37s/25s/
+        # 51s) necessarily spends some of this margin. generate.py's own comment
+        # documents the resulting worst case as ~157s (155s here plus ~2s
+        # interpreter startup this arithmetic doesn't count) against the 180s
+        # host cap, i.e. ~23s -- 20.0 is a floor a little below that measured
+        # number, not a re-loosening of the invariant itself.
+        assert HOST_SUBPROCESS_CAP_S - worst_case >= 20.0
 
     def test_malformed_budget_env_falls_back_to_the_default(self, monkeypatch):
         monkeypatch.setenv("PLUGINFORGE_GENERATION_BUDGET", "not-a-number")
@@ -170,6 +178,28 @@ class TestBackoffRefusal:
             with pytest.raises(providers.BudgetExhausted):
                 providers._post_with_backoff("http://x", {}, {}, budget)
         assert post.call_count == 0
+
+    def test_a_37s_hint_is_honored_with_room_in_the_140s_budget(self):
+        """The concrete number from logs/prompts.jsonl's first throttle event.
+
+        A fresh 140s budget (generate.generation_budget()'s default since
+        this change) has ample room for a 37s wait plus a follow-up request.
+        """
+        budget = generate.generation_budget()
+        assert budget.total == pytest.approx(140.0)
+        assert budget.can_sleep(37.0) is True
+
+    def test_the_same_37s_hint_is_refused_near_the_140s_deadline(self):
+        """Same hint, spent budget — still refused, not slept through.
+
+        Mirrors test_retry_after_longer_than_the_budget_raises_rate_limited's
+        58s/10s-remaining shape at the new 140s total: 30s remaining cannot
+        absorb a 37s sleep plus _MIN_USEFUL_REQUEST_S headroom for the retry
+        that would follow it.
+        """
+        budget = generate.generation_budget()
+        budget.started = time.monotonic() - (budget.total - 30.0)   # 30s left
+        assert budget.can_sleep(37.0) is False
 
     def test_a_healthy_budget_still_retries_normally(self):
         """The refusal must not break ordinary backoff — regression guard."""
@@ -236,6 +266,32 @@ class TestTypedReason:
         """ADR-011 is a *wire* contract — assert it round-trips as JSON."""
         payload = self._run(providers.RateLimited("throttled"))
         assert json.loads(json.dumps(payload))["reason"] == "rate_limited"
+
+    def test_rate_limited_failure_carries_retry_after(self):
+        """2026-08-13: PromptPanel::statusForReason() needs this to say
+
+        "try again in 37s" instead of the generic "wait a moment". Additive
+        per ADR-011 (same treatment `kind`/`family` got) — assert the exact
+        value round-trips through _failure() and JSON serialisation both.
+        """
+        payload = self._run(providers.RateLimited("wait 37s", retry_after=37.0))
+        assert payload["retry_after"] == 37.0
+        assert json.loads(json.dumps(payload))["retry_after"] == 37.0
+
+    def test_retry_after_absent_when_the_provider_did_not_supply_one(self):
+        """_failure()'s additive-key contract: absent, not null, when unset.
+
+        Mirrors the older-generate.py compatibility story PromptPanel.cpp's
+        comment documents for `reason` itself — a missing key must fall back
+        to the generic wording, not a spurious 0s/None value.
+        """
+        payload = self._run(providers.RateLimited("throttled, no Retry-After header"))
+        assert "retry_after" not in payload
+
+    def test_other_reasons_never_carry_retry_after(self):
+        """Regression guard: retry_after is rate_limited-specific, not global."""
+        payload = self._run(providers.BudgetExhausted("budget of 100s exhausted"))
+        assert "retry_after" not in payload
 
 
 # ---------------------------------------------------------------------------

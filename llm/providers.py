@@ -194,6 +194,17 @@ class RateLimited(RuntimeError):
     reason="rate_limited" in the ADR-011 response.
     """
 
+    def __init__(self, message: str, retry_after: float | None = None):
+        super().__init__(message)
+        # The provider's own stated wait, in seconds. None only if a future
+        # raise site forgets to set it -- both current sites do. Threaded
+        # into generate.py's failure dict and from there into
+        # PromptPanel::statusForReason(), so "rate limited" becomes "try
+        # again in 37s" instead of a dead end. Added 2026-08-13 after
+        # logs/prompts.jsonl showed three real generations failing with
+        # exactly this reason and no actionable next step for the user.
+        self.retry_after = retry_after
+
 
 class OutputTruncated(RuntimeError):
     """The model hit its output cap mid-program. Maps to reason="truncated".
@@ -730,7 +741,8 @@ def _call_with_retry(call, budget=None):
                 if budget is not None and not budget.can_sleep(delay):
                     raise RateLimited(
                         f"provider asked us to wait {delay:.0f}s but only "
-                        f"{max(0.0, budget.remaining()):.0f}s of budget remains"
+                        f"{max(0.0, budget.remaining()):.0f}s of budget remains",
+                        retry_after=delay,
                     ) from exc
                 time.sleep(delay)
         raise AssertionError("unreachable")  # pragma: no cover
@@ -774,11 +786,17 @@ def _post_with_backoff(url: str, headers: dict, payload: dict, budget=None) -> d
                 delay = _retry_after_seconds(response, attempt)
                 if budget is not None and not budget.can_sleep(delay):
                     # Distinguish throttling from a stall: the advice differs.
-                    exhausted = RateLimited if response.status_code == 429 else BudgetExhausted
-                    raise exhausted(
+                    # RateLimited takes retry_after too, BudgetExhausted's
+                    # __init__ is the plain RuntimeError one -- can't share
+                    # one call the way `exhausted = ... ; raise exhausted(...)`
+                    # used to.
+                    message = (
                         f"provider asked us to wait {delay:.0f}s but only "
                         f"{max(0.0, budget.remaining()):.0f}s of budget remains "
                         f"— {last_error}")
+                    if response.status_code == 429:
+                        raise RateLimited(message, retry_after=delay)
+                    raise BudgetExhausted(message)
                 time.sleep(delay)
                 continue
         break
