@@ -153,6 +153,11 @@ void ParamGridPanel::refreshParamKnobs(const FaustEngine::ParamList& params)
             // belongs to applyPresentation() below, so that a mode change can
             // restyle in place without touching an attachment.
             auto sl = std::make_unique<juce::Slider>();
+            // The custom LookAndFeel queries hover/drag state while painting.
+            // Component does not repaint on mouse movement unless opted in
+            // (juce_Component.h:627-631), so without this the visual state would
+            // update only when some unrelated event happened to invalidate it.
+            sl->setRepaintsOnMouseActivity(true);
             c.sliderAtt =
                 std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
                     processor.apvts, id, *sl);

@@ -101,13 +101,25 @@ public:
 
     // Persisted-state schema version. Bump when the blob layout changes; setState
     // rejects a blob whose version it does not understand rather than misreading it.
-    // 3 as of 2026-08-11: the blob also carries the resolved generation family
-    // and whether it was explicit, inferred, defaulted, or migrated. Version 2
-    // introduced the slot -> ParamIdentity map and
-    // the id-derivation scheme that produced it. A REAL bump, not an amendment
-    // like <SlotLabels> or `uiStyle` were: those were fields nothing depended on,
-    // whereas a v1 blob genuinely lacks information a v2 restore uses, and the two
-    // take different code paths (see setStateInformation).
+    // Version 2 introduced the slot -> ParamIdentity map and the id-derivation
+    // scheme that produced it. A REAL bump, not an amendment like <SlotLabels> or
+    // `uiStyle` were: those were fields nothing depended on, whereas a v1 blob
+    // genuinely lacks information a v2 restore uses, and the two take different
+    // code paths (see setStateInformation).
+    //
+    // Version 3 is TWO independent additions landing together (feat/ui-design-
+    // system merging main, 2026-08-13), not a single feature: the resolved
+    // generation family + whether it was explicit/inferred/defaulted/migrated
+    // (root attributes `generationFamily`/`familySource`), and the prompt-history
+    // list (a `<PromptHistory>` child element). Neither touches the other's
+    // fields, and both individually predate this merge as "version 3" in their
+    // own branch, which is safe to keep as one combined v3 rather than bumping to
+    // 4: neither shape had reached a real user before they were unified here, so
+    // there is no blob in the wild that is "v3, family-only" or "v3, history-
+    // only" to disambiguate from. A v1/v2 blob lacks BOTH additions; setState's
+    // response to each is independently "restore with the empty/default value",
+    // the same do-nothing fallback the v1-ParamMap case established -- neither
+    // needs the other present to fall back correctly.
     static constexpr int kStateSchemaVersion = 3;
 
     // How a newly loaded patch treats the macro values already in the APVTS.
@@ -151,7 +163,15 @@ public:
     // compile thread, not the message thread. Whoever assigns this must hop to the
     // message thread themselves before touching any UI component, the same way
     // PluginEditor's existing callbacks do via juce::MessageManager::callAsync.
-    std::function<void(const juce::String& error)> onFaustCompileFailure;
+    //
+    // The second parameter (added 2026-08-12, C6) is the source that was
+    // ATTEMPTED, not the source of record -- PF-022 means currentFaustSource
+    // still holds the last SUCCESSFUL compile, so a caller wanting to show or
+    // annotate what actually failed (e.g. CodeEditorPanel::highlightErrorLine)
+    // needs this rather than currentSource(). It is available here for free:
+    // loadFaustCode()'s compile lambda already captures faustCode by value.
+    std::function<void(const juce::String& error, const juce::String& attemptedSource)>
+        onFaustCompileFailure;
 
     // DEPRECATED transitional alias for onFaustCompileFailure. The rename (FLEET
     // req #7) pairs Success/Failure; the old name lived in the editor's call site
@@ -278,6 +298,21 @@ public:
     juce::String currentFamily() const;
     juce::String currentFamilySource() const;
 
+    // ── Prompt history (C6) ──────────────────────────────────────────────────
+    // The processor is the persisted source of truth, same relationship as
+    // uiStyle()/setUiStyle(): PromptPanel computes the de-duplicated,
+    // most-recent-first, cap-enforced list (it already did, session-locally,
+    // before C6) and hands the WHOLE list here on every push, rather than the
+    // processor re-implementing that policy. getStateInformation() serialises
+    // whatever is here; setStateInformation() calls setPromptHistory() so a
+    // freshly-constructed PromptPanel can seed from it the same way it already
+    // seeds refine-availability from currentSource().
+    juce::StringArray promptHistorySnapshot() const;
+    void setPromptHistory(const juce::StringArray& history);
+
+    // Test-only alias, same pattern as currentSourceForTest() above.
+    juce::StringArray promptHistoryForTest() const { return promptHistorySnapshot(); }
+
     // Test-only alias retained so the existing harnesses keep reading the way
     // they were written. Prefer currentSource() in new code.
     juce::String currentSourceForTest() const { return currentSource(); }
@@ -379,6 +414,7 @@ private:
     mutable std::mutex metaMutex;
     juce::String       currentFaustSource;
     juce::String       currentPrompt;
+    juce::StringArray  promptHistory;   // most-recent-first; see setPromptHistory() above
     juce::String       currentGenerationFamily { PF_IS_SYNTH ? "synth" : "effect" };
     juce::String       currentGenerationFamilySource { "legacy_default" };
     // The user's chosen control style, by name (see ParamGridPanel::ControlStyleName).

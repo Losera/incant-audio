@@ -1662,7 +1662,7 @@ void scenario21_allNotesOffReleasesHeldNoteOnDisable()
     snapshot(s.editor, "21_allnotesoff_releases_held_note");
 }
 
-// 22 — QWERTY / computer-keyboard mapping: the STATIC contract only.
+// 22 — QWERTY / computer-keyboard mapping is internally self-consistent.
 //
 // WHY THIS IS SCOPED THE WAY IT IS. juce_MidiKeyboardComponent.cpp's
 // keyStateChanged() (the private override that answers a real OS keypress)
@@ -1679,38 +1679,33 @@ void scenario21_allNotesOffReleasesHeldNoteOnDisable()
 // NOT COVERED: real keypress-to-note firing. Nothing on this machine can
 // synthesize a keypress the compositor and JUCE's KeyPress::isCurrentlyDown()
 // will see as real, so end-to-end QWERTY input is untested here and untested
-// anywhere else in this repo. This scenario only checks that the STATIC
-// mapping KeyboardPanel configures is internally self-consistent -- it does
-// NOT prove that a keypress, on this or any machine, actually produces a
-// note.
+// anywhere else in this repo. This scenario only checks that the mapping
+// KeyboardPanel configures is internally self-consistent -- it does NOT
+// prove that a keypress, on this or any machine, actually produces a note.
 //
-// WHAT IS CHECKED INSTEAD, and why it has to be literal constants rather than
-// a live query: juce::MidiKeyboardComponent keeps the key-press base octave
-// (keyMappingOctave) PRIVATE with no getter (juce_MidiKeyboardComponent.h:263)
-// and KeyboardPanel.h exposes no accessor for its own keyboardComponent (and
-// adding one is out of this brief's scope -- KeyboardPanel.h/.cpp are not to
-// be touched). So this checks the values actually read out of
-// KeyboardPanel.cpp today, against JUCE's own default key-mapping table,
-// rather than introspecting a live object:
-//   * KeyboardPanel.cpp:20  keyboardComponent.setAvailableRange(36, 96);
-//   * KeyboardPanel.cpp:30  keyboardComponent.setKeyPressBaseOctave(4);
-//   * juce_MidiKeyboardComponent.cpp:36,38-39 -- the DEFAULT qwerty map
-//     ("awsedftgyhujkolp;", 17 characters) assigns each key an offset-from-C
-//     of 0..16 via setKeyPressForNote(). setKeyPressForNote's own doc comment
-//     (juce_MidiKeyboardComponent.h:120-127) gives the formula in words --
-//     "this value + (12 * the current base octave)" -- and the actual runtime
-//     arithmetic matches it exactly (juce_MidiKeyboardComponent.cpp:260,
-//     `12 * keyMappingOctave + keyPressNotes.getUnchecked(i)`).
-// If a future edit changes any of those three numbers without updating this
-// scenario, this only fails once a human rereads and rewrites the assertion
-// below -- it is not wired to the source text, because there is no live
-// accessor to wire it to. That is the honest limit of a "static contract"
-// check, which is why every constant's origin is named above rather than
-// left to be taken on faith.
-void scenario22_qwertyMappingStaticContract()
+// REWIRED 2026-08-12 (C5): this used to read three literal constants copied
+// by hand from KeyboardPanel.cpp, because juce::MidiKeyboardComponent keeps
+// keyMappingOctave PRIVATE with no getter and KeyboardPanel exposed no
+// accessor of its own -- adding one was explicitly out of scope for the
+// session that wrote this scenario. C5 added exactly that accessor
+// (KeyboardPanel::currentOctaveForTest(), availableRange{Low,High}ForTest(),
+// reached through the editor's keyboardOctaveForTest()/
+// keyboardAvailableLow/HighForTest() forwarders) to build the octave [<]/[>]
+// controls, and those literals would have gone silently false the moment a
+// user clicked one -- the old comment block said as much: "this only fails
+// once a human rereads and rewrites the assertion". Now it reads the live
+// object instead. What is still NOT introspected: JUCE's own default qwerty
+// map ("awsedftgyhujkolp;", 17 characters, offsets 0..16 via
+// setKeyPressForNote(), juce_MidiKeyboardComponent.cpp:36,38-39) has no
+// accessor at all and remains a cited constant, per
+// juce_MidiKeyboardComponent.h:120-127's documented formula
+// "this value + (12 * the current base octave)".
+void scenario22_qwertyMappingLiveContract()
 {
-    scenario("22. QWERTY mapping is internally self-consistent (STATIC CONTRACT ONLY)",
-             "no synthetic-input tool exists on this machine -- see NOT COVERED above");
+    scenario("22. QWERTY mapping is internally self-consistent",
+             "reads the live KeyboardPanel object (C5) -- runtime octave "
+             "controls would otherwise make copied literals silently false "
+             "instead of failing");
 
     // Session still constructed: this at least proves KeyboardPanel builds
     // and lays out under these exact settings, the same construction path a
@@ -1718,11 +1713,11 @@ void scenario22_qwertyMappingStaticContract()
     Session s;
     check(s.editor.getHeight() > 0, "the editor (and its KeyboardPanel) constructed");
 
-    // ── The mapping arithmetic, from the constants cited above ─────────────
-    const int availableLow   = 36;
-    const int availableHigh  = 96;
-    const int baseOctave     = 4;
-    const int qwertyKeyCount = 17;                    // "awsedftgyhujkolp;"
+    // ── The mapping arithmetic: two literals read live, one still cited ────
+    const int availableLow   = s.editor.keyboardAvailableLowForTest();
+    const int availableHigh  = s.editor.keyboardAvailableHighForTest();
+    const int baseOctave     = s.editor.keyboardOctaveForTest();
+    const int qwertyKeyCount = 17;                    // "awsedftgyhujkolp;" -- JUCE's fixed default table, not KeyboardPanel state
     const int lowestOffset   = 0;
     const int highestOffset  = qwertyKeyCount - 1;     // 16
 
@@ -1735,7 +1730,8 @@ void scenario22_qwertyMappingStaticContract()
           juce::String("every QWERTY-mapped note (") + juce::String(mappedLow) + ".."
               + juce::String(mappedHigh) + ") falls inside the visible range ("
               + juce::String(availableLow) + ".." + juce::String(availableHigh)
-              + ") -- setKeyPressBaseOctave(4) lines up with setAvailableRange(36, 96)");
+              + ") -- setKeyPressBaseOctave() lines up with setAvailableRange(), "
+                "read live so it cannot silently drift");
 
     // ── The other half: nothing on the construction path locks NoteRing's
     //    forbidden call ─────────────────────────────────────────────────────
@@ -2068,6 +2064,312 @@ process = _ * z, _ * z;
     snapshot(s.editor, "26_prior_source_refused");
 }
 
+// setCockpitStatePath() (PluginEditor.h) previously had no caller anywhere in
+// the repo: cockpitEnabled defaulted false and stayed false forever, so
+// dev-cockpit/server.py's /api/state could only ever 503. Armed 2026-08-12 via
+// a PLUGINFORGE_COCKPIT_STATE env var read in the constructor. Confirms both
+// halves: default OFF when the var is unset (unchanged shipping behaviour),
+// and armed + actually writing valid JSON when it is set.
+void scenario27_cockpitMirrorEnvVar(const juce::File& tmp)
+{
+    scenario("27. Dev-cockpit mirror: env-var opt-in, default off",
+             "setCockpitStatePath() had zero callers before this session -- "
+             "/api/state could only ever 503. The mirror must stay off by "
+             "default and actually write when opted in.");
+
+    // Default: no env var set (the ambient test process should not have it).
+    {
+        Session s;
+        check(! s.editor.cockpitEnabledForTest(),
+              "default OFF -- PLUGINFORGE_COCKPIT_STATE unset, no write ever "
+              "armed, matching the shipping plugin's default behaviour");
+        check(s.editor.cockpitStatePathForTest().isEmpty(),
+              "no path recorded when never armed");
+    }
+
+    // Opt in: set the env var BEFORE constructing the editor -- it is read once,
+    // in the constructor, same as PLUGINFORGE_PYTHON in PromptPanel.cpp.
+    const auto statePath = tmp.getChildFile("cockpit_state.json");
+    statePath.deleteFile();
+#if JUCE_WINDOWS
+    _putenv_s("PLUGINFORGE_COCKPIT_STATE", statePath.getFullPathName().toRawUTF8());
+#else
+    setenv("PLUGINFORGE_COCKPIT_STATE", statePath.getFullPathName().toRawUTF8(), 1);
+#endif
+
+    {
+        Session s;
+        check(s.editor.cockpitEnabledForTest(), "armed when the env var is set");
+        check(s.editor.cockpitStatePathForTest() == statePath.getFullPathName(),
+              "the recorded path is exactly the env var's value");
+
+        // writeCockpitState() fires every 3rd tick (~10Hz at the 30Hz meter
+        // timer) -- three direct calls is deterministic, no wall-clock wait.
+        s.editor.pumpMeterTickForTest();
+        s.editor.pumpMeterTickForTest();
+        s.editor.pumpMeterTickForTest();
+
+        check(statePath.existsAsFile(), "the state file was actually written, "
+              "not just armed -- the earlier bug was silent: nothing called "
+              "setCockpitStatePath, and nothing would have failed loudly either");
+
+        auto parsed = juce::JSON::parse(statePath.loadFileAsString());
+        check(parsed.isObject(), "the written file is valid JSON");
+        check(parsed.getProperty("windowWidth", juce::var()).isInt(),
+              "and has the shape writeCockpitState() actually produces, not "
+              "just non-empty bytes");
+    }
+
+#if JUCE_WINDOWS
+    _putenv_s("PLUGINFORGE_COCKPIT_STATE", "");
+#else
+    unsetenv("PLUGINFORGE_COCKPIT_STATE");
+#endif
+    statePath.deleteFile();
+}
+
+// Broken #1 (STATUS.md): PluginForgeEditor had no keyStateChanged() override
+// at all before this session. KeyboardPanel's on-screen keyboard is a SIBLING
+// of the prompt box and every toolbar button, not their ancestor, and JUCE's
+// own key-state dispatch walks UP the parent chain from whatever currently
+// holds keyboard focus (juce::ComponentPeer::handleKeyUpOrDown,
+// juce_ComponentPeer.cpp:224-243) -- so a QWERTY key only ever reached the
+// piano's own keyStateChanged() (the method that actually turns a held key
+// into a note, juce_MidiKeyboardComponent.cpp:254-283) if the piano itself
+// already held keyboard focus, which only happened if the user clicked it
+// first. This scenario is a direct unit test of the new override: it proves
+// the SHELL now asks the keyboard on every key transition, not that JUCE's
+// own dispatch mechanics work (that is JUCE's contract, cited above by
+// file:line, not ours to re-test) and not that a real physical keypress
+// reaches this call -- see the WHAT THIS DOES NOT PROVE note below.
+void scenario28_qwertyRoutingReachesKeyboard()
+{
+    scenario("28. Computer keyboard reaches the keyboard panel regardless of focus",
+             "the piano is a sibling of the prompt box, not an ancestor -- "
+             "PluginForgeEditor had no keyStateChanged() override at all, so "
+             "JUCE's dispatch never reached the piano unless it was clicked "
+             "first (Broken #1)");
+
+    Session s;
+
+    check(s.editor.keyboardRouteCallCountForTest() == 0,
+          "nothing has routed yet");
+
+    // Direct unit test of the override, not a simulation of JUCE's dispatch
+    // walk (see the class-level comment above for why that walk is JUCE's
+    // contract, not ours to re-verify): calling the public override exercises
+    // exactly the same body a real dispatch would invoke once it reaches this
+    // component, which -- per getTargetForKeyPress() falling back to the
+    // top-level component when nothing has explicit focus
+    // (juce_ComponentPeer.cpp:164-175) -- is precisely what happens on a
+    // fresh window before the user has clicked anything at all.
+    s.editor.keyStateChanged(true);
+    check(s.editor.keyboardRouteCallCountForTest() == 1,
+          "the down-transition is routed to the keyboard panel");
+    s.editor.keyStateChanged(false);
+    check(s.editor.keyboardRouteCallCountForTest() == 2,
+          "the up-transition is routed too -- KeyboardPanel needs both to "
+          "track held notes, not just the down edge");
+
+    // WHAT THIS DOES NOT PROVE. Whether a REAL physical keypress reaches this
+    // call. juce::KeyPress::isCurrentlyDown() (juce_KeyPress.cpp:59-64) reads
+    // actual OS/compositor key state, unfakeable from process code -- no
+    // synthetic-input tool exists on this machine (wtype/ydotool/xdotool all
+    // absent). That hop is exactly as unverified after this commit as before
+    // it; only the shell's OWN routing decision, upstream of that hop, is new
+    // and tested here. See STATUS.md's Broken #1 entry for the precise
+    // boundary.
+
+    snapshot(s.editor, "28_qwerty_routing");
+}
+
+// 29 — Octave [<]/[>] controls shift the QWERTY base octave and the piano's
+// visible range together, clamped to the 0-8 octave range
+// docs/sessions/010-alpha-ui-architecture.md §4 specifies ("shifts the
+// MidiKeyboardComponent range and setKeyPressBaseOctave() by +-1. Range
+// clamped 0-8"). Drives KeyboardPanel::shiftOctave() through the editor's
+// forwarder -- the SAME method the [<]/[>] buttons' onClick calls
+// (KeyboardPanel.h), not a parallel test-only path.
+void scenario29_octaveControlsShiftRangeTogether()
+{
+    scenario("29. Octave controls shift QWERTY base and visible range together, clamped 0-8",
+             "KeyboardPanel::shiftOctave(), driven the same way the [<]/[>] "
+             "buttons' onClick drives it");
+
+    Session s;
+
+    check(s.editor.keyboardOctaveForTest() == 4, "starts at the construction default, octave 4");
+    check(s.editor.keyboardAvailableLowForTest() == 36 && s.editor.keyboardAvailableHighForTest() == 96,
+          "starts at the construction default range, 36..96");
+
+    s.editor.shiftKeyboardOctaveForTest(1);
+    check(s.editor.keyboardOctaveForTest() == 5, "shiftOctave(+1) advances to octave 5");
+    check(s.editor.keyboardAvailableLowForTest() == 48 && s.editor.keyboardAvailableHighForTest() == 108,
+          "the visible range shifts by the same +12 semitones, staying in lockstep");
+
+    // Drive to the top clamp (5 more ups: octave 5 -> 10, clamped to 8).
+    for (int i = 0; i < 5; ++i)
+        s.editor.shiftKeyboardOctaveForTest(1);
+    check(s.editor.keyboardOctaveForTest() == 8, "clamps at octave 8, per session 010 section 4's spec");
+    check(s.editor.keyboardAvailableLowForTest() == 84 && s.editor.keyboardAvailableHighForTest() == 127,
+          "range clamps to MIDI's own ceiling (144 would be invalid) instead of overshooting");
+    s.editor.shiftKeyboardOctaveForTest(1);
+    check(s.editor.keyboardOctaveForTest() == 8, "one more up-shift past the clamp is a no-op, not an assert");
+
+    // Drive to the bottom clamp (8 downs from octave 8 lands on 0).
+    for (int i = 0; i < 8; ++i)
+        s.editor.shiftKeyboardOctaveForTest(-1);
+    check(s.editor.keyboardOctaveForTest() == 0, "clamps at octave 0");
+    check(s.editor.keyboardAvailableLowForTest() == 0 && s.editor.keyboardAvailableHighForTest() == 48,
+          "range clamps to MIDI's own floor (-12 would be invalid) instead of undershooting");
+    s.editor.shiftKeyboardOctaveForTest(-1);
+    check(s.editor.keyboardOctaveForTest() == 0, "one more down-shift past the clamp is a no-op, not an assert");
+
+    snapshot(s.editor, "29_octave_controls");
+}
+
+// 30 — Faust compiler stderr reaches the error region untruncated, and the
+// offending line is highlighted in the read-only code view (C6).
+void scenario30_faustStderrWireAndLineHighlight()
+{
+    scenario("30. Faust stderr reaches the error region untruncated, offending line highlighted",
+             "onFaustCompileFailure used to truncate into the 200-char status "
+             "line only; PromptPanel.h's setError() was public and unused by "
+             "the shell until this session");
+
+    Session s;
+
+    // Same fixture scenario 5 uses -- "process = this is not faust;" is line
+    // 2 (line 1 is the import). Faust's exact error spacing/wording varies by
+    // installed version (see parseFaustErrorLine()'s comment in
+    // PluginEditor.cpp), so the checks below anchor on what is stable across
+    // versions -- "dsp" + a line number, and the literal "ERROR" marker --
+    // not the exact punctuation or message text this machine happens to emit.
+    s.processor.loadFaustCode("import(\"stdfaust.lib\");\nprocess = this is not faust;",
+                              "a broken patch");
+    const bool surfaced = pumpUntil([&] {
+        return s.editor.errorTextForTest().isNotEmpty();
+    });
+    check(surfaced, "the compile failure reaches the error region");
+
+    // Faust's real message here happens to be short (~47 chars, well under
+    // the 200-char status cap), so length alone cannot distinguish "the wire
+    // exists" from "nothing got truncated because nothing was long enough
+    // to". Assert the actual relationship instead: the status line is
+    // EXACTLY a 200-char-capped prefix of what the error region holds, which
+    // only holds regardless of message length if setError() is receiving the
+    // same untruncated string setStatus()'s truncation is derived from.
+    const auto errorText = s.editor.errorTextForTest();
+    check(s.editor.statusTextForTest()
+              == "Faust compile error: " + errorText.substring(0, 200),
+          "the status line is exactly the 200-char-capped prefix of the full error text");
+    // "ERROR" rather than the fuller "unexpected IDENT" wording: CI's
+    // installed Faust produces a differently-spaced, shorter message for this
+    // same syntax error ("dsp : 2 : ERROR : syntax error" vs this machine's
+    // "dsp:2 : ERROR : syntax error, unexpected IDENT") -- discovered when
+    // this exact assertion failed in PR #4's build-host run despite passing
+    // locally. "ERROR" is Faust's own literal diagnostic marker in both.
+    check(errorText.contains("ERROR"),
+          "the error region carries the real Faust diagnostic, not a generic "
+          "or empty string");
+    check(s.editor.codeTextForTest().contains("this is not faust"),
+          "the code view now shows the ATTEMPTED source -- PF-022 never gave "
+          "this patch a source of record to fall back to");
+    check(s.editor.codeHighlightedLineForTest() == 2,
+          "the offending line (2, the process line) is highlighted");
+
+    snapshot(s.editor, "30_faust_stderr_wire_and_highlight");
+}
+
+// 31 — Up-arrow cycles through prompt history, walking to progressively
+// older entries and stopping at the oldest rather than wrapping (C6).
+void scenario31_promptHistoryCycles(const juce::File& tmp)
+{
+    scenario("31. Up-arrow cycles through prompt history, oldest-clamped",
+             "PromptPanel::onRecallHistory used to always return "
+             "promptHistory[0] -- needed a walking index");
+
+    // A 30s-sleeping fake, same pattern as scenario 9: this test only cares
+    // about pushHistory()'s SYNCHRONOUS effect (it runs before the worker
+    // thread is even started), never about the subprocess completing, so
+    // teardown mid-flight (already proven safe by scenario 9) is fine here.
+    FakeGenerator::install(
+        FakeGenerator::writeSuccess(tmp, "gen31.sh", FakeGenerator::trivialPatch(), 30));
+
+    Session s;
+
+    s.editor.submitPromptForTest("first prompt");
+    s.editor.submitPromptForTest("second prompt");
+    s.editor.submitPromptForTest("third prompt");
+    check(s.editor.promptHistoryCountForTest() == 3, "three prompts retained");
+
+    // A REAL edit (sendNotification, like actual typing) resets the walking
+    // index -- so the very first recall below demonstrably WRITES "third
+    // prompt" rather than the box merely still holding it from the last submit.
+    // TextEditor::textChanged() POSTS onTextChange as a command message
+    // (juce_TextEditor.cpp:1299-1300) rather than firing it synchronously --
+    // pump so it has actually landed before the recall that depends on it.
+    s.editor.setPromptTextForTest("something the user is typing right now");
+    pump(50);
+
+    s.editor.recallPromptHistoryForTest();
+    check(s.editor.promptTextForTest() == "third prompt", "first Up recalls the newest entry");
+
+    s.editor.recallPromptHistoryForTest();
+    check(s.editor.promptTextForTest() == "second prompt", "second Up walks one entry older");
+
+    s.editor.recallPromptHistoryForTest();
+    check(s.editor.promptTextForTest() == "first prompt", "third Up reaches the oldest entry");
+
+    s.editor.recallPromptHistoryForTest();
+    check(s.editor.promptTextForTest() == "first prompt",
+          "a fourth Up stays at the oldest entry rather than wrapping");
+
+    // A real edit between recalls resets the walk back to the newest entry,
+    // not wherever it had reached.
+    s.editor.setPromptTextForTest("editing again");
+    pump(50);
+    s.editor.recallPromptHistoryForTest();
+    check(s.editor.promptTextForTest() == "third prompt",
+          "an edit between recalls resets the walk to the newest entry");
+
+    snapshot(s.editor, "31_prompt_history_cycles");
+}
+
+// 32 — Ctrl+Shift+C toggles the read-only code view (C6), a one-shot chord
+// distinct from C4's continuous held-state routing.
+void scenario32_ctrlShiftCTogglesCodeView()
+{
+    scenario("32. Ctrl+Shift+C toggles the code view",
+             "PluginForgeEditor::keyPressed(), a DIFFERENT JUCE virtual from "
+             "C4's keyStateChanged() -- a one-shot chord, not continuous "
+             "held-state polling");
+
+    Session s;
+    check(! s.editor.codeVisibleForTest(), "starts hidden, same default as scenario 11");
+
+    const juce::KeyPress chord('c',
+        juce::ModifierKeys::ctrlModifier | juce::ModifierKeys::shiftModifier, 0);
+
+    check(s.editor.keyPressed(chord), "the chord is consumed (returns true)");
+    check(s.editor.codeVisibleForTest(), "first press shows the code view");
+
+    check(s.editor.keyPressed(chord), "the chord is consumed again");
+    check(! s.editor.codeVisibleForTest(), "second press hides it again");
+
+    // A close cousin that must NOT trigger it: plain Ctrl+C (copy).
+    // TextEditorKeyMapper matches 'c' against an EXACT modifier set
+    // (juce_TextEditorKeyMapper.h:90) -- commandModifier alone, never
+    // commandModifier|shiftModifier -- so this is a genuinely different
+    // KeyPress, not a subset match.
+    const juce::KeyPress plainCtrlC('c', juce::ModifierKeys::ctrlModifier, 0);
+    check(! s.editor.keyPressed(plainCtrlC),
+          "plain Ctrl+C is not consumed by this override -- it is not the toggle chord");
+    check(! s.editor.codeVisibleForTest(), "...and does not toggle the code view");
+
+    snapshot(s.editor, "32_ctrl_shift_c_toggle");
+}
+
 } // namespace
 
 int main()
@@ -2075,7 +2377,7 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInit;
 
     std::printf("EditorSessionTest -- a simulated human session against the real editor\n");
-    std::printf("  26 scenarios, no network, no quota, snapshots to artifacts/images/\n");
+    std::printf("  32 scenarios, no network, no quota, snapshots to artifacts/images/\n");
 
     auto tmp = juce::File::getSpecialLocation(juce::File::tempDirectory)
                    .getChildFile("pluginforge_editor_session");
@@ -2103,11 +2405,17 @@ int main()
     scenario19_keyboardSurvivesCompileSwap();
     scenario20_keyboardDisabledForEffect();
     scenario21_allNotesOffReleasesHeldNoteOnDisable();
-    scenario22_qwertyMappingStaticContract();
+    scenario22_qwertyMappingLiveContract();
     scenario23_kindSelectorReachesRequest(tmp);
     scenario24_priorSourceDroppedSurfaced(tmp);
     scenario25_refineModesUnlock(tmp);
     scenario26_priorSourceRefused(tmp);
+    scenario27_cockpitMirrorEnvVar(tmp);
+    scenario28_qwertyRoutingReachesKeyboard();
+    scenario29_octaveControlsShiftRangeTogether();
+    scenario30_faustStderrWireAndLineHighlight();
+    scenario31_promptHistoryCycles(tmp);
+    scenario32_ctrlShiftCTogglesCodeView();
 
     tmp.deleteRecursively();
 

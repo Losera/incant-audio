@@ -1,6 +1,48 @@
 #include "PluginEditor.h"
 #include "Theme.h"
 
+namespace
+{
+// Faust's own diagnostic format, confirmed against a live compile error
+// (FaustEngine.cpp:799 passes the literal filename "dsp" to
+// createDSPFactoryFromString): "dsp<optional space>:<optional space><line>"
+// appears once, near the start of the message. The spacing is NOT fixed
+// across Faust versions -- this machine's Faust 2.85.9 emits "dsp:2 : ERROR
+// : syntax error, unexpected IDENT" (no space before the first colon), while
+// CI's installed Faust emits "dsp : 2 : ERROR : syntax error" (a space
+// before it), discovered when this exact parse silently returned 0 in CI
+// (PR #4's build-host run) despite passing locally -- so both spacings are
+// tolerated rather than the one this machine happens to produce. Not every
+// failure carries a line at all -- e.g. "the Faust program has no output"
+// (FaustEngine.cpp:393) -- so this returns 0 (no line) rather than guessing,
+// and CodeEditorPanel::highlightErrorLine() treats <= 0 as a no-op.
+int parseFaustErrorLine(const juce::String& error)
+{
+    int i = error.indexOf("dsp");
+    if (i < 0)
+        return 0;
+    i += 3;
+
+    while (i < error.length() && error[i] == ' ')
+        ++i;
+    if (i >= error.length() || error[i] != ':')
+        return 0;
+    ++i;
+    while (i < error.length() && error[i] == ' ')
+        ++i;
+
+    int line = 0;
+    bool sawDigit = false;
+    while (i < error.length() && juce::CharacterFunctions::isDigit(error[i]))
+    {
+        line = line * 10 + (error[i] - '0');
+        sawDigit = true;
+        ++i;
+    }
+    return sawDigit ? line : 0;
+}
+}
+
 PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
     : AudioProcessorEditor(&p), processor(p),
       promptPanel(p), codeEditorPanel(p), paramGridPanel(p), keyboardPanel(p),
@@ -23,10 +65,10 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
 
     // Resizable: prompt band and grid both flex, and the code band appears/disappears
     // under the split. Minimum width keeps both columns wide enough to be usable
-    // (~380px each after margins + divider); minimum height keeps the fixed right
-    // column visible.
+    // at the 65/35 split (432 grid + 232 prompt at kMinWindowW, after margins +
+    // divider); minimum height keeps the fixed right column visible.
     setResizable(true, true);
-    setResizeLimits(800, kMinWindowH, 1600, 1200);
+    setResizeLimits(kMinWindowW, kMinWindowH, 1600, 1200);
 
     addAndMakeVisible(promptPanel);
     addAndMakeVisible(paramGridPanel);
@@ -70,6 +112,16 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
 
     startTimerHz(30);   // level-meter repaint tick (see timerCallback)
 
+    // Dev-cockpit mirror (session 010 §7), armed 2026-08-12. OFF by default --
+    // setCockpitStatePath() previously had no caller anywhere in the repo, so
+    // cockpitEnabled was always false and dev-cockpit/server.py's /api/state
+    // could only ever 503. Opt in with PLUGINFORGE_COCKPIT_STATE set to the path
+    // server.py reads (its STATE_FILE, hardcoded to /tmp/pluginforge_state.json)
+    // to enable the read-only mirror the /cockpit skill expects.
+    auto cockpitPath = juce::SystemStats::getEnvironmentVariable("PLUGINFORGE_COCKPIT_STATE", {});
+    if (cockpitPath.isNotEmpty())
+        setCockpitStatePath(cockpitPath);
+
     // ── Route the processor's compile callbacks to the child panels ──────────
     // Both fire on FaustEngine's compile thread (see PluginProcessor.h), so each
     // hops to the message thread via SafePointer + callAsync before touching any
@@ -82,13 +134,28 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
     // handled inside PromptPanel) in the status line. Uses the canonical
     // onFaustCompileFailure name; the deprecated onFaustCompileError alias in
     // PluginProcessor.h is now assigned by nothing and can be removed.
-    processor.onFaustCompileFailure = [safeThis](const juce::String& error)
+    processor.onFaustCompileFailure = [safeThis](const juce::String& error,
+                                                  const juce::String& attemptedSource)
     {
-        juce::MessageManager::callAsync([safeThis, error]
+        juce::MessageManager::callAsync([safeThis, error, attemptedSource]
         {
             if (safeThis == nullptr) return;
             safeThis->promptPanel.setStatus(
                 "Faust compile error: " + error.substring(0, 200));
+            // Full, untruncated stderr (C6) -- PromptPanel.h's setError() has
+            // documented "the shell can route Faust-compiler stderr here
+            // instead of truncating into the status label" since before this
+            // call existed; this is what actually wires it.
+            safeThis->promptPanel.setError(error);
+            // Show what was actually ATTEMPTED, not the source of record --
+            // PF-022 means currentSource() still holds the last SUCCESSFUL
+            // compile, so without this the code view would keep showing old,
+            // unrelated code while highlightErrorLine() pointed at an
+            // arbitrary line inside it. attemptedSource is the same string
+            // FaustEngine just failed to compile, threaded through
+            // onFaustCompileFailure's second parameter for exactly this.
+            safeThis->codeEditorPanel.showSource(attemptedSource);
+            safeThis->codeEditorPanel.highlightErrorLine(parseFaustErrorLine(error));
         });
     };
 
@@ -363,22 +430,58 @@ void PluginForgeEditor::writeCockpitState()
     juce::File(cockpitStatePath).replaceWithText(json, false, false, "\n");
 }
 
+bool PluginForgeEditor::keyStateChanged(bool isKeyDown)
+{
+    return keyboardPanel.routeKeyStateChanged(isKeyDown);
+}
+
+bool PluginForgeEditor::keyPressed(const juce::KeyPress& key)
+{
+    // Ctrl+Shift+C toggles the read-only code view (C6). A one-shot
+    // press/release chord -- juce::Component::keyPressed, a DIFFERENT virtual
+    // from keyStateChanged above (continuous held-state polling, what C4's
+    // seam answers). They serve different purposes and are deliberately not
+    // unified into one override.
+    //
+    // Fires even while the prompt box holds focus. Verified against primary
+    // source, not assumed: juce::TextEditor overrides keyPressed too
+    // (juce_TextEditor.cpp:2141), but for Ctrl+Shift+C it consumes nothing --
+    // TextEditorKeyMapper::invokeKeyFunction (juce_TextEditorKeyMapper.h:38-
+    // 107) only matches 'c' against ModifierKeys::commandModifier (plain
+    // Ctrl+C, for copy) via KeyPress's exact-modifier-set equality, never
+    // commandModifier|shiftModifier; and TextEditor::keyPressed's own
+    // fallback only inserts a character when getTextCharacter() is printable
+    // (juce_TextEditor.cpp:2170), which a Ctrl-held key is not. So
+    // TextEditor::keyPressed returns false for this chord, and JUCE's own
+    // dispatch walk -- ComponentPeer::handleKeyPress climbing
+    // getParentComponent() on a false return, juce_ComponentPeer.cpp:185-189,
+    // the same walk C4's comment cites for keyStateChanged -- reaches this
+    // override without this editor needing to compete with typing.
+    if (key == juce::KeyPress('c', juce::ModifierKeys::ctrlModifier | juce::ModifierKeys::shiftModifier, 0))
+    {
+        setCodeViewVisible(! codeEditorPanel.isVisible());
+        return true;
+    }
+    return false;
+}
+
 void PluginForgeEditor::paint(juce::Graphics& g)
 {
-    g.fillAll(Theme::base);
+    g.fillAll(Theme::background);
     g.setColour(juce::Colours::white);
     g.setFont(Theme::Type::title());
     // Title lives in the top-margin+title band so it reads as a shell header, not
-    // as part of either column. chrome.titleH matches the reservation in resized().
-    g.drawText("PluginForge",
-               getLocalBounds().removeFromTop(chrome.margin + chrome.titleH),
-               juce::Justification::centred);
+    // as part of either column. Left-aligned (was centred) since 2026-08-12: the
+    // disclosure row now shares this band on the right (titleTextBounds, set in
+    // resized()), and centring the text would risk it drifting under those
+    // controls as the window resizes.
+    g.drawText("PluginForge", titleTextBounds, juce::Justification::centredLeft);
 
     // Divider between the left (grid) and right (prompt) columns. Drawn as a thin
     // line down the middle of the dividerW gap. Set in resized().
     if (dividerX > 0)
     {
-        g.setColour(Theme::crust);
+        g.setColour(Theme::surfaceSunken);
         g.fillRect(juce::Rectangle<int>(dividerX, chrome.margin + chrome.titleH,
                                         1, getHeight() - (chrome.margin + chrome.titleH)
                                               - chrome.margin - chrome.gapKeyboard
@@ -387,7 +490,7 @@ void PluginForgeEditor::paint(juce::Graphics& g)
 
     // ── Output level meter (post-DSP peak) ──────────────────────────────────
     auto track = meterBounds.toFloat();
-    g.setColour(Theme::crust);
+    g.setColour(Theme::surfaceSunken);
     g.fillRoundedRectangle(track, 3.0f);
 
     // Map linear peak → meter fraction with a gentle curve so quiet material
@@ -397,7 +500,7 @@ void PluginForgeEditor::paint(juce::Graphics& g)
     {
         auto fill = track.withWidth(track.getWidth() * frac);
         g.setGradientFill(juce::ColourGradient(
-            Theme::meterCool, track.getX(), 0.0f,
+            Theme::accent, track.getX(), 0.0f,
             Theme::meterHot, track.getRight(), 0.0f,
             false));
         g.fillRoundedRectangle(fill, 3.0f);
@@ -406,10 +509,13 @@ void PluginForgeEditor::paint(juce::Graphics& g)
 
 void PluginForgeEditor::resized()
 {
-    // Two-panel authoring screen. The window is a full-width title bar, a split
-    // region (left preview/grid column | right prompt column), an optional full-
-    // width code band, and a full-width keyboard band at the bottom. Every band
-    // comes from `chrome`; updateWindowSizeForParams() sums the same numbers via
+    // Two-panel authoring screen. The window is a full-width title bar (title
+    // text left, disclosure row right — moved here 2026-08-12, see Chrome::
+    // promptH's comment), a split region (left preview/grid column | right
+    // prompt column), an optional full-width code band, a full-width sample-
+    // browser band, and a full-width keyboard band at the bottom. Every band
+    // comes from `chrome`;
+    // updateWindowSizeForParams() sums the same numbers via
     // rightColumnHeight()/verticalChrome(), so window arithmetic cannot drift from
     // what is carved here. Do not reintroduce a literal.
     //
@@ -417,17 +523,26 @@ void PluginForgeEditor::resized()
     // one fires, update the height baselines in the same commit as the band change
     // — do not relax it. (Lives here, not at class scope: `Chrome{}` needs default
     // member initializers the enclosing class has not finished declaring yet.)
-    static_assert(rightColumnHeight(Chrome{}) == 276,
-                  "Right column: promptH(220) + gapMeter(8) + meterH(14) "
-                  "+ gapRow(10) + rowH(24) = 276.");
-    static_assert(verticalChrome(Chrome{}) == 208,
-                  "Vertical chrome: margin(16) + titleH(32) + gapKeyboard(8) "
-                  "+ samplesH(64) + gapSamples(8) + keyboardH(64) + margin(16) = 208.");
+    static_assert(rightColumnHeight(Chrome{}) == 242,
+                  "Right column: promptH(220) + gapMeter(8) + meterH(14) = 242.");
+    static_assert(verticalChrome(Chrome{}) == 216,
+                  "Vertical chrome: margin(16) + titleH(32) + gapSamples(8) "
+                  "+ samplesH(64) + gapKeyboard(8) + keyboardH(72) + margin(16) = 216.");
 
     const auto& c = chrome;
 
     auto area = getLocalBounds().reduced(c.margin);
-    area.removeFromTop(c.titleH);                 // full-width title spacer
+    auto titleArea = area.removeFromTop(c.titleH);
+
+    // Disclosure row: claims the right side of the title band, same left-to-
+    // right order and widths it had as its own row before the 65/35 split left
+    // the right column too narrow for it (see Chrome::promptH's comment).
+    // Whatever remains on the left is the title text's bounds, read by paint().
+    codeToggle.setBounds(titleArea.removeFromRight(110));
+    titleArea.removeFromRight(6);
+    styleToggle.setBounds(titleArea.removeFromRight(120));
+    titleArea.removeFromRight(6);
+    titleTextBounds = titleArea;
 
     // Keyboard: full-width band at the bottom, ALWAYS laid out (see the
     // addAndMakeVisible comment in the constructor) so an effect patch's dimmed
@@ -463,17 +578,10 @@ void PluginForgeEditor::resized()
     // inside the panel; no dedicated header band is carved here.
     paramGridPanel.setBounds(leftCol);
 
-    // Right column, top to bottom: prompt → meter → disclosure row. Any vertical
-    // slack (the column is taller than rightColumnHeight when the left grid is
-    // tall) falls between the disclosure row and the bottom edge.
+    // Right column, top to bottom: prompt → meter. Any vertical slack (the
+    // column is taller than rightColumnHeight when the left grid is tall) falls
+    // below the meter.
     promptPanel.setBounds(rightCol.removeFromTop(c.promptH));
     rightCol.removeFromTop(c.gapMeter);
     meterBounds = rightCol.removeFromTop(c.meterH);
-    rightCol.removeFromTop(c.gapRow);
-
-    auto row = rightCol.removeFromTop(c.rowH);
-    codeToggle.setBounds(row.removeFromRight(110));
-    row.removeFromRight(6);
-    styleToggle.setBounds(row.removeFromRight(120));
-    row.removeFromRight(6);
 }

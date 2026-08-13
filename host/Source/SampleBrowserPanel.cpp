@@ -40,15 +40,24 @@ SampleBrowserPanel::~SampleBrowserPanel()
 
 void SampleBrowserPanel::resized()
 {
+    // Row heights tightened 26->20 and a gap added before status (2026-08-13):
+    // the original 26+5+26 left only 7px of PluginEditor.h's 64px samplesH
+    // band for status -- juce::Label doesn't clip its own bounds, so "Drop an
+    // audio file here, or search with Soundfetch." rendered overflowing down
+    // into the keyboard band below it, found via EditorSessionTest's own
+    // rendered snapshots (session_23_kind_selector_reaches_request.png) during
+    // the 2026-08-13 merge with feat/ui-design-system. 20+2+20+2+20 = 64
+    // exactly fits the existing band -- no Chrome/samplesH change needed --
+    // and 20px matches PromptPanel's own statusH for a single status line.
     auto area = getLocalBounds();
-    auto top = area.removeFromTop(26);
+    auto top = area.removeFromTop(20);
     provider.setBounds(top.removeFromLeft(135));
     top.removeFromLeft(6);
     searchButton.setBounds(top.removeFromRight(72));
     top.removeFromRight(6);
     query.setBounds(top);
-    area.removeFromTop(5);
-    auto middle = area.removeFromTop(26);
+    area.removeFromTop(2);
+    auto middle = area.removeFromTop(20);
     playbackMode.setBounds(middle.removeFromRight(90));
     middle.removeFromRight(6);
     localButton.setBounds(middle.removeFromRight(100));
@@ -56,6 +65,7 @@ void SampleBrowserPanel::resized()
     downloadButton.setBounds(middle.removeFromRight(145));
     middle.removeFromRight(6);
     results.setBounds(middle);
+    area.removeFromTop(2);
     status.setBounds(area);
 }
 

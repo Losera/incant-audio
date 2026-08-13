@@ -19,9 +19,12 @@ bool PromptTextEditor::keyPressed(const juce::KeyPress& key)
         return true;   // consumed — do NOT also insert a newline
     }
 
-    // Up-arrow on an empty box recalls the most recent prompt (upKey :198). When
-    // the box has text, Up is normal caret movement, so only intercept when empty.
-    if (key.getKeyCode() == juce::KeyPress::upKey && getText().isEmpty() && onRecallHistory)
+    // Up-arrow recalls/cycles through history (upKey :198, C6): intercepted when
+    // the box is empty (first recall) OR it is still showing an unmodified
+    // recalled entry (browsingHistory -- see the header comment). Otherwise Up
+    // is normal caret movement.
+    if (key.getKeyCode() == juce::KeyPress::upKey && (getText().isEmpty() || browsingHistory)
+        && onRecallHistory)
     {
         onRecallHistory();
         return true;
@@ -73,12 +76,41 @@ PromptPanel::PromptPanel(PluginForgeProcessor& p)
             "Describe your plugin\xe2\x80\xa6  (\xe2\x8c\x98/Ctrl+Enter to generate)")),
         juce::Colours::grey);
     promptInput.onSubmit        = [this] { submitPrompt(); };
-    promptInput.onTextChange    = [this] { updateAutoFamilyLabel(); };
     promptInput.onRecallHistory = [this]
     {
-        if (! promptHistory.isEmpty())
-            restoreFromHistory(promptHistory[0]);
+        if (promptHistory.isEmpty())
+            return;
+        // First press (index -1): jump to the newest entry. Each further
+        // press while browsingHistory holds walks one entry OLDER; clamped at
+        // the oldest retained entry rather than wrapping, so repeated Up
+        // presses settle instead of cycling back to something already seen.
+        if (historyBrowseIndex + 1 < promptHistory.size())
+            ++historyBrowseIndex;
+        restoreFromHistory(promptHistory[historyBrowseIndex]);
     };
+    // ONE std::function slot, TWO independent reasons to run on every text
+    // change -- main's family Auto-label needs the live prompt text, and C6's
+    // history-walk needs to know a REAL edit (as opposed to our own
+    // dontSendNotification recall writes) happened, ending the browse (see
+    // PromptTextEditor.h's browsingHistory comment). Discovered during the
+    // 2026-08-13 merge as a collision `git merge` cannot see: both sides
+    // assigned onTextChange at different insertion points, so nothing
+    // conflicted -- the second assignment would have silently overwritten the
+    // first at runtime, with no build error and only a maybe-test-failure
+    // depending on which side lost. Combined here rather than left as two
+    // statements precisely so a future editor cannot split them apart again.
+    promptInput.onTextChange = [this]
+    {
+        updateAutoFamilyLabel();
+        historyBrowseIndex = -1;
+        promptInput.setBrowsingHistory(false);
+    };
+
+    // Seed from the processor -- the persisted source of truth since C6, same
+    // relationship PluginEditor.cpp's applyControlStyle() has to
+    // processor.uiStyle(). Covers a DAW project load: setStateInformation
+    // typically runs before the editor (and this panel) is even constructed.
+    promptHistory = processor.promptHistorySnapshot();
 
     // Resolution order: PLUGINFORGE_LLM_SCRIPT env override, else walk upward from
     // the binary looking for llm/generate.py. Verified against the real layouts
@@ -170,7 +202,7 @@ PromptPanel::PromptPanel(PluginForgeProcessor& p)
     // timerCallback while a subprocess is in flight.
     addChildComponent(progressLabel);
     progressLabel.setJustificationType(juce::Justification::centredLeft);
-    progressLabel.setColour(juce::Label::textColourId, Theme::yellow);
+    progressLabel.setColour(juce::Label::textColourId, Theme::progress);
 
     // Error region: read-only (juce_TextEditor.h:130), multi-line + word-wrapped
     // (:78), with scrollbars (:156) and no caret (:140). Starts hidden; shown by
@@ -180,8 +212,8 @@ PromptPanel::PromptPanel(PluginForgeProcessor& p)
     errorBox.setReadOnly(true);
     errorBox.setScrollbarsShown(true);
     errorBox.setCaretVisible(false);
-    errorBox.setColour(juce::TextEditor::backgroundColourId, Theme::mantle);
-    errorBox.setColour(juce::TextEditor::textColourId,       Theme::errorText);
+    errorBox.setColour(juce::TextEditor::backgroundColourId, Theme::surface);
+    errorBox.setColour(juce::TextEditor::textColourId,       Theme::danger);
     errorBox.setFont(Theme::Type::mono());
 }
 
@@ -842,6 +874,12 @@ void PromptPanel::pushHistory(const juce::String& prompt)
     promptHistory.insert(0, p);
     while (promptHistory.size() > kHistoryMax)
         promptHistory.remove(promptHistory.size() - 1);
+
+    // Mirror to the processor (C6) -- the persisted source of truth. This
+    // panel already owns the dedup/cap policy above; the processor just
+    // stores whatever list results, the same division of labour
+    // PluginForgeProcessor::setUiStyle() has with its callers.
+    processor.setPromptHistory(promptHistory);
 }
 
 void PromptPanel::showHistoryMenu()
@@ -875,7 +913,13 @@ void PromptPanel::showHistoryMenu()
                 return;
             const int idx = result - 1;
             if (idx >= 0 && idx < safeThis->promptHistory.size())
+            {
+                // Sync the walking index to the clicked entry (C6) so a
+                // subsequent up-arrow continues cycling from here rather than
+                // restarting at the newest entry.
+                safeThis->historyBrowseIndex = idx;
                 safeThis->restoreFromHistory(safeThis->promptHistory[idx]);
+            }
         });
 }
 
@@ -884,16 +928,18 @@ void PromptPanel::restoreFromHistory(const juce::String& prompt)
     promptInput.setText(prompt, juce::dontSendNotification);
     promptInput.moveCaretToEnd();
     promptInput.grabKeyboardFocus();
+    promptInput.setBrowsingHistory(true);   // C6: lets up-arrow keep cycling
 }
 
 // ── Layout ──────────────────────────────────────────────────────────────────
 void PromptPanel::resized()
 {
     // Bounds-robust: the panel lays its children out inside whatever rectangle the
-    // shell hands it. It fills out fully once S3 widens the band (FLEET req #17);
-    // in the current fixed 108px band the error region and progress row simply
-    // collapse to zero height rather than overflow. juce::Rectangle::removeFrom*
-    // clamps to the space available, so nothing overruns or asserts.
+    // shell hands it (Chrome::promptH -- 220px as of 2026-08-12, not the 108px this
+    // comment named when it was written pre-split). In a shallow band the error
+    // region and progress row simply collapse to zero height rather than overflow.
+    // juce::Rectangle::removeFrom* clamps to the space available, so nothing
+    // overruns or asserts.
     auto area = getLocalBounds();
     const int gap = 6, buttonH = 28, progressH = 18, statusH = 20;
 
@@ -902,7 +948,16 @@ void PromptPanel::resized()
     auto statusR = area.removeFromBottom(statusH);
     auto progressR = area.removeFromBottom(progressH);
     area.removeFromBottom(gap);
-    auto buttonR = area.removeFromBottom(buttonH);
+
+    // Two rows since 2026-08-12, was one. generateButton(110) + historyButton(90)
+    // + kindSelector(90) + refineSelector used to share a single buttonH row, which
+    // fit the old 50/50 split's ~432px right column but not 65/35's ~232-302px one
+    // (session 010 §3) -- refineSelector was dropping to 0px at the 900px default.
+    // Splitting into actions (bottom) + generation options (above) fits comfortably
+    // at both the default width and kMinWindowW; see PluginEditor.h's Chrome::promptH.
+    auto actionRow = area.removeFromBottom(buttonH);   // generateButton, historyButton
+    area.removeFromBottom(gap);
+    auto genRow = area.removeFromBottom(buttonH);       // familySelector, refineSelector
     area.removeFromBottom(gap);
 
     // Remaining top area splits between the prompt (min 60px per Prompt B, growing
@@ -914,18 +969,22 @@ void PromptPanel::resized()
     area.removeFromTop(gap);
     errorBox.setBounds(area);   // may be zero-height until S3 widens the band
 
-    generateButton.setBounds(buttonR.removeFromLeft(110));
-    buttonR.removeFromLeft(gap);
-    historyButton.setBounds(buttonR.removeFromLeft(90));
-    buttonR.removeFromLeft(gap);
-    // Kind selector: generation-time type override (routes to the instrument or
-    // effect prompt). Fixed-ish width; if the band is too narrow the ComboBox
-    // collapses below its text and the user still has History + Generate.
-    familySelector.setBounds(buttonR.removeFromLeft(150));
-    buttonR.removeFromLeft(gap);
+    generateButton.setBounds(actionRow.removeFromLeft(110));
+    actionRow.removeFromLeft(gap);
+    historyButton.setBounds(actionRow.removeFromLeft(90));
+
+    // Family selector: generation-time family override, replacing the old
+    // Instrument/Effect kind selector (main, "deterministic plugin families";
+    // kind is now fixed to the build target, PluginEditor.h's kindForTest()).
+    // Wider than kindSelector was (150 vs 90) -- "Drum Synth"/"Granular Effect"
+    // and the "Auto -> <resolved>" label both need more room than "Effect" did.
+    // Fixed-ish width; if the band is too narrow the ComboBox collapses below
+    // its text and the user still has History + Generate.
+    familySelector.setBounds(genRow.removeFromLeft(150));
+    genRow.removeFromLeft(gap);
     // Takes whatever is left rather than a fixed width, so the selector simply
-    // disappears in a band too narrow for it instead of overlapping History.
-    refineSelector.setBounds(buttonR);
+    // disappears in a band too narrow for it instead of overlapping familySelector.
+    refineSelector.setBounds(genRow);
 
     progressLabel.setBounds(progressR);
     statusLabel.setBounds(statusR);

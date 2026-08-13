@@ -42,9 +42,27 @@ public:
     // after the fact still shows the live patch rather than staying blank.
     void showSource(const juce::String& faustSource);
 
+    // Message-thread only (C6). Selects and scrolls to a 1-based Faust source
+    // line -- Faust's own diagnostic numbering (createDSPFactoryFromString's
+    // errors read "dsp:<line> : ERROR : ...", FaustEngine.cpp:799's literal
+    // "dsp" filename), converted to CodeDocument's 0-based lines internally.
+    // A line <= 0 (no line info in this particular error) or a document with
+    // no lines is a no-op, not a clamp to line 1 -- clamping would silently
+    // point at the wrong line rather than pointing at nothing. Uses the
+    // editor's own text-selection highlight rather than custom paint code:
+    // proportionate to "point at the line", not a new rendering feature.
+    void highlightErrorLine(int faustLineNumber);
+
     // Test-only. What is actually on screen.
     juce::String displayedSourceForTest() const { return document.getAllContent(); }
     bool         isReadOnlyForTest() const { return editor.isReadOnly(); }
+    // Test-only. The 1-based Faust line last passed to highlightErrorLine(),
+    // or 0 if it has never been called (or was called with no line info).
+    // Tracked explicitly rather than inferred from getSelectionStart(), which
+    // defaults to line 0 (Faust line 1) even when nothing has been
+    // highlighted -- that would be indistinguishable from a real error on
+    // line 1.
+    int          highlightedLineForTest() const { return lastHighlightedLine; }
 
 private:
     PluginForgeProcessor& processor;
@@ -56,6 +74,8 @@ private:
     juce::CodeDocument       document;
     juce::CodeEditorComponent editor { document, nullptr };
     juce::Label              header;
+
+    int lastHighlightedLine = 0;   // see highlightedLineForTest()
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(CodeEditorPanel)
 };

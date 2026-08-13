@@ -30,6 +30,28 @@ public:
     void paint(juce::Graphics&) override;
     void resized() override;
 
+    // Computer-keyboard (QWERTY) routing seam, added 2026-08-12. See
+    // KeyboardPanel::routeKeyStateChanged() for why this exists: the piano is
+    // a sibling of every other panel here, not their ancestor, so it never
+    // received key-state events from JUCE's own dispatch unless it already
+    // held keyboard focus. This override makes the editor itself the
+    // fallback target JUCE's dispatch walks up to
+    // (juce::ComponentPeer::getTargetForKeyPress falls back to the top-level
+    // component when nothing has explicit focus, juce_ComponentPeer.cpp:164
+    // -175) and forwards unconditionally -- juce::TextEditor's own
+    // keyStateChanged override already stops this walk while the prompt box
+    // holds focus, so normal typing there is unaffected without any guard
+    // needed here.
+    bool keyStateChanged(bool isKeyDown) override;
+
+    // Ctrl+Shift+C toggles the read-only code view (C6). A DIFFERENT JUCE
+    // virtual from keyStateChanged above -- this is a one-shot press/release
+    // chord, not continuous held-state polling, and they are deliberately not
+    // unified into one override; see PluginEditor.cpp's keyPressed() for the
+    // full reasoning and the primary-source citations for why this still
+    // fires while the prompt box holds focus.
+    bool keyPressed(const juce::KeyPress& key) override;
+
     // ── Test-only surface (host/tests/EditorSessionTest.cpp) ────────────────
     // Forwarders, not accessors to the panels themselves: a test that could reach
     // `promptPanel` could also reach past what it is asserting, and the panels'
@@ -108,6 +130,16 @@ public:
     bool         codeVisibleForTest() const { return codeEditorPanel.isVisible(); }
     juce::String codeTextForTest() const { return codeEditorPanel.displayedSourceForTest(); }
     bool         codeIsReadOnlyForTest() const { return codeEditorPanel.isReadOnlyForTest(); }
+    // 1-based Faust line number the last Faust compile error highlighted, or 0
+    // if nothing has been highlighted yet (C6).
+    int          codeHighlightedLineForTest() const { return codeEditorPanel.highlightedLineForTest(); }
+
+    // Number of entries in the in-session prompt history (C6) -- what the
+    // persisted-state round trip and the cycling scenario both check.
+    int          promptHistoryCountForTest() const { return promptPanel.historyCountForTest(); }
+    juce::String promptTextForTest() const { return promptPanel.promptTextForTest(); }
+    void         setPromptTextForTest(const juce::String& text) { promptPanel.setPromptTextForTest(text); }
+    void         recallPromptHistoryForTest() { promptPanel.recallHistoryForTest(); }
 
     // ── On-screen / computer keyboard (host/Source/KeyboardPanel.*) ─────────
     // Forwarders, same rationale as the grid accessors above: the panel stays
@@ -119,6 +151,23 @@ public:
     void keyboardNoteOnForTest(int note, float velocity)  { keyboardPanel.noteOnForTest(note, velocity); }
     void keyboardNoteOffForTest(int note)                 { keyboardPanel.noteOffForTest(note); }
     bool keyboardPlayableForTest() const                  { return keyboardPanel.isPlayableForTest(); }
+    // How many times keyStateChanged() (above) has forwarded into
+    // KeyboardPanel. Proves the SHELL-LEVEL routing this session added --
+    // that the editor asks the keyboard on every key transition regardless of
+    // focus -- not that a real physical keypress reaches this call; that hop
+    // is juce::KeyPress::isCurrentlyDown() reading actual OS/compositor
+    // state, untestable without a synthetic-input tool this machine doesn't
+    // have (STATUS.md Broken #1).
+    int  keyboardRouteCallCountForTest() const            { return keyboardPanel.routeKeyStateChangedCallCountForTest(); }
+
+    // Octave controls (C5), same forwarder rationale as the block above:
+    // shiftOctave() is production code (the [<]/[>] buttons' onClick calls it
+    // directly), not a test-only duplicate -- these just reach through the
+    // private panel the same way keyboardNoteOnForTest() etc. already do.
+    int  keyboardOctaveForTest() const             { return keyboardPanel.currentOctaveForTest(); }
+    int  keyboardAvailableLowForTest() const       { return keyboardPanel.availableRangeLowForTest(); }
+    int  keyboardAvailableHighForTest() const      { return keyboardPanel.availableRangeHighForTest(); }
+    void shiftKeyboardOctaveForTest(int delta)     { keyboardPanel.shiftOctave(delta); }
 
 private:
     // 30Hz UI tick: pulls processor.outputLevel (relaxed atomic, written on the
@@ -152,24 +201,37 @@ private:
     struct Chrome
     {
         int margin      = 16;   // reduced() inset, counted every edge
-        int titleH      = 32;   // full-width title bar spacer (title painted in it)
+        int titleH      = 32;   // full-width title bar: title text (left) + the
+                                // disclosure row (right) since 2026-08-12
         int dividerW    = 4;    // gap between the left and right columns
 
         // Right column, top to bottom (fixed content; the grid column flexes).
+        // The disclosure/mode row (codeToggle, styleToggle, and the since-
+        // removed auditionSelector -- superseded by SampleBrowserPanel, see
+        // samplesH below) used to live here as its own rowH band; moved into
+        // the title bar 2026-08-12 (see rightColumnHeight()) because 65/35
+        // leaves the right column too narrow to hold both that row and
+        // PromptPanel's own button row (generateButton/historyButton/
+        // familySelector [renamed from kindSelector]/refineSelector) -- at
+        // the 900px default, refineSelector was dropping to 0px.
         int promptH     = 220;  // PromptPanel: multi-line prompt + buttons +
                                 // progress + status + a scrollable error region
         int gapMeter    = 8;
         int meterH      = 14;
-        int gapRow      = 10;
-        int rowH        = 24;   // the disclosure / mode row
 
         // Full-width bottom bands.
         int gapKeyboard = 8;    // gap above the keyboard band
-        int keyboardH   = 64;   // KeyboardPanel -- ALWAYS present (unlike codeH
+        int keyboardH   = 72;   // KeyboardPanel -- ALWAYS present (unlike codeH
                                 // below, unavailability is dimming, not removal;
-                                // see host/Source/KeyboardPanel.h)
-        int gapSamples  = 8;
-        int samplesH    = 64;
+                                // see host/Source/KeyboardPanel.h). 64->72
+                                // (docs/sessions/010 §3): reserves room for the
+                                // inline octave/scale controls step 3 adds; the
+                                // 8px is unfilled until that step lands.
+        int gapSamples  = 8;    // gap above the sample-browser band
+        int samplesH    = 64;   // SampleBrowserPanel -- full-width, ALWAYS
+                                // present (main, "deterministic plugin families
+                                // and sample browser"); placed above the
+                                // keyboard band, below the (optional) code band.
         int gapCode     = 8;    // gap above the code band
         int codeH       = 240;  // CodeEditorPanel, a full-width band ABOVE the
                                 // keyboard and only while that panel is visible.
@@ -182,13 +244,17 @@ private:
     };
 
     // The left column's share of the split region's width.
-    static constexpr float kLeftFraction = 0.5f;
+    // 0.5f -> 0.65f (docs/sessions/010 §3): the grid column was the one that will
+    // hold the sectioned UiIr preview and was judged to deserve more than half.
+    static constexpr float kLeftFraction = 0.65f;
 
-    // The right column's fixed vertical content: prompt + meter + disclosure row.
+    // The right column's fixed vertical content: prompt + meter. The disclosure
+    // row moved to the title bar 2026-08-12 (see Chrome::promptH's comment), so
+    // this dropped gapRow(10) + rowH(24) -- 276 -> 242.
     // The split region is the taller of this and the (variable) grid column.
     static constexpr int rightColumnHeight(const Chrome& c)
     {
-        return c.promptH + c.gapMeter + c.meterH + c.gapRow + c.rowH;
+        return c.promptH + c.gapMeter + c.meterH;
     }
 
     // Everything outside the split region: title bar, both margins, keyboard band.
@@ -206,6 +272,13 @@ private:
     // agreement with these sums is the actual contract.
 
     static constexpr int kMinWindowH   = 400;  // matches setResizeLimits minimum
+    // 800->700 (docs/sessions/010 §3): 65/35 needs less width than 50/50 did.
+    // At 700 (see resized()): splitW = 700 - margin*2(32) = 668; leftW =
+    // round((668 - dividerW(4)) * 0.65) = 432; rightW = 668 - 4 - 432 = 232.
+    // Session 010 §3 originally claimed 400/264 (a 60/40 ratio, not 65/35) --
+    // wrong arithmetic, corrected in the 2026-08-12 reconciliation note in
+    // docs/sessions/010-alpha-ui-architecture.md.
+    static constexpr int kMinWindowW   = 700;  // matches setResizeLimits minimum
     static constexpr int kMaxGridRows  = 6;    // rows shown before the grid scrolls
 
     // The band budget in force. A single instance today; step 7 makes it per-mode.
@@ -214,6 +287,14 @@ private:
     // The x of the divider between the two columns, set in resized(), read in
     // paint() to draw the seam. In window coordinates.
     int dividerX = 0;
+
+    // The title band's leftover after the disclosure controls (codeToggle,
+    // styleToggle — moved here 2026-08-12 from the right column's own row,
+    // which the 65/35 split left too narrow for them; see rightColumnHeight()'s
+    // comment; auditionSelector also lived here but is superseded by
+    // SampleBrowserPanel, see samplesH above) claim their space on the right.
+    // Set in resized(), painted in paint() — same pattern as dividerX/meterBounds.
+    juce::Rectangle<int> titleTextBounds;
 
     PluginForgeProcessor& processor;
 

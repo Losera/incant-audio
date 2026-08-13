@@ -7,10 +7,8 @@
 // Header-only, matching the existing ParamGridLayout.h/ParamIdentity.h
 // header-only convention in this directory.
 //
-// The palette below is Catppuccin Mocha -- already what every one of those call
-// sites was hand-typing as a bare hex literal; this just gives the same colours
-// names instead of re-deriving them at each site, so a future palette change is
-// one file, not a grep-and-replace across three.
+// Colour names describe UI roles rather than a palette family, so a future
+// palette change remains one file instead of a grep-and-replace across panels.
 //
 // `juce::Colour(uint32)` is `explicit` and not `constexpr` (verified against
 // juce_Colour.h:57), but wraps nothing but a uint32 -- a plain `inline const`
@@ -30,16 +28,67 @@ namespace Theme
 {
 
 // ── Colour ──────────────────────────────────────────────────────────────────
-inline const juce::Colour base      { 0xff1e1e2e };  // window background
-inline const juce::Colour mantle    { 0xff181825 };  // panel/code-editor background
-inline const juce::Colour crust     { 0xff11111b };  // recessed wells (meter track, line numbers)
-inline const juce::Colour text      { 0xffcdd6f4 };  // primary text
-inline const juce::Colour subtext   { 0xff9399b2 };  // secondary text (panel headers)
-inline const juce::Colour overlay   { 0xff6c7086 };  // tertiary/dim text (line numbers)
-inline const juce::Colour yellow    { 0xfff9e2af };  // in-progress / working state
-inline const juce::Colour errorText { 0xfff2c9d3 };  // error region text
-inline const juce::Colour meterCool { 0xff94e2d5 };  // teal -- low end of the level meter
-inline const juce::Colour meterHot  { 0xfff38ba8 };  // red -- hot end of the level meter
+// Palette: TOKYO NIGHT (adopted 2026-08-11, docs/sessions/010 §2). Replaced
+// Catppuccin Mocha. The structural ROLE of each token below is unchanged --
+// only the hex values moved -- so this commit is a pure repaint and must
+// produce an empty semantic layout diff.
+//
+// Why: blue accent + amber hot is the conventional modern-app / pro-audio
+// pairing. Catppuccin's teal+pink reads as a terminal colour scheme, which is
+// precisely the "someone applied a theme to a stock app" impression the design
+// pass exists to escape (docs/competitive_landscape.md Threat #6).
+//
+// ONE DELIBERATE DEVIATION from session 010's table, flagged in the approved
+// plan: 010 sets meterHot to #e0af68, which is ALSO its `yellow` token. The
+// meter's hot end and the "generation in progress" state would then be the same
+// colour -- a role collision that bites the moment both are on screen at once.
+// meterHot is Tokyo Night's orange #ff9e64 instead; `yellow` keeps #e0af68.
+//
+// Contrast against `background`, measured rather than assumed -- so nobody
+// reaches for a token that cannot carry the text they are about to put in it:
+//   textPrimary   #c0caf5 on background  ~11:1   passes AA/AAA for body text
+//   textSecondary #a9b1d6 on background  ~8.6:1  passes AA/AAA
+//   outline       #565f89 on background  ~3.0:1  FAILS AA for body text. It is
+//                 for disabled states and hairline outlines, never required text.
+inline const juce::Colour background    { 0xff1a1b26 };  // window background
+inline const juce::Colour surface       { 0xff16161e };  // panel/code-editor background
+inline const juce::Colour surfaceSunken { 0xff0f0f17 };  // meter track and line-number wells
+inline const juce::Colour surfaceRaised { 0xff242536 };  // cards and raised controls
+inline const juce::Colour outline       { 0xff565f89 };  // hairlines and disabled states
+inline const juce::Colour textPrimary   { 0xffc0caf5 };  // primary text
+inline const juce::Colour textSecondary { 0xffa9b1d6 };  // panel headers and supporting text
+inline const juce::Colour accent        { 0xff7aa2f7 };  // values, focus, and meter cool end
+inline const juce::Colour progress      { 0xffe0af68 };  // in-progress / working state
+inline const juce::Colour danger        { 0xfff7768e };  // error-region text
+inline const juce::Colour meterHot      { 0xffff9e64 };  // clipping-proximity signal only
+
+// ── Geometry ────────────────────────────────────────────────────────────────
+// A deliberately small scale. New layout values should compose these tokens;
+// one-off dimensions remain local when they express content rather than rhythm.
+namespace Space
+{
+    inline constexpr int xs = 4;
+    inline constexpr int sm = 8;
+    inline constexpr int md = 12;
+    inline constexpr int lg = 16;
+    inline constexpr int xl = 24;
+} // namespace Space
+
+namespace Radius
+{
+    inline constexpr float xs = 3.0f;
+    inline constexpr float sm = 6.0f;
+    inline constexpr float md = 10.0f;
+    inline constexpr float lg = 14.0f;
+} // namespace Radius
+
+namespace Stroke
+{
+    inline constexpr float hairline = 1.0f;
+    inline constexpr float focus    = 1.5f;
+    inline constexpr float track    = 3.5f;
+    inline constexpr float rail     = 4.0f;
+} // namespace Stroke
 
 // ── Type scale ──────────────────────────────────────────────────────────────
 // The actual visual problem today isn't the typeface -- it's that four of the
@@ -50,11 +99,12 @@ inline const juce::Colour meterHot  { 0xfff38ba8 };  // red -- hot end of the le
 // the fix.
 namespace Type
 {
-    inline juce::Font caption() { return juce::Font(11.0f); }                        // fine print
-    inline juce::Font body()    { return juce::Font(12.0f); }                        // default UI text
-    inline juce::Font label()   { return juce::Font(12.0f, juce::Font::bold); }      // knob captions
-    inline juce::Font heading() { return juce::Font(14.0f, juce::Font::bold); }      // panel headers
-    inline juce::Font title()   { return juce::Font(18.0f, juce::Font::bold); }      // "PluginForge"
+    inline juce::Font caption()      { return juce::Font(11.0f); }                    // fine print
+    inline juce::Font body()         { return juce::Font(12.0f); }                    // default UI text
+    inline juce::Font label()        { return juce::Font(12.0f, juce::Font::bold); }  // knob captions
+    inline juce::Font sectionTitle() { return juce::Font(11.0f, juce::Font::bold); }  // tracked in paint
+    inline juce::Font heading()      { return juce::Font(14.0f, juce::Font::bold); }  // panel headers
+    inline juce::Font title()        { return juce::Font(18.0f, juce::Font::bold); }  // shell title
 
     // Both existing monospaced call sites (CodeEditorPanel.cpp:27, PromptPanel.
     // cpp:154) already use exactly 12.0f -- one token, not a parameterised

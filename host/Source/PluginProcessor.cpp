@@ -688,7 +688,7 @@ void PluginForgeProcessor::loadFaustCode(const juce::String& faustCode,
             // this is a single delivery today, not a double-notify.
             const juce::String errStr(error);
             if (onFaustCompileFailure)
-                onFaustCompileFailure(errStr);
+                onFaustCompileFailure(errStr, faustCode);
             if (onFaustCompileError)
                 onFaustCompileError(errStr);
         }
@@ -727,6 +727,34 @@ void PluginForgeProcessor::loadFaustCode(const juce::String& faustCode,
 // setStateInformation looks its children up BY NAME (getChildWithName), so an
 // unrecognised extra child is simply never read. That is why this is an amendment
 // to v1 and not a schemaVersion bump.
+//
+// ADDED 2026-08-12 (C6) — <PromptHistory>, schemaVersion 3. A child element,
+// one <HistoryEntry text="..."/> per retained prompt, most-recent-first:
+//
+//   <PromptHistory>
+//     <HistoryEntry text="a warm lowpass"/>
+//     <HistoryEntry text="add a chorus"/>
+//   </PromptHistory>
+//
+// A v1/v2 blob has none of these children; getChildWithName returns an
+// invalid tree and setStateInformation restores an empty history, the same
+// do-nothing fallback the v1-ParamMap case already established. This IS a
+// real schemaVersion bump, unlike <SlotLabels> or uiStyle: those were fields
+// nothing depended on, whereas an old session's actual prompt history is
+// present in the wild and genuinely absent from the blob, not merely unread.
+//
+// ADDED 2026-08-11 (main, "deterministic plugin families") — `generationFamily`
+// / `familySource` root attributes, same schemaVersion 3, landing alongside
+// PromptHistory above via this merge rather than as a separate bump (see
+// kStateSchemaVersion's comment in PluginProcessor.h for why one combined v3
+// is safe here). `generationFamily` is the resolved profile id (e.g.
+// "granular_effect", "drum_synth"); `familySource` records HOW it was
+// resolved -- "explicit" (user picked it), "auto" (deterministically inferred
+// from the prompt), or "legacy_default"/"migrated" for a restore that had no
+// family information to read. A v1/v2 blob predates both attributes;
+// setStateInformation's `version >= 3` gate (below) falls back to the
+// build-target default (PF_IS_SYNTH) with source "legacy_default" -- the same
+// behaviour those blobs were always saved under.
 // ─────────────────────────────────────────────────────────────────────────────
 
 static const juce::Identifier kStateRootTag    ("PluginForgeState");
@@ -748,6 +776,12 @@ static const juce::Identifier kIdSchemeId      ("idScheme");
 static const juce::Identifier kSlotTag         ("Slot");
 static const juce::Identifier kSlotIndexId     ("index");
 static const juce::Identifier kSlotParamId     ("id");
+// schemaVersion 3 (2026-08-12, C6). The prompt-history list, most-recent-
+// first. Same "only write what exists" shape as ParamMap's Slot children —
+// a HistoryEntry per retained prompt, none for an empty history.
+static const juce::Identifier kHistoryTag      ("PromptHistory");
+static const juce::Identifier kHistoryEntryTag ("HistoryEntry");
+static const juce::Identifier kHistoryTextId   ("text");
 
 juce::String PluginForgeProcessor::uiStyle() const
 {
@@ -808,6 +842,16 @@ void PluginForgeProcessor::getStateInformation(juce::MemoryBlock& destData)
             mapNode.appendChild(slotNode, nullptr);
         }
         root.appendChild(mapNode, nullptr);
+
+        // ── Prompt history (schemaVersion 3) ────────────────────────────────
+        juce::ValueTree historyNode(kHistoryTag);
+        for (const auto& prompt : promptHistory)
+        {
+            juce::ValueTree entry(kHistoryEntryTag);
+            entry.setProperty(kHistoryTextId, prompt, nullptr);
+            historyNode.appendChild(entry, nullptr);
+        }
+        root.appendChild(historyNode, nullptr);
     }
 
     // copyState() flushes pending parameter updates and returns a thread-safe copy
@@ -898,6 +942,30 @@ void PluginForgeProcessor::setStateInformation(const void* data, int sizeInBytes
         paramPool.seedIdentityMap(restoredSlotIds);
     }
 
+    // ── Prompt history (schemaVersion 3) ────────────────────────────────────
+    // A v1/v2 blob has no PromptHistory node at all: getChildWithName returns
+    // an invalid ValueTree, the loop below runs zero times, and
+    // setPromptHistory(empty) is exactly the do-nothing fallback the v1-
+    // ParamMap case established above -- no older blob was ever written with
+    // history in it, so there is nothing to migrate.
+    {
+        juce::StringArray restoredHistory;
+        const auto historyNode = root.getChildWithName(kHistoryTag);
+        if (historyNode.isValid())
+        {
+            for (int c = 0; c < historyNode.getNumChildren(); ++c)
+            {
+                const auto entry = historyNode.getChild(c);
+                if (entry.getType() != kHistoryEntryTag)
+                    continue;
+                const juce::String text = entry.getProperty(kHistoryTextId, juce::String());
+                if (text.isNotEmpty())
+                    restoredHistory.add(text);
+            }
+        }
+        setPromptHistory(restoredHistory);
+    }
+
     const juce::String source = root.getProperty(kFaustSourceId, juce::String());
     const juce::String prompt = root.getProperty(kPromptId,      juce::String());
     const juce::String legacyFamily = PF_IS_SYNTH ? "synth" : "effect";
@@ -961,6 +1029,18 @@ juce::String PluginForgeProcessor::currentPromptForTest() const
 {
     std::lock_guard<std::mutex> lock(metaMutex);
     return currentPrompt;
+}
+
+juce::StringArray PluginForgeProcessor::promptHistorySnapshot() const
+{
+    std::lock_guard<std::mutex> lock(metaMutex);
+    return promptHistory;
+}
+
+void PluginForgeProcessor::setPromptHistory(const juce::StringArray& history)
+{
+    std::lock_guard<std::mutex> lock(metaMutex);
+    promptHistory = history;
 }
 
 juce::String PluginForgeProcessor::currentFamily() const

@@ -10,10 +10,13 @@
 
 // ── PromptTextEditor ────────────────────────────────────────────────────────
 // A multi-line prompt box with two custom key bindings:
-//   • Cmd/Ctrl+Enter  → submit (plain Enter inserts a newline, because the box
-//                        runs with setReturnKeyStartsNewLine(true)).
-//   • Up-arrow on an  → recall the most recent prompt from history.
-//     empty box
+//   • Cmd/Ctrl+Enter → submit (plain Enter inserts a newline, because the box
+//                       runs with setReturnKeyStartsNewLine(true)).
+//   • Up-arrow       → recall/CYCLE through prompt history (C6). Intercepted
+//                       when the box is empty (first recall) OR when it is
+//                       currently showing a just-recalled entry unmodified
+//                       (browsingHistory, walks to the next-older entry).
+//                       Otherwise Up is normal caret movement.
 // Everything else falls through to juce::TextEditor's own editing. Keys verified
 // against juce_KeyPress.h (returnKey:191, upKey:198, getKeyCode():109,
 // getModifiers():115) and the overridable juce_TextEditor.h keyPressed (:725).
@@ -25,11 +28,24 @@ public:
 
     bool keyPressed(const juce::KeyPress& key) override;
 
+    // Set by PromptPanel right after it programmatically fills the box from
+    // history (restoreFromHistory uses setText(..., dontSendNotification), so
+    // this flag is untouched by that call) -- true while up-arrow should keep
+    // walking to an OLDER entry instead of moving the caret. Cleared the
+    // moment the user actually edits the text: unlike our own restore call,
+    // TextEditor's onTextChange fires on every REAL keystroke regardless of
+    // the notification flag a programmatic setText used, which is what tells
+    // a genuine edit apart from a recall (C6).
+    void setBrowsingHistory(bool browsing) { browsingHistory = browsing; }
+
     // NB: no JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR here — this class is a
     // default-constructed member (PromptPanel::promptInput), and the macro's
     // deleted copy-ctor counts as a user-declared constructor, which would
     // suppress the implicit default ctor. juce::TextEditor (via Component) is
     // already non-copyable, so nothing is lost.
+
+private:
+    bool browsingHistory = false;
 };
 
 // ── PromptPanel ─────────────────────────────────────────────────────────────
@@ -163,6 +179,37 @@ public:
     // prior_source_dropped flag, generate.py:381-386).
     bool priorSourceDroppedForTest() const { return lastPriorSourceDropped; }
 
+    // Test-only. Number of entries currently in the in-session history list --
+    // used to check the persisted-state round trip (C6) without depending on
+    // menu text formatting.
+    int historyCountForTest() const { return promptHistory.size(); }
+
+    // Test-only (C6). The prompt box's raw current text, and a way to set it
+    // WITHOUT submitting -- lets a test simulate "the user is typing
+    // something new" so a later recall's effect is observable against text
+    // that demonstrably did not come from history. sendNotification (unlike
+    // submitPromptForTest's setText) so this fires onTextChange exactly like
+    // real typing would, exercising the same reset-the-walk path.
+    juce::String promptTextForTest() const { return promptInput.getText(); }
+    void setPromptTextForTest(const juce::String& text)
+    {
+        promptInput.setText(text, juce::sendNotification);
+    }
+
+    // Test-only (C6). Drives the SAME callback a real up-arrow key event
+    // calls (PromptTextEditor::onRecallHistory) -- not a synthetic KeyPress,
+    // since nothing on this machine can synthesize real compositor input
+    // (the same limitation STATUS.md's Broken #1 names for the keyboard
+    // panel). This exercises the walking-index logic onRecallHistory owns,
+    // not PromptTextEditor's own decision about whether to intercept Up in
+    // the first place -- that gating is as untestable here as a real
+    // keypress is, for the same reason.
+    void recallHistoryForTest()
+    {
+        if (promptInput.onRecallHistory)
+            promptInput.onRecallHistory();
+    }
+
 private:
     void timerCallback() override;
 
@@ -207,6 +254,12 @@ private:
     juce::StringArray promptHistory;
     static constexpr int kHistoryShown = 5;   // entries offered in the menu
     static constexpr int kHistoryMax   = 20;  // entries retained in the session
+
+    // Message-thread only (C6). -1 = not currently browsing; N = the index
+    // into promptHistory the box currently shows, walked one entry OLDER by
+    // each up-arrow while PromptTextEditor::browsingHistory holds. Reset to
+    // -1 the moment the user edits the recalled text (promptInput.onTextChange).
+    int historyBrowseIndex = -1;
 
     // Backstop for a WEDGED interpreter, not the normal timeout path (PF-019).
     // generate.py owns a self-enforced wall-clock budget (_DEFAULT_GENERATION_BUDGET_S
