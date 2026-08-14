@@ -2736,6 +2736,55 @@ void scenario38_sampleBrowserStatusTooltipMatchesText()
               + "' tooltip='" + s.editor.sampleBrowserStatusTooltipForTest() + "'");
 }
 
+// 39 — T5: the code view's copy button. Before this, the only way to get the
+//      generated Faust out of the app was selecting it by hand -- workable
+//      for a short patch, tedious for a 40-param one, and this IS the export
+//      path for the BYO-LLM flow the panel's own header comment names (source
+//      + compiler stderr pasted into someone else's model). Pins the
+//      button-state contract headlessly (starts "Copy", becomes "Copied!" on
+//      click) and, opportunistically, the real system clipboard -- this
+//      machine's Wayland/Hyprland session and CI's xvfb both provide X11
+//      clipboard selections JUCE's Linux backend uses, so it is checked
+//      directly rather than assumed unreachable.
+void scenario39_codeViewCopyButton()
+{
+    scenario("39. the code view's Copy button copies the real source, once",
+             "before this, the only way out of a read-only view was selecting "
+             "text by hand -- the BYO-LLM flow needs the export to be one click");
+
+    Session s;
+    s.editor.setCodeVisibleForTest(true);
+    pump(50);
+    check(loadAndSettle(s, kEveryKindPatch, 5), "a 5-param patch compiled");
+    pump(200);
+
+    check(s.editor.codeCopyButtonTextForTest() == "Copy",
+          "the button starts in its resting state");
+
+    const auto shownSource = s.editor.codeTextForTest();
+    s.editor.clickCodeCopyButtonForTest();
+    // Button::triggerClick() posts an async command message
+    // (juce_Button.cpp:352) rather than calling onClick synchronously -- the
+    // message loop has to run once before the click has actually happened.
+    pump(50);
+    check(s.editor.codeCopyButtonTextForTest() == "Copied!",
+          "clicking gives an immediate, transient confirmation");
+    check(juce::SystemClipboard::getTextFromClipboard() == shownSource,
+          "the REAL system clipboard now holds exactly what was on screen, "
+          "not a stale or partial copy");
+    snapshot(s.editor, "37_code_view_copy_button");
+
+    // No wait for the 900ms confirmation timer here. It used to be
+    // juce::Timer::callAfterDelay, whose pending closure lives in JUCE's own
+    // global timer queue independent of any component's lifetime -- ASAN's
+    // leak check (which runs at process exit) saw that as leaked heap unless
+    // a test waited out the full delay first. CodeEditorPanel now owns a
+    // member Timer instead: ~Timer() calls stopTimer() unconditionally on
+    // destruction, so Session's own teardown at the end of this function
+    // cancels it immediately, regardless of how much of the 900ms has
+    // elapsed. Nothing to wait for.
+}
+
 } // namespace
 
 int main()
@@ -2743,7 +2792,7 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInit;
 
     std::printf("EditorSessionTest -- a simulated human session against the real editor\n");
-    std::printf("  38 scenarios, no network, no quota, snapshots to artifacts/images/\n");
+    std::printf("  39 scenarios, no network, no quota, snapshots to artifacts/images/\n");
 
     auto tmp = juce::File::getSpecialLocation(juce::File::tempDirectory)
                    .getChildFile("pluginforge_editor_session");
@@ -2788,6 +2837,7 @@ int main()
     scenario36_recompileOverSectionedPatchDoesNotUseAfterFree();
     scenario37_tooltipWindowExists();
     scenario38_sampleBrowserStatusTooltipMatchesText();
+    scenario39_codeViewCopyButton();
 
     tmp.deleteRecursively();
 

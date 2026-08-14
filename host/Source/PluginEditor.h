@@ -192,6 +192,10 @@ public:
     // 1-based Faust line number the last Faust compile error highlighted, or 0
     // if nothing has been highlighted yet (C6).
     int          codeHighlightedLineForTest() const { return codeEditorPanel.highlightedLineForTest(); }
+    // T5: the copy affordance -- click it headlessly, read the transient
+    // "Copied!" confirmation back.
+    void         clickCodeCopyButtonForTest() { codeEditorPanel.clickCopyButtonForTest(); }
+    juce::String codeCopyButtonTextForTest() const { return codeEditorPanel.copyButtonTextForTest(); }
 
     // Number of entries in the in-session prompt history (C6) -- what the
     // persisted-state round trip and the cycling scenario both check.
