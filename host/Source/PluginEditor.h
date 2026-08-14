@@ -99,6 +99,13 @@ public:
     juce::String gridControlGroupForTest(int i) const;
     double       gridControlValueForTest(int i) const;
     juce::String gridControlTextForTest(int i) const;
+    // T1 (ADR-022 Track 1.2): the sectioned layout applyUiIr() is currently
+    // holding, if any. Forwarded rather than exposing paramGridPanel itself,
+    // same rule as every accessor above.
+    const std::vector<UiIr::Section>& gridActiveSectionsForTest() const
+    {
+        return paramGridPanel.activeSectionsForTest();
+    }
     // Drives the 30Hz meter/mute tick directly. The Timer fires on wall-clock, so a
     // test that waited for it would be timing-dependent; this makes the edge-detect
     // in timerCallback() observable without a sleep.

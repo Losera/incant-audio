@@ -2556,6 +2556,138 @@ void scenario34_qwertyAfterGeneration(const juce::File& tmp)
     snapshot(synthSession.editor, "34_qwerty_after_generation");
 }
 
+// 35 — ADR-022 Track 1.2: a heuristic sectioned layout, derived purely from
+//      Faust group nesting already present in the compiled patch. Two things
+//      this pins: canonical ordering (NOT Faust's alphabetical group order,
+//      which reads Env before Osc -- wrong for how a musician scans a synth
+//      panel), and the suppression threshold (a sparse or single-group patch
+//      must render the ordinary flat grid, not a heading over a few knobs).
+void scenario35_sectionedLayoutOrdersAndSuppresses()
+{
+    scenario("35. sectioned layout: canonical group order, suppressed when sparse",
+             "deriveLayoutFromGroups ranks Osc before Filter before Env before Fx "
+             "-- the reverse of Faust's own alphabetical report -- and returns no "
+             "sections at all for <=1 non-empty group or <4 controls");
+
+    // Four groups, one control each, declared (and therefore Faust-reported)
+    // in ALPHABETICAL order: Env, Filter, Fx, Osc -- the exact case F4 names.
+    const char* kFourGroupPatch = R"(import("stdfaust.lib");
+oscFreq      = vgroup("Osc",    hslider("Freq",   0.5, 0, 1, 0.01));
+filterCutoff = vgroup("Filter", hslider("Cutoff", 0.5, 0, 1, 0.01));
+envAttack    = vgroup("Env",    hslider("Attack", 0.5, 0, 1, 0.01));
+fxMix        = vgroup("Fx",     hslider("Mix",    0.5, 0, 1, 0.01));
+amt = (oscFreq + filterCutoff + envAttack + fxMix) * 0.25;
+process = _ * amt, _ * amt;
+)";
+
+    Session s;
+    check(loadAndSettle(s, kFourGroupPatch, 4), "the 4-group patch compiled");
+
+    const auto& sections = s.editor.gridActiveSectionsForTest();
+    check(sections.size() == 4,
+          juce::String("expected 4 sections, got ") + juce::String((int) sections.size()));
+    if (sections.size() == 4)
+    {
+        const char* expected[] = { "Osc", "Filter", "Env", "Fx" };
+        for (int i = 0; i < 4; ++i)
+            check(juce::String(sections[(size_t) i].title) == expected[i],
+                  juce::String("section ") + juce::String(i) + " expected '" + expected[i]
+                      + "', got '" + juce::String(sections[(size_t) i].title) + "'");
+    }
+
+    // Threshold guard #1: kFourParamPatch (defined above, §2 in this file) has
+    // FOUR controls but ZERO groups -- nonEmptyGroups == 0, under the <=1 cutoff.
+    // Must render flat, same as before this track existed.
+    check(loadAndSettle(s, kFourParamPatch, 4), "the ungrouped 4-param patch compiled");
+    check(s.editor.gridActiveSectionsForTest().empty(),
+          "an ungrouped patch gets no sections -- the flat grid is unchanged");
+
+    // Threshold guard #2: a single group wrapping the WHOLE patch. One heading
+    // over everything reads worse than no heading at all.
+    const char* kOneGroupPatch = R"(import("stdfaust.lib");
+a = vgroup("Everything", hslider("A", 0.5, 0, 1, 0.01) + hslider("B", 0.5, 0, 1, 0.01)
+                        + hslider("C", 0.5, 0, 1, 0.01) + hslider("D", 0.5, 0, 1, 0.01));
+process = _ * a * 0.25, _ * a * 0.25;
+)";
+    check(loadAndSettle(s, kOneGroupPatch, 4), "the single-group 4-param patch compiled");
+    check(s.editor.gridActiveSectionsForTest().empty(),
+          "one group wrapping the whole patch also suppresses to the flat grid");
+}
+
+// 36 — F3: a real use-after-free, not a hypothetical. refreshParamKnobs()
+//      cleared `controls` without clearing `activeSections`/`irLookup`, and
+//      layoutControls() branches on `activeSections` BEFORE applyUiIr() gets a
+//      chance to rebuild either of them for the new controls -- so a SECOND
+//      compile over a sectioned patch took the sectioned branch and
+//      dereferenced Control* pointers into the vector controls.clear() had
+//      just invalidated. Confirmed live under this binary's own ASAN build
+//      (EditorSessionTest links -fsanitize=address,undefined, host/CMakeLists.
+//      txt:649-650): reverting just the two clear() calls this scenario exists
+//      to pin reproduces a heap-use-after-free abort here.
+void scenario36_recompileOverSectionedPatchDoesNotUseAfterFree()
+{
+    scenario("36. a second compile over a sectioned patch does not use-after-free",
+             "activeSections/irLookup must be cleared before layoutControls() runs "
+             "inside refreshParamKnobs, or the sectioned branch dereferences "
+             "Control* pointers the same call just freed");
+
+    const char* kTwoGroupPatch = R"(import("stdfaust.lib");
+osc  = vgroup("Osc",    hslider("Freq", 0.5, 0, 1, 0.01) + hslider("Shape",  0.5, 0, 1, 0.01));
+filt = vgroup("Filter", hslider("Q",    0.5, 0, 1, 0.01) + hslider("Cutoff", 0.5, 0, 1, 0.01));
+amt = (osc + filt) * 0.25;
+process = _ * amt, _ * amt;
+)";
+
+    // Twelve controls, three groups, so the recompile below shrinks the
+    // occupied range rather than growing it. `controls` (std::vector<Control>)
+    // is `.reserve(POOL_SIZE)`d -- POOL_SIZE, unconditionally -- on EVERY
+    // refreshParamKnobs call (params here is ParamPool's 64-slot per-slot
+    // view, whose size() is always 64), so its capacity reaches 64 on the
+    // FIRST compile of any Session and never reallocates again: a GROWING
+    // recompile (confirmed: 4 -> 20 controls) never frees the old buffer, it
+    // just placement-constructs new Controls over the same addresses --
+    // stale irLookup pointers end up pointing at live, freshly (if WRONG)
+    // constructed objects, not freed ones, so nothing crashes. A SHRINKING
+    // recompile is what exposes it: indices the smaller patch never reaches
+    // stay destructed-but-unconstructed, and the WIDGETS those old Controls
+    // owned (the juce::Label/Slider each unique_ptr member pointed at) were
+    // already deleted when clear() ran their destructors -- so the stale
+    // irLookup pointer for a control at, say, index 9 dereferences a Control
+    // whose `label` member still holds the pointer value it had before
+    // destruction, now pointing at an ACTUALLY-FREED juce::Label.
+    const char* kBigSectionedPatch = R"(import("stdfaust.lib");
+osc  = vgroup("Osc",    hslider("A1",0.5,0,1,0.01)+hslider("A2",0.5,0,1,0.01)
+                       + hslider("A3",0.5,0,1,0.01)+hslider("A4",0.5,0,1,0.01));
+filt = vgroup("Filter", hslider("B1",0.5,0,1,0.01)+hslider("B2",0.5,0,1,0.01)
+                       + hslider("B3",0.5,0,1,0.01)+hslider("B4",0.5,0,1,0.01));
+env  = vgroup("Env",    hslider("C1",0.5,0,1,0.01)+hslider("C2",0.5,0,1,0.01)
+                       + hslider("C3",0.5,0,1,0.01)+hslider("C4",0.5,0,1,0.01));
+amt = (osc + filt + env) / 12.0;
+process = _ * amt, _ * amt;
+)";
+
+    Session s;
+    check(loadAndSettle(s, kBigSectionedPatch, 12), "the 12-control sectioned patch compiled");
+    check(s.editor.gridActiveSectionsForTest().size() == 3,
+          "sanity: it actually sectioned before the recompile under test");
+
+    // The recompile under test. Under ASAN, a use-after-free aborts the whole
+    // process right here -- there is no exception to catch; a crash IS the
+    // failure mode, and simply reaching the check below is most of what this
+    // scenario is pinning.
+    check(loadAndSettle(s, kFourParamPatch, 4),
+          "a much SMALLER, ungrouped patch compiled over the sectioned one "
+          "without crashing");
+    check(s.editor.gridActiveSectionsForTest().empty(),
+          "and correctly settled on the flat grid, not stale sections");
+
+    // One more round trip, sectioned again, to confirm the panel is not merely
+    // un-crashed but still functional after the clear.
+    check(loadAndSettle(s, kTwoGroupPatch, 4), "re-compiling a (differently) sectioned patch works");
+    check(s.editor.gridActiveSectionsForTest().size() == 2,
+          "sections rebuild correctly on the third compile");
+}
+
 } // namespace
 
 int main()
@@ -2563,7 +2695,7 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInit;
 
     std::printf("EditorSessionTest -- a simulated human session against the real editor\n");
-    std::printf("  34 scenarios, no network, no quota, snapshots to artifacts/images/\n");
+    std::printf("  36 scenarios, no network, no quota, snapshots to artifacts/images/\n");
 
     auto tmp = juce::File::getSpecialLocation(juce::File::tempDirectory)
                    .getChildFile("pluginforge_editor_session");
@@ -2604,6 +2736,8 @@ int main()
     scenario32_ctrlShiftCTogglesCodeView();
     scenario33_generateThenPlay(tmp);
     scenario34_qwertyAfterGeneration(tmp);
+    scenario35_sectionedLayoutOrdersAndSuppresses();
+    scenario36_recompileOverSectionedPatchDoesNotUseAfterFree();
 
     tmp.deleteRecursively();
 

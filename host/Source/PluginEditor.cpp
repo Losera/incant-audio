@@ -191,6 +191,15 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
                 status += "  (prior source dropped — refine became a fresh generation)";
             safeThis->promptPanel.setStatus(status);
             safeThis->paramGridPanel.refreshParamKnobs(params);
+            // ADR-022 Track 1.2: derive a sectioned layout purely from Faust
+            // group nesting already present in `params` -- no prompt change,
+            // no LLM involvement. Called unconditionally; deriveLayoutFromGroups
+            // itself returns UiIr::empty() (schema 0) when sectioning would not
+            // help, and applyUiIr's own `ir.schema != 1` branch is already the
+            // "render the flat grid" path, so an ungrouped or sparse patch is
+            // unaffected byte-for-byte.
+            safeThis->paramGridPanel.applyUiIr(
+                ParamGridPanel::deriveLayoutFromGroups(params));
             // The source of record is committed in the same success branch that
             // fires this callback (PluginProcessor.cpp:180-181), so by the time
             // this message-thread hop runs, currentSource() is the patch that

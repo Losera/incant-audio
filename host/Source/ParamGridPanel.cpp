@@ -2,6 +2,7 @@
 #include "ParamGridLayout.h"
 #include "ParamMap.h"
 #include "Theme.h"
+#include <algorithm>   // find_if, stable_sort, count_if — deriveLayoutFromGroups + applyUiIr
 // ParamMap.h is included for DISPLAY ONLY — formatZone/parseZone/mapSlotToZone
 // inside the text-box lambdas in applyPresentation() (PF-037).
 //
@@ -32,6 +33,16 @@ ParamGridPanel::ParamGridPanel(PluginForgeProcessor& p)
 
 int ParamGridPanel::contentHeightForCurrentMode() const
 {
+    // Sectioned layout has its own row geometry (a heading row per section
+    // plus one row per control, regardless of style) -- checked first, same
+    // as layoutControls() checks activeSections first. Before applyUiIr() had
+    // a caller this branch was unreachable, so the sqrt-grid formula below
+    // was the only one the shell's window-size request had ever exercised;
+    // wiring the renderer made this the load-bearing branch for any grouped
+    // patch, so it has to agree with what layoutSectioned() actually lays out.
+    if (! activeSections.empty())
+        return contentHeightForSections();
+
     const int n = static_cast<int>(controls.size());
 
     // Horizontal stacks one full-width control per row. A horizontal slider needs
@@ -42,6 +53,14 @@ int ParamGridPanel::contentHeightForCurrentMode() const
         return n * kRowH;
 
     return ParamGridLayout::rowsFor(n) * kCellH;
+}
+
+int ParamGridPanel::contentHeightForSections() const
+{
+    int y = 0;
+    for (const auto& section : activeSections)
+        y += kHeadingH + static_cast<int>(section.controls.size()) * kCellH + kSectionGapH;
+    return y;
 }
 
 int ParamGridPanel::preferredContentHeight() const
@@ -97,6 +116,36 @@ void ParamGridPanel::refreshParamKnobs(const FaustEngine::ParamList& params)
     // denormalises, so a slot left at 0.0 maps to its zone MINIMUM (a 20 Hz
     // cutoff = silence). That is exactly what the processor's Fresh path now
     // guarantees, on every load, with or without an editor.
+
+    // ── Drop the previous IR before the controls it points into ─────────────
+    // activeSections/irLookup are NOT cleared by controls.clear() below -- they
+    // are separate members, deliberately (the header comment on activeSections
+    // says so: "so a presentation change doesn't destroy the IR"). But
+    // irLookup's values are raw Control* into `controls`, and layoutControls()
+    // branches on `! activeSections.empty()` BEFORE applyUiIr() gets a chance
+    // to rebuild either of them for the new patch. Left uncleared, a compile
+    // whose control count SHRINKS relative to the previous one is a real
+    // heap-use-after-free, reproduced live (revert these two lines and run
+    // EditorSessionTest scenario 34 under this target's own ASAN build --
+    // host/CMakeLists.txt:649-650 -- it SEGVs inside layoutSectioned()).
+    // `controls` is `.reserve(POOL_SIZE)`d unconditionally on every call
+    // (`params` is ParamPool's 64-slot per-slot view, so params.size() is
+    // always 64), so its capacity reaches 64 on a Session's first compile and
+    // the buffer's address never moves again -- a GROWING recompile just
+    // placement-constructs new Controls over the same addresses stale
+    // pointers already referenced, which is silently WRONG (a stale pointer
+    // ends up naming a live but different control) rather than a crash. A
+    // SHRINKING recompile leaves the indices past the new, smaller size
+    // destructed by clear() and never reconstructed: each abandoned Control's
+    // widget unique_ptrs already deleted their Label/Slider before this
+    // function returns, so the stale pointer irLookup still hands out for
+    // that slot dereferences an object that is actually gone. Clearing here
+    // makes refreshParamKnobs' own trailing layoutControls() call take the
+    // safe flat-grid branch; the shell's follow-up applyUiIr() call
+    // (PluginEditor.cpp) then rebuilds both against the new controls and
+    // re-lays-out, this time correctly.
+    activeSections.clear();
+    irLookup.clear();
 
     // ── Rebuild the widgets ─────────────────────────────────────────────────
     // clear() first so each old attachment detaches (Control destroys attachment
@@ -319,6 +368,16 @@ void ParamGridPanel::setControlStyle(ControlStyle s)
 
 void ParamGridPanel::layoutControls()
 {
+    // Headings belong to whichever branch below actually runs: rebuilt by
+    // layoutSectioned() when taken, left empty (so paint() draws nothing) on
+    // the flat-grid path. Clearing once here rather than in each branch is
+    // what keeps a stale heading from a PREVIOUS sectioned patch from surviving
+    // a later flat-grid one. repaint() now, unconditionally: the flat-grid
+    // path has no other repaint call and would otherwise leave a stale heading
+    // drawn on screen with nothing left to invalidate it.
+    content.headings.clear();
+    content.repaint();
+
     // Sectioned layout: when a UI IR has defined sections, use the sectioned
     // path instead of the default sqrt-grid. Controls not named in the IR are
     // already appended to the trailing "Parameters" section by applyUiIr().
@@ -398,6 +457,127 @@ void ParamGridPanel::resized()
     layoutControls();
 }
 
+namespace
+{
+    // Canonical section rank (ADR-022 Track 1.2 amendment). Faust reports
+    // groups ALPHABETICALLY (FaustEngine.h's `ParamInfo::group` doc), which
+    // reads as Env -> Filter -> Fx -> Osc for the flagship grouped fixture --
+    // not how a musician scans a synth panel (Osc -> Filter -> Env -> Fx).
+    // Substring match, case-insensitive, against the group's own name (groups
+    // in every fixture examined are flat single-segment names; a nested path
+    // like "Filter/Cutoff" still matches on "filter" via contains()).
+    // Returns -1 for no match -- deriveLayoutFromGroups sorts unranked groups
+    // after every ranked one, keeping first-seen order among themselves.
+    int sectionRank(const juce::String& group)
+    {
+        struct Bucket { int rank; std::initializer_list<const char*> keys; };
+        static const Bucket kBuckets[] =
+        {
+            { 0, { "osc", "source", "input" } },
+            { 1, { "filter" } },
+            { 2, { "env", "amp" } },
+            { 3, { "mod", "lfo" } },
+            { 4, { "fx" } },
+            { 5, { "out", "master" } },
+        };
+        const auto g = group.toLowerCase();
+        for (const auto& b : kBuckets)
+            for (const auto* key : b.keys)
+                if (g.contains(key))
+                    return b.rank;
+        return -1;
+    }
+}
+
+UiIr::Layout ParamGridPanel::deriveLayoutFromGroups(const FaustEngine::ParamList& params)
+{
+    // One entry per distinct group value, in first-encounter order among the
+    // OCCUPIED slots. `params` is ParamPool's per-slot view (see the ⚠️ on
+    // refreshParamKnobs above) -- a null zone is the unused-slot sentinel and
+    // is skipped exactly like refreshParamKnobs skips it, so this function
+    // reports on the same control set the grid is about to render, not on 64
+    // pool slots most of which are empty.
+    struct GroupEntry
+    {
+        juce::String group;
+        int firstIndex = 0;
+        std::vector<std::string> labels;
+    };
+    std::vector<GroupEntry> groups;
+    int occupiedSlots = 0;
+
+    for (int i = 0; i < static_cast<int>(params.size()); ++i)
+    {
+        const auto& p = params[static_cast<size_t>(i)];
+        if (p.zone == nullptr)
+            continue;
+        ++occupiedSlots;
+
+        const auto group = juce::String(p.group);
+        auto it = std::find_if(groups.begin(), groups.end(),
+                               [&group](const GroupEntry& e) { return e.group == group; });
+        if (it == groups.end())
+        {
+            groups.push_back({ group, i, {} });
+            it = std::prev(groups.end());
+        }
+        it->labels.push_back(p.label);
+    }
+
+    const int nonEmptyGroups = static_cast<int>(
+        std::count_if(groups.begin(), groups.end(),
+                      [](const GroupEntry& e) { return e.group.isNotEmpty(); }));
+
+    // Suppression threshold. A heading over one or two knobs, or a single
+    // section wrapping the entire patch, is worse than the flat grid it would
+    // replace -- returning UiIr::empty() (schema 0) hands the params straight
+    // back to applyUiIr's own `ir.schema != 1` branch, which is already the
+    // "fall through to layoutControls()" path.
+    if (nonEmptyGroups <= 1 || occupiedSlots < 4)
+        return UiIr::empty();
+
+    // Rank, unknown-groups-last, ties broken by first-seen order -- so the
+    // catch-all empty-group bucket (no keyword can match "") always sorts
+    // after every named group, matching applyUiIr's own "unnamed controls
+    // trail" convention below.
+    constexpr int kUnranked = 1000;
+    constexpr int kUngrouped = 1001;
+    std::stable_sort(groups.begin(), groups.end(),
+        [](const GroupEntry& a, const GroupEntry& b)
+        {
+            const auto rankOf = [](const GroupEntry& e)
+            {
+                if (e.group.isEmpty()) return kUngrouped;
+                const int r = sectionRank(e.group);
+                return r < 0 ? kUnranked : r;
+            };
+            const int ra = rankOf(a);
+            const int rb = rankOf(b);
+            if (ra != rb) return ra < rb;
+            return a.firstIndex < b.firstIndex;
+        });
+
+    UiIr::Layout layout;
+    layout.schema = 1;
+    for (const auto& g : groups)
+    {
+        UiIr::Section section;
+        section.id = g.group.isEmpty()
+                       ? "unassigned"
+                       : g.group.toLowerCase().replaceCharacter(' ', '-').toStdString();
+        section.title = g.group.isEmpty() ? "Parameters" : g.group.toStdString();
+        section.span = 1;
+        for (const auto& label : g.labels)
+        {
+            UiIr::ControlRef ref;
+            ref.paramLabel = label;
+            section.controls.push_back(std::move(ref));
+        }
+        layout.sections.push_back(std::move(section));
+    }
+    return layout;
+}
+
 // ── UI IR rendering (ADR-024 / Phase 1a) ────────────────────────────────────
 // Applies a renderer-agnostic sectioned layout. The IR controls GROUPING and
 // COLUMN SPAN only — widget type still comes from applyPresentation() and the
@@ -419,16 +599,10 @@ void ParamGridPanel::applyUiIr(const UiIr::Layout& ir)
         return;
     }
 
-    // Build a lookup from the visible controls' labels. The IR addresses params
-    // by their FaustEngine label (the same key ParamPool::slotId uses for the
-    // identity scheme). Duplicate labels within a section are not allowed; the
-    // first match wins and the rest fall through to the trailing section.
-    std::vector<Control*> byLabel;
-    for (auto& c : controls)
-        byLabel.push_back(&c);
-
-    struct Placed { Control* control; const UiIr::ControlRef* ref; };
-    std::vector<Placed> placed;
+    // The IR addresses params by their FaustEngine label (the same key
+    // ParamPool::slotId uses for the identity scheme). Duplicate labels within
+    // a section are not allowed; the first match wins and the rest fall through
+    // to the trailing section.
     std::vector<Control*> unplaced;
     for (auto& c : controls)
         unplaced.push_back(&c);
@@ -448,10 +622,8 @@ void ParamGridPanel::applyUiIr(const UiIr::Layout& ir)
                                    });
             if (it == unplaced.end())
                 continue;      // unknown label — silently ignored, never a crash
-            auto* c = *it;
             unplaced.erase(it);
             s.controls.push_back(ref);
-            placed.push_back({ c, &s.controls.back() });
         }
         if (! s.controls.empty())
             activeSections.push_back(std::move(s));
@@ -513,13 +685,15 @@ void ParamGridPanel::layoutSectioned()
 
     const int cellW = fullW / cols;
     int y = 0;
-    constexpr int kHeadingH = 20;
 
     for (const auto& section : activeSections)
     {
-        // Heading row (painted via paint() from activeSections; geometry only here)
+        // Heading row. The rect is stored, not just computed -- ContentArea::
+        // paint() draws from this list rather than re-deriving the geometry,
+        // so the two can never drift apart (the two-copies-of-one-layout shape
+        // that produced the kChromeHeight defect PluginEditor.h documents).
         auto heading = juce::Rectangle<int>(4, y, fullW - 8, kHeadingH);
-        (void) heading;
+        content.headings.push_back({ heading, juce::String(section.title) });
         y += kHeadingH;
 
         for (const auto& ref : section.controls)
@@ -540,10 +714,19 @@ void ParamGridPanel::layoutSectioned()
                 c->widget->setBounds(body);
             y += kCellH;
         }
-        y += 4;   // inter-section gap
+        y += kSectionGapH;
     }
 
     content.setSize(fullW, juce::jmax(y, viewport.getHeight()));
+    content.repaint();   // headings were just (re)populated above
+}
+
+void ParamGridPanel::ContentArea::paint(juce::Graphics& g)
+{
+    g.setColour(Theme::textSecondary);
+    g.setFont(Theme::Type::sectionTitle());
+    for (const auto& h : headings)
+        g.drawText(h.title.toUpperCase(), h.bounds, juce::Justification::centredLeft);
 }
 
 // ── Test-only observables ───────────────────────────────────────────────────
