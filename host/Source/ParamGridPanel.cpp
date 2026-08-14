@@ -318,11 +318,24 @@ void ParamGridPanel::applyPresentation(Control& c)
             sl->setSliderStyle(juce::Slider::IncDecButtons);
             sl->setTextBoxStyle(juce::Slider::TextBoxLeft, false, 56, 16);
             break;
+        // PF-039: this used to be `case Button: case CheckButton: default:`,
+        // falling into a rotary -- described as "the live fallback" in
+        // docs/ui_design_plan.md §3, but structurally unreachable: `sl` above
+        // already proved this control is a juce::Slider*, and Button/
+        // CheckButton always become a ToggleButton instead (the early return
+        // at the top of applyPresentation, PF-005's promise). No generated
+        // plugin has ever shown a rotary via this arm. Kind::Meter (added
+        // 2026-08-02) is equally unreachable here for a different reason: a
+        // meter is never writable (isWritable(), FaustEngine.h), so it never
+        // gets a ParamPool slot and never becomes a Control in the first
+        // place (see T4/PF-052 -- meters need their own rendering path, not
+        // this one). Asserting instead of silently defaulting turns "believed
+        // unreachable" into "enforced unreachable": if either invariant ever
+        // breaks, this fires instead of quietly mislabelling a control.
         case FaustEngine::Kind::Button:
         case FaustEngine::Kind::CheckButton:
-        default:                            // :73 — rotary is the fallback
-            sl->setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-            sl->setTextBoxStyle(juce::Slider::TextBoxBelow, false, 64, 16);
+        case FaustEngine::Kind::Meter:
+            jassertfalse;
             break;
     }
 }

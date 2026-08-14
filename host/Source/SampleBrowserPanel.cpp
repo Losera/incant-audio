@@ -16,7 +16,7 @@ SampleBrowserPanel::SampleBrowserPanel(std::function<void(const juce::File&)> ca
     playbackMode.addItem("One-shot", 2);
     playbackMode.addItem("Loop", 3);
     playbackMode.setSelectedId(2);
-    status.setText("Drop an audio file here, or search with Soundfetch.", juce::dontSendNotification);
+    setStatusText("Drop an audio file here, or search with Soundfetch.");
     status.setJustificationType(juce::Justification::centredLeft);
 
     for (auto* component : std::initializer_list<juce::Component*>{ &provider, &query,
@@ -69,6 +69,12 @@ void SampleBrowserPanel::resized()
     status.setBounds(area);
 }
 
+void SampleBrowserPanel::setStatusText(const juce::String& text)
+{
+    status.setText(text, juce::dontSendNotification);
+    status.setTooltip(text);
+}
+
 bool SampleBrowserPanel::isSupportedAudioFile(const juce::File& file) const
 {
     return file.hasFileExtension("wav;wave;aif;aiff;flac;ogg;mp3");
@@ -112,14 +118,14 @@ void SampleBrowserPanel::startWork(std::function<void()> work)
 void SampleBrowserPanel::loadSampleAsync(const juce::File& file)
 {
     const int mode = playbackMode.getSelectedId() - 1;
-    status.setText("Loading sample...", juce::dontSendNotification);
+    setStatusText("Loading sample...");
     startWork([this, file, mode]
     {
         onSampleReady(file); // decode and buffer swap stay off the message thread
         onModeChanged(mode);
         finishWork([this, name = file.getFileName()]
         {
-            status.setText("Loaded: " + name, juce::dontSendNotification);
+            setStatusText("Loaded: " + name);
         });
     });
 }
@@ -144,7 +150,7 @@ void SampleBrowserPanel::beginSearch()
     if (text.isEmpty()) return;
     const auto providerId = provider.getSelectedId() == 2 ? juce::String("freesound")
                                                           : juce::String("archive");
-    status.setText("Searching...", juce::dontSendNotification);
+    setStatusText("Searching...");
     startWork([this, providerId, text]
     {
         auto response = client.search(providerId, text);
@@ -155,7 +161,7 @@ void SampleBrowserPanel::beginSearch()
             manifestPath = response.manifestPath;
             if (! response.ok)
             {
-                status.setText(response.error, juce::dontSendNotification);
+                setStatusText(response.error);
                 results.setEnabled(false);
                 return;
             }
@@ -163,8 +169,7 @@ void SampleBrowserPanel::beginSearch()
             for (const auto& item : currentResults)
                 results.addItem(item.title.isNotEmpty() ? item.title : item.providerId, id++);
             results.setEnabled(! currentResults.empty());
-            status.setText(juce::String(currentResults.size()) + " results. Select one to download.",
-                           juce::dontSendNotification);
+            setStatusText(juce::String(currentResults.size()) + " results. Select one to download.");
         });
     });
 }
@@ -175,7 +180,7 @@ void SampleBrowserPanel::beginDownload()
     if (index < 0 || index >= static_cast<int>(currentResults.size())) return;
     const auto item = currentResults[static_cast<size_t>(index)];
     const int mode = playbackMode.getSelectedId() - 1;
-    status.setText("Downloading...", juce::dontSendNotification);
+    setStatusText("Downloading...");
     startWork([this, item, mode]
     {
         auto response = client.download(item.provider, item.providerId, manifestPath);
@@ -188,12 +193,11 @@ void SampleBrowserPanel::beginDownload()
         {
             if (! response.ok)
             {
-                status.setText(response.error, juce::dontSendNotification);
+                setStatusText(response.error);
                 downloadButton.setEnabled(true);
                 return;
             }
-            status.setText("Downloaded and loaded: " + juce::File(response.localPath).getFileName(),
-                           juce::dontSendNotification);
+            setStatusText("Downloaded and loaded: " + juce::File(response.localPath).getFileName());
             downloadButton.setEnabled(true);
         });
     });

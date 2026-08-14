@@ -2711,6 +2711,31 @@ void scenario37_tooltipWindowExists()
           "juce_TooltipWindow.h's own documented plugin pattern");
 }
 
+// 38 — T5: the sample-browser status line's long-message problem. The
+//      soundfetch-missing message alone runs to ~230 characters, routed into
+//      a single-line 20px Label with no room to grow (SampleBrowserPanel.h's
+//      comment on setStatusText has the full layout-budget argument). JUCE
+//      already ellipsizes the overflowing VISIBLE text; what was missing was
+//      any way to read the rest. Pins that setStatusText's tooltip always
+//      carries the SAME string as the (possibly truncated) label text, for
+//      both the default status and a long one that would actually ellipsize.
+void scenario38_sampleBrowserStatusTooltipMatchesText()
+{
+    scenario("38. sample-browser status text is always also its own tooltip",
+             "the soundfetch-missing message alone runs ~230 chars into a "
+             "single-line 20px Label with no room to grow -- the tooltip is "
+             "how the untruncated string stays reachable");
+
+    Session s;
+    // Default text, set in the constructor -- proves the wiring without
+    // needing a real soundfetch round trip.
+    const auto defaultText = s.editor.sampleBrowserStatusTextForTest();
+    check(defaultText.isNotEmpty(), "the panel starts with a status message");
+    check(s.editor.sampleBrowserStatusTooltipForTest() == defaultText,
+          juce::String("tooltip must equal the status text -- text='") + defaultText
+              + "' tooltip='" + s.editor.sampleBrowserStatusTooltipForTest() + "'");
+}
+
 } // namespace
 
 int main()
@@ -2718,7 +2743,7 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInit;
 
     std::printf("EditorSessionTest -- a simulated human session against the real editor\n");
-    std::printf("  37 scenarios, no network, no quota, snapshots to artifacts/images/\n");
+    std::printf("  38 scenarios, no network, no quota, snapshots to artifacts/images/\n");
 
     auto tmp = juce::File::getSpecialLocation(juce::File::tempDirectory)
                    .getChildFile("pluginforge_editor_session");
@@ -2762,6 +2787,7 @@ int main()
     scenario35_sectionedLayoutOrdersAndSuppresses();
     scenario36_recompileOverSectionedPatchDoesNotUseAfterFree();
     scenario37_tooltipWindowExists();
+    scenario38_sampleBrowserStatusTooltipMatchesText();
 
     tmp.deleteRecursively();
 

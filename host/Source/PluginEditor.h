@@ -119,6 +119,17 @@ public:
     {
         return tooltipWindow.getParentComponent() == this;
     }
+    // T5: proves setStatusText's contract on the sample-browser status line --
+    // the visible (possibly ellipsized) text and the tooltip (the full string,
+    // now readable on hover) must always match.
+    juce::String sampleBrowserStatusTextForTest() const
+    {
+        return sampleBrowserPanel.statusTextForTest();
+    }
+    juce::String sampleBrowserStatusTooltipForTest()
+    {
+        return sampleBrowserPanel.statusTooltipForTest();
+    }
     // Drives the 30Hz meter/mute tick directly. The Timer fires on wall-clock, so a
     // test that waited for it would be timing-dependent; this makes the edge-detect
     // in timerCallback() observable without a sleep.
