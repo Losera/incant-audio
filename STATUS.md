@@ -1,4 +1,4 @@
-# PluginForge — Status  (2026-08-07)
+# PluginForge — Status  (2026-08-14)
 
 Rewritten each session per COLLABORATION.md §5. Single writer, no merge conflicts.
 Narrative history lives in git.
@@ -294,6 +294,40 @@ clock). The generation-refinement architecture-planning conversation was promote
 Next-three #3 this session.
 
 ## Waiting on you
+
+0. **New 2026-08-14 — the laptop dev machine died mid-session, taking unpushed work with
+   it; a redo decision is pending.** A local `claude_code_cli` session
+   (`/home/losera/PluginForge`) went `disconnected` while blocked on an `ExitPlanMode`
+   review that can no longer be answered there. Checked against `origin` from this cloud
+   environment (`git ls-remote`, `docs/BUGS.md` grep) and confirmed **not recoverable from
+   git**: two commits on a never-pushed branch `fix/provider-blind-preflight`
+   (`a1be4f1` — PF-060, a provider-aware Add-mode preflight admission fix; `1b3fb60` — five
+   dossier corrections to `docs/research/plugin-evolution-ui-provider-architecture-2026-08-13.md`),
+   plus real **uncommitted** C++ work on `fix/sample-browser-and-keyboard`
+   (`KeyboardPanel.*`, `PluginEditor.*`, `PluginProcessor.h`, `SoundfetchClient.cpp`, two
+   test files) and a local-only `STATUS.md`/`docs/BUGS.md` carrying PF-054–059, none of
+   which exist on this branch (`main` here tops out at PF-053). You confirmed the laptop
+   is being treated as gone, not pending recovery. **Redoing PF-060 + the dossier
+   corrections from the plan's own description was explicitly deferred** — hold off until
+   you say go.
+   Separately, that dead session's plan also left 8 open design decisions (D1–D8) for
+   Part 2 of the same plan — wiring `ParamGridPanel::applyUiIr()` into visible, titled
+   section cards (dossier §3, sits under ADR-024, still Proposed). **All eight were
+   resolved this session, recorded here so they survive if this session is lost too**, all
+   on the plan's own recommended answer: **D1** nested Faust groups (`"Osc/Tune"`) collapse
+   to their first path segment as one card. **D2** `Section::span` (side-by-side cards) is
+   deferred, not built in v1. **D3** Horizontal-style controls still get sectioned, for
+   gallery consistency. **D4** an all-ungrouped patch gets zero sections (flat grid,
+   unchanged) — keeps ADR-024's compatibility clause literally true. **D5** ADR-024
+   promotes Proposed → Accepted as part of whichever session implements this (not yet —
+   no code has landed). **D6** add a new fixture `07_generator_nested.dsp` to exercise D1.
+   **D7** card title casing (verbatim vs. uppercased) stays deferred to the required human
+   visual pass (`tools/screenshot_ui.sh`), not decided here. **D8** the sectioned-mode
+   window growth cap stays as-is (`kMaxGridRows * kCellH`), no policy change bundled in.
+   **Not yet done: no code written, ADR-024 not amended, no fixture added** — these
+   decisions unblock a future implementation plan, they are not the implementation.
+   **Next action:** your call on when (or whether) to redo Part 1, and whether Part 2's
+   implementation plan should be built now that D1–D8 are settled.
 
 1. **Superseded 2026-08-12** — the refine two-mode file list this item used to carry is
    long since committed. Session 010's alpha UI pass is now the live uncommitted work on
