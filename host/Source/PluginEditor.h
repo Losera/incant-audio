@@ -106,6 +106,19 @@ public:
     {
         return paramGridPanel.activeSectionsForTest();
     }
+    // T3.4: TooltipWindow::getTipFor() gates on WindowingHelpers::
+    // isForegroundOrEmbeddedProcess() (juce_TooltipWindow.cpp:154), which this
+    // headless harness cannot satisfy -- the same category of limitation
+    // STATUS.md's Broken #1 already names for a real keypress. What IS
+    // deterministic and headless: TooltipWindow's constructor calls
+    // parentComp->addChildComponent(this) when given a non-null parent
+    // (juce_TooltipWindow.cpp:37-38), so correct parenting is checkable
+    // without any mouse/window-manager simulation. This is the fact that was
+    // false before this track (no TooltipWindow existed in host/ at all).
+    bool tooltipWindowParentedForTest() const
+    {
+        return tooltipWindow.getParentComponent() == this;
+    }
     // Drives the 30Hz meter/mute tick directly. The Timer fires on wall-clock, so a
     // test that waited for it would be timing-dependent; this makes the edge-detect
     // in timerCallback() observable without a sleep.
@@ -354,6 +367,19 @@ private:
     // docs/sessions/002-handoff-README.md for why the ordering is load-bearing
     // (~LookAndFeel() asserts if anything still points at it).
     ForgeLookAndFeel lnf;
+
+    // T5/T3.4: there was no juce::TooltipWindow anywhere in host/ -- confirmed by
+    // grep before adding this -- so the two existing setTooltip() calls
+    // (PromptPanel.cpp: familySelector, and the Add/Redo mode explainer) were
+    // dead code that could never render. JUCE's own header is explicit about the
+    // shape this takes in a plugin: "For audio plug-ins (which should not be
+    // opening native windows) it is better to add a TooltipWindow as a member
+    // variable to the editor and ensure that the editor is the parentComponent"
+    // (juce_TooltipWindow.h:39-42) -- parenting it here, rather than passing
+    // nullptr, keeps the popup attached to and scaled with this editor instead
+    // of asking the OS for a native desktop window. Declared next to `lnf` for
+    // the same reason: shell-owned infrastructure, not a visible child panel.
+    juce::TooltipWindow tooltipWindow { this };
 
     // ── Child panels ─────────────────────────────────────────────────────────
     PromptPanel     promptPanel;

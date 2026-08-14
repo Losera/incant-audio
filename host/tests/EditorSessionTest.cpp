@@ -2688,6 +2688,29 @@ process = _ * amt, _ * amt;
           "sections rebuild correctly on the third compile");
 }
 
+// 37 — T3.4: a juce::TooltipWindow now exists. There was ZERO instances of
+//      this class anywhere in host/ before this track, so PromptPanel's two
+//      pre-existing setTooltip() calls (the family selector, and the Add/Redo
+//      mode explainer -- the only in-app explanation of those two modes) were
+//      dead code that could never render. TooltipWindow::getTipFor() itself
+//      is not testable headlessly (it gates on WindowingHelpers::
+//      isForegroundOrEmbeddedProcess(), juce_TooltipWindow.cpp:154 -- same
+//      category of limitation as a real keypress, STATUS.md Broken #1). What
+//      IS deterministic: the constructor's parentComp->addChildComponent(this)
+//      when given a non-null parent (juce_TooltipWindow.cpp:37-38).
+void scenario37_tooltipWindowExists()
+{
+    scenario("37. a TooltipWindow exists and is parented to the editor",
+             "there was no juce::TooltipWindow anywhere in host/ before this -- "
+             "PromptPanel's setTooltip() calls for the family selector and the "
+             "Add/Redo explainer could never render");
+
+    Session s;
+    check(s.editor.tooltipWindowParentedForTest(),
+          "PluginForgeEditor owns a TooltipWindow parented to itself, per "
+          "juce_TooltipWindow.h's own documented plugin pattern");
+}
+
 } // namespace
 
 int main()
@@ -2695,7 +2718,7 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInit;
 
     std::printf("EditorSessionTest -- a simulated human session against the real editor\n");
-    std::printf("  36 scenarios, no network, no quota, snapshots to artifacts/images/\n");
+    std::printf("  37 scenarios, no network, no quota, snapshots to artifacts/images/\n");
 
     auto tmp = juce::File::getSpecialLocation(juce::File::tempDirectory)
                    .getChildFile("pluginforge_editor_session");
@@ -2738,6 +2761,7 @@ int main()
     scenario34_qwertyAfterGeneration(tmp);
     scenario35_sectionedLayoutOrdersAndSuppresses();
     scenario36_recompileOverSectionedPatchDoesNotUseAfterFree();
+    scenario37_tooltipWindowExists();
 
     tmp.deleteRecursively();
 

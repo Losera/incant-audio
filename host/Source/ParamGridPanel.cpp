@@ -723,10 +723,24 @@ void ParamGridPanel::layoutSectioned()
 
 void ParamGridPanel::ContentArea::paint(juce::Graphics& g)
 {
-    g.setColour(Theme::textSecondary);
     g.setFont(Theme::Type::sectionTitle());
     for (const auto& h : headings)
+    {
+        g.setColour(Theme::textSecondary);
         g.drawText(h.title.toUpperCase(), h.bounds, juce::Justification::centredLeft);
+
+        // A hairline under the title, not a filled card behind every control:
+        // T3's "cell backgrounds" is deliberately NOT built here. Card-style
+        // backgrounds change how every existing style (Faithful/Rotary/
+        // Horizontal) and every fixture reads, which is exactly the kind of
+        // visual call COLLABORATION.md §1 reserves for a human looking at a
+        // gallery contact sheet, not a default reached for while wiring
+        // tooltips. A hairline is additive and reversible either way.
+        g.setColour(Theme::outline);
+        g.drawHorizontalLine(h.bounds.getBottom(),
+                             static_cast<float>(h.bounds.getX()),
+                             static_cast<float>(h.bounds.getRight()));
+    }
 }
 
 // ── Test-only observables ───────────────────────────────────────────────────
