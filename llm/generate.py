@@ -517,7 +517,12 @@ def generate_json(request: dict) -> dict:
     prior_source_dropped = False
     if prior_source:
         candidate = _refine_preamble_for(refine_mode).format(prior=prior_source) + prompt
-        if not providers.preflight_prior_source(system_prompt, candidate, MAX_OUTPUT_TOKENS):
+        # PF-060: `provider` was missing here entirely — every refine, on every
+        # provider, was silently gated by groq's rate limit regardless of what
+        # the SELECTED provider could actually hold. See preflight_prior_source's
+        # docstring (llm/providers.py) for the live reproduction.
+        if not providers.preflight_prior_source(system_prompt, candidate,
+                                                MAX_OUTPUT_TOKENS, provider):
             if refine_mode == "surgical":
                 return _prior_source_refused_response()
             prior_source, prior_source_dropped = None, True
