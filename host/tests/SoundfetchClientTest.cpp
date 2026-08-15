@@ -182,6 +182,59 @@ void testDefaultCommandUsesPythonModule()
     expectTrue(overridden.size() == 3 && overridden[0] == "/opt/venvs/soundfetch/bin/python",
               "PLUGINFORGE_SOUNDFETCH_PYTHON overrides the interpreter");
     ::unsetenv("PLUGINFORGE_SOUNDFETCH_PYTHON");
+
+    ::setenv("PLUGINFORGE_PYTHON", "/opt/shared/bin/python", 1);
+    auto shared = client.commandPrefixForTest();
+    expectTrue(shared.size() == 3 && shared[0] == "/opt/shared/bin/python",
+              "PLUGINFORGE_PYTHON is the secondary interpreter fallback");
+    ::unsetenv("PLUGINFORGE_PYTHON");
+}
+
+// A present interpreter with no soundfetch module is the default installation
+// failure, and differs from execvp's missing-executable exit 255 signature.
+void testMissingModuleReportsUnavailable(const juce::File& tmp)
+{
+    auto fakePython = installStub(tmp, "python_without_soundfetch.sh",
+        "[ \"$1\" = '-m' ] && [ \"$2\" = 'soundfetch' ] || exit 77\n"
+        "echo 'No module named soundfetch' 1>&2\n"
+        "exit 1\n");
+    ::unsetenv("SOUNDFETCH_BIN");
+    ::setenv("PLUGINFORGE_SOUNDFETCH_PYTHON", fakePython.getFullPathName().toRawUTF8(), 1);
+
+    SoundfetchClient client(tmp.getChildFile("cache5"));
+    auto response = client.search("archive", "rain");
+
+    expectTrue(! response.ok, "missing module: response.ok is false");
+    expectContains(response.error, "unavailable",
+                   "missing module: error provides installation guidance, not no JSON");
+    ::unsetenv("PLUGINFORGE_SOUNDFETCH_PYTHON");
+}
+
+void testSearchAndDownloadArguments(const juce::File& tmp)
+{
+    installStub(tmp, "sf_argv.sh",
+        "if [ \"$2\" = 'search' ]; then\n"
+        "  [ \"$1\" = 'archive' ] && [ \"$3\" = 'rain storm' ] &&\n"
+        "  [ \"$4\" = '--outdir' ] && [ \"$6\" = '--max-results' ] &&\n"
+        "  [ \"$7\" = '10' ] && [ \"$8\" = '--json' ] || exit 78\n"
+        "  echo '{\"ok\":true,\"manifest\":\"manifest.jsonl\",\"results\":[]}'\n"
+        "elif [ \"$2\" = 'download' ]; then\n"
+        "  [ \"$1\" = 'archive' ] && [ \"$3\" = '--manifest' ] &&\n"
+        "  [ \"$4\" = 'manifest.jsonl' ] && [ \"$5\" = '--provider-id' ] &&\n"
+        "  [ \"$6\" = 'item-42' ] && [ \"$7\" = '--outdir' ] &&\n"
+        "  [ \"$9\" = '--json' ] || exit 79\n"
+        "  echo '{\"ok\":true,\"items\":[{\"local_path\":\"/tmp/item.wav\"}]}'\n"
+        "else\n"
+        "  exit 80\n"
+        "fi\n");
+
+    SoundfetchClient client(tmp.getChildFile("cache6"));
+    auto search = client.search("archive", "rain storm");
+    expectTrue(search.ok, "search argv: provider, query, outdir, limit and JSON flag are ordered");
+
+    auto download = client.download("archive", "item-42", "manifest.jsonl");
+    expectTrue(download.ok && download.localPath == "/tmp/item.wav",
+              "download argv: manifest, provider id, outdir and JSON flag are ordered");
 }
 
 } // namespace
@@ -197,6 +250,8 @@ int main()
     testMissingInterpreterReportsUnavailable(tmp);
     testStructuredErrorSurfaces(tmp);
     testDefaultCommandUsesPythonModule();
+    testMissingModuleReportsUnavailable(tmp);
+    testSearchAndDownloadArguments(tmp);
 
     ::unsetenv("SOUNDFETCH_BIN");
     tmp.deleteRecursively();

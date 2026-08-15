@@ -64,6 +64,7 @@ KeyboardPanel::KeyboardPanel(PluginForgeProcessor& p)
     disabledLabel.setJustificationType(juce::Justification::centred);
     disabledLabel.setFont(Theme::Type::caption());
     disabledLabel.setColour(juce::Label::textColourId, Theme::textSecondary);
+    disabledLabel.setInterceptsMouseClicks(false, false);
     addChildComponent(disabledLabel);
 
     // NOT setPlayable(false): `playable`'s member initializer already reads

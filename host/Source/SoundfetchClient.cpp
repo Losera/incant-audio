@@ -84,17 +84,21 @@ juce::var SoundfetchClient::run(const juce::StringArray& args, juce::String& err
         activeProcess = nullptr;
     }
 
-    // execvp-failure signature: juce_SharedCode_posix.h's child branch calls
-    // execvp() then _exit(-1) on failure, which becomes exit code 255 to the
-    // parent -- and nothing was ever written to the pipe, since exec never
-    // handed control to the target program. A real soundfetch failure always
-    // emits a JSON error object on stdout instead, so this pair of conditions
-    // is specific to "the interpreter or module could not be found/run".
-    if (error.isEmpty() && exitCode == 255 && output.isEmpty())
+    // A launch/install failure produces non-zero + empty stdout. That includes
+    // execvp failure (255) and Python finding the interpreter but not the
+    // soundfetch module (1, with its diagnostic written only to stderr). Real
+    // soundfetch failures emit a structured JSON error object on stdout.
+    if (error.isEmpty() && exitCode != 0 && output.isEmpty())
     {
-        error = "Soundfetch is unavailable: could not run \"" + command.joinIntoString(" ")
-              + "\". Install soundfetch 0.4+ so `<python> -m soundfetch` resolves, then set "
-                "PLUGINFORGE_SOUNDFETCH_PYTHON (or SOUNDFETCH_BIN) to point at it.";
+        // This also covers a present Python interpreter whose `-m soundfetch`
+        // lookup fails: Python writes that diagnostic to stderr (deliberately
+        // not captured because normal soundfetch logging would corrupt JSON),
+        // exits non-zero and leaves stdout empty.
+        error = "Soundfetch is unavailable or could not start: \""
+              + command.joinIntoString(" ")
+              + "\" returned no JSON. Install soundfetch 0.4+ so `<python> -m soundfetch` "
+                "resolves, then set PLUGINFORGE_SOUNDFETCH_PYTHON (or SOUNDFETCH_BIN) "
+                "to point at it.";
         juce::Logger::writeToLog("PluginForge: " + error);
         return {};
     }

@@ -356,6 +356,10 @@ public:
     // caller that has observed a successful load also observes this correctly.
     bool isInstrumentForTest() const { return faustEngine.isInstrument(); }
 
+    // Test-only. Unlike the compile-success callback, this observes the final
+    // ready publication that makes processBlock use the newly compiled DSP.
+    bool isDspReadyForTest() const { return faustEngine.isReady(); }
+
 private:
     FaustEngine faustEngine;
     ParamPool   paramPool;

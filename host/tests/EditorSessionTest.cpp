@@ -1557,6 +1557,8 @@ void scenario20_keyboardDisabledForEffect()
           "fresh editor: the keyboard is visibly dimmed");
     check(s.editor.keyboardDisabledLabelVisibleForTest(),
           "fresh editor: \"Load an instrument to play\" is showing");
+    check(s.editor.keyboardOctaveUpIsHitTargetForTest(),
+          "fresh editor: the disabled overlay does not block the enabled octave controls");
 
     check(loadAndSettle(s, kTinyPatch, 1), "a plain effect (Gain) compiled");
     s.editor.pumpMeterTickForTest();
@@ -2431,9 +2433,8 @@ void scenario32_ctrlShiftCTogglesCodeView()
 // three bugs it was written alongside.
 void scenario33_generateThenPlay(const juce::File& tmp)
 {
-    scenario("33. generate a synth, then play a note",
-             "the end-to-end path: prompt -> subprocess -> compile -> a real "
-             "note actually sounds -- no prior scenario drove both halves at once");
+    scenario("33. canned generation bridge compiles, then plays a note",
+             "canned subprocess response -> compile -> editor state -> NoteRing -> audio");
 
     FakeGenerator::install(
         FakeGenerator::writeSuccess(tmp, "gen33_synth.sh", kGatedSawSynthPatch));
@@ -2444,9 +2445,10 @@ void scenario33_generateThenPlay(const juce::File& tmp)
 
     s.editor.submitPromptForTest("a plucky saw synth");
     const bool live = pumpUntil([&] {
-        return s.editor.statusTextForTest().contains("DSP live");
+        return s.editor.statusTextForTest().contains("DSP live")
+            && s.processor.isDspReadyForTest();
     });
-    check(live, "the generation reached 'DSP live' through the real subprocess bridge");
+    check(live, "the canned generation bridge reached 'DSP live' and published a ready DSP");
 
     s.editor.pumpMeterTickForTest();   // the 30Hz poll that enables the keyboard
     check(s.editor.keyboardPlayableForTest(),
@@ -2480,6 +2482,80 @@ void scenario33_generateThenPlay(const juce::File& tmp)
     snapshot(s.editor, "33_generate_then_play");
 }
 
+// 34 — QWERTY-after-generation: symmetric key forwarding and immediate
+// playability, the two remaining halves of the reported "keyboard is not
+// playable after generating a synth" complaint that scenario 33 does not
+// cover (33 proves the wiring works once the keyboard already has focus;
+// this proves focus reaches it in the first place, and that a focused
+// prompt box cannot leak spurious key-UP events to it while typing).
+void scenario34_qwertyAfterGeneration(const juce::File& tmp)
+{
+    scenario("34. QWERTY works immediately after generation, and typing cannot leak spurious notes",
+             "the two remaining halves of the keyboard-after-generation complaint: "
+             "focus must move to the piano without an extra click, and a "
+             "focused prompt box must not leak key-UP events (JUCE's "
+             "TextEditor::keyStateChanged swallows key-down but not key-up)");
+
+    // ── Part A: the suppression predicate itself ────────────────────────────
+    check(! PluginForgeEditor::isTextEditorFocusTarget(nullptr),
+          "nothing focused: not suppressed");
+    {
+        juce::TextEditor te;
+        check(PluginForgeEditor::isTextEditorFocusTarget(&te),
+              "a TextEditor focused: suppressed");
+    }
+    {
+        juce::TextButton btn;
+        check(! PluginForgeEditor::isTextEditorFocusTarget(&btn),
+              "a non-TextEditor focused (e.g. a button): not suppressed");
+    }
+
+    // ── Part B: focusForPlaying() fires for an instrument, not an effect ───
+    FakeGenerator::install(
+        FakeGenerator::writeSuccess(tmp, "gen34_synth.sh", kGatedSawSynthPatch));
+    Session synthSession;
+    check(synthSession.editor.keyboardFocusForPlayingCallCountForTest() == 0,
+          "nothing generated yet: focusForPlaying has not fired");
+    // Expect a benign "JUCE Assertion failure in juce_Component.cpp"
+    // (grabKeyboardFocus()'s own Debug-only "only be focused when it's
+    // actually on the screen" check) on stderr here -- this harness has no
+    // peer, so it fires every time, matches this file's other documented
+    // debug-only assertions (SoundfetchClientTest's execvp-failure case is
+    // the same shape), and is not a test failure; the checks below still
+    // confirm the CALL happened even though the real focus grant no-ops.
+    synthSession.editor.submitPromptForTest("a plucky saw synth");
+    const bool synthLive = pumpUntil([&] {
+        return synthSession.editor.statusTextForTest().contains("DSP live");
+    });
+    check(synthLive, "the synth generation reached DSP live");
+    check(synthSession.editor.keyboardFocusForPlayingCallCountForTest() == 1,
+          "an instrument generation calls focusForPlaying exactly once");
+    // The synchronous setPlayable() call in onFaustCompileSuccess, NOT the
+    // 30Hz timer -- pumpMeterTickForTest() is deliberately NOT called before
+    // this check, unlike scenario 33. If focusForPlaying() ran before
+    // setPlayable(true) had taken effect, it would try to focus a still-
+    // disabled widget (JUCE never grants focus to one) -- the same ordering
+    // hazard scenario 20's constructor no-op showed matters.
+    check(synthSession.editor.keyboardPlayableForTest(),
+          "the keyboard is already playable immediately after DSP live, "
+          "with no timer tick pumped first");
+    check(synthSession.editor.keyboardEnabledForTest(),
+          "...and the WIDGET is already enabled too, not just the flag");
+
+    FakeGenerator::install(
+        FakeGenerator::writeSuccess(tmp, "gen34_effect.sh", kTinyPatch));
+    Session effectSession;
+    effectSession.editor.submitPromptForTest("a simple gain stage");
+    const bool effectLive = pumpUntil([&] {
+        return effectSession.editor.statusTextForTest().contains("DSP live");
+    });
+    check(effectLive, "the effect generation reached DSP live");
+    check(effectSession.editor.keyboardFocusForPlayingCallCountForTest() == 0,
+          "an effect generation never calls focusForPlaying -- nothing to play");
+
+    snapshot(synthSession.editor, "34_qwerty_after_generation");
+}
+
 } // namespace
 
 int main()
@@ -2487,7 +2563,7 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInit;
 
     std::printf("EditorSessionTest -- a simulated human session against the real editor\n");
-    std::printf("  33 scenarios, no network, no quota, snapshots to artifacts/images/\n");
+    std::printf("  34 scenarios, no network, no quota, snapshots to artifacts/images/\n");
 
     auto tmp = juce::File::getSpecialLocation(juce::File::tempDirectory)
                    .getChildFile("pluginforge_editor_session");
@@ -2527,6 +2603,7 @@ int main()
     scenario31_promptHistoryCycles(tmp);
     scenario32_ctrlShiftCTogglesCodeView();
     scenario33_generateThenPlay(tmp);
+    scenario34_qwertyAfterGeneration(tmp);
 
     tmp.deleteRecursively();
 

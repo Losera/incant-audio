@@ -34,15 +34,43 @@ public:
     // KeyboardPanel::routeKeyStateChanged() for why this exists: the piano is
     // a sibling of every other panel here, not their ancestor, so it never
     // received key-state events from JUCE's own dispatch unless it already
-    // held keyboard focus. This override makes the editor itself the
-    // fallback target JUCE's dispatch walks up to
-    // (juce::ComponentPeer::getTargetForKeyPress falls back to the top-level
-    // component when nothing has explicit focus, juce_ComponentPeer.cpp:164
-    // -175) and forwards unconditionally -- juce::TextEditor's own
-    // keyStateChanged override already stops this walk while the prompt box
-    // holds focus, so normal typing there is unaffected without any guard
-    // needed here.
+    // held keyboard focus. This override makes the editor an ancestor the
+    // walk passes through for any focused DESCENDANT of the editor (a
+    // toolbar button, e.g.) and forwards to the piano from there.
+    //
+    // CORRECTED 2026-08-13 -- this comment used to claim the override was
+    // also reached when "nothing has explicit focus", citing
+    // getTargetForKeyPress's fallback to "the top-level component"
+    // (juce_ComponentPeer.cpp:164-175). Read again against that source: the
+    // fallback is the PEER's top-level component (StandaloneFilterWindow in
+    // the Standalone), which is an ANCESTOR of this editor, not this editor
+    // itself -- and the walk only ever goes upward. So with truly nothing
+    // focused, the walk starts ABOVE this override and never reaches it.
+    // What actually made "click the piano first" work before this session's
+    // focusForPlaying() addition was ordinary focus landing on SOME
+    // descendant of the editor after window activation, not a "nothing
+    // focused" fallback that never existed. See PluginEditor.cpp's
+    // implementation for the current, fuller story, including the
+    // TextEditor key-up asymmetry guard added the same day.
     bool keyStateChanged(bool isKeyDown) override;
+
+    // The predicate keyStateChanged() uses to decide whether to suppress
+    // forwarding to the piano (see that method's implementation comment for
+    // the full "key-up leaks past a focused TextEditor" reasoning). Exposed
+    // as a static, pure function of an explicit argument -- rather than
+    // reading juce::Component::getCurrentlyFocusedComponent() internally --
+    // specifically so a test can supply a real (but off-screen) TextEditor
+    // directly: EditorSessionTest.cpp's harness never calls addToDesktop(),
+    // so JUCE's real focus system (which requires a peer,
+    // Component::isShowing()) cannot be exercised end-to-end here, the same
+    // limitation STATUS.md's Broken #1 already names for a physical keypress.
+    // This at least lets the LOGIC (which widget kinds get suppressed) be
+    // checked directly, even though the one-line wiring that feeds it the
+    // real focused component in production is not re-verified by that.
+    static bool isTextEditorFocusTarget(juce::Component* focused)
+    {
+        return dynamic_cast<juce::TextEditor*>(focused) != nullptr;
+    }
 
     // Ctrl+Shift+C toggles the read-only code view (C6). A DIFFERENT JUCE
     // virtual from keyStateChanged above -- this is a one-shot press/release
@@ -156,6 +184,15 @@ public:
     bool keyboardEnabledForTest() const           { return keyboardPanel.keyboardEnabledForTest(); }
     float keyboardAlphaForTest() const            { return keyboardPanel.keyboardAlphaForTest(); }
     bool keyboardDisabledLabelVisibleForTest() const { return keyboardPanel.disabledLabelVisibleForTest(); }
+    bool keyboardOctaveUpIsHitTargetForTest()        { return keyboardPanel.octaveUpIsHitTargetForTest(); }
+    // How many times focusForPlaying() has been called -- see
+    // KeyboardPanel.h's comment on what this proves (the shell-level wiring)
+    // versus what it cannot (a headless harness has no peer, so
+    // grabKeyboardFocus() cannot be observed to actually move focus here).
+    int keyboardFocusForPlayingCallCountForTest() const
+    {
+        return keyboardPanel.focusForPlayingCallCountForTest();
+    }
     // How many times keyStateChanged() (above) has forwarded into
     // KeyboardPanel. Proves the SHELL-LEVEL routing this session added --
     // that the editor asks the keyboard on every key transition regardless of
