@@ -1,4 +1,4 @@
-# PluginForge — Status  (2026-08-07)
+# PluginForge — Status  (2026-08-15)
 
 Rewritten each session per COLLABORATION.md §5. Single writer, no merge conflicts.
 Narrative history lives in git.
@@ -10,6 +10,39 @@ behind HEAD.
 ---
 
 ## Works — and how we know
+
+**2026-08-15 integration session: four stranded branches (13 commits across sessions
+013/014, PF-060, and the export fix) landed on `main`, plus a fifth branch of
+previously-uncommitted, undocumented work found and secured along the way.** Prior
+session handoffs (013, 014) and a cloud session (PR #9, closed) had each produced
+verified work that never reached `main` — `origin/main` was still at PR #8 (2026-08-13)
+while a laptop had already died mid-session once (see the corrected Waiting-on-you #0
+entry below) with more unpushed work on the same disk. This session: pushed every
+stranded branch first (durability pass — also found and committed an uncommitted T7
+heuristic-accent-palette diff on the session-014 worktree, an uncommitted BUGS.md
+self-consistency test, an uncommitted CI-ordering fix, and an untracked PluginMaker
+research doc, none of which had any prior record); stacked `fix/provider-blind-preflight`
+→ `fix/sample-browser-and-keyboard` → `worktree-t1-sectioned-renderer` →
+`fix/pf-053-export-repo-compile` via `gh stack`; resolved every rebase conflict by hand
+(a genuine `EditorSessionTest.cpp` scenario-numbering collision — both the session-013
+QWERTY branch and the session-014 UI branch independently added scenarios 33/34 — required
+renumbering the incoming set through 35→40 across five commits, each checked for a
+complete, gap-free 1–40 sequence in both definitions and `main()`'s call order); and
+verified the result with a genuine fresh build, not a read-through: `tools/check.sh full`
+green (20 harnesses, correctly building into `host/build` as designed), `EditorSessionTest`
+run directly against that binary showing **311 checks, 0 failures** across all 40
+scenarios — checked by binary `strings`/mtime after this session's own first instinct
+was to read a stale, unrelated `build/` directory at the repo root (a leftover from
+something else entirely, not produced by `check.sh`), which would have understated the
+count and masked whether the renumbering above actually worked. `docs/BUGS.md` and this file
+hand-reconciled across the three-way divergence session 014 flagged and declined to
+touch — see the corrected Waiting-on-you #0 entry. ADR-024 promoted Proposed → Accepted
+per its own D5 (`docs/decisions.md`). `tests/test_export_repo.py` (the cherry-picked
+export fix, `801c644`) also run directly: 8 passed, 1 expected-failure (the
+`processBlock`-is-a-stub case PF-053's own registry row documents as still open) in
+201s. **Not yet done**: PF-060's own tests were never actually run red-then-green
+despite being merged (session 014 §3 flagged this) — still open, now the cheapest item
+for whichever lane picks up next.
 
 **This session ran the first live verification of either refine preamble — the Assumed
 claim #2 and Next-three #1 open since 2026-08-06: one Add-mode (surgical) and one Redo-mode
@@ -238,9 +271,8 @@ and fixed, none of them the OS→JUCE hop above:
   declaring `hslider("Freq", ...)` passed generation and was silently rejected by the
   host. New `voice_contract.py` reads the same canonical JSON the C++ header is
   generated from.
-- **Also implemented, verified (280/280 `EditorSessionTest`), left UNCOMMITTED**
-  (working tree had concurrent edits in the same files at session close — not staged
-  to avoid guessing at unrelated in-flight work): `keyStateChanged` now suppresses
+- **PF-061 (unfiled tracking; the fix itself was always sound), fixed and now COMMITTED
+  (2026-08-15 integration session, `dcf0af5`).** `keyStateChanged` now suppresses
   forwarding while any `juce::TextEditor` holds focus (JUCE's `TextEditor::
   keyStateChanged` swallows key-DOWN but not key-UP while focused, and
   `MidiKeyboardComponent::keyStateChanged` ignores its own parameter and re-polls
@@ -248,9 +280,9 @@ and fixed, none of them the OS→JUCE hop above:
   could fire a spurious note for a letter never registered as down); and
   `KeyboardPanel::focusForPlaying()`, called from `onFaustCompileSuccess` for a
   successful instrument generation, so QWERTY works without clicking the piano first.
-  New scenario 34 covers both, red-then-green confirmed by temporary reverts. Scan
-  for `focusForPlaying`/`isTextEditorFocusTarget` in `git status` before starting new
-  work — reconcile or commit this before it goes stale.
+  Scenario 34 covers both, red-then-green confirmed by temporary reverts (session 013),
+  reconfirmed green post-merge as part of the full 40-scenario/311-check suite (see the
+  2026-08-15 integration entry in Works, above).
 
 None of PF-057/058/059 is the OS→JUCE dispatch hop — that remains exactly as
 unverified as the paragraph above states. What changed is that a generated synth now
@@ -351,6 +383,31 @@ Next-three #3 this session.
 
 ## Waiting on you
 
+0. **2026-08-14's "confirmed not recoverable from git" was wrong — both pieces of work
+   survived, and this session landed them on `main`.** A prior cloud session (PR #9,
+   closed) checked only `origin` after a local `claude_code_cli` session went
+   `disconnected` mid-review, and concluded `fix/provider-blind-preflight` (PF-060 fix +
+   5 dossier corrections) and the uncommitted QWERTY-focus C++ work on
+   `fix/sample-browser-and-keyboard` were lost. Session 014 (`docs/sessions/014-*.md` §3)
+   already caught and recorded this error against local disk state; this 2026-08-15
+   session confirmed it against `git` directly and merged both into `main` (see the Works
+   entry above). Treat this as the record of a near-miss, not data loss — but the
+   near-miss is why the durability pass (push first, reconcile second) is now this
+   project's default integration order, not a one-off.
+   Separately, the 8 open design decisions (D1–D8) that cloud session recorded for Part 2
+   of the same plan — wiring `ParamGridPanel::applyUiIr()` into visible, titled section
+   cards (ADR-024) — are unaffected by the correction above and remain settled: **D1**
+   nested Faust groups (`"Osc/Tune"`) collapse to their first path segment as one card.
+   **D2** `Section::span` (side-by-side cards) is deferred, not built in v1. **D3**
+   Horizontal-style controls still get sectioned, for gallery consistency. **D4** an
+   all-ungrouped patch gets zero sections (flat grid, unchanged) — keeps ADR-024's
+   compatibility clause literally true. **D5 — RESOLVED, not pending.** ADR-024 promoted
+   Proposed → Accepted this session (`docs/decisions.md`): session 014 implemented Track
+   1.2 in full (`08e24a8`), landed here. **D6** a fixture exercising D1's nested-group
+   collapse (e.g. `07_generator_nested.dsp`) is still unbuilt — real remaining work, not
+   closed by D5. **D7** card title casing stays deferred to a human visual pass
+   (`tools/screenshot_ui.sh`) — still open. **D8** the sectioned-mode window growth cap
+   stays as-is, no policy change — unchanged, not revisited.
 1. **Superseded 2026-08-12** — the refine two-mode file list this item used to carry is
    long since committed. Session 010's alpha UI pass is now the live uncommitted work on
    `feat/ui-design-system`; see the plan at `.claude/plans/you-are-a-lead-steady-cake.md`
@@ -374,13 +431,9 @@ Next-three #3 this session.
 6. **`UDHR.md` and `IDEAS.md`** — still untracked, still yours, still left alone.
    `sesh_new.md` was removed this session at your instruction (copied to session scratchpad
    first, since it was untracked and unrecoverable via git otherwise).
-7. **New 2026-08-13: the QWERTY-after-generation fix is implemented and verified
-   (280/280 `EditorSessionTest`) but deliberately left UNCOMMITTED.** It touches
-   `KeyboardPanel.h/.cpp`, `PluginEditor.h/.cpp`, `EditorSessionTest.cpp` — files
-   whose working-tree state at session close held more than this one fix. Full detail
-   in Broken #1's session-013 addendum above and `docs/sessions/013-*.md`. Yours to
-   review and commit (or ask for it to be re-derived cleanly) once reconciled with
-   whatever else is in flight there.
+7. **RESOLVED 2026-08-15.** The QWERTY-after-generation fix (session 013) is committed
+   (`dcf0af5`) and merged to `main` as part of this session's integration pass. See
+   Broken #1's updated entry above.
 8. **New 2026-08-13: a replacement Freesound API key.** Broken #12 / PF-056 — the
    configured key is sent and rejected (HTTP 403). Code can't fix a revoked/expired
    credential; get a new one from freesound.org when convenient.

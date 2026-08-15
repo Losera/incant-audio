@@ -949,7 +949,7 @@ STATUS.md's own Next-three #1, and it is a real blocking dependency, not an asid
 
 | | |
 |---|---|
-| **Status** | Proposed |
+| **Status** | Accepted (2026-08-14) |
 | **Date** | 2026-08-06 |
 
 **Context**
@@ -985,8 +985,18 @@ existing ~124-token headroom budget.
 - The "append unmentioned controls" invariant preserves zero-IR backward compatibility
 
 **Consequences**
-- `applyUiIr()` is currently unreachable at runtime (no callers in `onFaustCompileSuccess`);
-  wiring it is Track 1.2 of the build order
+- ~~`applyUiIr()` is currently unreachable at runtime (no callers in
+  `onFaustCompileSuccess`); wiring it is Track 1.2 of the build order~~ **Closed
+  2026-08-14 (session 014, `08e24a8`).** `ParamGridPanel::deriveLayoutFromGroups()`
+  (a pure heuristic over `ParamInfo::group`, no prompt change, no LLM) now feeds
+  `applyUiIr()` from `PluginEditor`'s compile-success path. Fixing this wiring exposed a
+  real use-after-free — `refreshParamKnobs()` cleared `controls` without clearing
+  `activeSections`/`irLookup`, so a *shrinking* recompile over a sectioned patch
+  dereferenced freed `Control*` pointers — confirmed live under this binary's own ASAN
+  build, fixed in the same commit. Canonical section ordering (Osc→Filter→Env→Fx) and a
+  suppression threshold (≤1 group or <4 controls → flat grid, preserving the
+  backward-compatibility invariant above) are both covered by `EditorSessionTest`
+  scenarios 35–36.
 - The schema may need expansion (groups, collapsible sections, sub-patches) — version
   bumping is built into the design
 - Revisit if: the LLM cannot reliably produce IRs within the prompt budget, or the
@@ -998,6 +1008,14 @@ a third option this ADR did not name: heuristic derivation from
 `ParamInfo::group`, data `FaustEngine.cpp`'s `ParamCapture` already records and
 currently discards. Zero prompt change, zero headroom cost — ready before 1b's
 headroom question is settled.
+
+**Note (2026-08-14):** Promoted Proposed → Accepted, per this ADR's own D5 (recorded in
+`STATUS.md`'s 2026-08-14 addendum): "ADR-024 promotes Proposed → Accepted as part of
+whichever session implements this." Session 014 implemented Track 1.2 in full (see the
+Consequences update above) and separately shipped ADR-022 §3's heuristic per-generation
+accent palette (`ParamGridPanel::derivePalette()`), built on the same sectioned-layout
+wiring — recorded under ADR-022, not here, since it is a color choice over the grid this
+ADR renders, not a layout-IR change itself.
 
 ---
 
