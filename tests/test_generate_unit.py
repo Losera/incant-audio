@@ -498,6 +498,53 @@ class TestGenerateJsonRefineModePreflight:
         assert "prior_source_refused" not in result
 
 
+class TestGenerateJsonProviderAwarePreflight:
+    """PF-060 end-to-end: generate_json() now passes `provider` into
+    preflight_prior_source() instead of leaving it implicit-groq (it took no
+    provider argument at all). These two tests deliberately do NOT mock
+    preflight_prior_source — unlike every other test in this file, it is the
+    function under test here — only generate_faust/validate_faust are mocked,
+    same as the rest of this file's pattern. See providers.py's
+    TestProviderAwarePreflight for the unit-level version and the live
+    2026-08-13 reproduction this defect is based on.
+    """
+    BASE_REQUEST = {"prompt": "make it louder", "provider": "anthropic",
+                    "model": "claude-opus-4-6", "max_retries": 1}
+
+    # Same size, same reasoning as tests/test_providers_unit.py's
+    # TestProviderAwarePreflight.TRIAL_PRIOR_SOURCE: the 2026-08-13 trial's
+    # actual refused payload size (logs/prompts.jsonl ts:2026-08-13T23:06:23Z),
+    # not an arbitrary large number.
+    TRIAL_PRIOR_SOURCE = "y" * 2043
+
+    def test_groq_refuses_the_trial_sized_payload_end_to_end(self):
+        with patch.object(generate, "generate_faust") as mock_gen:
+            result = generate.generate_json(
+                {**self.BASE_REQUEST, "provider": "groq",
+                 "prior_source": self.TRIAL_PRIOR_SOURCE,
+                 "refine_mode": "surgical"})
+        mock_gen.assert_not_called()          # short-circuit: no generation attempted
+        assert result["prior_source_refused"] is True
+
+    def test_large_context_provider_admits_the_same_payload_end_to_end(self):
+        """The dossier's own §7 acceptance criterion, run through the real
+        production entry point rather than mocked: the trial's actual refused
+        payload, byte-for-byte unchanged, is admitted once the SELECTED
+        provider (anthropic, 1M-token context — see its ProviderSpec) is the
+        one the admission math actually checks, instead of an unconditional
+        groq figure neither this request nor its provider ever asked for."""
+        with patch.object(generate, "generate_faust", return_value=VALID_FAUST) as mock_gen, \
+             patch.object(generate, "validate_faust", return_value=(True, "")):
+            result = generate.generate_json(
+                {**self.BASE_REQUEST,
+                 "prior_source": self.TRIAL_PRIOR_SOURCE,
+                 "refine_mode": "surgical"})
+        assert mock_gen.call_args.kwargs["prior_source"] == self.TRIAL_PRIOR_SOURCE
+        assert mock_gen.call_args.kwargs["refine_mode"] == "surgical"
+        assert result["success"] is True
+        assert "prior_source_refused" not in result
+
+
 # ---------------------------------------------------------------------------
 # --request-file mode (A2)
 # ---------------------------------------------------------------------------
