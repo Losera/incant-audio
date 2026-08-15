@@ -7,8 +7,20 @@ on:
 jobs:
   # Python job — intentionally unchanged (P3 scope: C++ build lives in its own
   # job below so a C++ failure never masks the Python signal, and vice versa).
+  #
+  # timeout-minutes: added 2026-08-15. GitHub's per-job default with none set is
+  # 360 minutes -- discovered the hard way the same day this was added, when
+  # "Install system dependencies" in build-host (below) hung on a stalled apt
+  # mirror for 58+ minutes with no sign of stopping on its own, on TWO
+  # independent runs, and had to be caught and cancelled by hand. Nothing in
+  # this file would have stopped it short of that 360-minute ceiling. This
+  # job's own historical runs (measured per-job, not inferred from the whole
+  # workflow's wall clock, across the 5 most recent successful runs,
+  # 2026-08-15): 0.4-0.7 minutes. 15 gives over 20x margin for a slow pip
+  # resolve without coming anywhere near masking a genuine hang.
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v4
@@ -38,8 +50,17 @@ jobs:
         # stdlib and compiler, which this job deliberately does not install. It is
         # run for real in the build-host job below, which already has both.
 
+  # timeout-minutes: added 2026-08-15, same incident as the `test` job's note
+  # above -- this is the job that actually hung (twice) on "Install system
+  # dependencies" with no timeout anywhere to stop it short of GitHub's
+  # 360-minute per-job default. Measured per-job (not the whole workflow's
+  # wall clock) across the 15 most recent successful runs, 2026-08-15:
+  # 14.4-21.6 minutes, average 17.8. 40 gives ~2x margin over the observed max
+  # for legitimate variance (cold JUCE-source cache, runner contention) while
+  # cutting the worst-case silent-hang window from 360 minutes to 40.
   build-host:
     runs-on: ubuntu-latest
+    timeout-minutes: 40
 
     steps:
       - uses: actions/checkout@v4
@@ -145,6 +166,27 @@ jobs:
       # Pinned to the JUCE version verified working locally (2026-07-18 full
       # build): the local checkout at ~/JUCE is tag 7.0.9. Cache key includes
       # the tag so bumping JUCE invalidates the cache automatically.
+      #
+      # PLANNED FOLLOW-UP, not done here (2026-08-15 diagnostic; deliberately
+      # scoped out of the same-day timeout-minutes fix above -- see that
+      # commit's message): only the JUCE *source* clone is cached. The
+      # `build-ci` CMake/Ninja build directory below is not, and neither is a
+      # compiler cache (ccache/sccache) -- every run does a full from-scratch
+      # Debug build of both plugin targets plus ~17 ASan/UBSan/TSan-
+      # instrumented test harnesses. That is almost certainly the largest
+      # component of the 14.4-21.6 minute build-host baseline measured above
+      # (this step's own neighbor, "Configure" through "Build behavioural test
+      # harnesses", is the bulk of that job's step list). Two candidate
+      # approaches, neither implemented yet: (a) cache `build-ci` itself,
+      # keyed on a hash of `host/CMakeLists.txt` + source tree state -- risk
+      # is cache-correctness for sanitizer-instrumented binaries if Ninja's
+      # incremental rebuild ever produces a stale artifact under ASan/TSan;
+      # (b) add ccache/sccache ahead of the compiler invocation -- lower risk
+      # (compiler-cache correctness is well-trodden), smaller expected win per
+      # run than (a), but composes with (a) rather than competing with it.
+      # Needs its own measurement pass (cache hit/miss timing, correctness
+      # under the sanitizer builds specifically) before either lands -- not
+      # a same-day change.
       - name: Cache JUCE
         id: cache-juce
         uses: actions/cache@v4
