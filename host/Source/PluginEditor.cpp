@@ -191,6 +191,15 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
                 status += "  (prior source dropped — refine became a fresh generation)";
             safeThis->promptPanel.setStatus(status);
             safeThis->paramGridPanel.refreshParamKnobs(params);
+            // ADR-022 Track 1.2: derive a sectioned layout purely from Faust
+            // group nesting already present in `params` -- no prompt change,
+            // no LLM involvement. Called unconditionally; deriveLayoutFromGroups
+            // itself returns UiIr::empty() (schema 0) when sectioning would not
+            // help, and applyUiIr's own `ir.schema != 1` branch is already the
+            // "render the flat grid" path, so an ungrouped or sparse patch is
+            // unaffected byte-for-byte.
+            safeThis->paramGridPanel.applyUiIr(
+                ParamGridPanel::deriveLayoutFromGroups(params));
             // The source of record is committed in the same success branch that
             // fires this callback (PluginProcessor.cpp:180-181), so by the time
             // this message-thread hop runs, currentSource() is the patch that
@@ -206,6 +215,22 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
             safeThis->promptPanel.setRefineModesAvailable(
                 safeThis->processor.currentSource().isNotEmpty());
             safeThis->updateWindowSizeForParams();
+
+            // Run setPlayable() HERE rather than waiting for the next 30Hz
+            // timerCallback tick: focusForPlaying() below needs the widget
+            // already enabled, since JUCE does not grant keyboard focus to a
+            // disabled component, and the timer could still be a frame away.
+            // Idempotent (KeyboardPanel::setPlayable's own guard), so this
+            // and the timer's regular poll never fight each other.
+            const bool instrument = safeThis->processor.isInstrumentForTest();
+            safeThis->keyboardPanel.setPlayable(instrument);
+            if (instrument)
+                // "Click the piano first" for the single most common case --
+                // a synth just finished generating -- rather than only via
+                // the general keyStateChanged forwarding below, which still
+                // depends on where focus already happens to be (see that
+                // override's own comment for the fuller story).
+                safeThis->keyboardPanel.focusForPlaying();
         });
     };
 }
@@ -432,6 +457,28 @@ void PluginForgeEditor::writeCockpitState()
 
 bool PluginForgeEditor::keyStateChanged(bool isKeyDown)
 {
+    // A TextEditor swallows this walk only for KEY-DOWN transitions
+    // (juce_TextEditor.cpp:2189-2205: "if (! isKeyDown) return false;" is the
+    // first line of its own override) -- key-UP always propagates past it
+    // while it holds focus. But MidiKeyboardComponent::keyStateChanged
+    // ignores its own isKeyDown parameter entirely and re-polls EVERY mapped
+    // key's live isCurrentlyDown() state on each call
+    // (juce_MidiKeyboardComponent.cpp:254-283), firing noteOn/noteOff for
+    // whichever ones changed relative to its own bookkeeping. So a key-up
+    // from releasing one letter while typing in the prompt box can catch
+    // ANOTHER letter the user is still physically holding (ordinary
+    // fast-typing rollover) that was never registered as down -- its own
+    // key-down was swallowed -- and fire a spurious noteOn for it. Guard
+    // explicitly rather than relying on TextEditor's asymmetric return
+    // value: skip forwarding entirely while a TextEditor -- the prompt box
+    // or the sample-search query box, both juce::TextEditor -- holds focus.
+    // A note legitimately held before focus moved to a text box is not left
+    // permanently stuck by this: MidiKeyboardComponent's own poll (not this
+    // override) is what notices a physical key is no longer down, and that
+    // poll still runs on the next keyStateChanged call this editor forwards
+    // once focus moves away from the text box.
+    if (isTextEditorFocusTarget(juce::Component::getCurrentlyFocusedComponent()))
+        return false;
     return keyboardPanel.routeKeyStateChanged(isKeyDown);
 }
 

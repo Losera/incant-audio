@@ -10,6 +10,9 @@ CodeEditorPanel::CodeEditorPanel(PluginForgeProcessor& p)
     header.setFont(Theme::Type::body());
     header.setColour(juce::Label::textColourId, Theme::textSecondary);
 
+    addAndMakeVisible(copyButton);
+    copyButton.onClick = [this] { copySource(); };
+
     addAndMakeVisible(editor);
     // Phase 3a is the view alone. Editing lands with a Compile button, not before
     // -- a user who can type into this box but has no way to apply what they typed
@@ -72,10 +75,29 @@ void CodeEditorPanel::highlightErrorLine(int faustLineNumber)
     lastHighlightedLine = faustLineNumber;
 }
 
+void CodeEditorPanel::copySource()
+{
+    juce::SystemClipboard::copyTextToClipboard(document.getAllContent());
+
+    // Transient confirmation, not a status line this panel doesn't have.
+    // One-shot via a member Timer -- see the class header comment for why
+    // this isn't juce::Timer::callAfterDelay.
+    copyButton.setButtonText("Copied!");
+    startTimer(900);
+}
+
+void CodeEditorPanel::timerCallback()
+{
+    stopTimer();
+    copyButton.setButtonText("Copy");
+}
+
 void CodeEditorPanel::resized()
 {
     auto area = getLocalBounds();
-    header.setBounds(area.removeFromTop(16));
+    auto headerRow = area.removeFromTop(20);
+    copyButton.setBounds(headerRow.removeFromRight(56).reduced(0, 2));
+    header.setBounds(headerRow);
     editor.setBounds(area);
 }
 

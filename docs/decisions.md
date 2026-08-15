@@ -706,6 +706,86 @@ WebView UI surface, which is what would make bespoke per-plugin graphics easy.
 - Revisit if: ADR-021's trigger fires on a larger/fresher corpus, or the heuristic
   palette, once built, measurably reads as worse than the current static Theme.
 
+**Amendment (2026-08-13): point 3 was never built — the data it needs is already
+captured and thrown away**
+
+Picked back up against a direct user complaint ("the generated plugin should have a
+unique design"). Point 3's ungated Tier-1 work was never started: `grep -rn
+"heuristic\|per-generation\|derive.*palette" host/Source/` returns nothing.
+
+**What was found, verified by reading the code, not recalled:**
+
+`ParamCapture` (`FaustEngine.cpp:22-`) implements the full Faust `UI` interface and
+already records everything point 3 needs: group nesting via `pushGroup`/`closeBox`
+(`FaustEngine.cpp:36`, `:217-221`) into `ParamInfo::group` (`FaustEngine.h:66-`),
+plus scale, unit, menu style, and `hbargraph`/`vbargraph` meters
+(`FaustEngine.cpp:176-203`, `Kind::Meter`). `host/tests/ui_fixtures/
+reference_manifest.json`'s `04_generator_grouped` entry (`:124-134`) is direct
+evidence: a 17-parameter synth with four clean sections captured —
+`groups: ["Env"×5, "Filter"×3, "Fx"×4, "Osc"×5]` — rendered as `grid: [5, 4]`, an
+undifferentiated flat grid. The structure exists and is discarded before paint.
+
+Three more pieces are built and unreachable, not merely unplanned:
+
+1. **`ParamGridPanel::applyUiIr()` and `layoutSectioned()`** (`ParamGridPanel.cpp:410`,
+   `:500`) are complete implementations of ADR-024's Phase 1a renderer. `grep -rn
+   applyUiIr host/Source host/tests` outside their own definitions returns nothing —
+   zero callers, confirming ADR-024's own consequences section
+   (`:819-820`, "currently unreachable at runtime").
+2. **Section headings compute geometry and are never drawn.**
+   `layoutSectioned()`'s heading rectangle is discarded on arrival:
+   `(void) heading;` (`ParamGridPanel.cpp:520`), with the comment "painted via
+   paint() from activeSections" pointing at a `paint()` override that does not
+   exist — `grep -n "::paint(" ParamGridPanel.cpp ParamGridPanel.h` is empty. Wiring
+   `applyUiIr()` alone would produce sectioned geometry with no visible section
+   titles.
+3. **`Kind::Meter` (PF-052) is captured and never rendered.** Deliberately excluded
+   from a macro slot (`ParamPool.cpp:74`, comment: "See FaustEngine::Kind::Meter"),
+   confirmed still absent per `docs/BUGS.md`.
+
+Also newly confirmed, not previously written down anywhere: the title is the literal
+hardcoded string `"PluginForge"` (`PluginEditor.cpp:516`), and there is no
+plugin-naming, branding, or graphics pipeline in the repo at all — no doc, no ADR, no
+code. A plugin displaying its own identity is a prerequisite for "unique" that point 3
+never named. `CLAUDE.md`'s rename freeze (`:17-21`) covers identifiers, namespaces and
+the `PLUGINFORGE_*` contract — not a runtime-computed display string — so a
+per-generation title is not blocked by it, but is worth stating explicitly rather than
+leaving a future session to guess.
+
+**Decision (this amendment): build point 3 as four tracks, in this order, each landing
+with a `tools/ui_iterate.sh` gallery fixture and `reference_manifest.json` update
+(the existing headless design-iteration loop, otherwise sitting idle with nothing to
+iterate on):**
+
+1. Wire `applyUiIr()` from `ParamInfo::group`, called from `onFaustCompileSuccess` —
+   synthesizes a `UiIr::Layout` from data already captured, not from a new LLM
+   field. No prompt change, no headroom cost. This is ADR-024 Track 1.2, now
+   concrete: the population source is heuristic derivation from Faust group
+   metadata, a third option ADR-024 did not name alongside its "hand-authored" (1a,
+   shipped) and "LLM-emitted" (1b, headroom-gated) sources.
+2. Add the missing `paint()` override so section titles actually render — Track 1 is
+   incomplete without it.
+3. Render `Kind::Meter`. Highest-signal "this is a real plugin" element for the
+   effort; **`PLUGIN_HEALTH_PLAN.md` (P1.10) requires UI-direction approval before
+   meter work** — request it before starting, do not treat this amendment as that
+   approval.
+4. The heuristic palette point 3 originally specified: derived from group names,
+   unit mix, and instrument-vs-effect, through the existing `Theme.h`/
+   `ForgeLookAndFeel.h` token mechanism.
+
+Plugin naming/branding is explicitly out of scope for this amendment — flagged as a
+real gap, not silently absorbed into track 4's palette work.
+
+**Consequences of this amendment**
+- Restates the ADR's original ceiling (`:701-703`) unchanged: all four tracks produce
+  *computed* variation, not designed identity. The recorded escape hatch if that
+  proves insufficient is still ADR-019's WebView reopening, or session 001 D1's
+  cheaper alternative (an embedded vector-path field in the IR) — neither triggered
+  by this amendment.
+- Track 1 lands before ADR-023's export work (see that ADR's own 2026-08-13
+  amendment) so an exported plugin inherits sectioned layout rather than a second
+  renderer being built for it.
+
 ---
 
 ## ADR-025 — Dev-cockpit: localhost mirror for development iteration
@@ -774,13 +854,102 @@ Two-phase export:
 - No round-trip: edits to the exported repo are not imported back.
 - Revisit if: users consistently ask for binary-only export without source access.
 
+**Amendment (2026-08-13): the Phase 2a stub cannot compile, and the assumption that
+export needs libfaust at all was wrong**
+
+Picked back up against a direct user request ("deploy generations as standalone
+apps... export as VSTs"). Two findings, both verified this session by reading the
+actual code, change the design.
+
+**Finding 1 — `tools/export_repo.py` is not incomplete, it is uncompilable.**
+Confirmed by reading it directly, not by trusting its own claims:
+- `processBlock` never touches `buffer`, never links or calls Faust — the comment on
+  it literally says `// Placeholder: passthrough` (`export_repo.py:94`).
+- `acceptsMidi()`/`getTailLengthSeconds()` render as bare, undefined identifiers
+  compared to string literals: `plugin_type["needs_midi"]` is the Python string
+  `"TRUE"`/`"FALSE"` (`export_repo.py:38-39`), substituted UNQUOTED into the C++
+  template, producing `return TRUE == "TRUE";` (`:103`) and
+  `return TRUE == "TRUE" ? 2.0 : 0.0;` (`:105`) — `TRUE` is not a defined identifier
+  in that scope; this does not compile.
+- `tools/export/CMakeLists.txt.j2:21` hardcodes `PLUGIN_CODE Pfh1` — identical to the
+  shipping `PluginForgeHost` target (`host/CMakeLists.txt:33`), which that very
+  file's own comment warns against: `:109`, "MUST differ from the Fx target's Pfh1
+  — hosts identify a plugin by this code, and a collision makes one shadow the
+  other."
+- Reachable from nothing (no UI button, no CI step); `.claude/skills/export/
+  SKILL.md:3` gates itself "STUB — DO NOT RUN". Phase 2a starts from a rewrite, not
+  a repair.
+
+**Finding 2 — the hard part is already solved, and no existing doc had noticed.**
+The project already reasons about `faust -lang cpp` only as a CLI validator
+(`llm/faust_validator.py:12`), never as an export mechanism. But the very
+`libfaust.so` the host already links (`host/CMakeLists.txt`'s
+`find_library(LIBFAUST_LIB faust)`) exports an in-process AOT path:
+`generateAuxFilesFromString(name_app, dsp_content, argc, argv, error_msg)`
+(`/usr/include/faust/dsp/libfaust.h:117-119`) — confirmed present in the linked
+library, `nm -D /usr/lib/libfaust.so.2.85.9 | c++filt` shows the demangled symbol
+exported. It emits ahead-of-time C++ (`class mydsp : public dsp`) for a live patch
+**in-process, with no subprocess and no new dependency** — the host already links
+everything this needs.
+
+The consequence changes the export's whole dependency shape: **the frozen export
+needs no libfaust at build time on the user's machine, and none at runtime.** The
+current template's `find_library(faust REQUIRED)` (`CMakeLists.txt.j2:45`) exists
+only because Phase 2a assumed the exported plugin would still JIT. An AOT-frozen
+export is an ordinary JUCE plugin.
+
+**Decision (this amendment): Phase 2a is redesigned around AOT emission, and its
+acceptance criteria are made explicit rather than left implicit:**
+
+1. **The freeze operation.** `generateAuxFilesFromString` → `class PatchDSP : public
+   dsp` → a wrapper `PluginProcessor` that instantiates it, calls
+   `buildUserInterface` on a `MapUI`, and calls `compute`. This is a stripped
+   `FaustEngine` with the entire swap protocol deleted — that protocol
+   (`docs/fixplan_pushtofaust_swap.md`) exists only because the JIT host recompiles
+   at runtime; a frozen export never does.
+2. **Per-generation plugin identity, not a shared code.** Hosts key on the 4-char
+   `PLUGIN_CODE`; Finding 1's collision shows what happens without this. Derive
+   `PLUGIN_CODE` and `PRODUCT_NAME` deterministically from the patch — libfaust
+   already exports `generateSHA1(data)` (`libfaust.h:42`, confirmed exported
+   alongside `generateAuxFilesFromString`), and `PluginProcessor` already persists
+   both source and prompt in the state blob. VST3 additionally derives a class UID
+   from manufacturer + code + name, so this is not cosmetic.
+3. **Reuse, not a second renderer.** `ParamCapture`/`ParamInfo` and `UiIr.h` already
+   produce everything an exported editor needs to render the same grid, and
+   `ParamPool` already handles the 64-slot APVTS mapping. Sequence this after
+   ADR-022's amendment (Track 1, wiring `applyUiIr`) lands, so the exported plugin
+   inherits sectioned layout instead of a parallel implementation being built for
+   an export path that doesn't have it yet.
+4. **Acceptance criteria, explicit** (per `PLUGIN_HEALTH_PLAN.md` P1.10, "keep
+   export gated until it produces a validated standalone project", and the
+   `/export` skill's own three landing requirements): the exported project builds
+   clean, loads in a DAW, and makes sound. None of the three has ever been
+   demonstrated for any version of this feature.
+
+**A prerequisite this amendment will not paper over:** export inherits STATUS.md's
+Broken #2 — this project has never had a plugin in a DAW.
+`COPY_PLUGIN_AFTER_BUILD` is `FALSE` on both shipping targets and pluginval is not
+installed (`PLUGIN_HEALTH_PLAN.md` P0.4). Validating an *exported* plugin requires
+first solving host validation for the plugin already shipped — that is P0.4 and
+STATUS.md's own Next-three #1, and it is a real blocking dependency, not an aside.
+
+**Consequences of this amendment**
+- Materially lowers the bar for Phase 2a: no sandboxed build step is needed to
+  produce a libfaust-free artifact, which was previously implied to belong to the
+  deferred Phase 2b.
+- Phase 2b (sign/notarize) is unchanged and still deferred.
+- Revisit if: `generateAuxFilesFromString`'s emitted C++ turns out to need
+  Faust-version-specific runtime support code this repo does not already vendor —
+  not yet checked; the symbol's existence and linkage were verified this session,
+  its emitted output was not yet exercised end to end.
+
 ---
 
 ## ADR-024 — UI IR: renderer-agnostic layout for generated plugins
 
 | | |
 |---|---|
-| **Status** | Proposed |
+| **Status** | Accepted (2026-08-14) |
 | **Date** | 2026-08-06 |
 
 **Context**
@@ -816,12 +985,37 @@ existing ~124-token headroom budget.
 - The "append unmentioned controls" invariant preserves zero-IR backward compatibility
 
 **Consequences**
-- `applyUiIr()` is currently unreachable at runtime (no callers in `onFaustCompileSuccess`);
-  wiring it is Track 1.2 of the build order
+- ~~`applyUiIr()` is currently unreachable at runtime (no callers in
+  `onFaustCompileSuccess`); wiring it is Track 1.2 of the build order~~ **Closed
+  2026-08-14 (session 014, `08e24a8`).** `ParamGridPanel::deriveLayoutFromGroups()`
+  (a pure heuristic over `ParamInfo::group`, no prompt change, no LLM) now feeds
+  `applyUiIr()` from `PluginEditor`'s compile-success path. Fixing this wiring exposed a
+  real use-after-free — `refreshParamKnobs()` cleared `controls` without clearing
+  `activeSections`/`irLookup`, so a *shrinking* recompile over a sectioned patch
+  dereferenced freed `Control*` pointers — confirmed live under this binary's own ASAN
+  build, fixed in the same commit. Canonical section ordering (Osc→Filter→Env→Fx) and a
+  suppression threshold (≤1 group or <4 controls → flat grid, preserving the
+  backward-compatibility invariant above) are both covered by `EditorSessionTest`
+  scenarios 35–36.
 - The schema may need expansion (groups, collapsible sections, sub-patches) — version
   bumping is built into the design
 - Revisit if: the LLM cannot reliably produce IRs within the prompt budget, or the
   sectioned layout proves worse than the flat grid for most patches
+
+**Note (2026-08-13):** Track 1.2 is now concrete — see ADR-022's same-day amendment.
+The population source is neither 1a's hand-authored IR nor 1b's LLM-emitted IR, but
+a third option this ADR did not name: heuristic derivation from
+`ParamInfo::group`, data `FaustEngine.cpp`'s `ParamCapture` already records and
+currently discards. Zero prompt change, zero headroom cost — ready before 1b's
+headroom question is settled.
+
+**Note (2026-08-14):** Promoted Proposed → Accepted, per this ADR's own D5 (recorded in
+`STATUS.md`'s 2026-08-14 addendum): "ADR-024 promotes Proposed → Accepted as part of
+whichever session implements this." Session 014 implemented Track 1.2 in full (see the
+Consequences update above) and separately shipped ADR-022 §3's heuristic per-generation
+accent palette (`ParamGridPanel::derivePalette()`), built on the same sectioned-layout
+wiring — recorded under ADR-022, not here, since it is a color choice over the grid this
+ADR renders, not a layout-IR change itself.
 
 ---
 

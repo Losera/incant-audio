@@ -18,10 +18,16 @@ class Profile:
     kind: str
     auto_terms: tuple[str, ...]
     prompt_brief: str
+    # See llm/generation_profiles.json's "_synth_override_comment": when true,
+    # Auto resolution defers this profile to the instrument default if the
+    # prompt ALSO contains a synth_override_terms word, rather than letting an
+    # auto_terms match alone route a "generative synth" prompt to an
+    # unplayable-by-design family with nothing telling the user it happened.
+    overridden_by_synth_terms: bool = False
 
 
 @lru_cache(maxsize=1)
-def _catalog() -> tuple[dict[str, Profile], dict[str, str]]:
+def _catalog() -> tuple[dict[str, Profile], dict[str, str], tuple[str, ...]]:
     raw = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
     if raw.get("schema") != 1:
         raise ValueError(f"unsupported generation profile schema: {raw.get('schema')!r}")
@@ -32,10 +38,12 @@ def _catalog() -> tuple[dict[str, Profile], dict[str, str]]:
             kind=item["kind"],
             auto_terms=tuple(item.get("auto_terms", ())),
             prompt_brief=item["prompt_brief"],
+            overridden_by_synth_terms=bool(item.get("overridden_by_synth_terms", False)),
         )
         for item in raw["profiles"]
     }
-    return profiles, dict(raw["defaults"])
+    synth_override_terms = tuple(raw.get("synth_override_terms", ()))
+    return profiles, dict(raw["defaults"]), synth_override_terms
 
 
 def profiles() -> dict[str, Profile]:
@@ -48,7 +56,7 @@ def for_kind(kind: str) -> tuple[Profile, ...]:
 
 def resolve(prompt: str, kind: str, requested: str | None = None) -> tuple[Profile, str]:
     """Resolve a family once. Explicit valid families win; Auto is deterministic."""
-    available, defaults = _catalog()
+    available, defaults, synth_override_terms = _catalog()
     requested = (requested or AUTO).strip().lower()
     if requested != AUTO:
         profile = available.get(requested)
@@ -67,6 +75,14 @@ def resolve(prompt: str, kind: str, requested: str | None = None) -> tuple[Profi
     ]
     for profile in candidates:
         if any(term in text for term in profile.auto_terms):
+            # See Profile.overridden_by_synth_terms's docstring and
+            # generation_profiles.json's "_synth_override_comment": a
+            # generator-family match yields to the instrument default when
+            # the prompt also asks for a playable instrument by name.
+            if profile.overridden_by_synth_terms and any(
+                term in text for term in synth_override_terms
+            ):
+                return available[defaults[kind]], "auto"
             return profile, "auto"
     return available[defaults[kind]], "auto"
 

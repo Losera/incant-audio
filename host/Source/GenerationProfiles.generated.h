@@ -19,6 +19,7 @@ inline constexpr std::array<const char*, 5> terms_granular_effect {{"granular", 
 inline constexpr std::array<const char*, 0> terms_synth {{}};
 inline constexpr std::array<const char*, 10> terms_drum_synth {{"drum", "kick", "snare", "hi-hat", "hihat", "tom", "clap", "cymbal", "percussion", "percussive"}};
 inline constexpr std::array<const char*, 7> terms_generator {{"drone", "generator", "generative", "self-playing", "self playing", "ambient texture", "soundscape"}};
+inline constexpr std::array<const char*, 1> terms_synth_override {{"synth"}};
 
 inline const Profile* find(juce::String id)
 {
@@ -42,7 +43,7 @@ inline const Profile& resolveAuto(const juce::String& prompt, bool synthHost)
     if (synthHost)
     {
         if (matchesAny(text, terms_drum_synth)) return *find("drum_synth");
-        if (matchesAny(text, terms_generator)) return *find("generator");
+        if (matchesAny(text, terms_generator) && ! matchesAny(text, terms_synth_override)) return *find("generator");
         return *find("synth");
     }
     if (matchesAny(text, terms_granular_effect)) return *find("granular_effect");

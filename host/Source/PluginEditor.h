@@ -34,15 +34,43 @@ public:
     // KeyboardPanel::routeKeyStateChanged() for why this exists: the piano is
     // a sibling of every other panel here, not their ancestor, so it never
     // received key-state events from JUCE's own dispatch unless it already
-    // held keyboard focus. This override makes the editor itself the
-    // fallback target JUCE's dispatch walks up to
-    // (juce::ComponentPeer::getTargetForKeyPress falls back to the top-level
-    // component when nothing has explicit focus, juce_ComponentPeer.cpp:164
-    // -175) and forwards unconditionally -- juce::TextEditor's own
-    // keyStateChanged override already stops this walk while the prompt box
-    // holds focus, so normal typing there is unaffected without any guard
-    // needed here.
+    // held keyboard focus. This override makes the editor an ancestor the
+    // walk passes through for any focused DESCENDANT of the editor (a
+    // toolbar button, e.g.) and forwards to the piano from there.
+    //
+    // CORRECTED 2026-08-13 -- this comment used to claim the override was
+    // also reached when "nothing has explicit focus", citing
+    // getTargetForKeyPress's fallback to "the top-level component"
+    // (juce_ComponentPeer.cpp:164-175). Read again against that source: the
+    // fallback is the PEER's top-level component (StandaloneFilterWindow in
+    // the Standalone), which is an ANCESTOR of this editor, not this editor
+    // itself -- and the walk only ever goes upward. So with truly nothing
+    // focused, the walk starts ABOVE this override and never reaches it.
+    // What actually made "click the piano first" work before this session's
+    // focusForPlaying() addition was ordinary focus landing on SOME
+    // descendant of the editor after window activation, not a "nothing
+    // focused" fallback that never existed. See PluginEditor.cpp's
+    // implementation for the current, fuller story, including the
+    // TextEditor key-up asymmetry guard added the same day.
     bool keyStateChanged(bool isKeyDown) override;
+
+    // The predicate keyStateChanged() uses to decide whether to suppress
+    // forwarding to the piano (see that method's implementation comment for
+    // the full "key-up leaks past a focused TextEditor" reasoning). Exposed
+    // as a static, pure function of an explicit argument -- rather than
+    // reading juce::Component::getCurrentlyFocusedComponent() internally --
+    // specifically so a test can supply a real (but off-screen) TextEditor
+    // directly: EditorSessionTest.cpp's harness never calls addToDesktop(),
+    // so JUCE's real focus system (which requires a peer,
+    // Component::isShowing()) cannot be exercised end-to-end here, the same
+    // limitation STATUS.md's Broken #1 already names for a physical keypress.
+    // This at least lets the LOGIC (which widget kinds get suppressed) be
+    // checked directly, even though the one-line wiring that feeds it the
+    // real focused component in production is not re-verified by that.
+    static bool isTextEditorFocusTarget(juce::Component* focused)
+    {
+        return dynamic_cast<juce::TextEditor*>(focused) != nullptr;
+    }
 
     // Ctrl+Shift+C toggles the read-only code view (C6). A DIFFERENT JUCE
     // virtual from keyStateChanged above -- this is a one-shot press/release
@@ -71,6 +99,43 @@ public:
     juce::String gridControlGroupForTest(int i) const;
     double       gridControlValueForTest(int i) const;
     juce::String gridControlTextForTest(int i) const;
+    // T1 (ADR-022 Track 1.2): the sectioned layout applyUiIr() is currently
+    // holding, if any. Forwarded rather than exposing paramGridPanel itself,
+    // same rule as every accessor above.
+    const std::vector<UiIr::Section>& gridActiveSectionsForTest() const
+    {
+        return paramGridPanel.activeSectionsForTest();
+    }
+    // T7 (ADR-022 §3): the per-generation accent the current compile derived.
+    // Same forwarding rule as every accessor here.
+    juce::Colour gridPaletteForTest() const
+    {
+        return paramGridPanel.currentPaletteForTest();
+    }
+    // T3.4: TooltipWindow::getTipFor() gates on WindowingHelpers::
+    // isForegroundOrEmbeddedProcess() (juce_TooltipWindow.cpp:154), which this
+    // headless harness cannot satisfy -- the same category of limitation
+    // STATUS.md's Broken #1 already names for a real keypress. What IS
+    // deterministic and headless: TooltipWindow's constructor calls
+    // parentComp->addChildComponent(this) when given a non-null parent
+    // (juce_TooltipWindow.cpp:37-38), so correct parenting is checkable
+    // without any mouse/window-manager simulation. This is the fact that was
+    // false before this track (no TooltipWindow existed in host/ at all).
+    bool tooltipWindowParentedForTest() const
+    {
+        return tooltipWindow.getParentComponent() == this;
+    }
+    // T5: proves setStatusText's contract on the sample-browser status line --
+    // the visible (possibly ellipsized) text and the tooltip (the full string,
+    // now readable on hover) must always match.
+    juce::String sampleBrowserStatusTextForTest() const
+    {
+        return sampleBrowserPanel.statusTextForTest();
+    }
+    juce::String sampleBrowserStatusTooltipForTest()
+    {
+        return sampleBrowserPanel.statusTooltipForTest();
+    }
     // Drives the 30Hz meter/mute tick directly. The Timer fires on wall-clock, so a
     // test that waited for it would be timing-dependent; this makes the edge-detect
     // in timerCallback() observable without a sleep.
@@ -133,6 +198,10 @@ public:
     // 1-based Faust line number the last Faust compile error highlighted, or 0
     // if nothing has been highlighted yet (C6).
     int          codeHighlightedLineForTest() const { return codeEditorPanel.highlightedLineForTest(); }
+    // T5: the copy affordance -- click it headlessly, read the transient
+    // "Copied!" confirmation back.
+    void         clickCodeCopyButtonForTest() { codeEditorPanel.clickCopyButtonForTest(); }
+    juce::String codeCopyButtonTextForTest() const { return codeEditorPanel.copyButtonTextForTest(); }
 
     // Number of entries in the in-session prompt history (C6) -- what the
     // persisted-state round trip and the cycling scenario both check.
@@ -151,6 +220,20 @@ public:
     void keyboardNoteOnForTest(int note, float velocity)  { keyboardPanel.noteOnForTest(note, velocity); }
     void keyboardNoteOffForTest(int note)                 { keyboardPanel.noteOffForTest(note); }
     bool keyboardPlayableForTest() const                  { return keyboardPanel.isPlayableForTest(); }
+    // Widget-level readback -- see KeyboardPanel.h's comment on why this is
+    // distinct from (and the thing that actually caught) the flag above.
+    bool keyboardEnabledForTest() const           { return keyboardPanel.keyboardEnabledForTest(); }
+    float keyboardAlphaForTest() const            { return keyboardPanel.keyboardAlphaForTest(); }
+    bool keyboardDisabledLabelVisibleForTest() const { return keyboardPanel.disabledLabelVisibleForTest(); }
+    bool keyboardOctaveUpIsHitTargetForTest()        { return keyboardPanel.octaveUpIsHitTargetForTest(); }
+    // How many times focusForPlaying() has been called -- see
+    // KeyboardPanel.h's comment on what this proves (the shell-level wiring)
+    // versus what it cannot (a headless harness has no peer, so
+    // grabKeyboardFocus() cannot be observed to actually move focus here).
+    int keyboardFocusForPlayingCallCountForTest() const
+    {
+        return keyboardPanel.focusForPlayingCallCountForTest();
+    }
     // How many times keyStateChanged() (above) has forwarded into
     // KeyboardPanel. Proves the SHELL-LEVEL routing this session added --
     // that the editor asks the keyboard on every key transition regardless of
@@ -305,6 +388,19 @@ private:
     // docs/sessions/002-handoff-README.md for why the ordering is load-bearing
     // (~LookAndFeel() asserts if anything still points at it).
     ForgeLookAndFeel lnf;
+
+    // T5/T3.4: there was no juce::TooltipWindow anywhere in host/ -- confirmed by
+    // grep before adding this -- so the two existing setTooltip() calls
+    // (PromptPanel.cpp: familySelector, and the Add/Redo mode explainer) were
+    // dead code that could never render. JUCE's own header is explicit about the
+    // shape this takes in a plugin: "For audio plug-ins (which should not be
+    // opening native windows) it is better to add a TooltipWindow as a member
+    // variable to the editor and ensure that the editor is the parentComponent"
+    // (juce_TooltipWindow.h:39-42) -- parenting it here, rather than passing
+    // nullptr, keeps the popup attached to and scaled with this editor instead
+    // of asking the OS for a native desktop window. Declared next to `lnf` for
+    // the same reason: shell-owned infrastructure, not a visible child panel.
+    juce::TooltipWindow tooltipWindow { this };
 
     // ── Child panels ─────────────────────────────────────────────────────────
     PromptPanel     promptPanel;

@@ -3,9 +3,10 @@
 ## STUB — DO NOT RUN
 
 This skill is **gated** (2026-08-06). `tools/export_repo.py` emits a passthrough
-plugin that never links Faust, never produces sound, and has a compile error
-(`TRUE == "TRUE"` type mismatch). Session 008 marked it "manually verified" but the
-artifact is structurally impossible — this is verification theater.
+plugin that never links Faust or produces sound. The invalid generated C++
+syntax was corrected 2026-08-12 and effect/instrument shared-code compilation is
+covered by `tests/test_export_repo.py`, but that does not make the artifact a DSP
+plugin. Session 008 marked it "manually verified" despite the unwired audio path.
 
 ### What must land before /export can run
 

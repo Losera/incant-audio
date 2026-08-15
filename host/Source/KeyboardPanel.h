@@ -54,6 +54,43 @@ public:
     void setPlayable(bool canPlay);
     bool isPlayableForTest() const { return playable; }
 
+    // Called after a successful instrument generation
+    // (PluginEditor.cpp's onFaustCompileSuccess) so QWERTY plays immediately,
+    // without the user needing to click the piano first. routeKeyStateChanged
+    // below makes the editor forward key transitions regardless of what
+    // currently holds focus, but JUCE's dispatch walk still STARTS at
+    // whichever component holds focus (juce::ComponentPeer::
+    // handleKeyUpOrDown, juce_ComponentPeer.cpp:224-243) -- right after
+    // Generate, that is still the prompt box. Moving focus onto the piano
+    // directly makes MidiKeyboardComponent::keyStateChanged the FIRST thing
+    // the walk reaches, no editor-level forwarding needed for this case.
+    // Only meaningful once the widget is actually enabled -- JUCE does not
+    // grant keyboard focus to a disabled component -- so the caller must
+    // ensure setPlayable(true) has already run this call, not rely on the
+    // next 30Hz timer tick to catch up first.
+    void focusForPlaying()
+    {
+        ++focusForPlayingCallCount;
+        keyboardComponent.grabKeyboardFocus();
+    }
+    // Proves the WIRING (this was called after a successful instrument
+    // generation), not that focus actually moved -- grabKeyboardFocus()
+    // requires a real peer/window (juce::Component::isShowing()'s
+    // requirement, juce_Component.cpp), which host/tests/EditorSessionTest.cpp
+    // never creates. Same category of limitation as
+    // routeKeyStateChangedCallCountForTest() below: a real physical/OS
+    // interaction is outside what a headless harness on this machine can
+    // observe (STATUS.md Broken #1).
+    int focusForPlayingCallCountForTest() const { return focusForPlayingCallCount; }
+
+    // Widget-level readback, distinct from isPlayableForTest()'s flag: this is
+    // what actually proved the constructor no-op bug (the flag was correctly
+    // false from the very first frame; the WIDGETS silently were not --
+    // KeyboardPanel.cpp's applyPlayableVisuals() comment has the full story).
+    bool keyboardEnabledForTest() const  { return keyboardComponent.isEnabled(); }
+    float keyboardAlphaForTest() const   { return keyboardComponent.getAlpha(); }
+    bool disabledLabelVisibleForTest() const { return disabledLabel.isVisible(); }
+
     // ── Test-only producer entry points (host/tests/EditorSessionTest.cpp) ──
     // Drive keyboardState.noteOn()/noteOff() directly -- exactly what a mouse
     // click on the component or a mapped computer-keypress does internally
@@ -124,6 +161,10 @@ public:
     int  currentOctaveForTest() const { return currentOctave; }
     int  availableRangeLowForTest() const  { return keyboardComponent.getRangeStart(); }
     int  availableRangeHighForTest() const { return keyboardComponent.getRangeEnd(); }
+    bool octaveUpIsHitTargetForTest()
+    {
+        return getComponentAt(octaveUpButton.getBounds().getCentre()) == &octaveUpButton;
+    }
 
 private:
     // juce::MidiKeyboardState::Listener. Fires synchronously from
@@ -149,6 +190,18 @@ private:
     static constexpr int kControlRowH          = 24;   // top strip; piano gets the remaining 48 of keyboardH's 72
 
     void updateOctaveLabel();
+
+    // Applies `playable`'s CURRENT value to the widgets (enabled/alpha/label).
+    // Split out of setPlayable() so the constructor can apply the true initial
+    // state without going through setPlayable()'s idempotence guard, which
+    // would otherwise no-op it (playable's member initializer already reads
+    // false, matching the ctor's setPlayable(false) call — "unchanged" by
+    // definition, so the widgets never actually got dimmed/disabled/labelled
+    // until the first REAL transition arrived, which for an effect patch
+    // never comes). No keyboardState side effects here (see setPlayable) --
+    // this only ever mirrors state onto widgets, safe to call before any note
+    // could exist.
+    void applyPlayableVisuals();
 
     PluginForgeProcessor& processor;
 
@@ -176,6 +229,7 @@ private:
 
     bool playable = false;
     int  routeCallCountForTest = 0;
+    int  focusForPlayingCallCount = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(KeyboardPanel)
 };

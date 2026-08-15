@@ -64,9 +64,25 @@ KeyboardPanel::KeyboardPanel(PluginForgeProcessor& p)
     disabledLabel.setJustificationType(juce::Justification::centred);
     disabledLabel.setFont(Theme::Type::caption());
     disabledLabel.setColour(juce::Label::textColourId, Theme::textSecondary);
+    disabledLabel.setInterceptsMouseClicks(false, false);
     addChildComponent(disabledLabel);
 
-    setPlayable(false);   // no voice contract until a patch actually declares one
+    // NOT setPlayable(false): `playable`'s member initializer already reads
+    // false, so that call would be a no-op transition and the widgets would
+    // never actually get dimmed/disabled/labelled -- confirmed the live bug
+    // this comment replaces. The keyboard looked and felt playable from the
+    // very first frame while every note was silently discarded downstream
+    // (PluginProcessor.cpp's isInstrument() gate). applyPlayableVisuals()
+    // applies the true initial state directly, without going through the
+    // idempotence guard that only makes sense for a REAL transition.
+    applyPlayableVisuals();
+}
+
+void KeyboardPanel::applyPlayableVisuals()
+{
+    keyboardComponent.setEnabled(playable);
+    keyboardComponent.setAlpha(playable ? 1.0f : 0.35f);
+    disabledLabel.setVisible(! playable);
 }
 
 KeyboardPanel::~KeyboardPanel()
@@ -127,9 +143,7 @@ void KeyboardPanel::setPlayable(bool canPlay)
         return;                       // idempotent, like ParamGridPanel::setControlStyle
 
     playable = canPlay;
-    keyboardComponent.setEnabled(playable);
-    keyboardComponent.setAlpha(playable ? 1.0f : 0.35f);
-    disabledLabel.setVisible(! playable);
+    applyPlayableVisuals();
 
     if (! playable)
     {

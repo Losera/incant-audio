@@ -35,8 +35,14 @@ def detect_plugin_type(source: str) -> dict:
     is_instrument = has_gate and has_freq
 
     return {
+        # CMake-facing (JUCE's IS_SYNTH / NEEDS_MIDI_INPUT args in CMakeLists.txt.j2)
         "is_synth": "TRUE" if is_instrument else "FALSE",
         "needs_midi": "TRUE" if is_instrument else "FALSE",
+        # C++-facing (Plugin.cpp bool return values) — real bool literals, not
+        # strings, so they can be interpolated directly instead of compared
+        # against a quoted "TRUE"/"FALSE" (PF-053: that comparison doesn't compile).
+        "is_synth_cpp": "true" if is_instrument else "false",
+        "needs_midi_cpp": "true" if is_instrument else "false",
         "vst3_category": "Instrument" if is_instrument else "Fx",
     }
 
@@ -100,9 +106,9 @@ def export_plugin(output_dir: Path, source: str, plugin_name: str = "ExportedPlu
             bool hasEditor() const override {{ return true; }}
 
             const juce::String getName() const override {{ return "{plugin_name}"; }}
-            bool acceptsMidi() const override {{ return {plugin_type["needs_midi"]} == "TRUE"; }}
+            bool acceptsMidi() const override {{ return {plugin_type["needs_midi_cpp"]}; }}
             bool producesMidi() const override {{ return false; }}
-            double getTailLengthSeconds() const override {{ return {plugin_type["is_synth"]} == "TRUE" ? 2.0 : 0.0; }}
+            double getTailLengthSeconds() const override {{ return {plugin_type["is_synth_cpp"]} ? 2.0 : 0.0; }}
 
             int getNumPrograms() override {{ return 1; }}
             int getCurrentProgram() override {{ return 0; }}
@@ -130,27 +136,27 @@ def export_plugin(output_dir: Path, source: str, plugin_name: str = "ExportedPlu
         #include <juce_audio_processors/juce_audio_processors.h>
 
         class ExportedEditor : public juce::AudioProcessorEditor
-        {{
+        {
         public:
             ExportedEditor(juce::AudioProcessor& p) : AudioProcessorEditor(p)
-            {{
+            {
                 setSize(400, 300);
-            }}
+            }
 
             void paint(juce::Graphics& g) override
-            {{
+            {
                 g.fillAll(juce::Colours::darkgrey);
                 g.setColour(juce::Colours::white);
                 g.setFont(16.0f);
                 g.drawFittedText("Exported from PluginForge\\n\\nEdit Patch.dsp and rebuild.",
                                  getLocalBounds(), juce::Justification::centred, 2);
-            }}
+            }
 
-            void resized() override {{}}
+            void resized() override {}
 
         private:
             JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ExportedEditor)
-        }};
+        };
     """)
     (source_dir / "PluginEditor.cpp").write_text(editor_cpp)
 

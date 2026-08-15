@@ -1,5 +1,6 @@
 #pragma once
 #include <juce_graphics/juce_graphics.h>
+#include <array>
 
 // ── Theme ────────────────────────────────────────────────────────────────────
 // Named colour and type tokens, replacing the 15 scattered inline-hex/bare-size
@@ -61,6 +62,35 @@ inline const juce::Colour accent        { 0xff7aa2f7 };  // values, focus, and m
 inline const juce::Colour progress      { 0xffe0af68 };  // in-progress / working state
 inline const juce::Colour danger        { 0xfff7768e };  // error-region text
 inline const juce::Colour meterHot      { 0xffff9e64 };  // clipping-proximity signal only
+
+// ── Generated-plugin accent swatches (ADR-022 §3, T7) ──────────────────────
+// A small, fixed set of alternative accents ParamGridPanel::derivePalette
+// picks from, one per generated patch -- NOT new hues: the same Tokyo Night
+// family as `accent` above, so a generated plugin's identity always reads as
+// native to the shell around it rather than a mismatched sticker slapped on.
+//
+// ForgeLookAndFeel's highlightedText pairs Theme::background directly on TOP
+// of whichever of these is picked (dark text on the fill), so contrast
+// against background is what has to hold. Measured the same way as the
+// ratios in the Colour section above (WCAG relative-luminance formula,
+// background = #1a1b26):
+//   #7aa2f7 blue    (== accent)   6.79:1
+//   #bb9af7 purple                7.39:1
+//   #7dcfff teal                  9.96:1
+//   #9ece6a green                 9.35:1
+// All four clear AA (3:1 for UI components, 4.5:1 for text) with margin --
+// the lowest of the four still beats `danger` (6.46:1), which already ships
+// as error-region text, so none of this is a new contrast risk.
+namespace GeneratedAccent
+{
+    inline const std::array<juce::Colour, 4> swatches
+    {
+        juce::Colour{ 0xff7aa2f7 },
+        juce::Colour{ 0xffbb9af7 },
+        juce::Colour{ 0xff7dcfff },
+        juce::Colour{ 0xff9ece6a },
+    };
+} // namespace GeneratedAccent
 
 // ── Geometry ────────────────────────────────────────────────────────────────
 // A deliberately small scale. New layout values should compose these tokens;

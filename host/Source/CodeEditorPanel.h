@@ -28,7 +28,20 @@
 //
 // Message-thread only. The shell pushes new source in from inside its
 // onFaustCompileSuccess callAsync hop.
-class CodeEditorPanel : public juce::Component
+//
+// PRIVATE juce::Timer: the Copy button's "Copied!" confirmation (T5) is a
+// one-shot self-reverting timer, owned by this panel rather than a detached
+// juce::Timer::callAfterDelay -- callAfterDelay's pending closure lives in
+// JUCE's own global timer queue independent of ANY component's lifetime, so
+// using it here would need a SafePointer guard against outliving this panel,
+// AND would leave a real (if safely-inert) pending callback in that global
+// queue for up to 900ms after this panel is destroyed. A Timer member has
+// neither problem: juce_Timer.cpp's own ~Timer() calls stopTimer()
+// unconditionally on destruction -- "add a call to stopTimer() to the
+// destructor of your class which inherits from Timer" is its own header's
+// literal advice, and inheriting Timer gets that for free.
+class CodeEditorPanel : public juce::Component,
+                        private juce::Timer
 {
 public:
     explicit CodeEditorPanel(PluginForgeProcessor&);
@@ -53,9 +66,23 @@ public:
     // proportionate to "point at the line", not a new rendering feature.
     void highlightErrorLine(int faustLineNumber);
 
+    // T5: before this, the only way to get the source out was selecting it
+    // by hand -- workable for a short patch, tedious for a 40-param one, and
+    // this is exactly the export path the header comment above names for the
+    // BYO-LLM flow (source + stderr pasted into someone else's model). One
+    // click, whole document.
+    void copySource();
+
     // Test-only. What is actually on screen.
     juce::String displayedSourceForTest() const { return document.getAllContent(); }
     bool         isReadOnlyForTest() const { return editor.isReadOnly(); }
+    // T5: read-only means copy/paste is the only way out of this view (the
+    // BYO-LLM flow the header comment above names) -- there was no copy
+    // affordance at all before this. triggerClick() fires the SAME onClick
+    // JUCE would fire from a real mouse click (juce_Button.h), so this is not
+    // a bypass of the button, it is how a headless test presses it.
+    void         clickCopyButtonForTest() { copyButton.triggerClick(); }
+    juce::String copyButtonTextForTest() const { return copyButton.getButtonText(); }
     // Test-only. The 1-based Faust line last passed to highlightErrorLine(),
     // or 0 if it has never been called (or was called with no line info).
     // Tracked explicitly rather than inferred from getSelectionStart(), which
@@ -65,6 +92,11 @@ public:
     int          highlightedLineForTest() const { return lastHighlightedLine; }
 
 private:
+    // One-shot: reverts the button caption and stops itself. See the class
+    // header comment for why this owns a Timer instead of using
+    // juce::Timer::callAfterDelay.
+    void timerCallback() override;
+
     PluginForgeProcessor& processor;
 
     // Declaration order matters: CodeEditorComponent holds a reference to the
@@ -74,6 +106,7 @@ private:
     juce::CodeDocument       document;
     juce::CodeEditorComponent editor { document, nullptr };
     juce::Label              header;
+    juce::TextButton         copyButton { "Copy" };
 
     int lastHighlightedLine = 0;   // see highlightedLineForTest()
 

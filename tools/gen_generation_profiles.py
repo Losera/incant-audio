@@ -41,6 +41,22 @@ def render() -> str:
             f"inline constexpr std::array<const char*, {len(terms)}> terms_{profile['id']} {{{{"
             + ", ".join(_cpp(term) for term in terms) + "}};"
         )
+    # See generation_profiles.json's "_synth_override_comment": a
+    # generator-family Auto match yields to the instrument default when the
+    # prompt also asks for a playable instrument by name. This must resolve
+    # IDENTICALLY to llm/generation_profiles.py's resolve() -- the combo box
+    # this drives (PromptPanel::updateAutoFamilyLabel) is the user's live
+    # preview of what Auto will actually pick.
+    synth_override_terms = data.get("synth_override_terms", [])
+    overridden_ids = [
+        profile["id"] for profile in profiles
+        if profile.get("overridden_by_synth_terms")
+    ]
+    lines.append(
+        f"inline constexpr std::array<const char*, {len(synth_override_terms)}> "
+        "terms_synth_override {{"
+        + ", ".join(_cpp(term) for term in synth_override_terms) + "}};"
+    )
     lines.extend([
         "",
         "inline const Profile* find(juce::String id)",
@@ -64,8 +80,28 @@ def render() -> str:
         "    const auto text = prompt.toLowerCase();",
         "    if (synthHost)",
         "    {",
-        "        if (matchesAny(text, terms_drum_synth)) return *find(\"drum_synth\");",
-        "        if (matchesAny(text, terms_generator)) return *find(\"generator\");",
+    ])
+    # Every instrument family with auto_terms, in JSON order (the same order
+    # llm/generation_profiles.py's resolve() iterates -- first match wins in
+    # both). Any profile flagged overridden_by_synth_terms gets the extra
+    # "and not a synth_override term" guard; every other check is a plain
+    # matchesAny, exactly as before this fix.
+    ordered_instrument_terms = [
+        profile["id"] for profile in profiles
+        if profile["kind"] == "instrument" and profile.get("auto_terms")
+    ]
+    for profile_id in ordered_instrument_terms:
+        if profile_id in overridden_ids:
+            lines.append(
+                f"        if (matchesAny(text, terms_{profile_id}) "
+                "&& ! matchesAny(text, terms_synth_override)) "
+                f"return *find({_cpp(profile_id)});"
+            )
+        else:
+            lines.append(
+                f"        if (matchesAny(text, terms_{profile_id})) return *find({_cpp(profile_id)});"
+            )
+    lines.extend([
         f"        return *find({_cpp(data['defaults']['instrument'])});",
         "    }",
         "    if (matchesAny(text, terms_granular_effect)) return *find(\"granular_effect\");",

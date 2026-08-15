@@ -23,6 +23,14 @@ import generation_profiles
         ("a warm polyphonic pad", "instrument", "synth"),
         ("a punchy synthesized kick drum", "instrument", "drum_synth"),
         ("a self-playing ambient drone", "instrument", "generator"),
+        # The synth-override cases: a generator-family term winning the match
+        # does not mean the user wants an unplayable drone if the prompt ALSO
+        # names a synth. Before this fix, both resolved to "generator" --
+        # kind: instrument, zero MIDI voice contract required by the
+        # generator profile's own brief -- silently, with nothing telling the
+        # user their "synth" request became a drone.
+        ("a generative synth", "instrument", "synth"),
+        ("a drone synth pad", "instrument", "synth"),
     ],
 )
 def test_auto_resolution(prompt, kind, family):
@@ -112,6 +120,28 @@ def test_profile_validator_distinguishes_generator_from_effect():
     )
     assert valid is False
     assert "must process" in error
+
+
+def test_profile_validator_rejects_miscased_voice_contract_labels():
+    # The bug this test pins: _ui_labels() used to lowercase every label
+    # before the synth/drum_synth membership check, so hslider("Freq", ...)
+    # (or any other-cased spelling) passed generate.py's validation while
+    # FaustEngine::extractVoiceControls (exact-case match,
+    # host/Source/FaustEngine.cpp) silently refused to recognise it -- a
+    # "successful" generation whose keyboard the host then disabled with no
+    # error surfaced anywhere. Confirmed red against the pre-fix
+    # implementation this session (labels.lower()'d before the membership
+    # check accepted this exact input), confirmed green against the fix
+    # (voice_contract.py's exact-case zone_labels()).
+    valid, error = generate._validate_profile_metadata(
+        _metadata(0, ["Gate", "Freq", "Gain", "Cutoff"]), _profile("synth")
+    )
+    assert valid is False
+    assert "EXACT case" in error
+    # Every zone is missing at the exact-case level, even though a
+    # case-insensitive reading would call all three present -- the error
+    # should name all three, not silently accept a partial match.
+    assert "gate" in error and "freq" in error and "gain" in error
 
 
 def test_granular_profile_requires_affordance_controls():

@@ -1,6 +1,7 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "PluginProcessor.h"
+#include "Theme.h"
 #include "UiIr.h"
 #include <map>
 #include <memory>
@@ -46,6 +47,18 @@ public:
     // cell height). The shell uses it to size the window; when the shell grants
     // less (its resize cap), the Viewport scrolls the remainder.
     int preferredContentHeight() const;
+
+    // Sectioned-layout row geometry -- shared by layoutSectioned() (which needs
+    // the running total to place each control) and contentHeightForCurrentMode()
+    // (which needs only the final total, for the shell's window-size request).
+    // ONE constant each, not two independently-typed literals: this is the exact
+    // "two copies of one layout arithmetic" shape that produced the kChromeHeight
+    // defect (see PluginEditor.h) -- discovered here because wiring applyUiIr()
+    // for the first time made contentHeightForCurrentMode() reachable with
+    // activeSections non-empty for the first time. Before that, its sqrt-grid
+    // formula was the only formula anyone had ever asked it for.
+    static constexpr int kHeadingH    = 20;   // section title row
+    static constexpr int kSectionGapH = 4;    // gap after a section's last row
 
     // Cell geometry — the single source of truth shared by layout and the shell's
     // height math.
@@ -109,8 +122,42 @@ public:
     // Called from the shell after refreshParamKnobs, on the message thread.
     void applyUiIr(const UiIr::Layout& ir);
 
+    // Heuristic IR derivation (ADR-022 Track 1.2): builds a UiIr::Layout purely
+    // from Faust group nesting already present in `params` -- no prompt change,
+    // no LLM involvement, zero headroom cost. Returns UiIr::empty() (schema 0)
+    // when sectioning would not help: <=1 non-empty group, or fewer than 4
+    // occupied slots. A heading over two knobs, or one section wrapping the
+    // whole patch, reads worse than the flat grid it would replace.
+    //
+    // Sections are ordered by a canonical rank (osc -> filter -> env -> mod ->
+    // fx -> out), NOT Faust's alphabetical group order (FaustEngine.h's `group`
+    // doc: "Faust emits the groups ALPHABETICALLY"), because alphabetical reads
+    // as Env/Filter/Fx/Osc, which is not how a musician scans a synth panel.
+    // Unranked group names keep the order they were first seen in, sorted after
+    // every ranked bucket.
+    //
+    // Pure function of `params` -- no JUCE Component state, callable from a unit
+    // test without constructing a panel.
+    static UiIr::Layout deriveLayoutFromGroups(const FaustEngine::ParamList& params);
+
+    // Heuristic per-generation accent (ADR-022 §3 / T7): a deterministic pick
+    // from Theme::GeneratedAccent::swatches, keyed on the same group names
+    // deriveLayoutFromGroups() reads plus the patch's instrument-vs-effect
+    // status (FaustEngine::isInstrument()). Pure function of its arguments --
+    // no JUCE Component state, callable from a unit test without constructing
+    // a panel, same convention as deriveLayoutFromGroups above.
+    //
+    // Same swatch every time for the same (params, isInstrument) pair within
+    // one process. WHICH of the four it lands on is not a promise -- it comes
+    // from std::hash<std::string>, whose value is implementation-defined --
+    // only that it is stable and always one of the four.
+    static juce::Colour derivePalette(const FaustEngine::ParamList& params, bool isInstrument);
+
     // Test-only: the currently active IR sections (empty if no IR applied).
     const std::vector<UiIr::Section>& activeSectionsForTest() const { return activeSections; }
+
+    // Test-only: the palette currently applied to this compile's controls.
+    juce::Colour currentPaletteForTest() const { return currentPalette; }
 
     int          controlCountForTest() const { return static_cast<int>(controls.size()); }
     // Bumped once per refreshParamKnobs. A test cannot reliably wait for "the
@@ -192,6 +239,16 @@ private:
     // shape as the old kChromeHeight (see PluginEditor.h) — do not split it.
     int contentHeightForCurrentMode() const;
 
+    // The sectioned-layout total: sum of (heading + one row per control +
+    // gap) across activeSections. Pure function of activeSections, no widget
+    // measurement needed -- every control is one full-width row regardless of
+    // section span (layoutSectioned() places width via span, height via row
+    // count only). Called from BOTH contentHeightForCurrentMode() (the
+    // shell's window-size request) and layoutSectioned() (the actual
+    // placement pass), so the two can never disagree about how tall a
+    // section is.
+    int contentHeightForSections() const;
+
     PluginForgeProcessor& processor;
 
     // Current view style. Not persisted here — PluginForgeProcessor owns the
@@ -205,17 +262,40 @@ private:
     // wastes most of the window.
     static constexpr int kRowH = 34;
 
+    // The Viewport's scrolled surface. A section heading must scroll WITH the
+    // grid (it sits inline between rows of knobs), not stay fixed against
+    // ParamGridPanel's own bounds -- so painting belongs to the scrolled
+    // component, not the outer panel. `headings` is populated by
+    // layoutSectioned() and consumed by paint(); paint() never re-derives the
+    // geometry, which is the exact kChromeHeight drift shape PluginEditor.h
+    // warns about (two independent copies of the same layout arithmetic).
+    class ContentArea : public juce::Component
+    {
+    public:
+        void paint(juce::Graphics&) override;
+
+        struct Heading { juce::Rectangle<int> bounds; juce::String title; };
+        std::vector<Heading> headings;
+    };
+
     // The grid lives inside a Viewport so N can exceed what the window shows.
     // `content` is the scrolled surface; the control widgets are ITS children.
     // Declared before `viewport` (and `controls` last) so teardown runs
     // controls → viewport → content: child widgets deregister while their parent
     // `content` is still alive, and the viewport drops its view before `content` dies.
-    juce::Component      content;
-    juce::Viewport       viewport;
-    std::vector<Control> controls;
+    ContentArea           content;
+    juce::Viewport        viewport;
+    std::vector<Control>  controls;
 
     // Message-thread only, like everything else here. See refreshCountForTest().
     int refreshCount = 0;
+
+    // This compile's derived accent (ADR-022 §3 / T7), computed once per
+    // refreshParamKnobs() call and applied to each control by
+    // applyPresentation() -- see derivePalette()'s header comment. Defaults
+    // to the first swatch (== Theme::accent) so a panel that has never
+    // compiled anything still has a defined colour rather than black.
+    juce::Colour currentPalette = Theme::GeneratedAccent::swatches[0];
 
     // The UI IR layout currently in effect (empty when none). Read by resized()
     // to decide sectioned vs default grid layout. Stored separately from the

@@ -293,6 +293,72 @@ target_link_libraries(ParamMapTest PRIVATE
     ${LIBFAUST_LIB}
 )
 
+# SoundfetchClientTest -- the sample-search subprocess bridge
+# (host/Source/SoundfetchClient.cpp), which had ZERO tests before this target
+# despite three independent, fatal, live-confirmed defects on it (see the
+# comment block at the top of tests/SoundfetchClientTest.cpp). Pure juce_core:
+# ChildProcess, JSON and File are all this class touches, so unlike
+# ParamMapTest it needs no libfaust link -- SoundfetchClient.h never includes
+# FaustEngine.h.
+juce_add_console_app(SoundfetchClientTest
+    PRODUCT_NAME "Soundfetch Client Test"
+)
+
+target_sources(SoundfetchClientTest PRIVATE
+    tests/SoundfetchClientTest.cpp
+    Source/SoundfetchClient.cpp
+)
+
+target_compile_features(SoundfetchClientTest PRIVATE cxx_std_17)
+
+target_compile_definitions(SoundfetchClientTest PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_VST3_CAN_REPLACE_VST2=0
+)
+
+target_compile_options(SoundfetchClientTest PRIVATE -fsanitize=address,undefined -g -O1)
+target_link_options(SoundfetchClientTest PRIVATE -fsanitize=address,undefined)
+
+target_link_libraries(SoundfetchClientTest PRIVATE
+    juce::juce_core
+    juce::juce_recommended_config_flags
+)
+
+# ---------------------------------------------------------------------------
+# GenerationProfilesAutoTest -- GenerationProfiles::resolveAuto()
+# (host/Source/GenerationProfiles.generated.h,
+# host/tests/GenerationProfilesAutoTest.cpp). Pure juce_core, same shape as
+# SoundfetchClientTest above: EditorSessionTest never sets -DPF_IS_SYNTH=1
+# (see OfflineSynthRenderTest's own comment for why that needed a dedicated
+# target), so resolveAuto's synthHost==true branch -- the one the
+# generator/synth-override fix touches -- is unreachable through it. This is
+# the cheapest place that can actually exercise it.
+# ---------------------------------------------------------------------------
+juce_add_console_app(GenerationProfilesAutoTest
+    PRODUCT_NAME "Generation Profiles Auto Test"
+)
+
+target_sources(GenerationProfilesAutoTest PRIVATE
+    tests/GenerationProfilesAutoTest.cpp
+)
+
+target_compile_features(GenerationProfilesAutoTest PRIVATE cxx_std_17)
+
+target_compile_definitions(GenerationProfilesAutoTest PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_VST3_CAN_REPLACE_VST2=0
+)
+
+target_compile_options(GenerationProfilesAutoTest PRIVATE -fsanitize=address,undefined -g -O1)
+target_link_options(GenerationProfilesAutoTest PRIVATE -fsanitize=address,undefined)
+
+target_link_libraries(GenerationProfilesAutoTest PRIVATE
+    juce::juce_core
+    juce::juce_recommended_config_flags
+)
+
 # ---------------------------------------------------------------------------
 # ParamIdentityTest -- the parameter-identity derivation rule
 # (host/Source/ParamIdentity.h, host/tests/ParamIdentityTest.cpp).
