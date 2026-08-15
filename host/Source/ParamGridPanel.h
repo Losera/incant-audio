@@ -1,6 +1,7 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "PluginProcessor.h"
+#include "Theme.h"
 #include "UiIr.h"
 #include <map>
 #include <memory>
@@ -139,8 +140,24 @@ public:
     // test without constructing a panel.
     static UiIr::Layout deriveLayoutFromGroups(const FaustEngine::ParamList& params);
 
+    // Heuristic per-generation accent (ADR-022 §3 / T7): a deterministic pick
+    // from Theme::GeneratedAccent::swatches, keyed on the same group names
+    // deriveLayoutFromGroups() reads plus the patch's instrument-vs-effect
+    // status (FaustEngine::isInstrument()). Pure function of its arguments --
+    // no JUCE Component state, callable from a unit test without constructing
+    // a panel, same convention as deriveLayoutFromGroups above.
+    //
+    // Same swatch every time for the same (params, isInstrument) pair within
+    // one process. WHICH of the four it lands on is not a promise -- it comes
+    // from std::hash<std::string>, whose value is implementation-defined --
+    // only that it is stable and always one of the four.
+    static juce::Colour derivePalette(const FaustEngine::ParamList& params, bool isInstrument);
+
     // Test-only: the currently active IR sections (empty if no IR applied).
     const std::vector<UiIr::Section>& activeSectionsForTest() const { return activeSections; }
+
+    // Test-only: the palette currently applied to this compile's controls.
+    juce::Colour currentPaletteForTest() const { return currentPalette; }
 
     int          controlCountForTest() const { return static_cast<int>(controls.size()); }
     // Bumped once per refreshParamKnobs. A test cannot reliably wait for "the
@@ -272,6 +289,13 @@ private:
 
     // Message-thread only, like everything else here. See refreshCountForTest().
     int refreshCount = 0;
+
+    // This compile's derived accent (ADR-022 §3 / T7), computed once per
+    // refreshParamKnobs() call and applied to each control by
+    // applyPresentation() -- see derivePalette()'s header comment. Defaults
+    // to the first swatch (== Theme::accent) so a panel that has never
+    // compiled anything still has a defined colour rather than black.
+    juce::Colour currentPalette = Theme::GeneratedAccent::swatches[0];
 
     // The UI IR layout currently in effect (empty when none). Read by resized()
     // to decide sectioned vs default grid layout. Stored separately from the

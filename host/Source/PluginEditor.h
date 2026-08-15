@@ -106,6 +106,12 @@ public:
     {
         return paramGridPanel.activeSectionsForTest();
     }
+    // T7 (ADR-022 §3): the per-generation accent the current compile derived.
+    // Same forwarding rule as every accessor here.
+    juce::Colour gridPaletteForTest() const
+    {
+        return paramGridPanel.currentPaletteForTest();
+    }
     // T3.4: TooltipWindow::getTipFor() gates on WindowingHelpers::
     // isForegroundOrEmbeddedProcess() (juce_TooltipWindow.cpp:154), which this
     // headless harness cannot satisfy -- the same category of limitation

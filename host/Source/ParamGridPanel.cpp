@@ -3,6 +3,8 @@
 #include "ParamMap.h"
 #include "Theme.h"
 #include <algorithm>   // find_if, stable_sort, count_if — deriveLayoutFromGroups + applyUiIr
+#include <functional>  // std::hash — derivePalette
+#include <set>         // canonical sorted group names — derivePalette
 // ParamMap.h is included for DISPLAY ONLY — formatZone/parseZone/mapSlotToZone
 // inside the text-box lambdas in applyPresentation() (PF-037).
 //
@@ -147,6 +149,12 @@ void ParamGridPanel::refreshParamKnobs(const FaustEngine::ParamList& params)
     activeSections.clear();
     irLookup.clear();
 
+    // ADR-022 §3 / T7: recompute this compile's accent before the per-control
+    // loop below, so applyPresentation() (called once per control from inside
+    // it) always sees the palette for the patch actually being built, never a
+    // stale one from the previous compile.
+    currentPalette = derivePalette(params, processor.isInstrumentForTest());
+
     // ── Rebuild the widgets ─────────────────────────────────────────────────
     // clear() first so each old attachment detaches (Control destroys attachment
     // before widget) before we bind a fresh one to the same slot ID: a slot may
@@ -269,6 +277,25 @@ void ParamGridPanel::applyPresentation(Control& c)
     // function, so the box is showing a slot number until something repaints.
     // updateText() re-renders it now (juce_Slider.h:844).
     sl->updateText();
+
+    // ── Accent (ADR-022 §3 / T7) ────────────────────────────────────────────
+    // Applied here, not in refreshParamKnobs(), because applyPresentation()
+    // already "owns every styling decision" (header comment) and re-runs on
+    // every setControlStyle() restyle -- so a style change can never leave a
+    // control showing the previous compile's accent. Scoped to this ONE
+    // Slider via setColour() rather than the shared ForgeLookAndFeel's
+    // ColourScheme, which is process-wide and would recolour the host chrome
+    // (title, prompt panel) along with the grid. thumb/track/rotarySliderFill
+    // are the three colourIds LookAndFeel_V4 actually reads for a Slider's
+    // value (juce_LookAndFeel_V4.cpp:1029,1024,1068) -- ToggleButton::
+    // tickColourId is deliberately not touched here: it derives from the
+    // scheme's defaultText, not defaultFill/highlightedFill
+    // (juce_LookAndFeel_V4.cpp:1342), so a toggle was never going to pick this
+    // up regardless, and Control's early return above already keeps this
+    // whole block unreachable for one anyway.
+    sl->setColour(juce::Slider::thumbColourId, currentPalette);
+    sl->setColour(juce::Slider::trackColourId, currentPalette);
+    sl->setColour(juce::Slider::rotarySliderFillColourId, currentPalette);
 
     // ── Style override ──────────────────────────────────────────────────────
     // Rotary and Horizontal are user view choices and win over the Faust Kind.
@@ -589,6 +616,38 @@ UiIr::Layout ParamGridPanel::deriveLayoutFromGroups(const FaustEngine::ParamList
         layout.sections.push_back(std::move(section));
     }
     return layout;
+}
+
+// Heuristic per-generation accent (ADR-022 §3 / T7). Distinct non-empty group
+// names go in canonically SORTED (not first-seen, unlike deriveLayoutFromGroups
+// above) so the palette cannot flip just because a regeneration reordered which
+// group Faust happened to report first among an otherwise-unchanged set --
+// std::set gives that for free. Folds in isInstrument so an instrument and an
+// effect with the same group names are not guaranteed the same accent.
+//
+// No manifest concern: this is a pure function of compile-time facts already
+// present in `params` (no wall-clock, no RNG, no container-iteration-order
+// dependence), so re-running the gallery against an unchanged fixture always
+// derives the same accent -- nothing here can churn UiDesignGallery's
+// reference manifest, which is why the contract's hazard note about pinning a
+// seed does not apply to this implementation.
+juce::Colour ParamGridPanel::derivePalette(const FaustEngine::ParamList& params,
+                                            bool isInstrument)
+{
+    std::set<std::string> groupNames;
+    for (const auto& p : params)
+        if (p.zone != nullptr && ! p.group.empty())
+            groupNames.insert(p.group);
+
+    std::string key = isInstrument ? "instrument|" : "effect|";
+    for (const auto& g : groupNames)
+    {
+        key += g;
+        key += '|';
+    }
+
+    const auto index = std::hash<std::string>{}(key) % Theme::GeneratedAccent::swatches.size();
+    return Theme::GeneratedAccent::swatches[index];
 }
 
 // ── UI IR rendering (ADR-024 / Phase 1a) ────────────────────────────────────

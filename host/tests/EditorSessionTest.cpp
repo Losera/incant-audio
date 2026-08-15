@@ -2785,6 +2785,75 @@ void scenario39_codeViewCopyButton()
     // elapsed. Nothing to wait for.
 }
 
+// 40 — ADR-022 §3 / T7: the heuristic per-generation accent. Two properties
+//      worth a red case: it is DETERMINISTIC (the same patch, recompiled,
+//      lands on the same accent -- a real risk if derivePalette ever picked
+//      up something that varies run to run, which is exactly what the
+//      contract's manifest-churn hazard warns about) and VALID (always one of
+//      Theme::GeneratedAccent::swatches, never a default-constructed or
+//      otherwise uninitialised juce::Colour). This deliberately does NOT
+//      assert that two different patches land on DIFFERENT swatches -- with
+//      only four buckets a hash collision between two arbitrary inputs is a
+//      real possibility, not a bug, and asserting otherwise would be a flaky
+//      test pinned to this session's particular std::hash implementation.
+//      Whether the four swatches actually read as distinct per-plugin
+//      identity in practice is a gallery-contact-sheet judgment
+//      (COLLABORATION.md §1), not something this scenario is positioned to
+//      answer.
+void scenario40_heuristicAccentIsDeterministicAndValid()
+{
+    scenario("40. per-generation accent: deterministic, always a known swatch",
+             "derivePalette() is a pure function of (params, isInstrument) -- "
+             "recompiling the identical patch must never change the accent, "
+             "and the result must always be a real swatch");
+
+    const auto isKnownSwatch = [](juce::Colour c)
+    {
+        for (const auto& swatch : Theme::GeneratedAccent::swatches)
+            if (swatch == c)
+                return true;
+        return false;
+    };
+
+    Session s;
+
+    // An instrument, no groups -- kGatedSawSynthPatch (§2 in this file).
+    check(loadAndSettle(s, kGatedSawSynthPatch, 1), "the gated saw synth compiled");
+    const auto instrumentPalette = s.editor.gridPaletteForTest();
+    check(isKnownSwatch(instrumentPalette), "the instrument's accent is one of the four swatches");
+
+    // Recompile the SAME source over itself (Iterate, like a real re-generation
+    // that changes nothing structural) and confirm the accent did not move.
+    check(loadAndSettle(s, kGatedSawSynthPatch, 1,
+                        PluginForgeProcessor::LoadMode::Iterate),
+          "the same instrument recompiled");
+    check(s.editor.gridPaletteForTest() == instrumentPalette,
+          "recompiling the identical patch does not change its accent");
+
+    // A grouped effect -- reuses scenario 33's four-group shape, a different
+    // patch shape (grouped, not an instrument) to exercise the other arm of
+    // derivePalette's input without asserting it differs from the above.
+    const char* kGroupedEffectPatch = R"(import("stdfaust.lib");
+oscFreq      = vgroup("Osc",    hslider("Freq",   0.5, 0, 1, 0.01));
+filterCutoff = vgroup("Filter", hslider("Cutoff", 0.5, 0, 1, 0.01));
+envAttack    = vgroup("Env",    hslider("Attack", 0.5, 0, 1, 0.01));
+fxMix        = vgroup("Fx",     hslider("Mix",    0.5, 0, 1, 0.01));
+amt = (oscFreq + filterCutoff + envAttack + fxMix) * 0.25;
+process = _ * amt, _ * amt;
+)";
+    check(loadAndSettle(s, kGroupedEffectPatch, 4), "the grouped effect compiled");
+    const auto effectPalette = s.editor.gridPaletteForTest();
+    check(isKnownSwatch(effectPalette), "the grouped effect's accent is one of the four swatches");
+
+    check(loadAndSettle(s, kGroupedEffectPatch, 4,
+                        PluginForgeProcessor::LoadMode::Iterate),
+          "the same grouped effect recompiled");
+    check(s.editor.gridPaletteForTest() == effectPalette,
+          "recompiling the identical grouped effect does not change its accent");
+
+    snapshot(s.editor, "38_heuristic_accent");
+}
+
 } // namespace
 
 int main()
@@ -2792,7 +2861,7 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInit;
 
     std::printf("EditorSessionTest -- a simulated human session against the real editor\n");
-    std::printf("  39 scenarios, no network, no quota, snapshots to artifacts/images/\n");
+    std::printf("  40 scenarios, no network, no quota, snapshots to artifacts/images/\n");
 
     auto tmp = juce::File::getSpecialLocation(juce::File::tempDirectory)
                    .getChildFile("pluginforge_editor_session");
@@ -2838,6 +2907,7 @@ int main()
     scenario37_tooltipWindowExists();
     scenario38_sampleBrowserStatusTooltipMatchesText();
     scenario39_codeViewCopyButton();
+    scenario40_heuristicAccentIsDeterministicAndValid();
 
     tmp.deleteRecursively();
 
