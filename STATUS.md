@@ -429,6 +429,30 @@ risk in the session doc's change report — the touches-only hook remains not-ye
 `provides`/`depends` half's exact limitation (no contract exists for `onFaustCompileSuccess`'s
 call order) is now demonstrated twice, by two different mechanisms, in two independent trials.
 
+---
+
+**2026-08-16, later still: Next-three #2 (evidence) run again — the Mechanism B pilot session
+005 specified and never ran.** `docs/sessions/016-mechanism-b-pilot.md`. Five single-commit
+diffs touching `ParamPool`/`ParamMap`/`ParamIdentity`, one a deliberately planted canary
+reimplementing `ParamMap::mapSlotToZone`'s log-curve math inline inside `pushToFaust` — exactly
+the PF-001/PF-037 shape `PARAM_CONTRACT.md` names by number. Five independent, context-isolated
+reviewer agents (fresh spawns, not context-inheriting forks — a fork would have known which diff
+was the canary), each given only one diff and `PARAM_CONTRACT.md`, diff-to-reviewer assignment
+randomized after the diffs were built. **The canary was caught**: correct file:line, the contract
+clause quoted verbatim, a reproducible trigger, plus an unplanted secondary finding (the canary
+also silently ignores an explicit `[scale:]` override). Pilot does not hit its stop condition.
+**Unplanned second result**: 2 of the 4 diffs authored as "clean" control material were not —
+a `jassert(slots.size() == POOL_SIZE)` that can never fire (the constructor loop `push_back`s
+unconditionally on every path, confirmed by hand) and a `slug()` 64-char truncation that changes
+already-accepted output without bumping `ParamIdentity::kSchemeVersion`, silently breaking the
+persistence one-way-door contract for any patch with a long enough group/label slug (also
+confirmed by hand: no `kSchemeVersion` touch appears anywhere in that diff). Mechanism B caught
+both, with the same per-clause rigor, and produced zero false positives on the two diffs that
+really were clean. Session 005's own verdict is unchanged by a pass: this earns a second, larger
+trial before wider adoption, not a green light — COLLABORATION.md is not amended, Mechanism B is
+not adopted as process. All five pilot diffs lived only on a throwaway branch and were deleted
+after the write-up; nothing from this trial landed or was intended to.
+
 ## Assumed, never checked
 
 **One claim** — the refine-preamble claim moved into Works this session with a live 2/2
@@ -448,14 +472,20 @@ measurement (see the first Works bullet above); the efficacy pilot remains.
    confirm it sounds right and doesn't glitch. Blocked on a JACK server (`pipewire-jack` is not
    installed, no jackd running) — installing one is a dependency decision for you, not made
    this session.
-2. *(evidence)* **~~Adversarial Mechanism A trial~~ — DONE 2026-08-16.** See Works above
-   and `docs/sessions/015-mechanism-a-adversarial-trial.md`: a genuine two-agent, real-peer
-   trial found a real coupling and a real leak, neither reasoned-about. **Proposed
-   replacement for this slot** (your call — trial's own `YOUR MOVE` left the next step
-   open): session 005 §2's Mechanism B pilot has never been run at all — "five Tier-2
-   changes touching `ParamPool`/`ParamMap`/`ParamIdentity`, one a deliberately planted
-   canary, stop if it misses the canary." Fully specified, zero design work needed, same
-   family as the trial just closed. Swap for a different evidence item if you'd rather.
+2. *(evidence)* **~~Mechanism B pilot~~ — DONE 2026-08-16.** `docs/sessions/016-mechanism-b-pilot.md`:
+   the five-diff/one-canary trial session 005 §2 specified. The canary was caught — file:line
+   citation, contract clause quoted verbatim, reproducible trigger — so the pilot does not hit
+   its own stop condition. Unplanned: 2 of the 4 diffs built as "clean" control material turned
+   out to contain real, independently-confirmed defects (a tautological `jassert` that can
+   never fire; a `slug()` truncation that silently breaks the `kSchemeVersion` one-way-door
+   contract) that I introduced by mistake while authoring them — Mechanism B caught both, zero
+   false positives on the two diffs that really were clean. Session 005's own verdict stands
+   unchanged by a pass: "a pass here earns a second, larger trial before any wider adoption —
+   not a green light." COLLABORATION.md is NOT amended; Mechanism B is not adopted as process.
+   **Proposed replacement for this slot** (your call, per the doc's own `YOUR MOVE`): the
+   second, larger trial session 005 itself named as the condition for wider adoption — this
+   time with control diffs verified clean by someone other than the pilot's own author, since
+   this run's "clean" material wasn't. Swap for a different evidence item if you'd rather.
 3. **~~The generation-refinement architecture-planning conversation~~ — DONE 2026-08-16.**
    ADR-027 (`docs/decisions.md`, Proposed): no automated critique/refine gate on live
    generation — the human-driven Add/Redo loop already serves that, at lower cost, without
