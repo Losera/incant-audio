@@ -456,18 +456,17 @@ measurement (see the first Works bullet above); the efficacy pilot remains.
    changes touching `ParamPool`/`ParamMap`/`ParamIdentity`, one a deliberately planted
    canary, stop if it misses the canary." Fully specified, zero design work needed, same
    family as the trial just closed. Swap for a different evidence item if you'd rather.
-3. **The generation-refinement architecture-planning conversation.** ADR-021 named
-   "acceptance criteria — capturing what a generation was asked for so the result can be
-   checked against it" as a real, deliberately deferred need; the spectral judge (PF-041/
-   PF-042) partially addresses category-level compliance, and this session's live 2/2
-   refine-preamble result (Works above) is the first datum on the refinement side. Promoted
-   from Displaced: with the model now shown to respect both refine modes, the broader
-   question — does single-pass generation reliably meet stated intent, and what would a
-   refinement/critique pass cost — is the natural next planning conversation.
+3. **~~The generation-refinement architecture-planning conversation~~ — DONE 2026-08-16.**
+   ADR-027 (`docs/decisions.md`, Proposed): no automated critique/refine gate on live
+   generation — the human-driven Add/Redo loop already serves that, at lower cost, without
+   contradicting COLLABORATION.md §1's own stated philosophy. PF-041/PF-042 authorized to be
+   fixed instead, scoped to `bench/score_efficacy.py`'s offline benchmark path only.
+   **Replacement for this slot: do the PF-041/PF-042 fix ADR-027 just authorized** — an
+   independent per-effect ground truth (not L4's own prompt) for PF-041, and a rubric-vs-
+   judge-model investigation for PF-042, checked against the existing 44-record set.
 
 **Displaced, not urgent.** **A piano roll** (requested, unplanned; needs a note grid and a
-clock). The generation-refinement architecture-planning conversation was promoted to
-Next-three #3 this session.
+clock).
 
 ## Waiting on you
 
