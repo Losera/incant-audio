@@ -250,8 +250,21 @@ void PluginForgeProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     // adding an engine call outside the bracket reintroduces the swap race.
     if (!faustEngine.enterAudio())
     {
-        // No DSP live: input passes through untouched; still feed the meter so
-        // the editor shows the dry signal (audio-path-alive indicator).
+        // No DSP live: an effect's buffer holds the host's real input, so
+        // leaving it untouched is a legitimate passthrough. An instrument has
+        // no input bus (getTotalNumInputChannels() == 0,
+        // juce_AudioProcessor.h:743) -- there is nothing to "pass through,"
+        // and the buffer instead holds whatever the host/JUCE last left in
+        // that memory. pluginval caught this as literal NaN/subnormal output
+        // from a freshly-loaded, never-generated PluginForge Synth: block
+        // sizes 64/128/512/1024 at all three tested sample rates, ~44-45% of
+        // Audio-processing sub-tests failing (200/450). Found 2026-08-16,
+        // unfiled before this session.
+        if (getTotalNumInputChannels() == 0)
+            buffer.clear();
+
+        // Still feed the meter so the editor shows the dry signal
+        // (audio-path-alive indicator).
         //
         // NOTE: MIDI arriving in this block is DROPPED, deliberately. The voice
         // zones belong to a DSP that is mid-swap, so writing them is a

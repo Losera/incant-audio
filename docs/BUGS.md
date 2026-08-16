@@ -96,6 +96,7 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-057 | `KeyboardPanel`'s constructor called `setPlayable(false)`, but the member initializer already reads `false` and `setPlayable` early-returns on an unchanged value — the widget-disabling code (dim, disabled label) never ran on construction. A fresh editor's keyboard looked and felt fully playable while every note was silently discarded downstream | high | fixed | S3 Plugin UX | `KeyboardPanel.cpp` ctor / `applyPlayableVisuals` | 2026-08-13 | `410770b` |
 | PF-058 | Auto family resolution could route a prompt naming both generator-family language ("drone", "generative") AND a synth ("a generative synth") to the mute `generator` family — kind instrument, zero MIDI voice contract by design — silently, with nothing telling the user their "synth" request became an unplayable drone | medium | fixed | S2 Prompting UX | `generation_profiles.py` `resolve`; `GenerationProfiles.generated.h` `resolveAuto` | 2026-08-13 | `addfd57` |
 | PF-059 | `generate.py`'s voice-contract gate lowercased UI labels before the synth/drum_synth membership check, so `hslider("Freq", ...)` (or any other-cased spelling) passed generation validation while `FaustEngine::extractVoiceControls`'s exact-case match silently refused to recognise it — a "successful" generation with a dead keyboard | high | fixed | S1 Backend | `generate.py` `_validate_profile_metadata`; `voice_contract.py` | 2026-08-13 | `2b8d4e3` |
+| PF-062 | `processBlock`'s pre-generation early-return path (`enterAudio()` returns false, no patch loaded yet) left the output buffer untouched on the assumption it held "the host's real input" — true for the Fx target, false for the Synth target, which has no input bus at all. A freshly-loaded, never-generated `PluginForge Synth` echoed back whatever memory the host/JUCE last left in that buffer: `pluginval --strictness-level 5` found literal NaN and subnormal output, 200/450 Audio-processing sub-tests failing | high | fixed | S1 Backend | `PluginProcessor.cpp:251-273` | 2026-08-16 | 2026-08-16, same session |
 
 ---
 
@@ -1967,3 +1968,64 @@ were needed; `PromptPanel.cpp`/`PluginProcessor.*` have zero `"provider"`/`"mode
 fields today, so `generate_json()` always falls through to the env-resolved default), but that
 chain was not exercised end-to-end through the host UI. Per `CLAUDE.md`, that listening/UI pass
 is a human judgment, not delegable to a hook or a model.
+
+---
+
+### PF-062 — Freshly-loaded `PluginForge Synth`, before any patch is generated, output NaN/subnormal garbage instead of silence.
+**fixed 2026-08-16 · S1 Backend**
+
+Discovered while closing STATUS.md's "Get it into a DAW" item: `COPY_PLUGIN_AFTER_BUILD` was
+flipped from `FALSE` to `TRUE` (`host/CMakeLists.txt:42,120` — a separate, ungated build/install
+change, not a defect), which for the first time put a build built from current `main` — rather
+than a manually-copied binary of unknown provenance — into `~/.vst3`. `pluginval
+--strictness-level 5` against that binary failed 200/450 Audio-processing sub-tests: NaN and
+subnormal samples at block sizes 64/128/512/1024 (all three tested sample rates), consistent
+enough across the run to rule out `pluginval`'s random seed as the explanation (confirmed by
+re-running with three different explicit seeds after the fix — all `SUCCESS`). The earlier
+"clean" `PluginForge Synth.vst3` this project's evidence chain had never actually run pluginval
+against was of unknown build origin — see STATUS.md Broken #2's stale "pluginval is not on
+PATH" / "never installed" claims, both false at HEAD (`pluginval 1.0.4` at `~/.local/bin`, an
+AUR install; the VST3 bundles already existed in `~/.vst3` with real `.so` binaries newer than
+either build-dir copy).
+
+**Root cause.** `PluginProcessor.cpp:251` — `processBlock`'s early-return path, taken whenever
+`faustEngine.enterAudio()` returns `false` (`FaustEngine.h:264`: this happens exactly when
+`ready == false`, i.e. no patch has ever been JIT-compiled). The comment there read "input
+passes through untouched" and left the buffer alone. That is correct for `PluginForge Host`
+(the Fx target): its input bus is required, so the buffer holds the host's real input audio and
+passthrough is the right behavior. It is wrong for `PluginForge Synth` (the instrument target):
+confirmed via `pluginval`'s own bus report, `Main bus num input channels: 0` — there is no input
+bus, so there is nothing to "pass through." The buffer instead held whatever memory the
+host/JUCE runtime had last written there, uncleared, and that memory could be NaN or a subnormal
+float left over from prior processing.
+
+**Fix.** `PluginProcessor.cpp:251-273` — inside the early-return branch, call `buffer.clear()`
+when `getTotalNumInputChannels() == 0` (`juce_AudioProcessor.h:743`, a cached, `noexcept` field
+read — RT-safe, no allocation). This only changes behavior for the Synth target; the Fx target
+has a nonzero input channel count and keeps its existing passthrough exactly as before.
+
+**Verified.**
+- `pluginval --strictness-level 5` against the rebuilt `PluginForge Synth.vst3`: `SUCCESS`,
+  repeated with three additional explicit random seeds, all `SUCCESS`.
+- New test, `host/tests/OfflineRenderTest.cpp` "PF-062" block (built into both
+  `OfflineRenderTest`, PF_IS_SYNTH=0, and `OfflineSynthRenderTest`, PF_IS_SYNTH=1): poisons a
+  fresh, never-generated processor's output buffer with `NaN` before calling `processBlock`,
+  then asserts the instrument build clears it (`! anyNaN && ! anyInf`) and the effect build
+  still echoes the poison through untouched (proving the Fx passthrough path is unchanged).
+  **Confirmed red-then-green**: temporarily disabled the `buffer.clear()` call (`if (false)`)
+  and reran `OfflineSynthRenderTest` — the new check failed exactly as expected before the fix
+  and passed after restoring it.
+- `tools/check.sh full`: green except one pre-existing, unrelated failure (see below).
+
+**Not verified.** Real-DAW scan/load behavior — no DAW or plugin host was installed on this
+machine as of this session (Carla installation was in progress, pending the human running
+`sudo pacman -S carla` themselves). `pluginval` covers the plugin-format contract; it is not a
+substitute for a real host actually loading and playing the plugin.
+
+**Unrelated finding surfaced by the same `tools/check.sh full` run, not fixed here (out of
+scope):** `tests/test_control_wiring.py::TestDigestReportsCI::test_green_on_an_older_commit_is_not_reported_as_a_pass`
+fails at HEAD — the `/orient` digest's CI-staleness banner does not include the required
+"N commit(s) behind" phrase. Confirmed pre-existing and unrelated: this session's diff touches
+only `host/CMakeLists.txt`, `host/Source/PluginProcessor.cpp`, and
+`host/tests/OfflineRenderTest.cpp` — none of which the failing test or the code it exercises
+touches. Needs its own investigation.

@@ -1,4 +1,4 @@
-# PluginForge — Status  (2026-08-15)
+# PluginForge — Status  (2026-08-16)
 
 Rewritten each session per COLLABORATION.md §5. Single writer, no merge conflicts.
 Narrative history lives in git.
@@ -10,6 +10,40 @@ behind HEAD.
 ---
 
 ## Works — and how we know
+
+**2026-08-16: Next-three #1 ("get it into a DAW") advanced — real new evidence,** including
+a real audio-thread bug found and fixed. Two of this file's own claims were stale and false:
+`pluginval` was NOT absent from PATH (`1.0.4` at `~/.local/bin`, AUR-installed) and the VST3
+was NOT "never installed" — `~/.vst3/PluginForge {Host,Synth}.vst3` already held real built
+`.so` binaries of unknown provenance, installed by hand outside any recorded process
+(`COPY_PLUGIN_AFTER_BUILD FALSE` meant CMake never did it). `pluginval --strictness-level 5`
+against those unknown-provenance binaries: `SUCCESS`, both. **With your approval**,
+`COPY_PLUGIN_AFTER_BUILD` flipped `FALSE`→`TRUE` (`host/CMakeLists.txt:42,120` — confirmed by
+rebuilding and watching CMake install into `~/.vst3` unprompted) so builds install
+automatically and match what actually gets tested going forward. Rebuilding from current
+`main` — for the first time, a *known-provenance* binary — and re-running `pluginval` against
+`PluginForge Synth.vst3` **failed**: 200/450 Audio-processing sub-tests, NaN/subnormal output,
+reproducible across three additional random seeds. Root-caused to `PluginProcessor.cpp:251`'s
+pre-generation early-return path leaving the output buffer untouched on the assumption it held
+"the host's real input" — true for the Fx target, false for the Synth target (no input bus at
+all, confirmed by `pluginval`'s own bus report, `Main bus num input channels: 0`). Filed and
+fixed as **PF-062** (`docs/BUGS.md`): `buffer.clear()` when `getTotalNumInputChannels() == 0`.
+New regression test in `host/tests/OfflineRenderTest.cpp` (poisons the buffer with NaN before
+any patch is loaded, runs in both the effect and instrument test binaries), **confirmed
+red-then-green** by temporarily disabling the fix and re-running. `pluginval` now `SUCCESS` on
+both plugins across multiple seeds. `tools/check.sh full` green except one pre-existing,
+unrelated failure (see Broken, new #13). **With your approval**, Carla (2.5.10, official
+`extra` repo) installed as the project's plugin host — you ran the `sudo pacman -S` yourself.
+Its own headless scanner, `carla-discovery-native` — a second, independent (non-JUCE) host
+implementation — successfully instantiated both plugins: Host reports `midi.ins::0` (correctly
+not an instrument), Synth reports `midi.ins::1` (correctly an instrument), neither crashed or
+hung. **Not yet done**: an actual interactive GUI host session (Carla's Rack/Patchbay,
+screenshot-verified) — `carla-single` needs a JACK server and this machine has neither
+`pipewire-jack` nor a running JACK daemon; installing one is a further dependency decision, not
+made this session. The four MIDI-fidelity gaps named in Broken #2 (monophonic, block-granularity
+timing, hardcoded tail, no CC mapping) were triaged against the code, each confirmed real and
+already documented in-repo (three already had `SUBTLE`/inline comments); none was fixed, per
+Broken #2's own "triaged, not necessarily fixed" bar.
 
 **2026-08-15 integration session: four stranded branches (13 commits across sessions
 013/014, PF-060, and the export fix) landed on `main`, plus a fifth branch of
@@ -290,11 +324,20 @@ reaches a state where that hop is the ONLY remaining unverified link, instead of
 masked behind three shell-level bugs that made the keyboard non-functional before a
 physical key was ever involved.
 
-**2. It has never been in a DAW.** *(Unchanged.)* `COPY_PLUGIN_AFTER_BUILD FALSE`
-(`host/CMakeLists.txt`) means the VST3 has never been installed or scanned, and pluginval
-is not on PATH. Four concrete gaps behind "must take MIDI in any DAW": monophonic by
-design, block-granularity MIDI (~10.7 ms jitter), a hardcoded 2.0 s tail length, no MIDI CC
-mapping.
+**2. It has never been in an interactive DAW/host GUI.** *(Narrowed 2026-08-16 — was "never
+been in a DAW" outright, which was already half-false; see the Works entry above.)*
+`COPY_PLUGIN_AFTER_BUILD` is now `TRUE`; `pluginval` (`SUCCESS`, both plugins, multiple seeds)
+and Carla's independent `carla-discovery-native` scanner (both plugins instantiate correctly)
+are real evidence the plugin format contract holds. What remains: no interactive host session
+— Carla is installed but `carla-single`/full Carla need a JACK server this machine doesn't have
+running (no `pipewire-jack`, no jackd), so nothing has visually loaded and played a note yet.
+Four concrete gaps behind "must take MIDI in any real session," triaged 2026-08-16 against the
+code (all real, all pre-existing, none fixed): monophonic by design (`FaustEngine.cpp:519-524`,
+last-note-priority, deliberate — not a bug), block-granularity MIDI (~10.7 ms jitter,
+`PluginProcessor.cpp:279-283`, already documented in-code), a hardcoded 2.0 s tail length
+(`PluginProcessor.h:85`, ignores what a given generated patch actually needs), no MIDI CC
+mapping (`PluginProcessor.cpp:288-317`'s MIDI walk has no `isController()` branch — CC
+messages are silently dropped).
 
 **3. ~~"Refine" is a crude binary, not a refinement architecture.~~** *(unfiled, medium,
 closed 2026-08-06 — ADR-011's second amendment.)* The single toggle became a 3-mode
@@ -346,6 +389,15 @@ Freesound key is sent and rejected (HTTP 403) — needs a replacement key from
 freesound.org. Internet Archive (the default provider) now works; Freesound will
 report the real 403 instead of failing silently once PF-054/055 are live.
 
+**13. The `/orient` digest's CI-staleness banner doesn't quantify how far behind HEAD the
+tested commit is.** *(unfiled, low, found 2026-08-16.)*
+`tests/test_control_wiring.py::TestDigestReportsCI::test_green_on_an_older_commit_is_not_reported_as_a_pass`
+fails at HEAD: the banner names the caveat ("green on a commit that is not HEAD") but not the
+commit count. Surfaced by an unrelated `tools/check.sh full` run this session (a PF-062
+verification pass) — confirmed pre-existing, not caused by that session's diff (which touched
+only `host/CMakeLists.txt`, `host/Source/PluginProcessor.cpp`, `host/tests/OfflineRenderTest.cpp`,
+none of which the failing test or its subject code touches). Not investigated further.
+
 ---
 
 ## Assumed, never checked
@@ -359,10 +411,14 @@ measurement (see the first Works bullet above); the efficacy pilot remains.
 
 ## Next three things
 
-1. **Get it into a DAW.** Broken #2, long-standing, blocks the one validation this project
-   cannot claim yet: does a generated plugin actually load and behave in a real host. Needs
-   `COPY_PLUGIN_AFTER_BUILD` on, `pluginval` installed, and the four MIDI-fidelity gaps
-   named in Broken #2 at minimum triaged, not necessarily fixed, before a first real scan.
+1. **Get it into an interactive DAW/host session.** Broken #2, narrowed 2026-08-16: format-level
+   validation now exists (`pluginval` SUCCESS, Carla's independent `carla-discovery-native`
+   scan SUCCESS, both plugins, after PF-062's real audio-thread bug was found and fixed) and
+   the four MIDI-fidelity gaps are triaged. What's left is the one thing neither scanner does
+   — an actual interactive session: load the plugin in Carla's Rack/Patchbay GUI, play a note,
+   confirm it sounds right and doesn't glitch. Blocked on a JACK server (`pipewire-jack` is not
+   installed, no jackd running) — installing one is a dependency decision for you, not made
+   this session.
 2. *(evidence)* **Adversarial Mechanism A trial.** Session 006's recommendation: run a
    `touches`-declared-disjoint but actually-coupled brief pair in parallel and measure
    whether the mechanism catches the coupling. Today's Mechanism A data is one favorable
@@ -435,3 +491,9 @@ Next-three #3 this session.
 8. **New 2026-08-13: a replacement Freesound API key.** Broken #12 / PF-056 — the
    configured key is sent and rejected (HTTP 403). Code can't fix a revoked/expired
    credential; get a new one from freesound.org when convenient.
+9. **New 2026-08-16: install a JACK server (or `pipewire-jack`) to finish Next-three #1.**
+   Carla is installed and its headless scanner already validates both plugins, but
+   `carla-single`/the full Carla GUI need JACK to actually run and load a plugin
+   interactively — this machine has neither `pipewire-jack` nor a running jackd. Your call
+   on which (`pipewire-jack` is likely the lower-friction path since PipeWire is already the
+   running audio server) — a new system dependency, not installed this session.

@@ -39,7 +39,7 @@ juce_add_plugin(PluginForgeHost
     IS_MIDI_EFFECT FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS TRUE
     VST3_CATEGORIES Fx
-    COPY_PLUGIN_AFTER_BUILD FALSE
+    COPY_PLUGIN_AFTER_BUILD TRUE
     NEEDS_WEB_BROWSER FALSE
     NEEDS_CURL FALSE
 )
@@ -100,10 +100,10 @@ target_link_libraries(PluginForgeHost PRIVATE
 # layout and acceptsMidi() off JucePlugin_IsSynth, which JUCE defines from
 # IS_SYNTH -- so there is no PluginForge-specific build flag to keep in sync.
 #
-# Standalone is built for the same reason the Fx target builds it: the VST3 is
-# never installed to a scan path (COPY_PLUGIN_AFTER_BUILD FALSE), so the
-# Standalone is the only way to play a generated instrument from a MIDI
-# keyboard without a DAW -- which is the listening pass this whole effort is for.
+# Standalone is built alongside the VST3 (COPY_PLUGIN_AFTER_BUILD TRUE, since
+# 2026-08-16) so it remains the fastest way to play a generated instrument from
+# a MIDI keyboard without launching a host -- the VST3 install path is for
+# scanning/loading in an actual DAW or plugin host, a separate check.
 juce_add_plugin(PluginForgeSynth
     PLUGIN_MANUFACTURER_CODE Pfge
     PLUGIN_CODE Pfs1               # MUST differ from the Fx target's Pfh1 --
@@ -117,7 +117,7 @@ juce_add_plugin(PluginForgeSynth
     IS_MIDI_EFFECT FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS TRUE
     VST3_CATEGORIES Instrument
-    COPY_PLUGIN_AFTER_BUILD FALSE
+    COPY_PLUGIN_AFTER_BUILD TRUE
     NEEDS_WEB_BROWSER FALSE
     NEEDS_CURL FALSE
 )
