@@ -1083,3 +1083,80 @@ or reversed, not silently corrected.
   commit, verified green (`tools/check.sh full`, `EditorSessionTest` 213/213), while
   the amendment's own Status field reads Proposed. Same acknowledgement, not silent
   correction.
+
+---
+
+## ADR-027 — Generation-intent fidelity: no automated critique gate on live generation; fix the semantic judge for offline benchmark use only
+
+| | |
+|---|---|
+| **Status** | Proposed |
+| **Date** | 2026-08-16 |
+
+**Context**
+ADR-021 rejected a structured PluginSpec and named the remaining unmet need explicitly:
+"acceptance criteria — capturing what a generation was asked for so the result can be
+checked against it... tracked separately." That need has sat untracked since 2026-08-04.
+Two unrelated tools have since been built that partially touch it:
+
+- `bench/score_efficacy.py`: an LLM grades a generation 0/1/2 against the prompt.
+  PF-041/PF-042 (found 2026-07-30, still open): L4-tier grading is tautological (the
+  "ground truth" is byte-identical to the L4 generation prompt, verified 10/10) and the
+  0/1/2 scale collapses to binary in practice ('1' returned once in 44 gradings).
+- `bench/spectral_judge.py` (new, closed Broken #9 2026-08-06): acoustic-feature
+  thresholds (band gain, centroid shift, crest factor, tail length) against five
+  keyword-matched FX categories only (lowpass, highpass, reverb/delay/echo,
+  compressor/limiter/gate/expander, distortion). No instrument coverage, no qualitative
+  intent. Report-only; never gates a generation.
+
+Neither tool can answer "does this match what was asked" in the general case.
+COLLABORATION.md §1 states this is not incidental: "whether a generated plugin sounds
+like what was asked for... is not delegable to a hook or a model." The mechanism that
+does work, per a live 2/2 measurement the same session this ADR was drafted, is the
+human-driven refine loop (Add/Redo) — a human notices a mismatch and asks for a fix,
+honored by the model.
+
+Separately, PF-011 records the efficacy pilot "generalizes to nothing" (N=50, 1 model,
+2/5 categories) — partly because no trustworthy automated signal exists to bulk-evaluate
+unattended runs against, which is the actual, still-live cost of ADR-021's deferral.
+
+**Decision**
+1. No automated critique/refine pass is added to the live, user-facing generation path.
+   The existing Add/Redo refine workflow already serves this, at lower cost (no extra
+   LLM call per generation, no added latency, no risk of manufacturing false confidence
+   that erodes the listening pass COLLABORATION.md §1 protects) and without contradicting
+   this project's stated philosophy.
+2. PF-041 and PF-042 are fixed, scoped explicitly to `bench/score_efficacy.py`'s offline
+   benchmark path — never wired into `llm/generate.py` or any live request.
+   - PF-041: replace the L4-prompt-as-ground-truth with an independently authored
+     acceptance spec per effect, written once, never derived from any tier's actual
+     generation prompt.
+   - PF-042: investigate rubric phrasing vs. judge-model bluntness (untested which, per
+     `docs/BUGS.md`) before deciding whether a rubric rewrite or a different/larger judge
+     model is the fix; re-measure the 0/1/2 distribution against the same 44-record set
+     as a regression check.
+3. `bench/spectral_judge.py` stays report-only. Broadening its category coverage or
+   promoting it to a gate is out of scope for this ADR — revisit separately if the
+   false-positive rate across a larger corpus is ever measured.
+
+**Reasons**
+- Tier 2 (`llm/prompts/*`, `llm/generate.py`) evidence bar would apply to any live-path
+  change; a live critique gate's own reliability is unmeasured (no data exists on either
+  judge's false-positive/false-negative rate against real prompts), so it could not clear
+  that bar today regardless of direction taken.
+- Fixing PF-041/PF-042 is bounded, well-diagnosed, offline-only work with an existing
+  regression harness (the 44-record set) to check against — much lower risk than building
+  a new pipeline stage.
+- Keeps faith with COLLABORATION.md §1's explicit, load-bearing position rather than
+  routing around it silently.
+
+**Consequences**
+- PF-011's efficacy pilot remains ungeneralizable until PF-041/PF-042 are actually fixed
+  (this ADR authorizes the fix; it does not do it).
+- No new pipeline stage, no new RT-safety surface, no new live-path failure mode.
+- The "acceptance criteria" need ADR-021 deferred is now scoped (offline benchmark
+  evaluation only) rather than open-ended.
+- Revisit if: unattended/batch generation (running many prompts with no human present,
+  beyond bench pilots) becomes an actual project goal — that changes the cost/benefit
+  calculus Decision §1 rests on, since there would then be a live consumer with no human
+  refine loop available to fall back on.
