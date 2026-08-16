@@ -1285,7 +1285,7 @@ which is `tests/test_prompt_claims.py`'s job in `check.sh full`, not the hook's.
 
 ---
 
-### PF-029 — the local ladder does not run the tests CI runs. *(open, found 2026-07-28)*
+### PF-029 — the local ladder does not run the tests CI runs. *(fixed `558ac96`, 2026-07-28)*
 
 `tools/check.sh full` builds `PluginForgeHost`, `PluginForgeHost_Standalone`,
 `PluginForgeHost_VST3` and `ParamPoolTsanTest` (`check.sh:96-97`) and runs exactly one of
@@ -1386,7 +1386,7 @@ returns before any generation is attempted, so there is no outcome to record.
 
 ---
 
-### PF-031 — nobody knows how noisy the benchmark is. *(open, found 2026-07-28)*
+### PF-031 — nobody knows how noisy the benchmark is. *(fixed 2026-07-30, found 2026-07-28)*
 
 The 25-prompt harness has been run many times and **never twice on an unchanged prompt**.
 So its run-to-run spread is unknown, and every historical claim of the form "the rate moved
