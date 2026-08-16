@@ -400,6 +400,35 @@ none of which the failing test or its subject code touches). Not investigated fu
 
 ---
 
+**2026-08-16, later the same day: Next-three #2 (evidence) run — Mechanism A's second,
+genuinely adversarial trial.** `docs/sessions/015-mechanism-a-adversarial-trial.md`. Session
+006 (2026-08-05) found four honest `touches` declarations and flagged its own limitation:
+"reasoned about, not actually run unsafely and caught." This session closed that gap for
+real. Two independently-briefed, context-isolated subagents (each in its own `git worktree`,
+neither aware the other existed) implemented two small, honestly-scoped features —
+`CodeEditorPanel` grabbing focus on new source, `KeyboardPanel` showing a one-shot onboarding
+hint on focus-gain — both hooking into `PluginEditor.cpp`'s `onFaustCompileSuccess` via
+**existing** call sites, in a region with no `CONTRACT.md`. Both declared honest `touches`
+sets (2/2 this trial, 6/6 across both trials now); `git apply` of both diffs onto a fresh
+`main` worktree produced **zero conflicts** — Mechanism A's raw `touches ∩ touches = ∅` check
+says "safe," correctly, at the file level. Merged and mechanically verified under a **real**
+desktop peer (this machine's actual Hyprland session — confirmed CI's `xvfb` would not have
+helped; the test harness never calls `addToDesktop()` anywhere): `codeView focus=false,
+keyboard focus=true` — `PluginEditor.cpp`'s existing, untouched call order
+(`showSource()` before `focusForPlaying()`) makes P-CODEVIEW's entire stated feature silently
+inert for every instrument generation, invisible to any file-level touches check because the
+coupling runs through a third file neither brief declared. New `EditorSessionTest.cpp`
+scenario (`scenarioMechanismATrial_focusOwnershipAfterMerge`) proved this mechanically — full
+41-scenario suite, 314 checks, 0 failures, including the two new assertions. **Second,
+independent finding, same session:** a real LeakSanitizer-confirmed leak in the new
+`KeyboardPanel` code (`juce::Timer::callAfterDelay`, `juce_Timer.cpp:395`), invisible to
+both individual agents' own build+verify passes for the identical reason — neither ever ran
+against a real peer. Neither brief's code was landed; both worktrees and the merge worktree
+were removed after the write-up, per the trial's own throwaway scope. Full recommendation and
+risk in the session doc's change report — the touches-only hook remains not-yet-built, and the
+`provides`/`depends` half's exact limitation (no contract exists for `onFaustCompileSuccess`'s
+call order) is now demonstrated twice, by two different mechanisms, in two independent trials.
+
 ## Assumed, never checked
 
 **One claim** — the refine-preamble claim moved into Works this session with a live 2/2
@@ -419,11 +448,14 @@ measurement (see the first Works bullet above); the efficacy pilot remains.
    confirm it sounds right and doesn't glitch. Blocked on a JACK server (`pipewire-jack` is not
    installed, no jackd running) — installing one is a dependency decision for you, not made
    this session.
-2. *(evidence)* **Adversarial Mechanism A trial.** Session 006's recommendation: run a
-   `touches`-declared-disjoint but actually-coupled brief pair in parallel and measure
-   whether the mechanism catches the coupling. Today's Mechanism A data is one favorable
-   4-brief sample; this trial tests the failure path before any `PreToolUse` hook is built
-   on it.
+2. *(evidence)* **~~Adversarial Mechanism A trial~~ — DONE 2026-08-16.** See Works above
+   and `docs/sessions/015-mechanism-a-adversarial-trial.md`: a genuine two-agent, real-peer
+   trial found a real coupling and a real leak, neither reasoned-about. **Proposed
+   replacement for this slot** (your call — trial's own `YOUR MOVE` left the next step
+   open): session 005 §2's Mechanism B pilot has never been run at all — "five Tier-2
+   changes touching `ParamPool`/`ParamMap`/`ParamIdentity`, one a deliberately planted
+   canary, stop if it misses the canary." Fully specified, zero design work needed, same
+   family as the trial just closed. Swap for a different evidence item if you'd rather.
 3. **The generation-refinement architecture-planning conversation.** ADR-021 named
    "acceptance criteria — capturing what a generation was asked for so the result can be
    checked against it" as a real, deliberately deferred need; the spectral judge (PF-041/
