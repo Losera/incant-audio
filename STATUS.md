@@ -413,16 +413,14 @@ Next-three #3 this session.
    `feat/ui-design-system`; see the plan at `.claude/plans/you-are-a-lead-steady-cake.md`
    for the current step-by-step (palette done, 65/35 split landing this session, keyboard/
    prompt/cockpit reconciled and queued behind it).
-2. **Resolved 2026-08-12: 65/35, not 50/50.** Session 010 §1/§3 made the call — the grid
-   column holds the sectioned UiIr preview and deserves more than half — and it landed this
-   session (see the "editor is a two-panel authoring screen" entry above). That resolves
-   this item's first question. The second — **is the dark palette (now Tokyo Night, not
-   Catppuccin) what was wanted** — is still open; look at `artifacts/ui_gallery/index.html`
-   after the next `tools/ui_iterate.sh --accept`. "Does this look right" per COLLABORATION.md
-   §1 is yours.
-3. **The EFFECTS listening pass.** Unchanged from prior rewrites.
-   `host/build/PluginForgeHost_artefacts/Debug/Standalone/PluginForge Host` is current.
-   Input bus required. VST3 still never installed (`COPY_PLUGIN_AFTER_BUILD FALSE`).
+2. **RESOLVED 2026-08-16.** Session 010 §1/§3 made the 65/35 call (see item above); the
+   second half of this item — **is the dark palette (Tokyo Night, not Catppuccin) what was
+   wanted** — is now approved as-is against `artifacts/ui_gallery/index.html` (2026-08-15
+   refresh). "Does this look right" per COLLABORATION.md §1: yes, no changes requested.
+3. **RESOLVED 2026-08-16.** The EFFECTS listening pass against
+   `host/build/PluginForgeHost_artefacts/Debug/Standalone/PluginForge Host` passed — no
+   issues raised. VST3 still never installed (`COPY_PLUGIN_AFTER_BUILD FALSE`); this was a
+   Standalone-only listening pass, not a DAW validation (see Broken #2, unchanged).
 4. **Requested and not yet planned: a piano roll.** Unchanged. Needs a note grid *and* a
    clock (no host transport in Standalone). Recommended split: preset audition phrases
    first, drawing UI after.
