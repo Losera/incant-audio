@@ -483,3 +483,77 @@ class TestLoadDataset:
         loaded = efs.load_dataset(good)
         assert loaded["tiers"] == FIXTURE_DATASET["tiers"]
         assert len(loaded["effects"]) == 2
+
+
+# ---------------------------------------------------------------------------
+# PF-041/PF-042 (ADR-027 §2): the judge's ground truth used to be
+# effect["tiers"]["L4"] -- byte-identical to the L4 generation prompt for
+# 10/10 effects, so L4 scored 2.00/2.00 tautologically. Fixed by an
+# independently-authored acceptance spec per effect (bench/prompts/
+# acceptance_specs.json) and a checklist-based rubric rewrite. These tests
+# are the mechanical half of the fix; the actual re-measurement against the
+# 44-record set is the Tier-2 evidence (docs/BUGS.md).
+# ---------------------------------------------------------------------------
+
+class TestLoadAcceptanceSpecs:
+    def test_valid_file_loads_specs_dict(self, tmp_path):
+        f = tmp_path / "specs.json"
+        f.write_text(json.dumps({"version": 1, "specs": {"filters-01": "criteria text"}}))
+        loaded = sco.load_acceptance_specs(f)
+        assert loaded == {"filters-01": "criteria text"}
+
+    def test_missing_specs_key_raises(self, tmp_path):
+        f = tmp_path / "bad.json"
+        f.write_text(json.dumps({"version": 1}))
+        with pytest.raises(KeyError):
+            sco.load_acceptance_specs(f)
+
+
+class TestAcceptanceSpecsAreIndependentOfTierPrompts:
+    """PF-041 regression guard: a spec must never be derived from any tier's
+    own prompt text, or the L4-scores-2.00-tautologically bug is one careless
+    edit away from recurring. Runs against the REAL shipped files, not a
+    fixture -- this is the actual artifact PF-041 was found in."""
+
+    def test_no_spec_matches_or_contains_any_tier_text(self):
+        specs = sco.load_acceptance_specs(sco.DEFAULT_ACCEPTANCE_SPECS_FILE)
+        dataset = sco.load_dataset(sco.DEFAULT_PROMPTS_FILE)
+        violations = []
+        for effect in dataset["effects"]:
+            eid = effect["effect_id"]
+            spec = specs.get(eid, "")
+            for tier_name, tier_text in effect["tiers"].items():
+                tier_text = tier_text.strip()
+                if tier_text and (tier_text in spec or spec.strip() == tier_text):
+                    violations.append((eid, tier_name))
+        assert not violations, (
+            f"acceptance_specs.json entries derived from a tier prompt: {violations} "
+            "-- this is exactly the PF-041 tautology, reintroduced"
+        )
+
+    def test_every_effect_in_the_dataset_has_a_spec(self):
+        specs = sco.load_acceptance_specs(sco.DEFAULT_ACCEPTANCE_SPECS_FILE)
+        dataset = sco.load_dataset(sco.DEFAULT_PROMPTS_FILE)
+        missing = [e["effect_id"] for e in dataset["effects"] if e["effect_id"] not in specs]
+        assert not missing, f"effects with no acceptance spec: {missing}"
+
+
+class TestParseJudgeDigit:
+    """PF-042's rubric now asks the judge to reason through numbered criteria
+    before answering, so the old first-digit-found parse would misread a
+    "(1)" inside the reasoning as the score. Must read from the end."""
+
+    def test_reasoning_with_criterion_numbers_does_not_fool_it(self):
+        text = "Criterion (1) met, criterion (2) not met.\nScore: 1"
+        assert sco._parse_judge_digit(text) == 1
+
+    def test_bare_digit_still_works(self):
+        assert sco._parse_judge_digit("2") == 2
+
+    def test_no_digit_returns_none(self):
+        assert sco._parse_judge_digit("I cannot determine a score.") is None
+
+    def test_last_digit_wins_not_first(self):
+        # Reasoning mentions "(1)" and "(2)" before the real, final answer of 0.
+        text = "(1) not met. (2) not met either. Final answer:\n0"
+        assert sco._parse_judge_digit(text) == 0

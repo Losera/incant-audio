@@ -21,8 +21,9 @@ Optional --chart FILE.png: grouped bar chart (tiers on x, first-try vs
 retry-corrected rates), matplotlib, styled like score_results.py.
 
 Optional --judge: runs a separate judge model over each compiled record, scoring
-0-2 fidelity against the effect's L4 text as ground truth. Writes judge_score
-into a copy of the results file (suffix _judged.json). Default OFF.
+0-2 fidelity against an independently-authored acceptance spec per effect (PF-041 fix
+-- see bench/prompts/acceptance_specs.json; NOT any tier's own generation prompt).
+Writes judge_score into a copy of the results file (suffix _judged.json). Default OFF.
 
 Usage:
     python bench/score_efficacy.py --results bench/results/efficacy/efficacy_XXXX.json
@@ -38,6 +39,11 @@ from pathlib import Path
 
 BENCH_DIR = Path(__file__).resolve().parent
 DEFAULT_PROMPTS_FILE = BENCH_DIR / "prompts" / "tiered_prompts.json"
+# PF-041 fix (ADR-027 §2): the judge's ground truth used to be effect["tiers"]["L4"] --
+# byte-identical to the L4 generation prompt for 10/10 effects, so L4 scored 2.00/2.00
+# tautologically. This file is independently authored per-effect acceptance criteria,
+# never derived from any tier's prompt text (see its own module docstring).
+DEFAULT_ACCEPTANCE_SPECS_FILE = BENCH_DIR / "prompts" / "acceptance_specs.json"
 
 # PF-025/PF-030 — one lock, every harness that spends provider quota. Imported
 # lazily-but-at-module-scope the same way run_efficacy_study.py:56-60 does it, so
@@ -162,6 +168,16 @@ def load_results(path: Path) -> list:
 
 def load_dataset(path: Path) -> dict:
     return json.loads(Path(path).read_text())
+
+
+def load_acceptance_specs(path: Path) -> dict:
+    """PF-041: independently-authored per-effect ground truth for --judge.
+
+    Raises KeyError-shaped errors loudly (missing file, missing "specs" key)
+    rather than falling back to any tier's prompt text -- a silent fallback
+    here is exactly how the tautology could recur.
+    """
+    return json.loads(Path(path).read_text())["specs"]
 
 
 def _effects_by_id(dataset: dict) -> dict:
@@ -440,28 +456,63 @@ def make_chart(scores: dict, chart_file: Path) -> None:
 JUDGE_PROVIDER = os.environ.get("PLUGINFORGE_JUDGE_PROVIDER", "gemini")
 JUDGE_MODEL = os.environ.get("PLUGINFORGE_JUDGE_MODEL") or None  # None → provider default
 
-JUDGE_RUBRIC = """You are grading Faust DSP code for fidelity against a ground-truth
-specification. Score 0, 1, or 2:
-  0 = does not implement the described effect at all, or is unrelated
-  1 = partially implements the effect (missing key behavior or parameters)
-  2 = faithfully implements the described effect
+# PF-042 fix (ADR-027 §2): the old rubric asked for a single holistic 0/1/2 judgment
+# ("partially implements... missing key behavior or parameters") with no operational
+# definition of "partial" — over 44 gradings against the local 7B judge model, score 1
+# was returned once (2.3%), so the instrument returned an effective boolean while
+# claiming three levels. Investigated rubric-vs-model-bluntness per the ADR: rewritten
+# here to turn "partial" into a mechanical rule over the now-numbered acceptance
+# criteria (bench/prompts/acceptance_specs.json, PF-041's fix) instead of leaving
+# "partial" to the judge's own unguided sense of the word — a checklist-count is a much
+# easier task for a small model than an unstructured holistic call. Re-measured against
+# the same 44-record set as a regression check (docs/BUGS.md PF-042, session results).
+JUDGE_RUBRIC = """You are grading Faust DSP code against a numbered checklist of acceptance
+criteria for one audio effect. Evaluate each numbered criterion in the checklist below
+against the code, then score using this rule:
 
-Ground truth (expert-level specification of the target effect):
-{l4_spec}
+  2 = every criterion is clearly met, or all but one is met and the miss is minor
+  1 = roughly half the criteria are met, OR the effect's basic structure is right but at
+      least one criterion is clearly NOT met (e.g. a missing control, wrong signal shape)
+  0 = few or none of the criteria are met, the code does not compile meaningfully, or the
+      effect is unrelated to the checklist
+
+Acceptance criteria (independent of any prompt given to the code's author):
+{ground_truth}
 
 Generated Faust code to grade:
 {code}
 
-Respond with ONLY a single digit: 0, 1, or 2."""
+Think through each numbered criterion briefly, then end your response with a line
+containing ONLY a single digit: 0, 1, or 2."""
 
 
-def run_judge(records: list, dataset: dict) -> list:
+def _parse_judge_digit(text: str) -> int | None:
+    """Last 0/1/2 character in the response, not the first.
+
+    The old rubric asked for ONLY a digit, so first-found was safe. The new
+    rubric (PF-042) asks the judge to reason through numbered criteria first,
+    so "(1)", "(2)" etc. inside that reasoning would be misread as the score
+    by a first-found scan — this is why the rubric asks for a final digit-only
+    LINE, and why parsing reads from the end of the response instead.
+    """
+    for ch in reversed(text):
+        if ch in "012":
+            return int(ch)
+    return None
+
+
+def run_judge(records: list, acceptance_specs: dict) -> list:
     """Runs the judge model over each compiled record; adds a judge_score key.
     Returns a NEW list (copy) — does not mutate the caller's records.
 
     SUBTLE: the judge must not be the same model that generated the code — a
     model grading its own output is not an independent measurement. Keep
     PLUGINFORGE_JUDGE_PROVIDER different from the run's --provider.
+
+    acceptance_specs: effect_id -> ground-truth text (PF-041 fix — see
+    load_acceptance_specs and bench/prompts/acceptance_specs.json). Deliberately
+    a required parameter, not a default-loaded one: a caller must decide where
+    ground truth comes from rather than silently falling back to a tier prompt.
     """
     import sys as _sys
     from pathlib import Path as _Path
@@ -471,9 +522,8 @@ def run_judge(records: list, dataset: dict) -> list:
     providers.assert_free(providers.resolve_provider(JUDGE_PROVIDER))
     judge = providers.make_generator(
         JUDGE_PROVIDER, system_prompt="", model=JUDGE_MODEL,
-        temperature=0.0, max_tokens=300,
+        temperature=0.0, max_tokens=600,
     )
-    effects = _effects_by_id(dataset)
 
     judged = []
     for r in records:
@@ -484,13 +534,11 @@ def run_judge(records: list, dataset: dict) -> list:
             judged.append(rec)
             continue
 
-        effect = effects.get(r["effect_id"])
-        l4_spec = effect["tiers"]["L4"] if effect else ""
-        prompt = JUDGE_RUBRIC.format(l4_spec=l4_spec, code=r.get("code", ""))
+        ground_truth = acceptance_specs.get(r["effect_id"], "")
+        prompt = JUDGE_RUBRIC.format(ground_truth=ground_truth, code=r.get("code", ""))
         try:
             text = judge(prompt)
-            digit = next((c for c in text if c in "012"), None)
-            rec["judge_score"] = int(digit) if digit is not None else None
+            rec["judge_score"] = _parse_judge_digit(text)
         except Exception as e:
             rec["judge_score"] = None
             rec["judge_error"] = f"{type(e).__name__}: {e}"[:300]
@@ -514,6 +562,11 @@ def main(argv=None) -> int:
     parser.add_argument("--judge", action="store_true",
                         help="Run the fidelity judge (extra API calls; default off). Judge model "
                              "comes from PLUGINFORGE_JUDGE_PROVIDER/_MODEL.")
+    parser.add_argument("--acceptance-specs", default=str(DEFAULT_ACCEPTANCE_SPECS_FILE),
+                        metavar="FILE",
+                        help="PF-041 ground truth for --judge (default: "
+                             "bench/prompts/acceptance_specs.json), independently authored "
+                             "per-effect -- never a tier prompt.")
     args = parser.parse_args(argv)
 
     results_path = Path(args.results)
@@ -560,8 +613,9 @@ def main(argv=None) -> int:
             print(f"Refusing to judge:\n  ✗ {exc}", file=sys.stderr)
             return 2
         try:
+            acceptance_specs = load_acceptance_specs(Path(args.acceptance_specs))
             print(f"\nRunning fidelity judge ({JUDGE_PROVIDER})...", file=sys.stderr)
-            judged_records = run_judge(records, dataset)
+            judged_records = run_judge(records, acceptance_specs)
             judged_path = results_path.with_name(results_path.stem + "_judged.json")
             judged_path.write_text(json.dumps(judged_records, indent=2))
             print(f"Judged results written to: {judged_path}", file=sys.stderr)

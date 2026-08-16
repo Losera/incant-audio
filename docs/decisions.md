@@ -1090,7 +1090,7 @@ or reversed, not silently corrected.
 
 | | |
 |---|---|
-| **Status** | Proposed |
+| **Status** | Accepted 2026-08-16 (§2's authorized fix landed same day, see `docs/BUGS.md` PF-041/PF-042) |
 | **Date** | 2026-08-16 |
 
 **Context**

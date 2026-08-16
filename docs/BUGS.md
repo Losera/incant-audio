@@ -76,8 +76,8 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-038 | Knobs appear alphabetically, not in declaration order — a 40-param patch lists `P0, P1, P10, P11 … P2` | low | open | S3 Plugin UX | `ParamGridPanel.cpp` `refreshParamKnobs` | 2026-07-28 | — |
 | PF-039 | The rotary fallback in `refreshParamKnobs` is unreachable dead code; `docs/ui_design_plan.md` still describes it as the fallback widget | low | open | S3 Plugin UX | `ParamGridPanel.cpp`, `docs/ui_design_plan.md` | 2026-07-28 | — |
 | PF-040 | Every macro slot was quantised to 100 positions — JUCE's `AudioParameterFloat` min/max convenience ctor hardcodes `interval 0.01`, so a patch default usually could not be represented (800 Hz became 819 Hz) | high | fixed | S1 Backend | `PluginProcessor.cpp` `createParameterLayout` | 2026-07-30 | pending commit |
-| PF-041 | The semantic judge grades L4 against a ground truth **byte-identical to the L4 generation prompt** (10/10), so L4 scores 2.00/2.00 tautologically and the tier gradient is confounded | high | open | S4 Testing | `bench/score_efficacy.py` `JUDGE_RUBRIC`, `run_judge` | 2026-07-30 | — |
-| PF-042 | The judge's 0/1/2 rubric collapses to binary in practice — score `1` used **once in 44** gradings, so "partially implements" is not a category the instrument actually returns | medium | open | S4 Testing | `bench/score_efficacy.py:434-446` | 2026-07-30 | — |
+| PF-041 | ~~The semantic judge grades L4 against a ground truth **byte-identical to the L4 generation prompt** (10/10), so L4 scores 2.00/2.00 tautologically and the tier gradient is confounded~~ | high | fixed | S4 Testing | `bench/score_efficacy.py` `JUDGE_RUBRIC`, `run_judge`, `bench/prompts/acceptance_specs.json` | 2026-07-30 | 2026-08-16 |
+| PF-042 | ~~The judge's 0/1/2 rubric collapses to binary in practice — score `1` used **once in 44** gradings, so "partially implements" is not a category the instrument actually returns~~ | medium | fixed | S4 Testing | `bench/score_efficacy.py:458-490` | 2026-07-30 | 2026-08-16 |
 | PF-043 | ollama's stock 4096-token context cannot hold the ~3.3k system prompt plus the 4096 output floor (PF-035), leaving ~480 tokens of generation headroom on the repo's own declared default model | medium | open | S4 Testing | `llm/providers.py:330-343` | 2026-07-30 | — |
 | PF-044 | `run_benchmark.py` recorded `provider` but never `model`, so a cross-model study could not identify its own subject from its own archives — while `model_for()`'s docstring says numbers are "only comparable per model" | medium | fixed | S4 Testing | `bench/run_benchmark.py:267` | 2026-07-30 | pending commit |
 | PF-045 | Generated envelopes convert ms→samples for `en.*`, whose time arguments are in **seconds** — a 1000 ms release becomes 48000 s, so the patch holds sustain forever as DC | medium | open | S2 Prompt | `bench/results/results.json` (sawtooth+ADSR record) | 2026-07-31 | — |
@@ -971,6 +971,64 @@ scores above grade the **deleted** pre-unification prompt on the paid `claude` p
 2 of 5 categories (PF-011), and PF-041/PF-042 mean the instrument's output is not yet
 interpretable. Fixing the rubric is now a **prerequisite** for the measurement, not a
 follow-up to it.
+
+---
+
+**PF-041 / PF-042 — fixed 2026-08-16, per ADR-027 §2 (`docs/decisions.md`).** Scoped exactly
+as authorized: `bench/score_efficacy.py`'s offline benchmark path only, never wired into
+`llm/generate.py` or any live request.
+
+**PF-041 fix.** `run_judge()` no longer reads `effect["tiers"]["L4"]` as ground truth. A new
+file, `bench/prompts/acceptance_specs.json`, holds one independently-authored acceptance-
+criteria checklist per effect (25 effects), written fresh from each effect's real DSP
+behavior and deliberately never copied or paraphrased from any tier's prompt text. A new
+regression guard (`tests/test_efficacy_unit.py::TestAcceptanceSpecsAreIndependentOfTierPrompts`)
+runs against the real shipped files (not a fixture) and asserts no spec matches or contains
+any tier's text — this is the control that would have caught PF-041 before it shipped, and
+now exists to stop it recurring.
+
+**PF-042 fix.** Investigated rubric phrasing vs. judge-model bluntness per the ADR's own
+instruction to test before deciding. Rubric phrasing was the tractable, cheap-to-test lever
+(no larger/different judge model was swapped in — same `qwen2.5-coder:7b-16k`, same free
+local provider, isolating the rubric as the only changed variable against the historical
+baseline). `JUDGE_RUBRIC` was rewritten from an unguided holistic "0/1/2, partial means
+missing key behavior" call into a numbered-checklist scoring rule: the judge evaluates each
+acceptance criterion, then applies an explicit mechanical rule mapping criteria-met count to
+a score. This converts a fuzzy judgment into a checklist-counting task, which a 7B model
+handles far more consistently. Because the new rubric asks the judge to reason through
+criteria before answering, the old first-digit-found parser would misread a `"(1)"` inside
+that reasoning as the score — `_parse_judge_digit()` now reads from the end of the response
+instead, covered by 4 new unit tests.
+
+**Re-measured against the same 44-record set** (`bench/results/efficacy/pilot_20260720.json`,
+the exact source behind the `0→21, 1→1, 2→22` baseline above), output written to
+`bench/results/efficacy/pilot_20260720_pf041042_recheck_judged.json`:
+
+| | old (L4-as-ground-truth, unguided rubric) | new (independent spec, checklist rubric) |
+|---|---|---|
+| Overall distribution (44 graded) | `0`→21, `1`→1, `2`→22 | `0`→12, `1`→9, `2`→23 |
+| `1` (the collapsed category) | 1/44 (2.3%) | 9/44 (20.5%) |
+| L4 mean | 2.00/2.00 (all 10, tautological) | 1.89/2.00 — `{2: 8, 1: 1, None: 1}` |
+| Judge errors | 0 | 0 |
+
+**L4 is no longer pinned at a perfect score by construction** — one L4 record graded `1`
+under the independent checklist, which is impossible under the old ground truth (a record
+cannot fail to match text that is itself the record's own generation prompt). This is the
+direct, mechanical proof the tautology is closed, not an inference from the aggregate numbers
+alone. **The apparent tier gradient reported above (L4 2.00 → L3 1.22 → L2 0.44) does not
+survive the fix**: re-measured tier means are L4 1.89, L3 1.22, L2 1.33, L1 0.38, L0 1.33 —
+L2 and L0 now score *above* L3, non-monotonic. This confirms PF-041's own diagnosis exactly:
+"the apparent decline mixes 'vaguer prompts produce worse code' with 'the ground truth exactly
+matches L4's prompt.'" The clean-looking decline was substantially an artifact; what remains
+is noisier and, at n=8–10 per tier, not a claim this session makes any stronger reading of.
+
+**What this does and does not close.** The instrument's output is now interpretable — L4 is
+graded like any other tier and the middle score is a real, functioning category. **Not
+closed**: PF-011 (the efficacy pilot's N=50/1-model/2-of-5-category sample still generalizes
+to nothing — a bigger run is a separate, unstarted piece of work) and PF-013's second half
+(semantic fidelity is measured now, but only over this same small, stale sample; a fresh run
+against the current unified prompt has not been done). Fixing the judge was a prerequisite
+for a trustworthy fresh measurement, not the measurement itself.
 
 ---
 

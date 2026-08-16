@@ -491,9 +491,23 @@ measurement (see the first Works bullet above); the efficacy pilot remains.
    generation — the human-driven Add/Redo loop already serves that, at lower cost, without
    contradicting COLLABORATION.md §1's own stated philosophy. PF-041/PF-042 authorized to be
    fixed instead, scoped to `bench/score_efficacy.py`'s offline benchmark path only.
-   **Replacement for this slot: do the PF-041/PF-042 fix ADR-027 just authorized** — an
-   independent per-effect ground truth (not L4's own prompt) for PF-041, and a rubric-vs-
-   judge-model investigation for PF-042, checked against the existing 44-record set.
+   **~~Replacement: the PF-041/PF-042 fix~~ — DONE 2026-08-16.** `docs/BUGS.md` (PF-041/042,
+   now fixed): `bench/prompts/acceptance_specs.json` (25 independently-authored per-effect
+   acceptance checklists, never derived from any tier prompt — a new regression-guard test
+   asserts this against the real shipped files) replaces `effect["tiers"]["L4"]` as ground
+   truth, and `JUDGE_RUBRIC` was rewritten from an unguided holistic call into a numbered-
+   checklist scoring rule. Re-measured against the same 44-record set with the same judge
+   model (isolating the rubric as the only changed variable): the collapsed middle category
+   (PF-042) went from 1/44 (2.3%) to 9/44 (20.5%); L4 stopped scoring 2.00/2.00 tautologically
+   (PF-041) — one L4 record now grades `1`, mechanically impossible under the old ground
+   truth. The previously clean-looking tier gradient (L4 2.00 → L3 1.22 → L2 0.44) does not
+   survive the fix — re-measured tier means are non-monotonic (L2 and L0 now score above L3),
+   confirming PF-041's own diagnosis that the old gradient was substantially a tautology
+   artifact. `tools/check.sh fast` green except the pre-existing, unrelated Broken #13 failure.
+   **Proposed replacement for this slot** (your call): PF-011's efficacy pilot (N=50, 1 model,
+   2/5 categories, "generalizes to nothing") is no longer blocked by an untrustworthy judge —
+   a fresh, larger run against the current unified prompt is unblocked and, via `ollama`, free.
+   Swap for a different item if you'd rather.
 
 **Displaced, not urgent.** **A piano roll** (requested, unplanned; needs a note grid and a
 clock).
