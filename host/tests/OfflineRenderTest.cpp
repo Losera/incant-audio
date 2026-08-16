@@ -65,6 +65,7 @@
 #include <cmath>
 #include <condition_variable>
 #include <cstdio>
+#include <limits>
 #include <mutex>
 #include <vector>
 
@@ -173,7 +174,7 @@ bool loadAndAwait(PluginForgeProcessor& p, const juce::String& source,
         std::lock_guard<std::mutex> lock(m);
         done = true; ok = true; cv.notify_all();
     };
-    p.onFaustCompileFailure = [&](const juce::String&)
+    p.onFaustCompileFailure = [&](const juce::String&, const juce::String&)
     {
         std::lock_guard<std::mutex> lock(m);
         done = true; ok = false; cv.notify_all();
@@ -944,6 +945,46 @@ int main(int argc, char** argv)
               "5.1 output is REFUSED, not silently passed through");
         check(! p.checkBusesLayoutSupported(layout(CS::create5point1(), CS::stereo())),
               "5.1 input is REFUSED");
+
+        std::printf("\n");
+    }
+
+    // ── PF-062: pre-generation output must not be dirty-memory garbage ──────
+    // Before ANY patch is loaded, faustEngine.enterAudio() returns false
+    // (ready == false) and processBlock takes its early-return path
+    // (PluginProcessor.cpp:251). An effect's buffer holds the host's real
+    // input there, so leaving it untouched is a legitimate passthrough. An
+    // instrument has no input bus -- nothing to "pass through" -- so the
+    // buffer instead held whatever memory the host/JUCE last left in it.
+    // pluginval caught this as literal NaN/subnormal output from a
+    // freshly-loaded, never-generated PluginForge Synth (found 2026-08-16,
+    // ~44% of its Audio-processing sub-tests failing). Poisoning the buffer
+    // with NaN here reproduces that dirty-memory scenario deterministically.
+    {
+        std::printf("  --- pre-generation output (PF-062) ---\n\n");
+
+        PluginForgeProcessor p;
+        p.prepareToPlay(kSampleRate, kBlockSize);
+
+        const int outChans = std::max(p.getTotalNumOutputChannels(), 1);
+        juce::AudioBuffer<float> buffer(outChans, kBlockSize);
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+                buffer.setSample(ch, i, std::numeric_limits<float>::quiet_NaN());
+
+        juce::MidiBuffer midi;
+        p.processBlock(buffer, midi);
+
+        Stats s;
+        double sumSq = 0.0, sum = 0.0;
+        accumulate(s, buffer, sumSq, sum);
+
+        if (PF_IS_SYNTH)
+            check(! s.anyNaN && ! s.anyInf,
+                  "instrument with no patch yet clears a dirty buffer instead of echoing it");
+        else
+            check(s.anyNaN,
+                  "effect with no patch yet still passes its (poisoned) input through untouched");
 
         std::printf("\n");
     }

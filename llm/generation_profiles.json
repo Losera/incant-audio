@@ -1,0 +1,60 @@
+{
+  "schema": 1,
+  "profiles": [
+    {
+      "id": "effect",
+      "display_name": "Effect",
+      "kind": "effect",
+      "auto_terms": [],
+      "prompt_brief": "Generate an audio effect that processes its input. The process must accept one or two audio inputs and produce one or two bounded audio outputs."
+    },
+    {
+      "id": "granular_effect",
+      "display_name": "Granular Effect",
+      "kind": "effect",
+      "auto_terms": ["granular", "granulate", "granulator", "grain cloud", "grains"],
+      "prompt_brief": "Generate a LIVE-INPUT granular texture effect, not a sample player. Build grains from bounded delay lines fed by the incoming audio. Expose Grain Size, Density, Position or Delay, Pitch or Spray, Feedback, and Mix controls."
+    },
+    {
+      "id": "synth",
+      "display_name": "Synth",
+      "kind": "instrument",
+      "auto_terms": [],
+      "prompt_brief": "Generate a playable synthesized instrument voice following the required gate, freq or key, and gain or velocity voice contract."
+    },
+    {
+      "id": "drum_synth",
+      "display_name": "Drum Synth",
+      "kind": "instrument",
+      "auto_terms": ["drum", "kick", "snare", "hi-hat", "hihat", "tom", "clap", "cymbal", "percussion", "percussive"],
+      "prompt_brief": "Generate a procedural one-shot percussion voice with no soundfile dependency. Follow the required gate, freq or key, and gain or velocity voice contract; each trigger must have a clear transient and bounded decay."
+    },
+    {
+      "id": "generator",
+      "display_name": "Generator / Drone",
+      "kind": "instrument",
+      "auto_terms": ["drone", "generator", "generative", "self-playing", "self playing", "ambient texture", "soundscape"],
+      "overridden_by_synth_terms": true,
+      "prompt_brief": "Generate a self-running bounded sound generator or drone. It must take zero audio inputs and produce audio without requiring MIDI gate, pitch, or velocity controls."
+    }
+  ],
+  "defaults": {
+    "effect": "effect",
+    "instrument": "synth"
+  },
+  "_synth_override_comment": [
+    "A prompt can ask for generator-family language (drone, generative, ...)",
+    "AND explicit playable-instrument language ('a generative synth') in the",
+    "same breath. The generator family's own contract above requires NO",
+    "gate/freq/pitch/velocity controls -- before this override existed, Auto",
+    "silently produced an unplayable 'synth' whenever a generator term won the",
+    "match, with nothing telling the user their prompt got rerouted away from",
+    "a playable instrument. Any profile with 'overridden_by_synth_terms': true",
+    "defers to the instrument default (currently 'synth') when the prompt ALSO",
+    "contains one of these terms. Consumed identically by",
+    "llm/generation_profiles.py's resolve() and the generated",
+    "GenerationProfiles::resolveAuto() (tools/gen_generation_profiles.py) --",
+    "one canonical list, not two hand-synced copies."
+  ],
+  "synth_override_terms": ["synth"]
+}

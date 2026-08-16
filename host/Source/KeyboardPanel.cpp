@@ -29,26 +29,60 @@ KeyboardPanel::KeyboardPanel(PluginForgeProcessor& p)
     // mapped notes up with the visible range above).
     keyboardComponent.setKeyPressBaseOctave(4);
 
+    // Mouse-Y sets velocity on the on-screen keyboard (top = loud, bottom =
+    // quiet, JUCE's own convention) -- one ctor line, not a subclass, contra
+    // docs/sessions/010-alpha-ui-architecture.md §4's original description
+    // (juce_MidiKeyboardComponent.h:73). Computer-keyboard input has no mouse
+    // position, so it always uses the fixed 1.0f the first argument sets.
+    keyboardComponent.setVelocity(1.0f, true);
+
+    // ── Octave controls (C5) ────────────────────────────────────────────────
+    addAndMakeVisible(octaveDownButton);
+    addAndMakeVisible(octaveUpButton);
+    addAndMakeVisible(octaveLabel);
+    octaveDownButton.onClick = [this] { shiftOctave(-1); };
+    octaveUpButton.onClick   = [this] { shiftOctave(+1); };
+    octaveLabel.setJustificationType(juce::Justification::centred);
+    octaveLabel.setFont(Theme::Type::caption());
+    octaveLabel.setColour(juce::Label::textColourId, Theme::textSecondary);
+    updateOctaveLabel();   // sets the initial "Oct: 4" text and button enablement
+
     // ── Theme ────────────────────────────────────────────────────────────────
     // ColourIds verified against juce_MidiKeyboardComponent.h:155-164.
-    keyboardComponent.setColour(juce::MidiKeyboardComponent::whiteNoteColourId, Theme::text);
-    keyboardComponent.setColour(juce::MidiKeyboardComponent::blackNoteColourId, Theme::crust);
-    keyboardComponent.setColour(juce::MidiKeyboardComponent::keyDownOverlayColourId, Theme::meterCool);
+    keyboardComponent.setColour(juce::MidiKeyboardComponent::whiteNoteColourId, Theme::textPrimary);
+    keyboardComponent.setColour(juce::MidiKeyboardComponent::blackNoteColourId, Theme::surfaceSunken);
+    keyboardComponent.setColour(juce::MidiKeyboardComponent::keyDownOverlayColourId, Theme::accent);
     keyboardComponent.setColour(juce::MidiKeyboardComponent::mouseOverKeyOverlayColourId,
-                                Theme::meterCool.withAlpha(0.35f));
-    keyboardComponent.setColour(juce::MidiKeyboardComponent::textLabelColourId, Theme::subtext);
-    keyboardComponent.setColour(juce::MidiKeyboardComponent::keySeparatorLineColourId, Theme::overlay);
-    keyboardComponent.setColour(juce::MidiKeyboardComponent::shadowColourId, Theme::mantle);
+                                Theme::accent.withAlpha(0.35f));
+    keyboardComponent.setColour(juce::MidiKeyboardComponent::textLabelColourId, Theme::textSecondary);
+    keyboardComponent.setColour(juce::MidiKeyboardComponent::keySeparatorLineColourId, Theme::outline);
+    keyboardComponent.setColour(juce::MidiKeyboardComponent::shadowColourId, Theme::surface);
 
     addAndMakeVisible(keyboardComponent);
 
     disabledLabel.setText("Load an instrument to play", juce::dontSendNotification);
     disabledLabel.setJustificationType(juce::Justification::centred);
     disabledLabel.setFont(Theme::Type::caption());
-    disabledLabel.setColour(juce::Label::textColourId, juce::Colour(0xff9399b2));
+    disabledLabel.setColour(juce::Label::textColourId, Theme::textSecondary);
+    disabledLabel.setInterceptsMouseClicks(false, false);
     addChildComponent(disabledLabel);
 
-    setPlayable(false);   // no voice contract until a patch actually declares one
+    // NOT setPlayable(false): `playable`'s member initializer already reads
+    // false, so that call would be a no-op transition and the widgets would
+    // never actually get dimmed/disabled/labelled -- confirmed the live bug
+    // this comment replaces. The keyboard looked and felt playable from the
+    // very first frame while every note was silently discarded downstream
+    // (PluginProcessor.cpp's isInstrument() gate). applyPlayableVisuals()
+    // applies the true initial state directly, without going through the
+    // idempotence guard that only makes sense for a REAL transition.
+    applyPlayableVisuals();
+}
+
+void KeyboardPanel::applyPlayableVisuals()
+{
+    keyboardComponent.setEnabled(playable);
+    keyboardComponent.setAlpha(playable ? 1.0f : 0.35f);
+    disabledLabel.setVisible(! playable);
 }
 
 KeyboardPanel::~KeyboardPanel()
@@ -58,8 +92,49 @@ KeyboardPanel::~KeyboardPanel()
 
 void KeyboardPanel::resized()
 {
-    keyboardComponent.setBounds(getLocalBounds());
+    // Control-row strip on top (C5), piano below. Carved from the SAME
+    // keyboardH the panel already had -- PluginEditor.h's Chrome struct grew
+    // keyboardH 64->72 in the prior commit specifically to make this split
+    // possible; that height change is not repeated here. disabledLabel keeps
+    // covering the whole panel (unchanged) so "nothing to play" still reads
+    // as a full-panel state, octave controls included.
+    auto area = getLocalBounds();
+    auto controlRow = area.removeFromTop(kControlRowH);
+
+    controlRow.removeFromLeft(4);
+    octaveDownButton.setBounds(controlRow.removeFromLeft(24));
+    octaveLabel.setBounds(controlRow.removeFromLeft(48));
+    octaveUpButton.setBounds(controlRow.removeFromLeft(24));
+
+    keyboardComponent.setBounds(area);
     disabledLabel.setBounds(getLocalBounds());
+}
+
+void KeyboardPanel::shiftOctave(int delta)
+{
+    const int newOctave = juce::jlimit(kMinOctave, kMaxOctave, currentOctave + delta);
+    if (newOctave == currentOctave)
+        return;   // idempotent at the clamp boundary, like setPlayable() above
+
+    currentOctave = newOctave;
+    const int semitoneShift = 12 * (currentOctave - kDefaultOctave);
+
+    // Both calls move together -- see the class-header comment on
+    // shiftOctave() in KeyboardPanel.h for why the clamps below never
+    // invert the range.
+    keyboardComponent.setKeyPressBaseOctave(currentOctave);
+    keyboardComponent.setAvailableRange(
+        juce::jlimit(0, 127, kDefaultAvailableLow  + semitoneShift),
+        juce::jlimit(0, 127, kDefaultAvailableHigh + semitoneShift));
+
+    updateOctaveLabel();
+}
+
+void KeyboardPanel::updateOctaveLabel()
+{
+    octaveLabel.setText("Oct: " + juce::String(currentOctave), juce::dontSendNotification);
+    octaveDownButton.setEnabled(currentOctave > kMinOctave);
+    octaveUpButton.setEnabled(currentOctave < kMaxOctave);
 }
 
 void KeyboardPanel::setPlayable(bool canPlay)
@@ -68,9 +143,7 @@ void KeyboardPanel::setPlayable(bool canPlay)
         return;                       // idempotent, like ParamGridPanel::setControlStyle
 
     playable = canPlay;
-    keyboardComponent.setEnabled(playable);
-    keyboardComponent.setAlpha(playable ? 1.0f : 0.35f);
-    disabledLabel.setVisible(! playable);
+    applyPlayableVisuals();
 
     if (! playable)
     {

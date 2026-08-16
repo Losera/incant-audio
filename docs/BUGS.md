@@ -88,7 +88,15 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-050 | A mono patch reached one channel only — `process()` wrote `io[0]` and left channel 1 holding the untouched dry input, so a generated oscillator played left with the dry signal still on the right | high | fixed | S1 Backend | `FaustEngine.cpp` `process`, scratch sized in `prepare` | 2026-07-31 | `6a3f5e7` |
 | PF-051 | A patch declaring more than 64 controls lost the surplus **silently** — `remap()` looped to `POOL_SIZE` and never read `params[64+]`, and `pushToFaust`'s `min(infos.size(), slots.size())` hid it again. 70 controls compiled, 6 were unreachable, nothing said so | medium | fixed | S1 Backend | `ParamPool.cpp` `remap`, `RemapResult::overflowed` | 2026-08-01 | identity-keyed remap (2026-08-02) |
 | PF-052 | Faust `hbargraph`/`vbargraph` were **dropped at capture** — `ParamCapture::addHorizontalBargraph`/`addVerticalBargraph` were empty function bodies, so a patch publishing a level meter, gain-reduction readout or envelope follower published *nothing*. No metering could exist anywhere in the product regardless of UI work | medium | in-progress | S3 Plugin UX | `FaustEngine.cpp:150-151` (was) | 2026-08-01 | capture closed 2026-08-02 (`Kind::Meter`); **rendering still absent** |
-| PF-053 | `tools/export_repo.py` emits an export that cannot compile or make sound: `acceptsMidi()`/`getTailLengthSeconds()` render `return {...} == "TRUE";` — a bare, undefined `TRUE`/`FALSE` token compared to a string literal in a `bool` return (`:103-104`, same pattern at `:105`) — and `processBlock` is a passthrough stub that never loads or links `Patch.dsp` (`:94-96`). Session 008's "✅ manually verified" for Phase 2 is false | medium | open | S1 Backend | `tools/export_repo.py:103-104`, `:94-96` | 2026-08-06 | skill gate `.claude/skills/export/SKILL.md` already refuses to run it; the ✅ in `docs/sessions/008-vision-architecture.md` was corrected 2026-08-06 |
+| PF-053 | `tools/export_repo.py` emits an export that cannot make sound: its invalid generated C++ bool expressions and doubled editor braces were corrected 2026-08-12, with effect/instrument shared-code compilation covered by `tests/test_export_repo.py`, but `processBlock` remains a passthrough stub that never loads or invokes `Patch.dsp` (`:98-103`). Session 008's "✅ manually verified" for Phase 2 is false | medium | open | S1 Backend | `tools/export_repo.py:98-159`, `tests/test_export_repo.py` | 2026-08-06 | `/export` remains gated by `.claude/skills/export/SKILL.md` until an exported plugin builds, loads, and makes sound; the ✅ in `docs/sessions/008-vision-architecture.md` was corrected 2026-08-06 |
+| PF-060 | `preflight_prior_source()` took no `provider` argument — every Add-mode refine, on EVERY provider, was gated by groq's fixed 8,000-token rate limit regardless of what the selected provider could actually hold. In surgical mode this is a hard refusal, so Add was silently broken on every large-context provider | high | fixed | S1 Backend | `providers.py:142,152` (was), `generate.py:520` | 2026-08-13 | this session |
+| PF-054 | Sample search resolved the bare name `"soundfetch"`, never on PATH on this machine (only ever installed inside venvs). `juce::ChildProcess::start()` returns true even when `execvp()` fails in the forked child, so the friendly "unavailable" message was dead code — every query, both providers, reported "Soundfetch returned no JSON." instead | critical | fixed | S1 Backend | `SoundfetchClient.cpp` `commandPrefix`/`run` | 2026-08-13 | `0694a32` |
+| PF-055 | Sample search merged soundfetch's stderr (unconditional INFO logging, Internet-Archive `"archive metadata: n/50"` progress) into the same pipe as stdout via JUCE's default `ChildProcess::start()` flags, corrupting the JSON for the DEFAULT provider even once PF-054 was fixed | critical | fixed | S1 Backend | `SoundfetchClient.cpp` `run` | 2026-08-13 | `0694a32` |
+| PF-056 | The configured Freesound API key is sent but rejected (HTTP 403). Not a code defect — needs a replacement key from freesound.org — but zero code anywhere surfaced *which* provider or *why*; a caller only ever saw "no JSON" (PF-054) masking this underneath | medium | open | S1 Backend | `SoundfetchClient.cpp` | 2026-08-13 | needs a new key; PF-054/PF-055 fixes make the real 403 message reach the user once this is resolved externally |
+| PF-057 | `KeyboardPanel`'s constructor called `setPlayable(false)`, but the member initializer already reads `false` and `setPlayable` early-returns on an unchanged value — the widget-disabling code (dim, disabled label) never ran on construction. A fresh editor's keyboard looked and felt fully playable while every note was silently discarded downstream | high | fixed | S3 Plugin UX | `KeyboardPanel.cpp` ctor / `applyPlayableVisuals` | 2026-08-13 | `410770b` |
+| PF-058 | Auto family resolution could route a prompt naming both generator-family language ("drone", "generative") AND a synth ("a generative synth") to the mute `generator` family — kind instrument, zero MIDI voice contract by design — silently, with nothing telling the user their "synth" request became an unplayable drone | medium | fixed | S2 Prompting UX | `generation_profiles.py` `resolve`; `GenerationProfiles.generated.h` `resolveAuto` | 2026-08-13 | `addfd57` |
+| PF-059 | `generate.py`'s voice-contract gate lowercased UI labels before the synth/drum_synth membership check, so `hslider("Freq", ...)` (or any other-cased spelling) passed generation validation while `FaustEngine::extractVoiceControls`'s exact-case match silently refused to recognise it — a "successful" generation with a dead keyboard | high | fixed | S1 Backend | `generate.py` `_validate_profile_metadata`; `voice_contract.py` | 2026-08-13 | `2b8d4e3` |
+| PF-062 | `processBlock`'s pre-generation early-return path (`enterAudio()` returns false, no patch loaded yet) left the output buffer untouched on the assumption it held "the host's real input" — true for the Fx target, false for the Synth target, which has no input bus at all. A freshly-loaded, never-generated `PluginForge Synth` echoed back whatever memory the host/JUCE last left in that buffer: `pluginval --strictness-level 5` found literal NaN and subnormal output, 200/450 Audio-processing sub-tests failing | high | fixed | S1 Backend | `PluginProcessor.cpp:251-273` | 2026-08-16 | 2026-08-16, same session |
 
 ---
 
@@ -1901,3 +1909,123 @@ the two grouped cases and leaves both fallback cases green.
 hop exists for — is still untested. Scenario 14 pins Faust 2.85.9's box-emission order; if a
 future libfaust changes how the filename wrapper is emitted, it will fail and will read as a
 capture bug rather than a version change.
+
+---
+
+### PF-060 — Add-mode refines were gated by groq's rate limit on every provider, not the selected one.
+**fixed 2026-08-13 · S1 Backend**
+
+`preflight_prior_source()` (`providers.py:152`, before this fix) took no `provider` argument.
+Its budget came from `request_ceiling()`, hardcoded to `GROQ_TPM_LIMIT - max_output_tokens`
+(`GROQ_TPM_LIMIT = 8000`, a measured groq rate limit, not a context window). `generate_json()`
+(`generate.py:520`, before this fix) called it with no provider either. So every refine — on
+every provider, including ones with far larger context — was refused by groq's number. In
+surgical ("Add") mode this is a HARD refusal (the "minimal, surgical change" contract Add
+promises means a too-large prior source cannot silently fall back to a full regeneration), so
+Add mode was broken on every large-context provider whenever the prior program's size, plus
+the ~3.3k-token system prompt, exceeded groq's 8,000-token ceiling — regardless of which
+provider was actually selected.
+
+**This was reproduced live, not inferred from reading the code.** `docs/research/
+plugin-evolution-ui-provider-architecture-2026-08-13.md` §1 traced the mechanism from the
+2026-08-13 trial log (`logs/prompts.jsonl`: "A dual chorus effect" → succeeded, 1,669 chars;
+"Add [...] a warm analog polysynth" → refused, `attempts: 0`; "A compressor" → succeeded,
+2,043 chars; "A delay"/"A reverb" → both refused, `attempts: 0`) but stopped at "the preflight
+runs for every selected provider... [that] can still be rejected by Groq's rule," an inference
+from the code rather than a run experiment. §10.1 (added the same day, adversarial review
+follow-up) closed that gap: the trial's actual refused payload — the exact 2,043-char
+`faust_code` from the "A compressor" step — was replayed through the real `generate_json()`
+against `provider="ollama"` (16,384-token context, a `num_ctx 16384` Modelfile) and
+`provider="gemini"` (1,048,576-token context, measured live via the models API). **Both
+refused identically** — `attempts: 0`, `prior_source_refused: true`, 0.00s elapsed, no network
+call — confirming the gate was firing before either provider was ever asked, on a payload
+(~4,497 estimated tokens) that fit easily inside either one's actual context. Bypassing the
+gate (`generate_faust()` directly, no preflight), gemini then produced a **compiling** reverb
+addition to that same prior program in 29.2s — direct evidence the refusal was payload
+pressure against the wrong number, not the model being unable to do the job.
+
+**Fix.** `ProviderSpec` gained `request_token_budget: int | None` (`providers.py`), populated
+per provider with a cited source: groq reuses `GROQ_TPM_LIMIT` (unchanged); gemini and
+anthropic are set conservatively below their measured/documented 1M-token windows; openrouter
+is set conservatively below its default model's measured 131K, since `PLUGINFORGE_MODEL` can
+override to a different openrouter model this spec cannot see at import time; ollama defaults
+to 4096 (its stock runtime default — **see PF-043**, open, not fixed here) with a new
+`PLUGINFORGE_OLLAMA_NUM_CTX` override for the `num_ctx 16384` setup `README.md` already
+documents. `request_ceiling()`/`headroom_tokens()`/`preflight_prior_source()` all gained a
+trailing, defaulted `provider` parameter — `provider=None` (every call site before this
+change) reproduces the old groq-only figure exactly, so groq's measured behavior does not
+change. `generate_json()` now passes the request's resolved `provider` through.
+
+**Verified.** `tests/test_providers_unit.py::TestProviderAwarePreflight` and
+`tests/test_generate_unit.py::TestGenerateJsonProviderAwarePreflight` replay the trial's actual
+payload size and assert: groq still refuses it; gemini admits it; `provider=None` is
+bit-identical to the old behavior; an unregistered provider name falls back conservatively
+rather than raising. Full unit suite (604 tests, `-m "not integration"`) green, no regressions.
+
+**Not verified.** Whether Add mode now behaves correctly in the running Standalone plugin — the
+fix is Python-only and reasoned to reach the plugin via `PLUGINFORGE_PROVIDER` (no host changes
+were needed; `PromptPanel.cpp`/`PluginProcessor.*` have zero `"provider"`/`"model"` request-JSON
+fields today, so `generate_json()` always falls through to the env-resolved default), but that
+chain was not exercised end-to-end through the host UI. Per `CLAUDE.md`, that listening/UI pass
+is a human judgment, not delegable to a hook or a model.
+
+---
+
+### PF-062 — Freshly-loaded `PluginForge Synth`, before any patch is generated, output NaN/subnormal garbage instead of silence.
+**fixed 2026-08-16 · S1 Backend**
+
+Discovered while closing STATUS.md's "Get it into a DAW" item: `COPY_PLUGIN_AFTER_BUILD` was
+flipped from `FALSE` to `TRUE` (`host/CMakeLists.txt:42,120` — a separate, ungated build/install
+change, not a defect), which for the first time put a build built from current `main` — rather
+than a manually-copied binary of unknown provenance — into `~/.vst3`. `pluginval
+--strictness-level 5` against that binary failed 200/450 Audio-processing sub-tests: NaN and
+subnormal samples at block sizes 64/128/512/1024 (all three tested sample rates), consistent
+enough across the run to rule out `pluginval`'s random seed as the explanation (confirmed by
+re-running with three different explicit seeds after the fix — all `SUCCESS`). The earlier
+"clean" `PluginForge Synth.vst3` this project's evidence chain had never actually run pluginval
+against was of unknown build origin — see STATUS.md Broken #2's stale "pluginval is not on
+PATH" / "never installed" claims, both false at HEAD (`pluginval 1.0.4` at `~/.local/bin`, an
+AUR install; the VST3 bundles already existed in `~/.vst3` with real `.so` binaries newer than
+either build-dir copy).
+
+**Root cause.** `PluginProcessor.cpp:251` — `processBlock`'s early-return path, taken whenever
+`faustEngine.enterAudio()` returns `false` (`FaustEngine.h:264`: this happens exactly when
+`ready == false`, i.e. no patch has ever been JIT-compiled). The comment there read "input
+passes through untouched" and left the buffer alone. That is correct for `PluginForge Host`
+(the Fx target): its input bus is required, so the buffer holds the host's real input audio and
+passthrough is the right behavior. It is wrong for `PluginForge Synth` (the instrument target):
+confirmed via `pluginval`'s own bus report, `Main bus num input channels: 0` — there is no input
+bus, so there is nothing to "pass through." The buffer instead held whatever memory the
+host/JUCE runtime had last written there, uncleared, and that memory could be NaN or a subnormal
+float left over from prior processing.
+
+**Fix.** `PluginProcessor.cpp:251-273` — inside the early-return branch, call `buffer.clear()`
+when `getTotalNumInputChannels() == 0` (`juce_AudioProcessor.h:743`, a cached, `noexcept` field
+read — RT-safe, no allocation). This only changes behavior for the Synth target; the Fx target
+has a nonzero input channel count and keeps its existing passthrough exactly as before.
+
+**Verified.**
+- `pluginval --strictness-level 5` against the rebuilt `PluginForge Synth.vst3`: `SUCCESS`,
+  repeated with three additional explicit random seeds, all `SUCCESS`.
+- New test, `host/tests/OfflineRenderTest.cpp` "PF-062" block (built into both
+  `OfflineRenderTest`, PF_IS_SYNTH=0, and `OfflineSynthRenderTest`, PF_IS_SYNTH=1): poisons a
+  fresh, never-generated processor's output buffer with `NaN` before calling `processBlock`,
+  then asserts the instrument build clears it (`! anyNaN && ! anyInf`) and the effect build
+  still echoes the poison through untouched (proving the Fx passthrough path is unchanged).
+  **Confirmed red-then-green**: temporarily disabled the `buffer.clear()` call (`if (false)`)
+  and reran `OfflineSynthRenderTest` — the new check failed exactly as expected before the fix
+  and passed after restoring it.
+- `tools/check.sh full`: green except one pre-existing, unrelated failure (see below).
+
+**Not verified.** Real-DAW scan/load behavior — no DAW or plugin host was installed on this
+machine as of this session (Carla installation was in progress, pending the human running
+`sudo pacman -S carla` themselves). `pluginval` covers the plugin-format contract; it is not a
+substitute for a real host actually loading and playing the plugin.
+
+**Unrelated finding surfaced by the same `tools/check.sh full` run, not fixed here (out of
+scope):** `tests/test_control_wiring.py::TestDigestReportsCI::test_green_on_an_older_commit_is_not_reported_as_a_pass`
+fails at HEAD — the `/orient` digest's CI-staleness banner does not include the required
+"N commit(s) behind" phrase. Confirmed pre-existing and unrelated: this session's diff touches
+only `host/CMakeLists.txt`, `host/Source/PluginProcessor.cpp`, and
+`host/tests/OfflineRenderTest.cpp` — none of which the failing test or the code it exercises
+touches. Needs its own investigation.

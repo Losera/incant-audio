@@ -1,4 +1,4 @@
-# PluginForge — Status  (2026-08-07)
+# PluginForge — Status  (2026-08-16)
 
 Rewritten each session per COLLABORATION.md §5. Single writer, no merge conflicts.
 Narrative history lives in git.
@@ -10,6 +10,73 @@ behind HEAD.
 ---
 
 ## Works — and how we know
+
+**2026-08-16: Next-three #1 ("get it into a DAW") advanced — real new evidence,** including
+a real audio-thread bug found and fixed. Two of this file's own claims were stale and false:
+`pluginval` was NOT absent from PATH (`1.0.4` at `~/.local/bin`, AUR-installed) and the VST3
+was NOT "never installed" — `~/.vst3/PluginForge {Host,Synth}.vst3` already held real built
+`.so` binaries of unknown provenance, installed by hand outside any recorded process
+(`COPY_PLUGIN_AFTER_BUILD FALSE` meant CMake never did it). `pluginval --strictness-level 5`
+against those unknown-provenance binaries: `SUCCESS`, both. **With your approval**,
+`COPY_PLUGIN_AFTER_BUILD` flipped `FALSE`→`TRUE` (`host/CMakeLists.txt:42,120` — confirmed by
+rebuilding and watching CMake install into `~/.vst3` unprompted) so builds install
+automatically and match what actually gets tested going forward. Rebuilding from current
+`main` — for the first time, a *known-provenance* binary — and re-running `pluginval` against
+`PluginForge Synth.vst3` **failed**: 200/450 Audio-processing sub-tests, NaN/subnormal output,
+reproducible across three additional random seeds. Root-caused to `PluginProcessor.cpp:251`'s
+pre-generation early-return path leaving the output buffer untouched on the assumption it held
+"the host's real input" — true for the Fx target, false for the Synth target (no input bus at
+all, confirmed by `pluginval`'s own bus report, `Main bus num input channels: 0`). Filed and
+fixed as **PF-062** (`docs/BUGS.md`): `buffer.clear()` when `getTotalNumInputChannels() == 0`.
+New regression test in `host/tests/OfflineRenderTest.cpp` (poisons the buffer with NaN before
+any patch is loaded, runs in both the effect and instrument test binaries), **confirmed
+red-then-green** by temporarily disabling the fix and re-running. `pluginval` now `SUCCESS` on
+both plugins across multiple seeds. `tools/check.sh full` green except one pre-existing,
+unrelated failure (see Broken, new #13). **With your approval**, Carla (2.5.10, official
+`extra` repo) installed as the project's plugin host — you ran the `sudo pacman -S` yourself.
+Its own headless scanner, `carla-discovery-native` — a second, independent (non-JUCE) host
+implementation — successfully instantiated both plugins: Host reports `midi.ins::0` (correctly
+not an instrument), Synth reports `midi.ins::1` (correctly an instrument), neither crashed or
+hung. **Not yet done**: an actual interactive GUI host session (Carla's Rack/Patchbay,
+screenshot-verified) — `carla-single` needs a JACK server and this machine has neither
+`pipewire-jack` nor a running JACK daemon; installing one is a further dependency decision, not
+made this session. The four MIDI-fidelity gaps named in Broken #2 (monophonic, block-granularity
+timing, hardcoded tail, no CC mapping) were triaged against the code, each confirmed real and
+already documented in-repo (three already had `SUBTLE`/inline comments); none was fixed, per
+Broken #2's own "triaged, not necessarily fixed" bar.
+
+**2026-08-15 integration session: four stranded branches (13 commits across sessions
+013/014, PF-060, and the export fix) landed on `main`, plus a fifth branch of
+previously-uncommitted, undocumented work found and secured along the way.** Prior
+session handoffs (013, 014) and a cloud session (PR #9, closed) had each produced
+verified work that never reached `main` — `origin/main` was still at PR #8 (2026-08-13)
+while a laptop had already died mid-session once (see the corrected Waiting-on-you #0
+entry below) with more unpushed work on the same disk. This session: pushed every
+stranded branch first (durability pass — also found and committed an uncommitted T7
+heuristic-accent-palette diff on the session-014 worktree, an uncommitted BUGS.md
+self-consistency test, an uncommitted CI-ordering fix, and an untracked PluginMaker
+research doc, none of which had any prior record); stacked `fix/provider-blind-preflight`
+→ `fix/sample-browser-and-keyboard` → `worktree-t1-sectioned-renderer` →
+`fix/pf-053-export-repo-compile` via `gh stack`; resolved every rebase conflict by hand
+(a genuine `EditorSessionTest.cpp` scenario-numbering collision — both the session-013
+QWERTY branch and the session-014 UI branch independently added scenarios 33/34 — required
+renumbering the incoming set through 35→40 across five commits, each checked for a
+complete, gap-free 1–40 sequence in both definitions and `main()`'s call order); and
+verified the result with a genuine fresh build, not a read-through: `tools/check.sh full`
+green (20 harnesses, correctly building into `host/build` as designed), `EditorSessionTest`
+run directly against that binary showing **311 checks, 0 failures** across all 40
+scenarios — checked by binary `strings`/mtime after this session's own first instinct
+was to read a stale, unrelated `build/` directory at the repo root (a leftover from
+something else entirely, not produced by `check.sh`), which would have understated the
+count and masked whether the renumbering above actually worked. `docs/BUGS.md` and this file
+hand-reconciled across the three-way divergence session 014 flagged and declined to
+touch — see the corrected Waiting-on-you #0 entry. ADR-024 promoted Proposed → Accepted
+per its own D5 (`docs/decisions.md`). `tests/test_export_repo.py` (the cherry-picked
+export fix, `801c644`) also run directly: 8 passed, 1 expected-failure (the
+`processBlock`-is-a-stub case PF-053's own registry row documents as still open) in
+201s. **Not yet done**: PF-060's own tests were never actually run red-then-green
+despite being merged (session 014 §3 flagged this) — still open, now the cheapest item
+for whichever lane picks up next.
 
 **This session ran the first live verification of either refine preamble — the Assumed
 claim #2 and Next-three #1 open since 2026-08-06: one Add-mode (surgical) and one Redo-mode
@@ -150,12 +217,17 @@ bullets before it are carried from the previous session, unchanged.**
 
 - **The editor is a two-panel authoring screen, not a vertical stack (Track 1.1).** The
   window is now a full-width title bar, a split region (left preview/grid column | right
-  prompt column, `kLeftFraction = 0.5`, `dividerW = 4`), an optional full-width code band,
-  and a full-width keyboard band. `setSize(900, 500)`, `setResizeLimits(800, 400, 1600, 1200)`.
+  prompt column, `kLeftFraction = 0.65`, `dividerW = 4`), an optional full-width code band,
+  and a full-width keyboard band. `setSize(900, 500)`, `setResizeLimits(700, 400, 1600, 1200)`.
+  **65/35, updated 2026-08-12 (session 010 §3, answering Waiting-on-you #2 below): the grid
+  column holds the sectioned UiIr preview and was judged to deserve more than half. This
+  went through you directly this session, not a screenshot read — see the plan review that
+  landed it.** `keyboardH` also grew 64→72 (room for session 010 §4's inline octave/scale
+  controls, not yet built).
   **The band-sum pin was replaced, not relaxed**: the old
   `static_assert(chromeHeight(Chrome{}) == 422)` described a single-column window that no
   longer exists, so it was retired in favour of two narrower assertions that survived the
-  build — `rightColumnHeight(Chrome{}) == 276` and `verticalChrome(Chrome{}) == 136`.
+  build — `rightColumnHeight(Chrome{}) == 276` and `verticalChrome(Chrome{}) == 144`.
   Both are consumed by `resized()` and summed by `updateWindowSizeForParams()`, keeping the
   one-source property the `Chrome` struct exists for.
   **One deliberate deviation from the approved plan, for a contract reason.** The plan put
@@ -163,16 +235,19 @@ bullets before it are carried from the previous session, unchanged.**
   In the left column the code band would be absorbed whenever the right column is the taller
   of the two, and revealing code would leave the window height unchanged — silently breaking
   scenario 11's grow-on-show contract. Verified against the real numbers rather than
-  reasoned about: scenario 11 measures `500 → 660px` (`136 + 276 + 8 + 240`), scenario 3
-  measures `706px` (`136 + 6 × 95`, the `kMaxGridRows` cap). Both arithmetic identities hold
+  reasoned about: scenario 11 measures `500 → 668px` (`144 + 276 + 8 + 240`), scenario 3
+  measures `714px` (`144 + 6 × 95`, the `kMaxGridRows` cap). Both arithmetic identities hold
   exactly. `tools/check.sh full` green, 25/25; `EditorSessionTest` 192 checks / 0 failures.
   **Visually confirmed, not inferred from a passing test** — the suite asserts no column
   geometry, so the rendered snapshots were read directly: `session_03_overflow_40_params.png`
-  (900×706) shows the scrolling 40-param grid left, prompt column right, visible divider
-  seam; `session_11a_code_view_empty.png` (900×660) shows the code band spanning full width
+  (900×714) shows the scrolling 40-param grid left, prompt column right, visible divider
+  seam; `session_11a_code_view_empty.png` (900×668) shows the code band spanning full width
   below the split and above the keyboard. **Not verified**: never opened in a DAW (Broken #2
-  is unchanged by this), and no human has judged whether the 50/50 split is the right
-  proportion — that is Waiting-on-you #2.
+  is unchanged by this). **Known defect at 65/35, found 2026-08-12, not yet fixed as of this
+  entry**: the right column's own control rows (the disclosure row — code/style toggle,
+  audition selector — and `PromptPanel`'s button row) were sized for the old 50/50 column
+  and no longer fit; at the default 900px window the refine-mode selector disappears
+  entirely. Fix in flight — see the corresponding item below.
 
 ### Carried forward from 2026-08-04 and earlier — see git log for the full narrative
 
@@ -191,20 +266,78 @@ stereo/mono arity fix, ADR-020's latch/report split) is unchanged and carried th
 Registry with IDs, severity and discovery dates: `docs/BUGS.md`.
 
 **1. The keyboard's QWERTY/computer-keyboard path has a static-contract test, not an
-end-to-end one.** *(unfiled, medium — narrowed this session, not fully closed.)* Scenario
-22 proves `setKeyPressBaseOctave(4)` and `setAvailableRange(36, 96)` agree with each other
-and with JUCE's default QWERTY offset table. It does **not** prove a real keypress produces
-a note — no synthetic-input tool exists on this machine (wtype/ydotool/xdotool all absent),
-and this remains true everywhere else in the repo too. A regression that broke real keypress
-handling while leaving the static constants untouched would still pass all 176 current
-checks undetected. Closing this fully needs either a compositor-level input tool on this
-machine or a different verification strategy entirely.
+end-to-end one.** *(unfiled, medium — narrowed this session, not fully closed.)* The
+shell-level routing gap — `PluginEditor` never asked `KeyboardPanel` about key state at
+all, regardless of focus — is now closed: `PluginEditor::keyStateChanged` forwards
+unconditionally to `KeyboardPanel::routeKeyStateChanged`, and scenario 28 proves the shell
+now asks the keyboard on every key transition, confirmed red-then-green per
+COLLABORATION.md. Scenario 22 separately proves `setKeyPressBaseOctave()` and
+`setAvailableRange()` agree with each other and with JUCE's default QWERTY offset table —
+read from the live `KeyboardPanel` object since C5 (new octave `[<]`/`[>]` controls added
+`currentOctaveForTest()`/`availableRange{Low,High}ForTest()`, replacing the literal
+constants scenario 22 used to copy by hand), and scenario 29 proves the octave controls
+keep both in lockstep across the full 0-8 clamp range. Neither test, nor anything else in
+the repo, proves a real keypress produces a note — `juce::KeyPress::isCurrentlyDown()`
+reads actual OS/compositor key state, and no synthetic-input tool exists on this machine
+(wtype/ydotool/xdotool all absent). This is the **OS→JUCE dispatch hop**, and it remains
+exactly as unverified as before scenario 28. A regression that broke this hop while
+leaving the shell-level routing and the live-read mapping checks untouched would still
+pass all 251 current checks undetected. Closing this fully needs either a
+compositor-level input tool on this machine or a different
+verification strategy entirely.
 
-**2. It has never been in a DAW.** *(Unchanged.)* `COPY_PLUGIN_AFTER_BUILD FALSE`
-(`host/CMakeLists.txt`) means the VST3 has never been installed or scanned, and pluginval
-is not on PATH. Four concrete gaps behind "must take MIDI in any DAW": monophonic by
-design, block-granularity MIDI (~10.7 ms jitter), a hardcoded 2.0 s tail length, no MIDI CC
-mapping.
+**Narrowed further, 2026-08-13 (session 013), against a direct user report ("after
+generating a synth, the keyboard is not playable").** Three real, separate bugs found
+and fixed, none of them the OS→JUCE hop above:
+- **PF-057, fixed.** `KeyboardPanel`'s constructor called `setPlayable(false)` against
+  a `playable` member already reading `false` — an idempotent no-op that meant the
+  widget was never actually disabled/dimmed/labelled on construction. The keyboard
+  *looked* playable while every note was silently discarded. Scenario 20 extended with
+  6 widget-level assertions (not just the flag); confirmed red against the reproduced
+  bug, green against the fix.
+- **PF-058, fixed.** Auto family resolution could route "a generative synth" to the
+  mute `generator` family (kind instrument, zero voice contract by design), silently.
+  Fixed data-driven in `generation_profiles.json`; new `GenerationProfilesAutoTest`
+  covers the C++ preview mirror EditorSessionTest cannot reach (it never builds with
+  `-DPF_IS_SYNTH=1`).
+- **PF-059, fixed.** `generate.py`'s voice-contract gate lowercased UI labels before
+  checking them; `FaustEngine::extractVoiceControls` matches exact case. A patch
+  declaring `hslider("Freq", ...)` passed generation and was silently rejected by the
+  host. New `voice_contract.py` reads the same canonical JSON the C++ header is
+  generated from.
+- **PF-061 (unfiled tracking; the fix itself was always sound), fixed and now COMMITTED
+  (2026-08-15 integration session, `dcf0af5`).** `keyStateChanged` now suppresses
+  forwarding while any `juce::TextEditor` holds focus (JUCE's `TextEditor::
+  keyStateChanged` swallows key-DOWN but not key-UP while focused, and
+  `MidiKeyboardComponent::keyStateChanged` ignores its own parameter and re-polls
+  every mapped key on every call — so a key-up from ordinary fast-typing rollover
+  could fire a spurious note for a letter never registered as down); and
+  `KeyboardPanel::focusForPlaying()`, called from `onFaustCompileSuccess` for a
+  successful instrument generation, so QWERTY works without clicking the piano first.
+  Scenario 34 covers both, red-then-green confirmed by temporary reverts (session 013),
+  reconfirmed green post-merge as part of the full 40-scenario/311-check suite (see the
+  2026-08-15 integration entry in Works, above).
+
+None of PF-057/058/059 is the OS→JUCE dispatch hop — that remains exactly as
+unverified as the paragraph above states. What changed is that a generated synth now
+reaches a state where that hop is the ONLY remaining unverified link, instead of being
+masked behind three shell-level bugs that made the keyboard non-functional before a
+physical key was ever involved.
+
+**2. It has never been in an interactive DAW/host GUI.** *(Narrowed 2026-08-16 — was "never
+been in a DAW" outright, which was already half-false; see the Works entry above.)*
+`COPY_PLUGIN_AFTER_BUILD` is now `TRUE`; `pluginval` (`SUCCESS`, both plugins, multiple seeds)
+and Carla's independent `carla-discovery-native` scanner (both plugins instantiate correctly)
+are real evidence the plugin format contract holds. What remains: no interactive host session
+— Carla is installed but `carla-single`/full Carla need a JACK server this machine doesn't have
+running (no `pipewire-jack`, no jackd), so nothing has visually loaded and played a note yet.
+Four concrete gaps behind "must take MIDI in any real session," triaged 2026-08-16 against the
+code (all real, all pre-existing, none fixed): monophonic by design (`FaustEngine.cpp:519-524`,
+last-note-priority, deliberate — not a bug), block-granularity MIDI (~10.7 ms jitter,
+`PluginProcessor.cpp:279-283`, already documented in-code), a hardcoded 2.0 s tail length
+(`PluginProcessor.h:85`, ignores what a given generated patch actually needs), no MIDI CC
+mapping (`PluginProcessor.cpp:288-317`'s MIDI walk has no `isController()` branch — CC
+messages are silently dropped).
 
 **3. ~~"Refine" is a crude binary, not a refinement architecture.~~** *(unfiled, medium,
 closed 2026-08-06 — ADR-011's second amendment.)* The single toggle became a 3-mode
@@ -239,7 +372,86 @@ yet gated.)*
 **11. `score_efficacy.py --judge` spends quota.** *(unfiled, unchanged.)* Takes a lock
 (`bench/score_efficacy.py:558,569`); the quota cost itself is the remaining, real half.
 
+**12. ~~Sample search failed on every query.~~** *(PF-054/PF-055, critical, closed
+2026-08-13.)* Had no BUGS.md entry and zero tests despite three independent, fatal,
+live-confirmed defects: `SoundfetchClient` resolved a bare `"soundfetch"` name never
+on PATH on this machine (only installed inside venvs), and JUCE's
+`ChildProcess::start()` returns true even when `execvp()` fails in the forked child,
+so the friendly "unavailable" message was dead code (PF-054); the default provider's
+own logging corrupted the JSON via JUCE's default stream-merge flags (PF-055). Fixed:
+resolve `<python> -m soundfetch` (mirrors `PromptPanel`'s existing interpreter
+discovery), capture stdout only, detect the execvp-failure exit-code signature. New
+`SoundfetchClientTest` (0 tests before this session), red-then-green confirmed
+against the pre-fix implementation, plus a live smoke test against the real venv
+(clean JSON on stdout, 52 lines of noise on stderr, confirming the fix's assumptions
+against production). **PF-056 remains open and is not a code defect**: the configured
+Freesound key is sent and rejected (HTTP 403) — needs a replacement key from
+freesound.org. Internet Archive (the default provider) now works; Freesound will
+report the real 403 instead of failing silently once PF-054/055 are live.
+
+**13. The `/orient` digest's CI-staleness banner doesn't quantify how far behind HEAD the
+tested commit is.** *(unfiled, low, found 2026-08-16.)*
+`tests/test_control_wiring.py::TestDigestReportsCI::test_green_on_an_older_commit_is_not_reported_as_a_pass`
+fails at HEAD: the banner names the caveat ("green on a commit that is not HEAD") but not the
+commit count. Surfaced by an unrelated `tools/check.sh full` run this session (a PF-062
+verification pass) — confirmed pre-existing, not caused by that session's diff (which touched
+only `host/CMakeLists.txt`, `host/Source/PluginProcessor.cpp`, `host/tests/OfflineRenderTest.cpp`,
+none of which the failing test or its subject code touches). Not investigated further.
+
 ---
+
+**2026-08-16, later the same day: Next-three #2 (evidence) run — Mechanism A's second,
+genuinely adversarial trial.** `docs/sessions/015-mechanism-a-adversarial-trial.md`. Session
+006 (2026-08-05) found four honest `touches` declarations and flagged its own limitation:
+"reasoned about, not actually run unsafely and caught." This session closed that gap for
+real. Two independently-briefed, context-isolated subagents (each in its own `git worktree`,
+neither aware the other existed) implemented two small, honestly-scoped features —
+`CodeEditorPanel` grabbing focus on new source, `KeyboardPanel` showing a one-shot onboarding
+hint on focus-gain — both hooking into `PluginEditor.cpp`'s `onFaustCompileSuccess` via
+**existing** call sites, in a region with no `CONTRACT.md`. Both declared honest `touches`
+sets (2/2 this trial, 6/6 across both trials now); `git apply` of both diffs onto a fresh
+`main` worktree produced **zero conflicts** — Mechanism A's raw `touches ∩ touches = ∅` check
+says "safe," correctly, at the file level. Merged and mechanically verified under a **real**
+desktop peer (this machine's actual Hyprland session — confirmed CI's `xvfb` would not have
+helped; the test harness never calls `addToDesktop()` anywhere): `codeView focus=false,
+keyboard focus=true` — `PluginEditor.cpp`'s existing, untouched call order
+(`showSource()` before `focusForPlaying()`) makes P-CODEVIEW's entire stated feature silently
+inert for every instrument generation, invisible to any file-level touches check because the
+coupling runs through a third file neither brief declared. New `EditorSessionTest.cpp`
+scenario (`scenarioMechanismATrial_focusOwnershipAfterMerge`) proved this mechanically — full
+41-scenario suite, 314 checks, 0 failures, including the two new assertions. **Second,
+independent finding, same session:** a real LeakSanitizer-confirmed leak in the new
+`KeyboardPanel` code (`juce::Timer::callAfterDelay`, `juce_Timer.cpp:395`), invisible to
+both individual agents' own build+verify passes for the identical reason — neither ever ran
+against a real peer. Neither brief's code was landed; both worktrees and the merge worktree
+were removed after the write-up, per the trial's own throwaway scope. Full recommendation and
+risk in the session doc's change report — the touches-only hook remains not-yet-built, and the
+`provides`/`depends` half's exact limitation (no contract exists for `onFaustCompileSuccess`'s
+call order) is now demonstrated twice, by two different mechanisms, in two independent trials.
+
+---
+
+**2026-08-16, later still: Next-three #2 (evidence) run again — the Mechanism B pilot session
+005 specified and never ran.** `docs/sessions/016-mechanism-b-pilot.md`. Five single-commit
+diffs touching `ParamPool`/`ParamMap`/`ParamIdentity`, one a deliberately planted canary
+reimplementing `ParamMap::mapSlotToZone`'s log-curve math inline inside `pushToFaust` — exactly
+the PF-001/PF-037 shape `PARAM_CONTRACT.md` names by number. Five independent, context-isolated
+reviewer agents (fresh spawns, not context-inheriting forks — a fork would have known which diff
+was the canary), each given only one diff and `PARAM_CONTRACT.md`, diff-to-reviewer assignment
+randomized after the diffs were built. **The canary was caught**: correct file:line, the contract
+clause quoted verbatim, a reproducible trigger, plus an unplanted secondary finding (the canary
+also silently ignores an explicit `[scale:]` override). Pilot does not hit its stop condition.
+**Unplanned second result**: 2 of the 4 diffs authored as "clean" control material were not —
+a `jassert(slots.size() == POOL_SIZE)` that can never fire (the constructor loop `push_back`s
+unconditionally on every path, confirmed by hand) and a `slug()` 64-char truncation that changes
+already-accepted output without bumping `ParamIdentity::kSchemeVersion`, silently breaking the
+persistence one-way-door contract for any patch with a long enough group/label slug (also
+confirmed by hand: no `kSchemeVersion` touch appears anywhere in that diff). Mechanism B caught
+both, with the same per-clause rigor, and produced zero false positives on the two diffs that
+really were clean. Session 005's own verdict is unchanged by a pass: this earns a second, larger
+trial before wider adoption, not a green light — COLLABORATION.md is not amended, Mechanism B is
+not adopted as process. All five pilot diffs lived only on a throwaway branch and were deleted
+after the write-up; nothing from this trial landed or was intended to.
 
 ## Assumed, never checked
 
@@ -252,59 +464,80 @@ measurement (see the first Works bullet above); the efficacy pilot remains.
 
 ## Next three things
 
-1. **Get it into a DAW.** Broken #2, long-standing, blocks the one validation this project
-   cannot claim yet: does a generated plugin actually load and behave in a real host. Needs
-   `COPY_PLUGIN_AFTER_BUILD` on, `pluginval` installed, and the four MIDI-fidelity gaps
-   named in Broken #2 at minimum triaged, not necessarily fixed, before a first real scan.
-2. *(evidence)* **Adversarial Mechanism A trial.** Session 006's recommendation: run a
-   `touches`-declared-disjoint but actually-coupled brief pair in parallel and measure
-   whether the mechanism catches the coupling. Today's Mechanism A data is one favorable
-   4-brief sample; this trial tests the failure path before any `PreToolUse` hook is built
-   on it.
-3. **The generation-refinement architecture-planning conversation.** ADR-021 named
-   "acceptance criteria — capturing what a generation was asked for so the result can be
-   checked against it" as a real, deliberately deferred need; the spectral judge (PF-041/
-   PF-042) partially addresses category-level compliance, and this session's live 2/2
-   refine-preamble result (Works above) is the first datum on the refinement side. Promoted
-   from Displaced: with the model now shown to respect both refine modes, the broader
-   question — does single-pass generation reliably meet stated intent, and what would a
-   refinement/critique pass cost — is the natural next planning conversation.
+1. **Get it into an interactive DAW/host session.** Broken #2, narrowed 2026-08-16: format-level
+   validation now exists (`pluginval` SUCCESS, Carla's independent `carla-discovery-native`
+   scan SUCCESS, both plugins, after PF-062's real audio-thread bug was found and fixed) and
+   the four MIDI-fidelity gaps are triaged. What's left is the one thing neither scanner does
+   — an actual interactive session: load the plugin in Carla's Rack/Patchbay GUI, play a note,
+   confirm it sounds right and doesn't glitch. Blocked on a JACK server (`pipewire-jack` is not
+   installed, no jackd running) — installing one is a dependency decision for you, not made
+   this session.
+2. *(evidence)* **~~Mechanism B pilot~~ — DONE 2026-08-16.** `docs/sessions/016-mechanism-b-pilot.md`:
+   the five-diff/one-canary trial session 005 §2 specified. The canary was caught — file:line
+   citation, contract clause quoted verbatim, reproducible trigger — so the pilot does not hit
+   its own stop condition. Unplanned: 2 of the 4 diffs built as "clean" control material turned
+   out to contain real, independently-confirmed defects (a tautological `jassert` that can
+   never fire; a `slug()` truncation that silently breaks the `kSchemeVersion` one-way-door
+   contract) that I introduced by mistake while authoring them — Mechanism B caught both, zero
+   false positives on the two diffs that really were clean. Session 005's own verdict stands
+   unchanged by a pass: "a pass here earns a second, larger trial before any wider adoption —
+   not a green light." COLLABORATION.md is NOT amended; Mechanism B is not adopted as process.
+   **Proposed replacement for this slot** (your call, per the doc's own `YOUR MOVE`): the
+   second, larger trial session 005 itself named as the condition for wider adoption — this
+   time with control diffs verified clean by someone other than the pilot's own author, since
+   this run's "clean" material wasn't. Swap for a different evidence item if you'd rather.
+3. **~~The generation-refinement architecture-planning conversation~~ — DONE 2026-08-16.**
+   ADR-027 (`docs/decisions.md`, Proposed): no automated critique/refine gate on live
+   generation — the human-driven Add/Redo loop already serves that, at lower cost, without
+   contradicting COLLABORATION.md §1's own stated philosophy. PF-041/PF-042 authorized to be
+   fixed instead, scoped to `bench/score_efficacy.py`'s offline benchmark path only.
+   **Replacement for this slot: do the PF-041/PF-042 fix ADR-027 just authorized** — an
+   independent per-effect ground truth (not L4's own prompt) for PF-041, and a rubric-vs-
+   judge-model investigation for PF-042, checked against the existing 44-record set.
 
 **Displaced, not urgent.** **A piano roll** (requested, unplanned; needs a note grid and a
-clock). The generation-refinement architecture-planning conversation was promoted to
-Next-three #3 this session.
+clock).
 
 ## Waiting on you
 
-1. **Commit today's work, or hold it.** Superseded — the file list below is what is
-   uncommitted as of THIS rewrite; the previous version of this item described an earlier,
-   already-superseded uncommitted set from the same day. The refine two-mode change
-   (Broken #3, closed):
-   `host/Source/PromptPanel.{h,cpp}` (`refineSelector` ComboBox, `setRefineModesAvailable`,
-   refusal surfacing), `host/Source/PluginEditor.{h,cpp}` (compile-success refresh call,
-   test forwarders), `host/tests/EditorSessionTest.cpp` (scenarios 25-26, new),
-   `host/tests/FakeGenerator.h` (`writeFailure`'s `priorSourceRefused` param), `llm/generate.py`
-   (`_SURGICAL_PREAMBLE`/`_CONTEXT_PREAMBLE`, `refine_mode`, the surgical hard-fail),
-   `tests/test_generate_unit.py` (9 new cases) — plus this session's docs:
-   `llm/CONTRACT.md`, `INTERFACE.md`, `docs/decisions.md` (ADR-011's second amendment),
-   `docs/sessions/002-refine-loop-and-ui-redesign.md` (forward-pointer only; its frozen plan
-   text below "## 1. Plan, as approved" was not touched), and this file. **`tools/check.sh
-   full` is green end-to-end** (both `llm/generate.py`'s change and the host build/TSan
-   lanes); `EditorSessionTest` is 213 checks / 0 failures across 26 scenarios, run this
-   session with a live display present — up from 24 scenarios / 192 checks this morning,
-   both new ones (25, 26) confirmed to fail red before their fix landed, per COLLABORATION.md's
-   "a control counts only once it has been seen failing."
-2. **The two-panel layout needs your eye, and so does the styled keyboard.** Open
-   `host/artifacts/images/session_03_overflow_40_params.png` (the split with a full grid) and
-   `session_11a_code_view_empty.png` (the code band revealed), plus
-   `artifacts/ui_gallery/index.html` for the Catppuccin/teal-pink direction. Two specific
-   judgments the test suite structurally cannot make: **is 50/50 the right split** (the grid
-   column is the one that will hold the sectioned UiIr preview, so it may deserve more), and
-   is the dark palette what was wanted. "Does this look right" per COLLABORATION.md §1 is
-   yours.
-3. **The EFFECTS listening pass.** Unchanged from prior rewrites.
-   `host/build/PluginForgeHost_artefacts/Debug/Standalone/PluginForge Host` is current.
-   Input bus required. VST3 still never installed (`COPY_PLUGIN_AFTER_BUILD FALSE`).
+0. **2026-08-14's "confirmed not recoverable from git" was wrong — both pieces of work
+   survived, and this session landed them on `main`.** A prior cloud session (PR #9,
+   closed) checked only `origin` after a local `claude_code_cli` session went
+   `disconnected` mid-review, and concluded `fix/provider-blind-preflight` (PF-060 fix +
+   5 dossier corrections) and the uncommitted QWERTY-focus C++ work on
+   `fix/sample-browser-and-keyboard` were lost. Session 014 (`docs/sessions/014-*.md` §3)
+   already caught and recorded this error against local disk state; this 2026-08-15
+   session confirmed it against `git` directly and merged both into `main` (see the Works
+   entry above). Treat this as the record of a near-miss, not data loss — but the
+   near-miss is why the durability pass (push first, reconcile second) is now this
+   project's default integration order, not a one-off.
+   Separately, the 8 open design decisions (D1–D8) that cloud session recorded for Part 2
+   of the same plan — wiring `ParamGridPanel::applyUiIr()` into visible, titled section
+   cards (ADR-024) — are unaffected by the correction above and remain settled: **D1**
+   nested Faust groups (`"Osc/Tune"`) collapse to their first path segment as one card.
+   **D2** `Section::span` (side-by-side cards) is deferred, not built in v1. **D3**
+   Horizontal-style controls still get sectioned, for gallery consistency. **D4** an
+   all-ungrouped patch gets zero sections (flat grid, unchanged) — keeps ADR-024's
+   compatibility clause literally true. **D5 — RESOLVED, not pending.** ADR-024 promoted
+   Proposed → Accepted this session (`docs/decisions.md`): session 014 implemented Track
+   1.2 in full (`08e24a8`), landed here. **D6** a fixture exercising D1's nested-group
+   collapse (e.g. `07_generator_nested.dsp`) is still unbuilt — real remaining work, not
+   closed by D5. **D7** card title casing stays deferred to a human visual pass
+   (`tools/screenshot_ui.sh`) — still open. **D8** the sectioned-mode window growth cap
+   stays as-is, no policy change — unchanged, not revisited.
+1. **Superseded 2026-08-12** — the refine two-mode file list this item used to carry is
+   long since committed. Session 010's alpha UI pass is now the live uncommitted work on
+   `feat/ui-design-system`; see the plan at `.claude/plans/you-are-a-lead-steady-cake.md`
+   for the current step-by-step (palette done, 65/35 split landing this session, keyboard/
+   prompt/cockpit reconciled and queued behind it).
+2. **RESOLVED 2026-08-16.** Session 010 §1/§3 made the 65/35 call (see item above); the
+   second half of this item — **is the dark palette (Tokyo Night, not Catppuccin) what was
+   wanted** — is now approved as-is against `artifacts/ui_gallery/index.html` (2026-08-15
+   refresh). "Does this look right" per COLLABORATION.md §1: yes, no changes requested.
+3. **RESOLVED 2026-08-16.** The EFFECTS listening pass against
+   `host/build/PluginForgeHost_artefacts/Debug/Standalone/PluginForge Host` passed — no
+   issues raised. VST3 still never installed (`COPY_PLUGIN_AFTER_BUILD FALSE`); this was a
+   Standalone-only listening pass, not a DAW validation (see Broken #2, unchanged).
 4. **Requested and not yet planned: a piano roll.** Unchanged. Needs a note grid *and* a
    clock (no host transport in Standalone). Recommended split: preset audition phrases
    first, drawing UI after.
@@ -313,3 +546,15 @@ Next-three #3 this session.
 6. **`UDHR.md` and `IDEAS.md`** — still untracked, still yours, still left alone.
    `sesh_new.md` was removed this session at your instruction (copied to session scratchpad
    first, since it was untracked and unrecoverable via git otherwise).
+7. **RESOLVED 2026-08-15.** The QWERTY-after-generation fix (session 013) is committed
+   (`dcf0af5`) and merged to `main` as part of this session's integration pass. See
+   Broken #1's updated entry above.
+8. **New 2026-08-13: a replacement Freesound API key.** Broken #12 / PF-056 — the
+   configured key is sent and rejected (HTTP 403). Code can't fix a revoked/expired
+   credential; get a new one from freesound.org when convenient.
+9. **New 2026-08-16: install a JACK server (or `pipewire-jack`) to finish Next-three #1.**
+   Carla is installed and its headless scanner already validates both plugins, but
+   `carla-single`/the full Carla GUI need JACK to actually run and load a plugin
+   interactively — this machine has neither `pipewire-jack` nor a running jackd. Your call
+   on which (`pipewire-jack` is likely the lower-friction path since PipeWire is already the
+   running audio server) — a new system dependency, not installed this session.

@@ -76,7 +76,7 @@ CompileOutcome loadAndAwaitEither(PluginForgeProcessor& p,
         done = true;
         cv.notify_all();
     };
-    p.onFaustCompileFailure = [&](const juce::String& err)
+    p.onFaustCompileFailure = [&](const juce::String& err, const juce::String&)
     {
         std::lock_guard<std::mutex> lock(m);
         outcome.succeeded = false;

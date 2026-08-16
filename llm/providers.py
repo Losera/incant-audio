@@ -33,6 +33,14 @@ Selection
                            attempts included (read by generate.py; default 100).
                            Must stay well under the host's subprocess cap — see
                            the Budget class and PF-019.
+    PLUGINFORGE_OLLAMA_NUM_CTX  the ollama model's configured context, in
+                           tokens (PF-060/PF-043). Only a DECLARATION for the
+                           preflight admission math below — it does not itself
+                           configure ollama's num_ctx; that still requires a
+                           Modelfile (README.md "Known generation limitations").
+                           Defaults to 4096, ollama's stock runtime default,
+                           which the repo's declared default model
+                           (qwen2.5-coder:7b) does not override.
 
 generate.py loads PluginForge/.env before reading these, and juce::ChildProcess
 inherits the environment, so setting PLUGINFORGE_PROVIDER in .env reaches the plugin
@@ -139,27 +147,75 @@ def estimate_tokens(text: str) -> int:
     return int(len(text) * ratio * SAFETY_FACTOR)
 
 
-def request_ceiling(max_output_tokens: int = MAX_OUTPUT_TOKENS) -> int:
-    """Prompt tokens (system + user) groq will admit before a 413, at this max_output_tokens."""
-    return GROQ_TPM_LIMIT - max_output_tokens
+def request_budget(provider: str | None = None,
+                   max_output_tokens: int = MAX_OUTPUT_TOKENS) -> int:
+    """Prompt tokens admitted for `provider`'s ONE request, after reserving output.
+
+    PF-060: `provider=None` reproduces the pre-fix behavior exactly — the groq
+    figure, unconditionally — because that was every caller's behavior before
+    this function existed (preflight_prior_source() was called with no provider
+    argument at all). An unregistered/typo'd provider name, or a registered
+    provider with request_token_budget left at its None default (not yet
+    measured), falls back the same way: conservative, not an exception, because
+    this sits on the admission path and a KeyError here would turn "I don't have
+    a number for X" into a hard crash instead of a refusal the caller already
+    knows how to handle.
+    """
+    budget = GROQ_TPM_LIMIT
+    if provider is not None:
+        try:
+            spec = get_spec(provider)
+        except ValueError:
+            spec = None
+        if spec is not None and spec.request_token_budget is not None:
+            budget = spec.request_token_budget
+    return budget - max_output_tokens
 
 
-def headroom_tokens(text: str, max_output_tokens: int = MAX_OUTPUT_TOKENS) -> int:
-    """Slack before groq refuses `text` as the prompt at this max_output_tokens. May be negative."""
-    return request_ceiling(max_output_tokens) - estimate_tokens(text)
+def request_ceiling(max_output_tokens: int = MAX_OUTPUT_TOKENS,
+                    provider: str | None = None) -> int:
+    """Prompt tokens (system + user) `provider` will admit, at this max_output_tokens.
+
+    PF-060: `provider` is trailing and defaulted so every existing positional
+    call site (there were two, both 1-arg) keeps meaning exactly what it meant
+    before — groq's figure. See request_budget() for the resolution order.
+    """
+    return request_budget(provider, max_output_tokens)
+
+
+def headroom_tokens(text: str, max_output_tokens: int = MAX_OUTPUT_TOKENS,
+                    provider: str | None = None) -> int:
+    """Slack before `provider` refuses `text` as the prompt. May be negative.
+
+    PF-060: same trailing-defaulted `provider` as request_ceiling(), same reason.
+    """
+    return request_ceiling(max_output_tokens, provider) - estimate_tokens(text)
 
 
 def preflight_prior_source(system_prompt: str, content_with_prior_source: str,
-                           max_output_tokens: int = MAX_OUTPUT_TOKENS) -> bool:
-    """True if system_prompt + content_with_prior_source fits groq's admission rule.
+                           max_output_tokens: int = MAX_OUTPUT_TOKENS,
+                           provider: str | None = None) -> bool:
+    """True if system_prompt + content_with_prior_source fits `provider`'s admission rule.
 
     Called by generate_json before the retry loop starts. When this is False the
     caller drops prior_source entirely and marks the response
     prior_source_dropped — never truncated, the same "a half program teaches a
     syntax error the user didn't make" reasoning _TRUNCATION_HINT already applies
     in the other direction (llm/generate.py).
+
+    PF-060: before this parameter existed, this function silently applied groq's
+    rate limit to every provider — reproduced live 2026-08-13 by replaying the
+    trial's actual refused payload (logs/prompts.jsonl ts:2026-08-13T23:06:23Z's
+    2,043-char faust_code) through generate_json() with provider="ollama" and
+    provider="gemini": both refused identically at attempts=0, 0.00s, no network
+    call, even though ollama's declared context (16,384 in that run's Modelfile)
+    and gemini's (1,048,576, measured live — see its ProviderSpec comment) both
+    comfortably exceed the payload's ~4,497 estimated tokens. `provider=None`
+    (every pre-existing call site) still applies the old groq-only rule exactly,
+    so Groq's measured behavior does not change.
     """
-    return headroom_tokens(system_prompt + content_with_prior_source, max_output_tokens) > 0
+    return headroom_tokens(system_prompt + content_with_prior_source,
+                           max_output_tokens, provider) > 0
 
 # Free-tier request budgets as advertised 2026-07; they move, and every provider
 # below rate-limits by account age/region. Treat as ordering hints, not contracts.
@@ -193,6 +249,17 @@ class RateLimited(RuntimeError):
     retry (rate_limited) versus something is stalled (timeout). Maps to
     reason="rate_limited" in the ADR-011 response.
     """
+
+    def __init__(self, message: str, retry_after: float | None = None):
+        super().__init__(message)
+        # The provider's own stated wait, in seconds. None only if a future
+        # raise site forgets to set it -- both current sites do. Threaded
+        # into generate.py's failure dict and from there into
+        # PromptPanel::statusForReason(), so "rate limited" becomes "try
+        # again in 37s" instead of a dead end. Added 2026-08-13 after
+        # logs/prompts.jsonl showed three real generations failing with
+        # exactly this reason and no actionable next step for the user.
+        self.retry_after = retry_after
 
 
 class OutputTruncated(RuntimeError):
@@ -301,6 +368,34 @@ class ProviderSpec:
     # 1016 thinking + 164 visible, valid Faust.
     min_max_tokens: int = 0
 
+    # PF-060: total tokens admitted for ONE request (prompt + max output), used by
+    # preflight_prior_source()/request_budget() to decide whether a refine's prior
+    # source fits. Deliberately unifies two different kinds of limit:
+    #   groq   -> a measured TPM RATE limit (GROQ_TPM_LIMIT), not a context window.
+    #   others -> the model's actual input context window.
+    # They are unified because the admission QUESTION is the same in both cases —
+    # "does prompt + output fit in one request" — even though what backs the
+    # number differs. Dossier docs/research/plugin-evolution-ui-provider-
+    # architecture-2026-08-13.md §4.5 point 5 is right that a product-grade
+    # version must tell rate limits and context windows apart (e.g. to give a
+    # useful message when the ceiling is a per-minute quota vs. a hard input cap);
+    # this field is the narrow fix for PF-060, not that product.
+    # None = not yet measured for this provider -> request_budget() falls back to
+    # the conservative groq figure, i.e. today's behavior, unchanged.
+    request_token_budget: int | None = None
+
+
+# PF-060/PF-043: ollama's per-request budget depends on the SELECTED MODEL's
+# context, and unlike gemini's inputTokenLimit it cannot be read back live from
+# the OpenAI-compat chat-completions endpoint this adapter uses (no models.list
+# equivalent exposes num_ctx). Default to 4096: `ollama show qwen2.5-coder:7b`
+# (checked 2026-08-13) prints no "Parameters / num_ctx" line, meaning the
+# repo's declared default model has no override and gets ollama's stock
+# runtime default — which is exactly the PF-043 defect (open, not fixed here).
+# README.md already tells a developer wanting more to create a model with
+# `num_ctx 16384`; this override is how that choice reaches the preflight math
+# without PluginForge trying to parse Modelfiles.
+_OLLAMA_NUM_CTX = int(os.environ.get("PLUGINFORGE_OLLAMA_NUM_CTX", "4096"))
 
 PROVIDERS: dict[str, ProviderSpec] = {
     "gemini": ProviderSpec(
@@ -314,6 +409,14 @@ PROVIDERS: dict[str, ProviderSpec] = {
         env_var="GOOGLE_API_KEY",
         signup_url="https://aistudio.google.com/apikey",
         min_max_tokens=4096,
+        # PF-060: measured live 2026-08-13, GET generativelanguage.googleapis.com/
+        # v1beta/models/gemini-3.6-flash (a model-metadata read, not a billed
+        # generation — see the module docstring's "Doctor CLI" note) ->
+        # inputTokenLimit 1048576, outputTokenLimit 65536. Recorded here at
+        # 1000000 (round number, headroom against the exact API figure) rather
+        # than the raw value, on the same "prefer conservative" principle as the
+        # openrouter/ollama entries below.
+        request_token_budget=1_000_000,
         notes="Free tier, no credit card. Measured 2026-07-21 on this account: "
               "5 requests/MINUTE and only 20 requests/DAY, both PER MODEL. Quotas "
               "are per-model, so switching PLUGINFORGE_MODEL gets a fresh daily "
@@ -330,6 +433,11 @@ PROVIDERS: dict[str, ProviderSpec] = {
         base_url="https://api.groq.com/openai/v1",
         signup_url="https://console.groq.com",
         min_max_tokens=4096,
+        # PF-060: reuse GROQ_TPM_LIMIT rather than retype 8000 — this is the
+        # provider request_ceiling()/preflight_prior_source() were already
+        # unconditionally computing before PF-060; naming it here makes that the
+        # explicit per-provider case instead of the silent global default.
+        request_token_budget=GROQ_TPM_LIMIT,
         notes="Free tier, no credit card. NOT the volume option — that claim was "
               "wrong and is corrected here 2026-07-28.\n"
               "WHAT BINDS IS TOKENS PER DAY, and the old note recorded only "
@@ -382,6 +490,15 @@ PROVIDERS: dict[str, ProviderSpec] = {
         # caller asks for, and the bench harnesses still ask for 1024. That is
         # exactly how the anthropic spec ran the whole efficacy study truncated.
         min_max_tokens=4096,
+        # PF-060: openrouter's default_model resolves to a THIRD PARTY's model,
+        # not a fixed openrouter limit -- deepseek/deepseek-chat-v3-0324:free
+        # lists "Context: 131K" at https://openrouter.ai/deepseek/deepseek-chat-
+        # v3-0324:free (checked 2026-08-13). Recorded conservatively below that
+        # measured figure because a caller can override PLUGINFORGE_MODEL to a
+        # different openrouter model with a smaller window, and this spec has no
+        # way to know that at import time -- unlike gemini/anthropic, where
+        # default_model IS the vendor's own model.
+        request_token_budget=100_000,
         notes="Many ':free' models behind one key, but only ~50 free-model requests "
               "per day until the account has spent $10. Good for a smoke test.",
     ),
@@ -396,6 +513,7 @@ PROVIDERS: dict[str, ProviderSpec] = {
         # "no provider can silently generate below the shared output budget"
         # uniform rather than a per-provider judgement call.
         min_max_tokens=4096,
+        request_token_budget=_OLLAMA_NUM_CTX,
         notes="Fully local: no key, no quota, works offline, can never be billing "
               "blocked. Needs `sudo pacman -S ollama` + `ollama pull <model>`.",
     ),
@@ -414,6 +532,12 @@ PROVIDERS: dict[str, ProviderSpec] = {
         # both floor at 4096. Every recorded benchmark and efficacy number came
         # from this provider and therefore ran truncated -- see OutputTruncated.
         min_max_tokens=4096,
+        # PF-060: claude-opus-4-8's context window is 1M tokens per
+        # https://platform.claude.com/docs/en/about-claude/models/overview
+        # (checked 2026-08-13, "Legacy models" table). Recorded at the same
+        # round 1,000,000 as gemini above, for the same conservative-headroom
+        # reason.
+        request_token_budget=1_000_000,
         notes="PAID. Requires PLUGINFORGE_ALLOW_PAID=1.",
         no_temperature_models=("claude-opus-4-7", "claude-opus-4-8"),
     ),
@@ -730,7 +854,8 @@ def _call_with_retry(call, budget=None):
                 if budget is not None and not budget.can_sleep(delay):
                     raise RateLimited(
                         f"provider asked us to wait {delay:.0f}s but only "
-                        f"{max(0.0, budget.remaining()):.0f}s of budget remains"
+                        f"{max(0.0, budget.remaining()):.0f}s of budget remains",
+                        retry_after=delay,
                     ) from exc
                 time.sleep(delay)
         raise AssertionError("unreachable")  # pragma: no cover
@@ -774,11 +899,17 @@ def _post_with_backoff(url: str, headers: dict, payload: dict, budget=None) -> d
                 delay = _retry_after_seconds(response, attempt)
                 if budget is not None and not budget.can_sleep(delay):
                     # Distinguish throttling from a stall: the advice differs.
-                    exhausted = RateLimited if response.status_code == 429 else BudgetExhausted
-                    raise exhausted(
+                    # RateLimited takes retry_after too, BudgetExhausted's
+                    # __init__ is the plain RuntimeError one -- can't share
+                    # one call the way `exhausted = ... ; raise exhausted(...)`
+                    # used to.
+                    message = (
                         f"provider asked us to wait {delay:.0f}s but only "
                         f"{max(0.0, budget.remaining()):.0f}s of budget remains "
                         f"— {last_error}")
+                    if response.status_code == 429:
+                        raise RateLimited(message, retry_after=delay)
+                    raise BudgetExhausted(message)
                 time.sleep(delay)
                 continue
         break

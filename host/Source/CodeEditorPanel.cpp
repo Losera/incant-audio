@@ -8,7 +8,10 @@ CodeEditorPanel::CodeEditorPanel(PluginForgeProcessor& p)
     header.setText("Generated Faust (read-only)", juce::dontSendNotification);
     header.setJustificationType(juce::Justification::centredLeft);
     header.setFont(Theme::Type::body());
-    header.setColour(juce::Label::textColourId, Theme::subtext);
+    header.setColour(juce::Label::textColourId, Theme::textSecondary);
+
+    addAndMakeVisible(copyButton);
+    copyButton.onClick = [this] { copySource(); };
 
     addAndMakeVisible(editor);
     // Phase 3a is the view alone. Editing lands with a Compile button, not before
@@ -17,10 +20,10 @@ CodeEditorPanel::CodeEditorPanel(PluginForgeProcessor& p)
     // (juce_CodeEditorComponent.h:237).
     editor.setReadOnly(true);
     editor.setScrollbarThickness(8);
-    editor.setColour(juce::CodeEditorComponent::backgroundColourId, Theme::mantle);
-    editor.setColour(juce::CodeEditorComponent::defaultTextColourId, Theme::text);
-    editor.setColour(juce::CodeEditorComponent::lineNumberBackgroundId, Theme::crust);
-    editor.setColour(juce::CodeEditorComponent::lineNumberTextId, Theme::overlay);
+    editor.setColour(juce::CodeEditorComponent::backgroundColourId, Theme::surface);
+    editor.setColour(juce::CodeEditorComponent::defaultTextColourId, Theme::textPrimary);
+    editor.setColour(juce::CodeEditorComponent::lineNumberBackgroundId, Theme::surfaceSunken);
+    editor.setColour(juce::CodeEditorComponent::lineNumberTextId, Theme::outline);
     editor.setFont(Theme::Type::mono());
 
     // Seed from whatever is already live, so a panel revealed AFTER a compile
@@ -35,6 +38,10 @@ void CodeEditorPanel::showSource(const juce::String& faustSource)
     // loadContent resets the document and clears its undo history
     // (juce_CodeEditorComponent.h:65-69). That is the intent: this is a view of
     // the current patch, not an accumulating buffer.
+    // New source makes any earlier highlight stale -- clear it rather than
+    // leaving a selection that no longer points at the line it was drawn for.
+    lastHighlightedLine = 0;
+
     if (faustSource.isEmpty())
     {
         editor.loadContent("// No patch compiled yet.\n"
@@ -44,14 +51,57 @@ void CodeEditorPanel::showSource(const juce::String& faustSource)
     editor.loadContent(faustSource);
 }
 
+void CodeEditorPanel::highlightErrorLine(int faustLineNumber)
+{
+    if (faustLineNumber <= 0)
+        return;   // this particular error carried no line info -- nothing to point at
+
+    const int numLines = document.getNumLines();
+    if (numLines <= 0)
+        return;
+
+    // CodeDocument lines are 0-based (juce_CodeDocument.h:129-130: "Lines are
+    // numbered from zero"); Faust's are 1-based. Clamp into range rather than
+    // reject an out-of-range line outright -- a stale line number from an
+    // error against a slightly different source is still closer to useful
+    // pointing at the nearest real line than pointing at nothing.
+    const int zeroIndexed = juce::jlimit(0, numLines - 1, faustLineNumber - 1);
+    const juce::CodeDocument::Position start(document, zeroIndexed, 0);
+    const juce::CodeDocument::Position end(document, zeroIndexed,
+                                            document.getLine(zeroIndexed).length());
+    editor.selectRegion(start, end);
+    editor.scrollToKeepLinesOnScreen({ zeroIndexed, zeroIndexed + 1 });
+
+    lastHighlightedLine = faustLineNumber;
+}
+
+void CodeEditorPanel::copySource()
+{
+    juce::SystemClipboard::copyTextToClipboard(document.getAllContent());
+
+    // Transient confirmation, not a status line this panel doesn't have.
+    // One-shot via a member Timer -- see the class header comment for why
+    // this isn't juce::Timer::callAfterDelay.
+    copyButton.setButtonText("Copied!");
+    startTimer(900);
+}
+
+void CodeEditorPanel::timerCallback()
+{
+    stopTimer();
+    copyButton.setButtonText("Copy");
+}
+
 void CodeEditorPanel::resized()
 {
     auto area = getLocalBounds();
-    header.setBounds(area.removeFromTop(16));
+    auto headerRow = area.removeFromTop(20);
+    copyButton.setBounds(headerRow.removeFromRight(56).reduced(0, 2));
+    header.setBounds(headerRow);
     editor.setBounds(area);
 }
 
 void CodeEditorPanel::paint(juce::Graphics& g)
 {
-    g.fillAll(Theme::mantle);
+    g.fillAll(Theme::surface);
 }

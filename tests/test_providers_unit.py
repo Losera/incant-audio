@@ -539,6 +539,76 @@ class TestTokenEstimation:
             system_prompt, "y" * 2200, providers.MAX_OUTPUT_TOKENS) is False
 
 
+class TestProviderAwarePreflight:
+    """PF-060: preflight_prior_source() used to take no `provider` argument at
+    all, so every refine — on every provider — was gated by groq's rate limit
+    regardless of what the selected provider could actually hold. Reproduced
+    live 2026-08-13 by replaying the 2026-08-13 trial's actual refused payload
+    (logs/prompts.jsonl ts:2026-08-13T23:06:23Z's faust_code, 2,043 chars)
+    against ollama and gemini through the real generate_json(): both refused
+    identically, attempts=0, 0.00s, no network call, before this fix.
+    """
+
+    # Same size and same convention as test_preflight_prior_source_rejects_
+    # the_observed_max_prior_source above — the trial's actual prior-source
+    # length, not an arbitrary large number.
+    TRIAL_PRIOR_SOURCE = "y" * 2043
+
+    def _real_system_prompt(self) -> str:
+        from pathlib import Path
+        return (Path(providers.__file__).resolve().parent.parent
+                / "llm" / "prompts" / "system_prompt.txt").read_text()
+
+    def test_default_provider_reproduces_groq_behavior_exactly(self):
+        """provider=None (every pre-PF-060 call site) must be bit-identical to
+        the old unconditional-groq behavior — the no-regression guard."""
+        system_prompt = self._real_system_prompt()
+        with_none = providers.preflight_prior_source(
+            system_prompt, self.TRIAL_PRIOR_SOURCE, providers.MAX_OUTPUT_TOKENS)
+        with_groq = providers.preflight_prior_source(
+            system_prompt, self.TRIAL_PRIOR_SOURCE, providers.MAX_OUTPUT_TOKENS,
+            provider="groq")
+        assert with_none == with_groq
+
+    def test_groq_still_refuses_the_trial_payload(self):
+        """Groq's measured behavior must not change — it is a real, calibrated
+        rate limit, not a placeholder."""
+        assert providers.preflight_prior_source(
+            self._real_system_prompt(), self.TRIAL_PRIOR_SOURCE,
+            providers.MAX_OUTPUT_TOKENS, provider="groq") is False
+
+    def test_large_context_provider_admits_the_same_payload_groq_refuses(self):
+        """The dossier's own §7 acceptance criterion, nearly verbatim: 'The
+        same oversized prior is refused by a constrained Groq profile and not
+        by a mocked larger-context provider.' gemini's 1,048,576-token input
+        limit (measured live 2026-08-13, see its ProviderSpec comment) easily
+        holds this payload's ~4,497 estimated tokens."""
+        assert providers.preflight_prior_source(
+            self._real_system_prompt(), self.TRIAL_PRIOR_SOURCE,
+            providers.MAX_OUTPUT_TOKENS, provider="gemini") is True
+
+    def test_unknown_provider_falls_back_conservatively_not_an_exception(self):
+        """An unregistered/typo'd provider name must behave exactly like the
+        groq/None default — never raise on the admission path, where a typo
+        turning into a crash would be worse than an overly cautious refusal."""
+        assert providers.preflight_prior_source(
+            "system", "a small prior source", 4096,
+            provider="not-a-real-provider") is True
+        huge = "x" * 40000
+        assert providers.preflight_prior_source(
+            "system", huge, 4096, provider="not-a-real-provider") is False
+
+    def test_ollama_stock_default_matches_pf_043(self):
+        """PF-043 cross-reference: stock ollama (no num_ctx override — verified
+        2026-08-13 via `ollama show qwen2.5-coder:7b`, which prints no
+        Parameters/num_ctx line for the repo's declared default model) gets
+        request_token_budget=4096 unless PLUGINFORGE_OLLAMA_NUM_CTX overrides
+        it. This assumes the running test process has not set that override,
+        same assumption tests/conftest.py already makes about PLUGINFORGE_*.
+        """
+        assert providers.PROVIDERS["ollama"].request_token_budget == 4096
+
+
 class TestListModels:
     def test_openai_compat_returns_sorted_ids(self, monkeypatch):
         monkeypatch.setenv("GROQ_API_KEY", "gsk-test")

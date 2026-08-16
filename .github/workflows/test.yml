@@ -7,8 +7,20 @@ on:
 jobs:
   # Python job — intentionally unchanged (P3 scope: C++ build lives in its own
   # job below so a C++ failure never masks the Python signal, and vice versa).
+  #
+  # timeout-minutes: added 2026-08-15. GitHub's per-job default with none set is
+  # 360 minutes -- discovered the hard way the same day this was added, when
+  # "Install system dependencies" in build-host (below) hung on a stalled apt
+  # mirror for 58+ minutes with no sign of stopping on its own, on TWO
+  # independent runs, and had to be caught and cancelled by hand. Nothing in
+  # this file would have stopped it short of that 360-minute ceiling. This
+  # job's own historical runs (measured per-job, not inferred from the whole
+  # workflow's wall clock, across the 5 most recent successful runs,
+  # 2026-08-15): 0.4-0.7 minutes. 15 gives over 20x margin for a slow pip
+  # resolve without coming anywhere near masking a genuine hang.
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v4
@@ -38,8 +50,17 @@ jobs:
         # stdlib and compiler, which this job deliberately does not install. It is
         # run for real in the build-host job below, which already has both.
 
+  # timeout-minutes: added 2026-08-15, same incident as the `test` job's note
+  # above -- this is the job that actually hung (twice) on "Install system
+  # dependencies" with no timeout anywhere to stop it short of GitHub's
+  # 360-minute per-job default. Measured per-job (not the whole workflow's
+  # wall clock) across the 15 most recent successful runs, 2026-08-15:
+  # 14.4-21.6 minutes, average 17.8. 40 gives ~2x margin over the observed max
+  # for legitimate variance (cold JUCE-source cache, runner contention) while
+  # cutting the worst-case silent-hang window from 360 minutes to 40.
   build-host:
     runs-on: ubuntu-latest
+    timeout-minutes: 40
 
     steps:
       - uses: actions/checkout@v4
@@ -103,13 +124,25 @@ jobs:
         with:
           python-version: "3.12"
 
+      # requirements.txt, not a piecemeal `pip install pytest` -- this job's
+      # Python env is one venv shared across every later step, and the pitch-gate
+      # step below (pytest tests/test_pitch_gate.py) imports bench/run_benchmark.py,
+      # which needs python-dotenv. That's declared in requirements.txt but was
+      # never installed here, only in the OTHER job -- installing the whole file
+      # once, early, closes this as a class rather than pinning one more package
+      # by hand each time a new step needs something requirements.txt already
+      # declares. numpy/scipy stay a separate, deliberate install below: they are
+      # NOT in requirements.txt on purpose (see that step's own comment).
       - name: Verify system prompt against the installed Faust stdlib
         run: |
           python -m pip install --upgrade pip
-          pip install pytest
+          pip install -r requirements.txt
+          python tools/gen_voice_contract.py --check
+          python tools/gen_presentation_prompt.py --check
           python tools/gen_stdlib_block.py --check
           python tools/gen_stdlib_block.py --verify-prompt
           pytest tests/test_prompt_stdlib.py -v
+          pytest tests/test_prompt_claims.py::TestClaimsHoldAgainstTheCompiler -v
 
       # The audio gate. Renders compiled Faust offline and asserts the output is
       # usable — no NaN/Inf, not silent, no DC runaway, no runaway gain — and that
@@ -133,6 +166,27 @@ jobs:
       # Pinned to the JUCE version verified working locally (2026-07-18 full
       # build): the local checkout at ~/JUCE is tag 7.0.9. Cache key includes
       # the tag so bumping JUCE invalidates the cache automatically.
+      #
+      # PLANNED FOLLOW-UP, not done here (2026-08-15 diagnostic; deliberately
+      # scoped out of the same-day timeout-minutes fix above -- see that
+      # commit's message): only the JUCE *source* clone is cached. The
+      # `build-ci` CMake/Ninja build directory below is not, and neither is a
+      # compiler cache (ccache/sccache) -- every run does a full from-scratch
+      # Debug build of both plugin targets plus ~17 ASan/UBSan/TSan-
+      # instrumented test harnesses. That is almost certainly the largest
+      # component of the 14.4-21.6 minute build-host baseline measured above
+      # (this step's own neighbor, "Configure" through "Build behavioural test
+      # harnesses", is the bulk of that job's step list). Two candidate
+      # approaches, neither implemented yet: (a) cache `build-ci` itself,
+      # keyed on a hash of `host/CMakeLists.txt` + source tree state -- risk
+      # is cache-correctness for sanitizer-instrumented binaries if Ninja's
+      # incremental rebuild ever produces a stale artifact under ASan/TSan;
+      # (b) add ccache/sccache ahead of the compiler invocation -- lower risk
+      # (compiler-cache correctness is well-trodden), smaller expected win per
+      # run than (a), but composes with (a) rather than competing with it.
+      # Needs its own measurement pass (cache hit/miss timing, correctness
+      # under the sanitizer builds specifically) before either lands -- not
+      # a same-day change.
       - name: Cache JUCE
         id: cache-juce
         uses: actions/cache@v4
@@ -182,55 +236,16 @@ jobs:
       # PluginForgeEditor, which nothing had ever constructed. It found PF-033 on
       # its first green run — the editor's unconditional default-seeding was
       # overwriting every value a state restore had just put back.
-      # UiDesignGallery is built but not run: it makes no assertions, so there is
-      # nothing to assert on here. It is compiled because it reaches into editor
-      # internals (PluginEditor.h:42-48, ParamGridPanel.h:91) and a rename there
-      # would otherwise break the design instrument silently with CI green.
+      # UiDesignGallery is built here and RUN separately below (commit 1c035b1,
+      # predating this comment's "built but not run" -- stale claim corrected
+      # 2026-08-13). It makes no assertions of its own, but rendering the
+      # fixture matrix is still worth doing in CI: it is compiled because it
+      # reaches into editor internals (PluginEditor.h:42-48, ParamGridPanel.h:91)
+      # and a rename there would otherwise break the design instrument silently
+      # with CI green, and running it catches a fixture that will not compile
+      # or a grid that never settles (see the "Run UiDesignGallery" step below).
       - name: Build behavioural test harnesses
-        run: cmake --build build-ci --target OfflineRenderTest OfflineSynthRenderTest PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery ParamIdentityTest NoteRingTest NoteRingTsanTest AuditionThreadingTest ValidationGateTest
-
-      # OutputGuardTest / ParamMapTest / StatePersistenceTest — 96 checks that had
-      # CMake targets and were run by NOTHING until 2026-07-30. PF-029 inverted:
-      # there CI ran what the ladder did not, here neither ran them. All three are
-      # pure and fast — no display, no network, no JIT for two of the three — so
-      # the omission never had a cost justification.
-      # NoteRingTest joined 2026-08-03. Its TSan twin runs in its own step below,
-      # NOT here: this loop preloads the CPU shim, and NoteRingTsanTest neither
-      # JITs nor wants a non-instrumented .so preloaded into a TSan binary.
-      - name: Run the pure harnesses (OutputGuard, ParamMap, StatePersistence, ParamIdentity, NoteRing, ValidationGate)
-        run: |
-          for t in OutputGuardTest ParamMapTest StatePersistenceTest ParamIdentityTest NoteRingTest ValidationGateTest; do
-            BIN="$(find build-ci -type f -name "$t" | head -n 1)"
-            if [ -z "$BIN" ]; then
-              echo "$t binary not found" >&2
-              exit 1
-            fi
-            echo "::group::$t"
-            LD_PRELOAD="$PF_LD_PRELOAD" timeout 300 "$BIN"
-            echo "::endgroup::"
-          done
-
-      # NoteRing's release/acquire pairing under a real producer and a real
-      # consumer thread. No LD_PRELOAD: the target links libtsan directly and
-      # does not JIT, so it needs neither the shim nor the preloaded runtime that
-      # ParamPoolTsanTest does.
-      - name: Run NoteRingTsanTest under ThreadSanitizer
-        run: |
-          BIN="$(find build-ci -type f -name NoteRingTsanTest | head -n 1)"
-          if [ -z "$BIN" ]; then
-            echo "NoteRingTsanTest binary not found" >&2
-            exit 1
-          fi
-          TSAN_OPTIONS="halt_on_error=1" timeout 300 "$BIN"
-
-      - name: Run AuditionThreadingTest under ThreadSanitizer
-        run: |
-          BIN="$(find build-ci/AuditionThreadingTest_artefacts -type f -name AuditionThreadingTest | head -n 1)"
-          if [ -z "$BIN" ]; then
-            echo "AuditionThreadingTest binary not found" >&2
-            exit 1
-          fi
-          TSAN_OPTIONS="halt_on_error=1" timeout 300 "$BIN"
+        run: cmake --build build-ci --target OfflineRenderTest OfflineSynthRenderTest PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery ParamIdentityTest NoteRingTest NoteRingTsanTest AuditionThreadingTest ValidationGateTest SoundfetchClientTest GenerationProfilesAutoTest
 
       # ── PF-036: pin the JIT's target CPU for every harness that JITs ────────
       # GitHub's hosted fleet mixes EPYC 7763 (Zen 3, no AVX-512), Xeon 8573C
@@ -287,6 +302,56 @@ jobs:
             exit 1
           fi
           LD_PRELOAD="$PWD/build-ci/libpf_cpu_shim.so" timeout 300 "$BIN"
+
+      # OutputGuardTest / ParamMapTest / StatePersistenceTest — 96 checks that had
+      # CMake targets and were run by NOTHING until 2026-07-30. PF-029 inverted:
+      # there CI ran what the ladder did not, here neither ran them. All three are
+      # pure and fast — no display, no network, no JIT for two of the three — so
+      # the omission never had a cost justification.
+      # NoteRingTest joined 2026-08-03. Its TSan twin runs in its own step below,
+      # NOT here: this loop preloads the CPU shim, and NoteRingTsanTest neither
+      # JITs nor wants a non-instrumented .so preloaded into a TSan binary.
+      # SoundfetchClientTest joined 2026-08-13: SoundfetchClient.cpp had zero
+      # tests despite three fatal, live-confirmed defects. Pure and fast like
+      # its neighbors here -- no display, no network (SOUNDFETCH_BIN points at
+      # a disposable local script, not the real soundfetch CLI).
+      # GenerationProfilesAutoTest joined the same day: the one place that can
+      # reach GenerationProfiles::resolveAuto()'s instrument-side branch,
+      # which EditorSessionTest (PF_IS_SYNTH always 0 here) cannot.
+      - name: Run the pure harnesses (OutputGuard, ParamMap, StatePersistence, ParamIdentity, NoteRing, ValidationGate, SoundfetchClient, GenerationProfilesAuto)
+        run: |
+          for t in OutputGuardTest ParamMapTest StatePersistenceTest ParamIdentityTest NoteRingTest ValidationGateTest SoundfetchClientTest GenerationProfilesAutoTest; do
+            BIN="$(find build-ci -type f -name "$t" | head -n 1)"
+            if [ -z "$BIN" ]; then
+              echo "$t binary not found" >&2
+              exit 1
+            fi
+            echo "::group::$t"
+            LD_PRELOAD="$PF_LD_PRELOAD" timeout 300 "$BIN"
+            echo "::endgroup::"
+          done
+
+      # NoteRing's release/acquire pairing under a real producer and a real
+      # consumer thread. No LD_PRELOAD: the target links libtsan directly and
+      # does not JIT, so it needs neither the shim nor the preloaded runtime that
+      # ParamPoolTsanTest does.
+      - name: Run NoteRingTsanTest under ThreadSanitizer
+        run: |
+          BIN="$(find build-ci -type f -name NoteRingTsanTest | head -n 1)"
+          if [ -z "$BIN" ]; then
+            echo "NoteRingTsanTest binary not found" >&2
+            exit 1
+          fi
+          TSAN_OPTIONS="halt_on_error=1" timeout 300 "$BIN"
+
+      - name: Run AuditionThreadingTest under ThreadSanitizer
+        run: |
+          BIN="$(find build-ci/AuditionThreadingTest_artefacts -type f -name AuditionThreadingTest | head -n 1)"
+          if [ -z "$BIN" ]; then
+            echo "AuditionThreadingTest binary not found" >&2
+            exit 1
+          fi
+          TSAN_OPTIONS="halt_on_error=1" timeout 300 "$BIN"
 
       # The audio path's own gate. No network, no API key, no quota: the corpus is
       # hand-written Faust, so this measures the AUDIO path, never generation
@@ -350,6 +415,12 @@ jobs:
           fi
           exit $rc
 
+      # Semantic complement to OfflineRenderTest's safety battery: drive the
+      # capture mode with MIDI notes and assert the rendered fundamental follows
+      # the requested pitch. This exact invocation mirrors tools/check.sh full.
+      - name: Run the instrument pitch gate
+        run: pytest tests/test_pitch_gate.py -q -m integration
+
       # The same corpus compiled as the instrument target. Its unique payload is
       # the build-time trait block: acceptsMidi(), the release tail and the bus
       # layout under PF_IS_SYNTH=1, which no other harness can reach because
@@ -402,6 +473,31 @@ jobs:
         with:
           name: editor-session-snapshots
           path: artifacts/images/session_*.png
+          if-no-files-found: warn
+
+      # The UI design instrument. Runs the gallery + semantic layout diff through
+      # tools/ui_iterate.sh so CI and the local ladder share one implementation of
+      # the xvfb wrapper and the diff.
+      #
+      # The step FAILS only on harness failure (a fixture that stopped compiling,
+      # a grid that never settled) -- ui_iterate.sh reserves its exit code for
+      # exactly that and prints layout drift as a report. Drift is expected while
+      # iterating on the design and must not gate a PR.
+      - name: Run UiDesignGallery + layout diff (under xvfb)
+        env:
+          # CI configures into build-ci, not the host/build tree check.sh uses.
+          PF_BUILD_DIR: build-ci
+        run: timeout 900 tools/ui_iterate.sh --no-build
+
+      # This is the fast visual-review surface for a PR: one HTML page plus the
+      # PNGs, downloadable from the run. Reviewing "does it look right" from a
+      # diff of drawing code is not a thing anyone can actually do.
+      - name: Upload UI design gallery
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-design-gallery
+          path: artifacts/ui_gallery/
           if-no-files-found: warn
 
       # Decision (P3 "if TSan runtime in Actions is questionable"): RUN it, not

@@ -147,6 +147,16 @@ human authoring) for the prompt text itself.
 > The `MAX_KNOBS = 8` fixed 4×2 grid in the `:22` table is likewise gone — PF-005 replaced it
 > with the sqrt-derived scrolling grid described above. Both are kept rather than deleted
 > because they record what the design *proposed*; neither describes what ships.
+>
+> **Addendum, 2026-08-14.** `FaustEngine::Kind` now has SIX values, not five —
+> `Kind::Meter` was added 2026-08-02 for captured bargraphs (`FaustEngine.h`). It is
+> equally unreachable in `applyPresentation`'s switch, for a different reason than
+> Button/CheckButton: a meter is never writable, so it never gets a `ParamPool` slot
+> and never becomes a `Control` at all (see `docs/BUGS.md` PF-052 — meters need their
+> own rendering path, not this switch). The switch was also changed from a silent
+> `default:` rotary fallback to an exhaustive `switch` over all six `Kind` values,
+> asserting (`jassertfalse`) on the three unreachable ones instead of defaulting —
+> "believed unreachable" is now "enforced unreachable."
 
 **Insertion point.** `refreshParamKnobs()` (`PluginEditor.cpp:273-303`) is already the
 single place the UI reacts to a compile — it receives the full `ParamList` on the message

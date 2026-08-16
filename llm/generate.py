@@ -26,6 +26,9 @@ from dotenv import load_dotenv
 sys.path.insert(0, str(Path(__file__).parent))
 import providers  # noqa: E402
 import router  # noqa: E402
+import generation_profiles  # noqa: E402
+import error_classes  # noqa: E402
+import voice_contract  # noqa: E402
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 
@@ -121,9 +124,21 @@ client = providers.anthropic_client()
 #   worst case here  = GENERATION_BUDGET_S (all LLM work, budget-enforced)
 #                    + one FAUST_VALIDATE_TIMEOUT_S (the last attempt's compile)
 #                    + interpreter startup/import
-#                    = 100 + 15 + ~2  = ~117s
+#                    = 140 + 15 + ~2  = ~157s
 #   host cap         = 180s
-_DEFAULT_GENERATION_BUDGET_S = 100.0
+#
+# 100->140 (2026-08-13). Confirmed live (logs/prompts.jsonl) that groq's own
+# Retry-After hints on a 429 (37s/25s/51s observed) routinely exceeded what a
+# 100s budget could ever honour -- providers.Budget.can_sleep() requires
+# delay+5s <= remaining, so a real, server-stated wait was refused almost
+# every time and a recoverable throttle became a hard rate_limited failure.
+# 140s does not fix the root cause (see providers.RateLimited's retry_after
+# and PromptPanel::statusForReason() for the actual fix, and
+# llm/prompt_builder.py's core-floor fix for reducing how often the bucket
+# fills in the first place) -- it only widens the window this budget alone
+# can absorb, while keeping the 23s of margin below the host cap the
+# arithmetic above still requires.
+_DEFAULT_GENERATION_BUDGET_S = 140.0
 FAUST_VALIDATE_TIMEOUT_S = 15.0
 
 
@@ -155,6 +170,25 @@ _TRUNCATION_HINT = (
     "comments, fewer helper definitions, and prefer a stdlib function over "
     "reimplementing one. Emit only the Faust source."
 )
+
+
+def _classified_error_context(error: str) -> str:
+    """Raw compiler error, plus a class-specific repair hint if one is wired.
+
+    Same reasoning as _TRUNCATION_HINT above, for a different signal: raw
+    stderr alone can name the defect without naming the fix. Confirmed live
+    (logs/prompts.jsonl, 2026-08-13T04:37-04:46Z) that this actually
+    matters — "a simple reverb" failed the IDENTICAL delay-range error 3
+    attempts in a row, even though system_prompt.txt already has the
+    bounded-delay rule, because raw stderr ("interval(0,2.14748e+09,0)")
+    names no expression, no line, and no remedy. See
+    llm/error_classes.py's RETRY_HINT for which classes are wired and why
+    only one is so far — each needs its own evidence, not just a plausible
+    guess. A class with no hint gets exactly today's behaviour: raw stderr,
+    unchanged.
+    """
+    klass = error_classes.classify_error(error)
+    return error + error_classes.RETRY_HINT.get(klass, "")
 
 # A3: how a refine request's prior Faust source folds into the existing user
 # message — no new prompt file, see docs/sessions/002-refine-loop-and-ui-redesign.md
@@ -233,7 +267,8 @@ def generate_faust(user_prompt: str, error_context: str = "",
                    truncated: bool = False,
                    kind: str | None = None,
                    prior_source: str | None = None,
-                   refine_mode: str | None = None) -> str:
+                   refine_mode: str | None = None,
+                   system_prompt: str | None = None) -> str:
     """One generation attempt.
 
     `truncated` and `error_context` are mutually exclusive repair signals, and the
@@ -264,12 +299,14 @@ def generate_faust(user_prompt: str, error_context: str = "",
     elif error_context:
         content += f"\n\nYour previous output had this compiler error — fix it:\n{error_context}"
 
-    _, system_prompt = select_prompt(user_prompt, kind)
+    if system_prompt is None:
+        _, system_prompt = select_prompt(user_prompt, kind)
     return _call_api(content, provider, model, budget, system_prompt)
 
 
 def validate_faust(faust_code: str,
-                   budget: "providers.Budget | None" = None) -> tuple[bool, str]:
+                   budget: "providers.Budget | None" = None,
+                   profile: "generation_profiles.Profile | None" = None) -> tuple[bool, str]:
     """Returns (is_valid, error_message).
 
     PF-019: with a Budget, the compiler subprocess timeout is clamped to what is
@@ -286,28 +323,131 @@ def validate_faust(faust_code: str,
     # generation dies on what should have been a recoverable attempt.
     # Reproduced 2026-07-21 against faust on the Arch dev box; regression test in
     # tests/test_faust_validator_unit.py::test_non_utf8_compiler_output.
-    with tempfile.NamedTemporaryFile(suffix=".dsp", mode="w", encoding="utf-8",
-                                     delete=False) as f:
-        f.write(faust_code)
-        tmp = f.name
     timeout = FAUST_VALIDATE_TIMEOUT_S
     if budget is not None:
         timeout = max(2.0, min(timeout, budget.remaining()))
+    with tempfile.NamedTemporaryFile(suffix=".dsp", mode="w", encoding="utf-8",
+                                     delete=False) as handle:
+        handle.write(faust_code)
+        source = Path(handle.name)
+    output = Path(str(source) + ".cpp")
+    metadata_path = Path(str(source) + ".json")
     try:
         result = subprocess.run(
-            ["faust", "-lang", "cpp", tmp, "-o", "/dev/null"],
+            ["faust", "-json", "-lang", "cpp", str(source), "-o", str(output)],
             capture_output=True, text=True, timeout=timeout,
             encoding="utf-8", errors="replace",
         )
-        return result.returncode == 0, result.stderr.strip()
+        if result.returncode != 0:
+            return False, result.stderr.strip()
+        if profile is None:
+            return True, ""
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        return _validate_profile_metadata(metadata, profile)
     except subprocess.TimeoutExpired:
         # A patch the compiler cannot finish is an invalid patch, not a crash.
         # Report it as a compile error so the retry loop can feed it back.
         return False, (f"faust compiler did not finish within {timeout:.0f}s — "
                        f"the generated patch is likely pathological "
                        f"(unbounded delay, runaway recursion).")
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return False, f"Faust metadata validation failed: {exc}"
     finally:
-        os.unlink(tmp)
+        for path in (source, output, metadata_path):
+            if path.exists():
+                os.unlink(path)
+
+
+def _ui_labels(items: list[dict]) -> set[str]:
+    labels: set[str] = set()
+    for item in items:
+        label = item.get("label")
+        if isinstance(label, str):
+            labels.add(label.strip().lower())
+        children = item.get("items")
+        if isinstance(children, list):
+            labels.update(_ui_labels(children))
+    return labels
+
+
+def _ui_labels_exact(items: list[dict]) -> set[str]:
+    """Like _ui_labels, but case-PRESERVING.
+
+    _ui_labels's lowercasing is correct for the granular_effect check below
+    (matching human-readable label text against expected words), but it made
+    the synth/drum_synth voice-contract check below accept e.g.
+    hslider("Freq", ...) -- a label FaustEngine::extractVoiceControls
+    (exact-case match, host/Source/FaustEngine.cpp) then silently refused to
+    recognise, producing a "successful" generation with a dead keyboard. The
+    voice-contract check needs the same casing FaustEngine actually enforces.
+    """
+    labels: set[str] = set()
+    for item in items:
+        label = item.get("label")
+        if isinstance(label, str):
+            labels.add(label.strip())
+        children = item.get("items")
+        if isinstance(children, list):
+            labels.update(_ui_labels_exact(children))
+    return labels
+
+
+def _validate_profile_metadata(metadata: dict,
+                               profile: generation_profiles.Profile) -> tuple[bool, str]:
+    """Deterministic intent checks on compiler-produced facts, never source regexes."""
+    inputs = int(metadata.get("inputs", -1))
+    outputs = int(metadata.get("outputs", -1))
+    labels = _ui_labels(metadata.get("ui") or [])
+
+    if outputs not in (1, 2):
+        return False, (f"family {profile.id} requires one or two audio outputs; "
+                       f"the compiled patch has {outputs}")
+    if profile.kind == "effect" and inputs not in (1, 2):
+        return False, (f"family {profile.id} must process one or two audio inputs; "
+                       f"the compiled patch has {inputs}")
+    if profile.kind == "instrument" and inputs != 0:
+        return False, (f"family {profile.id} must generate sound with zero audio inputs; "
+                       f"the compiled patch has {inputs}")
+
+    if profile.id in ("synth", "drum_synth"):
+        # EXACT case, not the lowercased `labels` above: this must agree with
+        # FaustEngine::extractVoiceControls's exact-case match
+        # (host/Source/FaustEngine.cpp), read from the same canonical source
+        # (llm/voice_contract.json) that header is generated from -- not a
+        # fourth hand-typed copy of the label set. See voice_contract.py and
+        # _ui_labels_exact's docstring for why this cannot reuse `labels`.
+        exact_labels = _ui_labels_exact(metadata.get("ui") or [])
+        zones = voice_contract.zone_labels()
+        zone_ok = {
+            zone: bool(exact_labels & accepted)
+            for zone, accepted in zones.items()
+        }
+        if not all(zone_ok.values()):
+            missing = [zone for zone, ok in zone_ok.items() if not ok]
+            accepted_desc = "; ".join(
+                f"{zone} needs one of {'/'.join(sorted(zones[zone]))}" for zone in missing
+            )
+            return False, (
+                f"family {profile.id} requires the complete MIDI voice contract with "
+                f"EXACT case ({accepted_desc}); declared UI labels were "
+                f"{sorted(exact_labels) or ['<none>']}")
+
+    if profile.id == "granular_effect":
+        groups = {
+            "grain size": ("grain size", "size"),
+            "density": ("density",),
+            "position/delay": ("position", "delay"),
+            "pitch/spray": ("pitch", "spray"),
+            "feedback": ("feedback",),
+            "mix": ("mix", "dry/wet", "dry wet"),
+        }
+        missing = [name for name, terms in groups.items()
+                   if not any(any(term in label for term in terms) for label in labels)]
+        if missing:
+            return False, ("family granular_effect is missing required controls: "
+                           + ", ".join(missing))
+
+    return True, ""
 
 
 def generate_with_retry(user_prompt: str, max_retries: int = 3,
@@ -318,8 +458,12 @@ def generate_with_retry(user_prompt: str, max_retries: int = 3,
     truncated = False
     budget = generation_budget()
     for attempt in range(1, max_retries + 1):
+        # See the matching comment in generate_json's loop: the classified
+        # hint is for what the MODEL sees next, kept separate from error_ctx
+        # itself (printed to the user above on failure, unhinted).
+        repair_context = _classified_error_context(error_ctx) if error_ctx else ""
         try:
-            code = generate_faust(user_prompt, error_ctx, provider=provider, model=model,
+            code = generate_faust(user_prompt, repair_context, provider=provider, model=model,
                                   budget=budget, truncated=truncated)
         except providers.OutputTruncated as exc:
             print(f"[!] Attempt {attempt} was cut off at the output limit: {exc}\n")
@@ -371,14 +515,23 @@ def generate_json(request: dict) -> dict:
     # the same kind — see generate_faust's note on why re-routing per attempt
     # would repair code against rules the first attempt never saw.
     kind, system_prompt = select_prompt(prompt, request.get("kind"))
+    try:
+        profile, family_source = generation_profiles.resolve(
+            prompt, kind, request.get("family")
+        )
+    except ValueError as exc:
+        return _failure(0, "error", str(exc))
 
     # Dynamic stdlib token headroom optimization (PLUGINFORGE_DYNAMIC_STDLIB=1 default)
     if os.environ.get("PLUGINFORGE_DYNAMIC_STDLIB", "1") != "0":
         try:
             import prompt_builder
-            system_prompt = prompt_builder.build_dynamic_prompt(prompt)
+            system_prompt = prompt_builder.build_dynamic_prompt(
+                prompt, base_system_prompt=system_prompt
+            )
         except Exception:
             pass
+    system_prompt = generation_profiles.append_brief(system_prompt, profile)
 
     # refine_mode ("surgical" | "context" | absent): picks which preamble folds
     # prior_source in, both here (for the preflight measurement) and in every
@@ -400,7 +553,12 @@ def generate_json(request: dict) -> dict:
     prior_source_dropped = False
     if prior_source:
         candidate = _refine_preamble_for(refine_mode).format(prior=prior_source) + prompt
-        if not providers.preflight_prior_source(system_prompt, candidate, MAX_OUTPUT_TOKENS):
+        # PF-060: `provider` was missing here entirely — every refine, on every
+        # provider, was silently gated by groq's rate limit regardless of what
+        # the SELECTED provider could actually hold. See preflight_prior_source's
+        # docstring (llm/providers.py) for the live reproduction.
+        if not providers.preflight_prior_source(system_prompt, candidate,
+                                                MAX_OUTPUT_TOKENS, provider):
             if refine_mode == "surgical":
                 return _prior_source_refused_response()
             prior_source, prior_source_dropped = None, True
@@ -409,13 +567,22 @@ def generate_json(request: dict) -> dict:
     truncated = False
     attempt = 0
     for attempt in range(1, max_retries + 1):
+        # Classified hint appended only for what the MODEL sees next, not for
+        # error_ctx itself -- error_ctx also feeds the final failure/timeout
+        # messages below, which are user-facing, not LLM-directed repair
+        # text. Same separation _TRUNCATION_HINT already keeps (it is never
+        # part of a _failure() call, only ever appended inside
+        # generate_faust's own content-building). A no-op when error_ctx is
+        # empty (first attempt) or unclassified.
+        repair_context = _classified_error_context(error_ctx) if error_ctx else ""
         try:
-            code = generate_faust(prompt, error_ctx, provider, model, budget,
+            code = generate_faust(prompt, repair_context, provider, model, budget,
                                   truncated=truncated, kind=kind,
                                   prior_source=prior_source,
-                                  refine_mode=refine_mode)
+                                  refine_mode=refine_mode,
+                                  system_prompt=system_prompt)
         except providers.RateLimited as exc:
-            return _failure(attempt, "rate_limited", str(exc))
+            return _failure(attempt, "rate_limited", str(exc), retry_after=exc.retry_after)
         except providers.BudgetExhausted as exc:
             return _failure(attempt, "timeout", str(exc))
         except providers.OutputTruncated as exc:
@@ -430,7 +597,7 @@ def generate_json(request: dict) -> dict:
             continue
 
         truncated = False
-        valid, error = validate_faust(code, budget)
+        valid, error = validate_faust(code, budget, profile)
         if valid:
             # `kind` is ADDITIVE, same treatment as `reason` under PF-019: every
             # existing consumer reads success/faust_code/error and is unaffected
@@ -442,7 +609,8 @@ def generate_json(request: dict) -> dict:
             # and threading it through is a separate change. A failed instrument
             # request is currently indistinguishable from a failed effect one.
             response = {"success": True, "faust_code": code, "attempts": attempt,
-                       "error": None, "reason": "ok", "kind": kind}
+                       "error": None, "reason": "ok", "kind": kind,
+                       "family": profile.id, "family_source": family_source}
             if prior_source_dropped:
                 # Additive, same treatment as `kind` above: every existing
                 # consumer reads success/faust_code/error and is unaffected by
@@ -462,9 +630,18 @@ def generate_json(request: dict) -> dict:
     return _failure(max_retries, "invalid_faust", error_ctx)
 
 
-def _failure(attempts: int, reason: str, error: str) -> dict:
-    return {"success": False, "faust_code": None, "attempts": attempts,
-            "error": error, "reason": reason}
+def _failure(attempts: int, reason: str, error: str,
+             retry_after: float | None = None) -> dict:
+    result = {"success": False, "faust_code": None, "attempts": attempts,
+              "error": error, "reason": reason}
+    if retry_after is not None:
+        # Additive, same treatment as `kind`/`prior_source_dropped` elsewhere
+        # in this file (PF-019): every existing consumer reads
+        # success/faust_code/error/reason and is unaffected by an extra key
+        # present only on rate_limited failures. Lets PromptPanel show "try
+        # again in 37s" instead of a dead end -- see providers.RateLimited.
+        result["retry_after"] = retry_after
+    return result
 
 
 def _prior_source_refused_response() -> dict:

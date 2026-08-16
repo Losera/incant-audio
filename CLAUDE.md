@@ -1,5 +1,25 @@
 # PluginForge — Claude Code Context
 
+## Naming  *(2026-08-11)*
+**The product is Incant Audio.** `PluginForge` is the internal synthesis engine and the
+name of this working directory. Use "Incant Audio" for anything user-facing; keep
+`PluginForge` for the engine, the repo, and every identifier.
+
+Three names are in play right now and the mismatch is deliberate, not an oversight:
+
+| Where | Says |
+|---|---|
+| `README.md:1` | **Incant Audio** — "Powered by the PluginForge Synthesis Engine" |
+| Everything else (this file, `STATUS.md`, `COLLABORATION.md`, all of `docs/`) | PluginForge |
+| GitHub remote | `Losera/incant-audio` — **already renamed upstream.** The local `origin` still said `audio-smith` until 2026-08-11 and only worked via GitHub's redirect; it now points at the real name. If a fetch ever 404s, check this first. |
+| The window title the user sees, `PRODUCT_NAME` in `host/CMakeLists.txt` | PluginForge |
+
+**No rename of identifiers, namespaces, CMake targets, `PLUGINFORGE_*` env vars, or the
+`macro_N` slot scheme is authorized.** A full refactor is deferred deliberately — it
+would touch the persisted state format and the `PLUGINFORGE_PROVIDER`/`PLUGINFORGE_ALLOW_PAID`
+contract, which is consult-trigger territory (COLLABORATION.md §2.3). Do not start one
+opportunistically. When it happens it gets its own session and its own ADR.
+
 ## What this project is
 LLM-guided program synthesis for real-time DSP audio plugins.
 Pipeline: Natural language prompt → LLM → Faust DSL → LLVM JIT → VST3/AU
@@ -42,7 +62,13 @@ move with it, which is exactly why silent drift matters.
   it passes. Regenerating under 2.85.9 would rewrite signatures and spend prompt headroom
   there are only ~124 tokens of, so it is a deliberate deferral, not an oversight.
 - **LLVM 22.1.8** — backs the libfaust JIT inside the host plugin.
-- **JUCE** vendored at `host/JUCE`. CMake 4.4.0, Ninja 1.13.2, Python 3.14.6,
+- **JUCE 7.0.9 at `$HOME/JUCE` — NOT vendored in this repo** *(corrected 2026-08-11; this
+  line had said "vendored at `host/JUCE`", which is a CMake **build** directory produced by
+  `add_subdirectory(${JUCE_PATH} JUCE)`, not a checkout).* `host/CMakeLists.txt:5` defaults
+  `JUCE_PATH` to `$ENV{HOME}/JUCE` and hard-errors if it is absent; override with
+  `-DJUCE_PATH=...`. Read real JUCE sources from `/home/losera/JUCE/modules/` — the Tier 2
+  citation rule means reading the header, not recalling it.
+  CMake 4.4.0, Ninja 1.13.2, Python 3.14.6,
   libsndfile 1.2.2 (the render oracle's static-link closure).
 - **Wayland session under Hyprland.** The Standalone runs here, so UI capture is
   compositor-specific: `tools/screenshot_ui.sh` drives `hyprctl` + `grim` and cannot be
@@ -118,9 +144,19 @@ not evidence.
 - **`pushToFaust()` is on the audio thread.** No allocation, no locks, no logging, no map
   lookups. `check_rt_safety.py` guards `FaustEngine.cpp` and `PluginProcessor.cpp` only, and
   cannot follow a call graph — it does not cover this function (PF-015).
-- **One system prompt**, `llm/prompts/system_prompt.txt`, shared by the product and both
-  bench harnesses. Its stdlib block is generated from the installed `/usr/share/faust/*.lib`
-  by `tools/gen_stdlib_block.py`; a hook rejects any `ns.func` that does not resolve.
+- **Three prompt files, not one** *(corrected 2026-08-11 — this said "One system prompt"
+  long after the second and third landed).* `llm/prompts/system_prompt.txt` (effects) and
+  `llm/prompts/instrument_prompt.txt` (instruments, `d587665`) are selected by
+  `llm/router.py`'s keyword scoring — never an LLM call. `llm/prompts/system_prompt_presentation.txt`
+  is a **generated** variant (`tools/gen_presentation_prompt.py` from `system_prompt.txt` +
+  `llm/presentation_block.txt`) selectable via `PLUGINFORGE_PROMPT_VARIANT=presentation`;
+  do not hand-edit it. It teaches `hgroup`/`vgroup`/`[style:knob]`/`[scale:log]`, and it
+  currently **fails `tests/test_prompt_headroom.py` against groq** by ~267 tokens
+  (OPEN_QUESTIONS.md Q6) — it needs a larger-context provider.
+  Each stdlib block is generated from the installed `/usr/share/faust/*.lib`
+  by `tools/gen_stdlib_block.py`; `check_prompt_invariants.py` rejects any `ns.func` that
+  does not resolve, across the whole `llm/prompts/` directory rather than one filename
+  (`09786ec`).
   **Benchmark numbers recorded before 2026-07-21 measured a since-deleted prompt file and
   are not comparable to anything.**
 - **`tests/conftest.py` pins `PLUGINFORGE_PROVIDER=anthropic`.** Without it a developer's
@@ -141,7 +177,8 @@ host/Source/PluginProcessor.* lifecycle, state blob, load path (Fresh/Iterate mo
 host/Source/ParamPool.*       64-slot parameter pre-allocation
 host/Source/ParamMap.h        0–1 ↔ real units (Hz/dB/ms), log/exp/linear curves
 host/Source/OutputGuard.*     NaN/DC/limit/runaway safety net before the speakers
-host/Source/*Panel.*          editor shell: prompt, code editor (stub), param grid
+host/Source/*Panel.*          editor shell: prompt, code editor, param grid, keyboard,
+                              sample browser
 llm/generate.py               LLM call + Faust validation + retry loop
 llm/providers.py              five providers, three adapters, free-only rule
 llm/prompts/system_prompt.txt the one prompt (stdlib block is generated)

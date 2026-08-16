@@ -2,6 +2,7 @@
 #include "PluginEditor.h"
 #include "ParamMap.h"        // mapZoneToSlot, for LoadMode::Fresh (PF-020)
 #include "ParamIdentity.h"   // kSchemeVersion, stamped into the state blob
+#include <cmath>
 
 // SUBTLE: the input bus is REQUIRED for the effect target and OPTIONAL for the
 // instrument target, and that single boolean is what decides whether a DAW will
@@ -72,6 +73,7 @@ PluginForgeProcessor::createParameterLayout()
 
 void PluginForgeProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
+    preparedSampleRate.store(sampleRate, std::memory_order_relaxed);
     faustEngine.prepare(sampleRate, samplesPerBlock);
     outputGuard.prepare(sampleRate);
 
@@ -86,13 +88,17 @@ void PluginForgeProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     // DSP JITs at the real rate rather than the 44100 default. Fire it now.
     prepared.store(true, std::memory_order_release);
 
-    juce::String source, prompt;
+    juce::String source, prompt, family, familySource;
     {
         std::lock_guard<std::mutex> lock(metaMutex);
         source = pendingRestoreSource;
         prompt = pendingRestorePrompt;
+        family = pendingRestoreFamily;
+        familySource = pendingRestoreFamilySource;
         pendingRestoreSource.clear();
         pendingRestorePrompt.clear();
+        pendingRestoreFamily.clear();
+        pendingRestoreFamilySource.clear();
     }
     // Restore, NOT Fresh and NOT Iterate: setStateInformation already wrote the
     // saved macro values via replaceState(). Resetting them to patch defaults
@@ -105,7 +111,7 @@ void PluginForgeProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     // with patch defaults. Restore seeds nothing at all, because on this path the
     // APVTS tree is the source of truth by construction.
     if (source.isNotEmpty())
-        loadFaustCode(source, prompt, LoadMode::Restore);
+        loadFaustCode(source, prompt, LoadMode::Restore, family, familySource);
 }
 
 void PluginForgeProcessor::releaseResources()
@@ -166,11 +172,34 @@ void PluginForgeProcessor::loadAuditionSample(const juce::File& wavFile)
     if (reader == nullptr || reader->lengthInSamples <= 0)
         return;
 
-    const auto length = static_cast<int>(juce::jmin<juce::int64>(reader->lengthInSamples,
-                                                                 static_cast<juce::int64>(44100 * 20)));
-    juce::AudioBuffer<float> loaded(2, length);
+    const double sourceRate = juce::jmax(1.0, reader->sampleRate);
+    const double targetRate = juce::jmax(1.0, preparedSampleRate.load(std::memory_order_relaxed));
+    const auto maxLength = static_cast<juce::int64>(sourceRate * 30.0);
+    const int sourceLength = static_cast<int>(
+        juce::jmin<juce::int64>(reader->lengthInSamples, maxLength));
+    juce::AudioBuffer<float> sourceBuffer(2, sourceLength + 8);
+    sourceBuffer.clear();
+    reader->read(&sourceBuffer, 0, sourceLength, 0, true, true);
+
+    const int targetLength = juce::jmax(1, juce::roundToInt(
+        static_cast<double>(sourceLength) * targetRate / sourceRate));
+    juce::AudioBuffer<float> loaded(2, targetLength);
     loaded.clear();
-    reader->read(&loaded, 0, length, 0, true, true);
+    if (std::abs(sourceRate - targetRate) < 0.5)
+    {
+        for (int channel = 0; channel < 2; ++channel)
+            loaded.copyFrom(channel, 0, sourceBuffer, channel, 0, sourceLength);
+    }
+    else
+    {
+        const double speedRatio = sourceRate / targetRate;
+        for (int channel = 0; channel < 2; ++channel)
+        {
+            juce::LagrangeInterpolator interpolator;
+            interpolator.process(speedRatio, sourceBuffer.getReadPointer(channel),
+                                 loaded.getWritePointer(channel), targetLength);
+        }
+    }
 
     // Drain: wait for any processBlock that loaded auditionActive==true before
     // our store(false) to complete its audition read and exitAudio. Without this,
@@ -181,7 +210,20 @@ void PluginForgeProcessor::loadAuditionSample(const juce::File& wavFile)
     faustEngine.drainAudioBusy();
 
     auditionBuffer = std::move(loaded);
+    auditionModeValue.store(auditionBuffer.getNumSamples() > 0
+                                ? static_cast<int>(AuditionMode::OneShot)
+                                : static_cast<int>(AuditionMode::Stopped),
+                            std::memory_order_relaxed);
     auditionActive.store(auditionBuffer.getNumSamples() > 0, std::memory_order_seq_cst);
+}
+
+void PluginForgeProcessor::setAuditionMode(AuditionMode mode)
+{
+    if (mode != AuditionMode::Stopped && auditionBuffer.getNumSamples() == 0)
+        return;
+    auditionPos.store(0, std::memory_order_relaxed);
+    auditionModeValue.store(static_cast<int>(mode), std::memory_order_relaxed);
+    auditionActive.store(mode != AuditionMode::Stopped, std::memory_order_seq_cst);
 }
 
 void PluginForgeProcessor::setAuditionActive(bool active)
@@ -192,6 +234,8 @@ void PluginForgeProcessor::setAuditionActive(bool active)
     // seq_cst: consistent with loadAuditionSample's store sequence. No drain
     // needed — this function does not mutate auditionBuffer, only the flag.
     // An in-flight processBlock reading the unmodified buffer is harmless.
+    auditionModeValue.store(static_cast<int>(active ? AuditionMode::Loop : AuditionMode::Stopped),
+                            std::memory_order_relaxed);
     auditionActive.store(active, std::memory_order_seq_cst);
 }
 
@@ -206,8 +250,21 @@ void PluginForgeProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     // adding an engine call outside the bracket reintroduces the swap race.
     if (!faustEngine.enterAudio())
     {
-        // No DSP live: input passes through untouched; still feed the meter so
-        // the editor shows the dry signal (audio-path-alive indicator).
+        // No DSP live: an effect's buffer holds the host's real input, so
+        // leaving it untouched is a legitimate passthrough. An instrument has
+        // no input bus (getTotalNumInputChannels() == 0,
+        // juce_AudioProcessor.h:743) -- there is nothing to "pass through,"
+        // and the buffer instead holds whatever the host/JUCE last left in
+        // that memory. pluginval caught this as literal NaN/subnormal output
+        // from a freshly-loaded, never-generated PluginForge Synth: block
+        // sizes 64/128/512/1024 at all three tested sample rates, ~44-45% of
+        // Audio-processing sub-tests failing (200/450). Found 2026-08-16,
+        // unfiled before this session.
+        if (getTotalNumInputChannels() == 0)
+            buffer.clear();
+
+        // Still feed the meter so the editor shows the dry signal
+        // (audio-path-alive indicator).
         //
         // NOTE: MIDI arriving in this block is DROPPED, deliberately. The voice
         // zones belong to a DSP that is mid-swap, so writing them is a
@@ -345,6 +402,8 @@ void PluginForgeProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             const int numSamples = buffer.getNumSamples();
             size_t pos = auditionPos.load(std::memory_order_relaxed);
 
+            const bool loop = auditionMode() == AuditionMode::Loop;
+            bool reachedEnd = false;
             for (int ch = 0; ch < numCh; ++ch)
             {
                 const float* src = auditionBuffer.getReadPointer(ch);
@@ -352,9 +411,18 @@ void PluginForgeProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                 size_t p = pos;
                 for (int s = 0; s < numSamples; ++s)
                 {
-                    dst[s] = src[p];
-                    if (++p >= static_cast<size_t>(numAudSamples))
+                    if (p < static_cast<size_t>(numAudSamples))
+                        dst[s] = src[p++];
+                    else if (loop)
+                    {
                         p = 0;
+                        dst[s] = src[p++];
+                    }
+                    else
+                    {
+                        dst[s] = 0.0f;
+                        reachedEnd = true;
+                    }
                 }
             }
             // Zero any remaining channels (e.g., mono buffer with stereo sample)
@@ -362,9 +430,16 @@ void PluginForgeProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                 buffer.clear(ch, 0, numSamples);
 
             pos += static_cast<size_t>(numSamples);
-            while (pos >= static_cast<size_t>(numAudSamples))
-                pos -= static_cast<size_t>(numAudSamples);
+            if (loop)
+                while (pos >= static_cast<size_t>(numAudSamples)) pos -= static_cast<size_t>(numAudSamples);
+            else if (pos >= static_cast<size_t>(numAudSamples))
+                reachedEnd = true;
             auditionPos.store(pos, std::memory_order_relaxed);
+            if (reachedEnd)
+            {
+                auditionModeValue.store(static_cast<int>(AuditionMode::Stopped), std::memory_order_relaxed);
+                auditionActive.store(false, std::memory_order_seq_cst);
+            }
         }
     }
 
@@ -454,7 +529,9 @@ void PluginForgeProcessor::resetMappedSlotsToDefaults()
 
 void PluginForgeProcessor::loadFaustCode(const juce::String& faustCode,
                                          const juce::String& prompt,
-                                         LoadMode mode)
+                                         LoadMode mode,
+                                         const juce::String& family,
+                                         const juce::String& familySource)
 {
     // PF-022: currentFaustSource/currentPrompt are NOT set here. They used to be
     // written unconditionally before the compile was even queued, so a failed
@@ -475,7 +552,9 @@ void PluginForgeProcessor::loadFaustCode(const juce::String& faustCode,
     //
     // Captured by value into the callback: juce::String's copy is atomically
     // ref-counted, so handing it to the compile thread is safe.
-    faustEngine.compile(faustCode, [this, faustCode, prompt, mode]
+    const auto resolvedFamily = family.isNotEmpty() ? family : juce::String(PF_IS_SYNTH ? "synth" : "effect");
+    const auto resolvedFamilySource = familySource.isNotEmpty() ? familySource : juce::String("legacy_default");
+    faustEngine.compile(faustCode, [this, faustCode, prompt, mode, resolvedFamily, resolvedFamilySource]
                                    (const FaustEngine::ParamList& params,
                                     const std::string& error) {
         if (error.empty())
@@ -562,6 +641,8 @@ void PluginForgeProcessor::loadFaustCode(const juce::String& faustCode,
                 std::lock_guard<std::mutex> lock(metaMutex);
                 currentFaustSource = faustCode;
                 currentPrompt      = prompt;
+                currentGenerationFamily = resolvedFamily;
+                currentGenerationFamilySource = resolvedFamilySource;
                 currentLabels.clearQuick();
                 for (const auto& p : params)
                     currentLabels.add(juce::String(p.label));
@@ -620,7 +701,7 @@ void PluginForgeProcessor::loadFaustCode(const juce::String& faustCode,
             // this is a single delivery today, not a double-notify.
             const juce::String errStr(error);
             if (onFaustCompileFailure)
-                onFaustCompileFailure(errStr);
+                onFaustCompileFailure(errStr, faustCode);
             if (onFaustCompileError)
                 onFaustCompileError(errStr);
         }
@@ -659,12 +740,42 @@ void PluginForgeProcessor::loadFaustCode(const juce::String& faustCode,
 // setStateInformation looks its children up BY NAME (getChildWithName), so an
 // unrecognised extra child is simply never read. That is why this is an amendment
 // to v1 and not a schemaVersion bump.
+//
+// ADDED 2026-08-12 (C6) — <PromptHistory>, schemaVersion 3. A child element,
+// one <HistoryEntry text="..."/> per retained prompt, most-recent-first:
+//
+//   <PromptHistory>
+//     <HistoryEntry text="a warm lowpass"/>
+//     <HistoryEntry text="add a chorus"/>
+//   </PromptHistory>
+//
+// A v1/v2 blob has none of these children; getChildWithName returns an
+// invalid tree and setStateInformation restores an empty history, the same
+// do-nothing fallback the v1-ParamMap case already established. This IS a
+// real schemaVersion bump, unlike <SlotLabels> or uiStyle: those were fields
+// nothing depended on, whereas an old session's actual prompt history is
+// present in the wild and genuinely absent from the blob, not merely unread.
+//
+// ADDED 2026-08-11 (main, "deterministic plugin families") — `generationFamily`
+// / `familySource` root attributes, same schemaVersion 3, landing alongside
+// PromptHistory above via this merge rather than as a separate bump (see
+// kStateSchemaVersion's comment in PluginProcessor.h for why one combined v3
+// is safe here). `generationFamily` is the resolved profile id (e.g.
+// "granular_effect", "drum_synth"); `familySource` records HOW it was
+// resolved -- "explicit" (user picked it), "auto" (deterministically inferred
+// from the prompt), or "legacy_default"/"migrated" for a restore that had no
+// family information to read. A v1/v2 blob predates both attributes;
+// setStateInformation's `version >= 3` gate (below) falls back to the
+// build-target default (PF_IS_SYNTH) with source "legacy_default" -- the same
+// behaviour those blobs were always saved under.
 // ─────────────────────────────────────────────────────────────────────────────
 
 static const juce::Identifier kStateRootTag    ("PluginForgeState");
 static const juce::Identifier kSchemaVersionId ("schemaVersion");
 static const juce::Identifier kFaustSourceId   ("faustSource");
 static const juce::Identifier kPromptId        ("prompt");
+static const juce::Identifier kGenerationFamilyId ("generationFamily");
+static const juce::Identifier kFamilySourceId  ("familySource");
 // Added 2026-07-31. A v1 AMENDMENT, not a schema bump, by the same argument the
 // dropped <SlotLabels> node used above: an old blob simply lacks the attribute and
 // getProperty's default supplies "faithful", which is the behaviour those blobs
@@ -678,6 +789,12 @@ static const juce::Identifier kIdSchemeId      ("idScheme");
 static const juce::Identifier kSlotTag         ("Slot");
 static const juce::Identifier kSlotIndexId     ("index");
 static const juce::Identifier kSlotParamId     ("id");
+// schemaVersion 3 (2026-08-12, C6). The prompt-history list, most-recent-
+// first. Same "only write what exists" shape as ParamMap's Slot children —
+// a HistoryEntry per retained prompt, none for an empty history.
+static const juce::Identifier kHistoryTag      ("PromptHistory");
+static const juce::Identifier kHistoryEntryTag ("HistoryEntry");
+static const juce::Identifier kHistoryTextId   ("text");
 
 juce::String PluginForgeProcessor::uiStyle() const
 {
@@ -708,6 +825,8 @@ void PluginForgeProcessor::getStateInformation(juce::MemoryBlock& destData)
         std::lock_guard<std::mutex> lock(metaMutex);
         root.setProperty(kFaustSourceId, currentFaustSource, nullptr);
         root.setProperty(kPromptId,      currentPrompt,      nullptr);
+        root.setProperty(kGenerationFamilyId, currentGenerationFamily, nullptr);
+        root.setProperty(kFamilySourceId, currentGenerationFamilySource, nullptr);
         root.setProperty(kUiStyleId,     currentUiStyle,     nullptr);
 
         // ── The slot -> identity map (schemaVersion 2) ──────────────────────
@@ -736,6 +855,16 @@ void PluginForgeProcessor::getStateInformation(juce::MemoryBlock& destData)
             mapNode.appendChild(slotNode, nullptr);
         }
         root.appendChild(mapNode, nullptr);
+
+        // ── Prompt history (schemaVersion 3) ────────────────────────────────
+        juce::ValueTree historyNode(kHistoryTag);
+        for (const auto& prompt : promptHistory)
+        {
+            juce::ValueTree entry(kHistoryEntryTag);
+            entry.setProperty(kHistoryTextId, prompt, nullptr);
+            historyNode.appendChild(entry, nullptr);
+        }
+        root.appendChild(historyNode, nullptr);
     }
 
     // copyState() flushes pending parameter updates and returns a thread-safe copy
@@ -826,8 +955,39 @@ void PluginForgeProcessor::setStateInformation(const void* data, int sizeInBytes
         paramPool.seedIdentityMap(restoredSlotIds);
     }
 
+    // ── Prompt history (schemaVersion 3) ────────────────────────────────────
+    // A v1/v2 blob has no PromptHistory node at all: getChildWithName returns
+    // an invalid ValueTree, the loop below runs zero times, and
+    // setPromptHistory(empty) is exactly the do-nothing fallback the v1-
+    // ParamMap case established above -- no older blob was ever written with
+    // history in it, so there is nothing to migrate.
+    {
+        juce::StringArray restoredHistory;
+        const auto historyNode = root.getChildWithName(kHistoryTag);
+        if (historyNode.isValid())
+        {
+            for (int c = 0; c < historyNode.getNumChildren(); ++c)
+            {
+                const auto entry = historyNode.getChild(c);
+                if (entry.getType() != kHistoryEntryTag)
+                    continue;
+                const juce::String text = entry.getProperty(kHistoryTextId, juce::String());
+                if (text.isNotEmpty())
+                    restoredHistory.add(text);
+            }
+        }
+        setPromptHistory(restoredHistory);
+    }
+
     const juce::String source = root.getProperty(kFaustSourceId, juce::String());
     const juce::String prompt = root.getProperty(kPromptId,      juce::String());
+    const juce::String legacyFamily = PF_IS_SYNTH ? "synth" : "effect";
+    const juce::String family = version >= 3
+        ? root.getProperty(kGenerationFamilyId, legacyFamily).toString()
+        : legacyFamily;
+    const juce::String familySource = version >= 3
+        ? root.getProperty(kFamilySourceId, "legacy_default").toString()
+        : juce::String("legacy_default");
     // Absent in a pre-2026-07-31 blob; the default is the behaviour those blobs
     // were saved under, so an old session reopens looking exactly as it did.
     const juce::String style  = root.getProperty(kUiStyleId,     "faithful");
@@ -836,6 +996,8 @@ void PluginForgeProcessor::setStateInformation(const void* data, int sizeInBytes
         std::lock_guard<std::mutex> lock(metaMutex);
         currentFaustSource = source;
         currentPrompt      = prompt;
+        currentGenerationFamily = family;
+        currentGenerationFamilySource = familySource;
         currentUiStyle     = style;
     }
 
@@ -858,13 +1020,15 @@ void PluginForgeProcessor::setStateInformation(const void* data, int sizeInBytes
         // Restore: the values replaceState() wrote above are the point of the
         // restore, so this recompile must not reset any of them. See the twin
         // call site in prepareToPlay for why Iterate is not sufficient here.
-        loadFaustCode(source, prompt, LoadMode::Restore);
+        loadFaustCode(source, prompt, LoadMode::Restore, family, familySource);
     }
     else
     {
         std::lock_guard<std::mutex> lock(metaMutex);
         pendingRestoreSource = source;
         pendingRestorePrompt = prompt;
+        pendingRestoreFamily = family;
+        pendingRestoreFamilySource = familySource;
     }
 }
 
@@ -878,6 +1042,30 @@ juce::String PluginForgeProcessor::currentPromptForTest() const
 {
     std::lock_guard<std::mutex> lock(metaMutex);
     return currentPrompt;
+}
+
+juce::StringArray PluginForgeProcessor::promptHistorySnapshot() const
+{
+    std::lock_guard<std::mutex> lock(metaMutex);
+    return promptHistory;
+}
+
+void PluginForgeProcessor::setPromptHistory(const juce::StringArray& history)
+{
+    std::lock_guard<std::mutex> lock(metaMutex);
+    promptHistory = history;
+}
+
+juce::String PluginForgeProcessor::currentFamily() const
+{
+    std::lock_guard<std::mutex> lock(metaMutex);
+    return currentGenerationFamily;
+}
+
+juce::String PluginForgeProcessor::currentFamilySource() const
+{
+    std::lock_guard<std::mutex> lock(metaMutex);
+    return currentGenerationFamilySource;
 }
 
 juce::StringArray PluginForgeProcessor::currentLabelsForTest() const

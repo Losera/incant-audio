@@ -74,6 +74,13 @@ UNITS — the trap that silently produces silence:
 - fi.resonlp(fc, Q, gain) takes fc in HERTZ.
 - Never pre-convert a cutoff with a division by ma.SR. Pass Hz where Hz is asked for.
 
+DELAYS — only if the VOICE itself wants one (slap-back, feedback pluck):
+- The FIRST argument to de.delay and de.fdelay is the MAXIMUM delay. It must be a
+  compile-time constant, because it sizes the buffer — e.g. MAXD = 48000, never
+  ma.SR or an hslider value directly. If the delay TIME is user-controllable,
+  clamp it inside that constant before it reaches de.delay/de.fdelay:
+  : min(MAXD-1) : max(1).
+
 SIGNAL ROUTING — five operators.
   A : B         serial. B's input count MUST equal A's output count.
   A , B         parallel — stacks them into more channels.
@@ -115,6 +122,10 @@ Filters -- shaping the source:
 Virtual-analog filters -- note which argument is Hz:
   ve.moog_vcf(res, fr)           Moog ladder VCF; fr in Hz, res normalised 0-1
   ve.moogLadder(normFreq, Q, x)  Moog ladder; normFreq is 0-1, NOT Hz
+
+Delays -- only if the VOICE itself wants one (slap-back, feedback pluck):
+  de.delay(n, d, x)              integer-sample delay; first arg is the MAXIMUM delay
+  de.fdelay(n, d, x)             fractional-sample delay (interpolated) -- use for modulated delays
 
 Conversions and helpers:
   ba.midikey2hz(mk)              MIDI note number to Hz -- use when the control is 'key'
@@ -186,3 +197,19 @@ mainOsc = os.sawtooth(freq);
 octaveOsc = os.sawtooth(freq * 0.5);
 voice = mainOsc + (octaveOsc * octaveMix);
 process = voice : fi.resonlp(cutoff, q, 1) : *(gain * env);
+
+USER: a plucked voice with a short slap-back delay
+FAUST:
+import("stdfaust.lib");
+freq = hslider("freq", 440, 20, 8000, 0.01);
+gain = hslider("gain", 0.5, 0, 1, 0.01);
+gate = button("gate");
+decay = hslider("Decay[unit:s]", 0.3, 0.01, 2, 0.001);
+mix = hslider("Delay Mix", 0.25, 0, 1, 0.01) : si.smoo;
+MAXD = 24000;
+dtime = hslider("Delay Time[unit:ms]", 80, 1, 500, 1) : si.smoo
+        : *(ma.SR/1000.0) : min(MAXD-1) : max(1);
+env = en.ar(0.001, decay, gate);
+voice = os.sawtooth(freq) * env;
+delayed = voice : de.fdelay(MAXD, dtime);
+process = (voice + delayed * mix) * gain;

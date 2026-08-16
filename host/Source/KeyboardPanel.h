@@ -54,6 +54,43 @@ public:
     void setPlayable(bool canPlay);
     bool isPlayableForTest() const { return playable; }
 
+    // Called after a successful instrument generation
+    // (PluginEditor.cpp's onFaustCompileSuccess) so QWERTY plays immediately,
+    // without the user needing to click the piano first. routeKeyStateChanged
+    // below makes the editor forward key transitions regardless of what
+    // currently holds focus, but JUCE's dispatch walk still STARTS at
+    // whichever component holds focus (juce::ComponentPeer::
+    // handleKeyUpOrDown, juce_ComponentPeer.cpp:224-243) -- right after
+    // Generate, that is still the prompt box. Moving focus onto the piano
+    // directly makes MidiKeyboardComponent::keyStateChanged the FIRST thing
+    // the walk reaches, no editor-level forwarding needed for this case.
+    // Only meaningful once the widget is actually enabled -- JUCE does not
+    // grant keyboard focus to a disabled component -- so the caller must
+    // ensure setPlayable(true) has already run this call, not rely on the
+    // next 30Hz timer tick to catch up first.
+    void focusForPlaying()
+    {
+        ++focusForPlayingCallCount;
+        keyboardComponent.grabKeyboardFocus();
+    }
+    // Proves the WIRING (this was called after a successful instrument
+    // generation), not that focus actually moved -- grabKeyboardFocus()
+    // requires a real peer/window (juce::Component::isShowing()'s
+    // requirement, juce_Component.cpp), which host/tests/EditorSessionTest.cpp
+    // never creates. Same category of limitation as
+    // routeKeyStateChangedCallCountForTest() below: a real physical/OS
+    // interaction is outside what a headless harness on this machine can
+    // observe (STATUS.md Broken #1).
+    int focusForPlayingCallCountForTest() const { return focusForPlayingCallCount; }
+
+    // Widget-level readback, distinct from isPlayableForTest()'s flag: this is
+    // what actually proved the constructor no-op bug (the flag was correctly
+    // false from the very first frame; the WIDGETS silently were not --
+    // KeyboardPanel.cpp's applyPlayableVisuals() comment has the full story).
+    bool keyboardEnabledForTest() const  { return keyboardComponent.isEnabled(); }
+    float keyboardAlphaForTest() const   { return keyboardComponent.getAlpha(); }
+    bool disabledLabelVisibleForTest() const { return disabledLabel.isVisible(); }
+
     // ── Test-only producer entry points (host/tests/EditorSessionTest.cpp) ──
     // Drive keyboardState.noteOn()/noteOff() directly -- exactly what a mouse
     // click on the component or a mapped computer-keypress does internally
@@ -81,6 +118,54 @@ public:
         keyboardState.noteOff(kMidiChannel, note, 0.0f);
     }
 
+    // ── Computer-keyboard (QWERTY) routing seam, added 2026-08-12 ───────────
+    // keyboardComponent is a SIBLING of the editor's other panels (the prompt
+    // box, the toolbar buttons), not an ancestor of whatever the user last
+    // clicked. JUCE's own key-state dispatch walks UP the parent chain from
+    // whichever component currently holds keyboard focus
+    // (juce::ComponentPeer::handleKeyUpOrDown, juce_ComponentPeer.cpp:224-243),
+    // so it only ever reached keyboardComponent's own keyStateChanged()
+    // (juce_MidiKeyboardComponent.cpp:254-283, which is what turns a held
+    // QWERTY key into a note) when the piano itself already held focus --
+    // which, before this method existed, only happened if the user clicked
+    // the piano first. PluginForgeEditor::keyStateChanged() calls this on
+    // every key transition so the piano no longer needs to be the walk's
+    // starting point. Safe to call unconditionally: juce::TextEditor
+    // deliberately swallows this same walk while IT holds focus
+    // ("(overridden to avoid forwarding key events to the parent)",
+    // juce_TextEditor.cpp:2189-2205), so normal typing in the prompt box is
+    // unaffected -- this call is simply never reached while that is true.
+    bool routeKeyStateChanged(bool isKeyDown)
+    {
+        ++routeCallCountForTest;
+        return keyboardComponent.keyStateChanged(isKeyDown);
+    }
+    int routeKeyStateChangedCallCountForTest() const { return routeCallCountForTest; }
+
+    // ── Octave controls, added 2026-08-12 (C5) ──────────────────────────────
+    // [<]/[>] buttons carved from the control-row strip resized() reserves
+    // (docs/sessions/010-alpha-ui-architecture.md §4: "shifts the
+    // MidiKeyboardComponent range and setKeyPressBaseOctave() by +-1. Range
+    // clamped 0-8" -- octave NUMBER 0-8, not MIDI note numbers). Shifts both
+    // together so the visible piano and what QWERTY plays never drift apart --
+    // the exact invariant scenario 22 checks live, post-C5.
+    //
+    // Clamp safety, worked by hand rather than asserted at runtime: the
+    // available range is [36,96] at the default octave 4. A shift of
+    // 12*(octave-4) is added to both ends, independently clamped to
+    // MIDI's [0,127]. At the extremes (octave 0: delta -48; octave 8: delta
+    // +48) the two clamps never cross -- octave 0 gives [0,48] (low clamped
+    // from -12), octave 8 gives [84,127] (high clamped from 144) -- so no
+    // runtime width check is needed for a fixed 0-8 octave range.
+    void shiftOctave(int delta);
+    int  currentOctaveForTest() const { return currentOctave; }
+    int  availableRangeLowForTest() const  { return keyboardComponent.getRangeStart(); }
+    int  availableRangeHighForTest() const { return keyboardComponent.getRangeEnd(); }
+    bool octaveUpIsHitTargetForTest()
+    {
+        return getComponentAt(octaveUpButton.getBounds().getCentre()) == &octaveUpButton;
+    }
+
 private:
     // juce::MidiKeyboardState::Listener. Fires synchronously from
     // keyboardState.noteOn()/noteOff() -- called either by
@@ -94,6 +179,29 @@ private:
                        int midiNoteNumber, float velocity) override;
 
     static constexpr int kMidiChannel = 1;
+
+    // The construction-time values shiftOctave() shifts away from and back
+    // to; see the octave-controls comment above for the clamp arithmetic.
+    static constexpr int kDefaultOctave        = 4;
+    static constexpr int kMinOctave            = 0;
+    static constexpr int kMaxOctave            = 8;
+    static constexpr int kDefaultAvailableLow  = 36;
+    static constexpr int kDefaultAvailableHigh = 96;
+    static constexpr int kControlRowH          = 24;   // top strip; piano gets the remaining 48 of keyboardH's 72
+
+    void updateOctaveLabel();
+
+    // Applies `playable`'s CURRENT value to the widgets (enabled/alpha/label).
+    // Split out of setPlayable() so the constructor can apply the true initial
+    // state without going through setPlayable()'s idempotence guard, which
+    // would otherwise no-op it (playable's member initializer already reads
+    // false, matching the ctor's setPlayable(false) call — "unchanged" by
+    // definition, so the widgets never actually got dimmed/disabled/labelled
+    // until the first REAL transition arrived, which for an effect patch
+    // never comes). No keyboardState side effects here (see setPlayable) --
+    // this only ever mirrors state onto widgets, safe to call before any note
+    // could exist.
+    void applyPlayableVisuals();
 
     PluginForgeProcessor& processor;
 
@@ -109,7 +217,19 @@ private:
     // washed out for no stated reason.
     juce::Label disabledLabel;
 
+    // Octave controls (C5): a [<] [Oct: N] [>] cluster in the control-row
+    // strip resized() carves from the top of keyboardH. Left enabled
+    // regardless of setPlayable()'s dim/disable state -- ranging the
+    // keyboard is UI-only and touches nothing NoteRing/audio-thread related,
+    // so there is no reason to gate it on a voice contract existing yet.
+    juce::TextButton octaveDownButton { "<" };
+    juce::TextButton octaveUpButton   { ">" };
+    juce::Label      octaveLabel;
+    int              currentOctave = kDefaultOctave;
+
     bool playable = false;
+    int  routeCallCountForTest = 0;
+    int  focusForPlayingCallCount = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(KeyboardPanel)
 };

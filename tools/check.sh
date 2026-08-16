@@ -123,16 +123,22 @@ level_full() {
     # OfflineRenderTest: the ladder was making a true statement about a smaller set
     # of tests than the remote gate runs, and the two never met (PF-026).
     #
-    # UiDesignGallery is BUILD-ONLY here, and that is deliberate rather than an
-    # oversight: it makes no assertions (host/CMakeLists.txt:430-432), so there is
-    # nothing for the ladder to run. It is built because it reaches into editor
-    # internals -- PluginEditor.h:42-48, ParamGridPanel.h:91 -- and a rename there
-    # would otherwise break it silently with every gate green, which is PF-029
-    # mirrored. Note that TestLadderRunsWhatCIRuns cannot vet this: its "also run
-    # it, do not just compile it" relation is implemented as a name filter,
-    # endswith("Test") (tests/test_control_wiring.py:770), and this target does not
-    # match. So the exemption is real but unenforced -- do not read the green
-    # parity test as having approved it.
+    # UiDesignGallery is no longer build-only (changed 2026-08-11). It is built
+    # here and RUN below, via tools/ui_iterate.sh --no-build.
+    #
+    # The old exemption reasoned "it makes no assertions, so there is nothing for
+    # the ladder to run." That covered layout DRIFT correctly and quietly missed
+    # HARNESS failure: the binary already returned 1 when a fixture stopped
+    # compiling or a grid never settled, and nothing was reading that exit code.
+    # Building it still matters for the original reason -- it reaches into editor
+    # internals (PluginEditor.h:42-48, ParamGridPanel.h:91) and a rename there
+    # would otherwise break it silently with every gate green, PF-029 mirrored.
+    #
+    # Still true, and still worth reading: TestLadderRunsWhatCIRuns cannot vet
+    # any of this. Its "also run it, do not just compile it" relation is a name
+    # filter, endswith("Test") (tests/test_control_wiring.py:770), and this
+    # target does not match. The run below is real but unenforced -- do not read
+    # the green parity test as having approved it.
     run "build the host and every test harness" \
         cmake --build host/build --target PluginForgeHost PluginForgeHost_Standalone \
               PluginForgeHost_VST3 PluginForgeSynth PluginForgeSynth_Standalone \
@@ -140,7 +146,8 @@ level_full() {
               OfflineRenderTest OfflineSynthRenderTest \
               PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim \
               OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery \
-              ParamIdentityTest NoteRingTest NoteRingTsanTest ValidationGateTest
+              ParamIdentityTest NoteRingTest NoteRingTsanTest ValidationGateTest \
+              SoundfetchClientTest GenerationProfilesAutoTest
 
     # ── Three harnesses that existed and ran nowhere ─────────────────────────
     # Found 2026-07-30 while surveying the measurement surface: OutputGuardTest
@@ -172,9 +179,21 @@ level_full() {
     # principle again: the post-compile validation gate (FaustEngine.cpp's
     # validatePatch()) is deterministic and needs no display, exactly like
     # StatePersistenceTest beside it.
+    # SoundfetchClientTest joined 2026-08-13, in the commit that created it,
+    # fixing three fatal, live-confirmed defects on a subprocess path that had
+    # ZERO tests until this one -- the same "control that never ran" shape as
+    # the three above, just discovered by a user report instead of a survey.
+    # Pure juce_core, no display, no network (SOUNDFETCH_BIN points at a local
+    # disposable script; nothing here spawns the real soundfetch CLI).
+    # GenerationProfilesAutoTest joined the same day: EditorSessionTest never
+    # builds with -DPF_IS_SYNTH=1, so it cannot reach
+    # GenerationProfiles::resolveAuto()'s instrument-side branch -- exactly
+    # the one the generator/synth-override fix touches. Pure juce_core, same
+    # shape as SoundfetchClientTest.
     local pure
     for pure in OutputGuardTest ParamMapTest StatePersistenceTest ParamIdentityTest \
-                NoteRingTest ValidationGateTest; do
+                NoteRingTest ValidationGateTest SoundfetchClientTest \
+                GenerationProfilesAutoTest; do
       local bin
       bin="$(find host/build -type f -name "$pure" 2>/dev/null | head -n1)"
       if [[ -n "$bin" ]]; then
@@ -311,6 +330,32 @@ level_full() {
       # look at them when the grid or the layout changed.
       run "EditorSessionTest (simulated human session)" \
           timeout 300 "$session"
+    fi
+
+    # ── The UI design instrument ─────────────────────────────────────────────
+    # Two DIFFERENT failure semantics, and conflating them is what kept this
+    # build-only for so long:
+    #
+    #   the GALLERY   exits non-zero only when the harness itself could not do
+    #                 its job -- a fixture that stopped compiling, a grid that
+    #                 never settled. That is a real regression class the build
+    #                 alone cannot catch, so it is a HARD ladder failure.
+    #   the LAYOUT    prints a semantic diff and always exits 0. Layout drift is
+    #   DIFF          the POINT while iterating; a loop that goes red every time
+    #                 a control moves is a loop that gets commented out. Report
+    #                 only, exactly like the presentation-affordances step above.
+    #
+    # ui_iterate.sh --no-build is used rather than invoking the binary directly
+    # so there is one implementation of the xvfb wrapper and the diff, not two.
+    local gallery
+    gallery="$(find host/build/UiDesignGallery_artefacts -type f -name UiDesignGallery 2>/dev/null | head -n1)"
+    if [[ -z "$gallery" ]]; then
+      skip "UiDesignGallery" "binary not built"
+    elif [[ -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]] && ! command -v xvfb-run >/dev/null 2>&1; then
+      skip "UiDesignGallery" "no DISPLAY/WAYLAND_DISPLAY and no xvfb-run"
+    else
+      run "UiDesignGallery renders every fixture" \
+          timeout 900 tools/ui_iterate.sh --no-build
     fi
   else
     skip "host build" "cmake or JUCE_PATH missing"

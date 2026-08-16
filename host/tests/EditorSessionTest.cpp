@@ -1541,10 +1541,34 @@ void scenario20_keyboardDisabledForEffect()
              "nothing consumes");
 
     Session s;
+
+    // Asserted BEFORE loading anything: this is the constructor no-op bug's
+    // exact reproduction -- a fresh editor whose keyboard has never received
+    // a real setPlayable() transition (isInstrument() defaults false, so the
+    // 30Hz timer's setPlayable(false) call is ALSO a no-op the first time it
+    // fires). Before KeyboardPanel.cpp's applyPlayableVisuals() fix, this
+    // failed: the flag read false correctly, but the widgets stayed enabled,
+    // full-alpha and unlabelled -- a keyboard that looks and feels playable
+    // while every note is silently discarded.
+    check(! s.editor.keyboardPlayableForTest(), "fresh editor: flag starts disabled");
+    check(! s.editor.keyboardEnabledForTest(),
+          "fresh editor: the keyboard widget itself starts disabled, not just the flag");
+    check(s.editor.keyboardAlphaForTest() < 1.0f,
+          "fresh editor: the keyboard is visibly dimmed");
+    check(s.editor.keyboardDisabledLabelVisibleForTest(),
+          "fresh editor: \"Load an instrument to play\" is showing");
+    check(s.editor.keyboardOctaveUpIsHitTargetForTest(),
+          "fresh editor: the disabled overlay does not block the enabled octave controls");
+
     check(loadAndSettle(s, kTinyPatch, 1), "a plain effect (Gain) compiled");
     s.editor.pumpMeterTickForTest();
     check(! s.editor.keyboardPlayableForTest(),
           "the keyboard reports disabled for a patch with no voice contract");
+    check(! s.editor.keyboardEnabledForTest(),
+          "effect patch: the keyboard widget stays disabled");
+    check(s.editor.keyboardAlphaForTest() < 1.0f, "effect patch: the keyboard stays dimmed");
+    check(s.editor.keyboardDisabledLabelVisibleForTest(),
+          "effect patch: the disabled label stays visible");
 
     // Even a note that reaches the ring -- bypassing the disabled UI, the way
     // this test-only entry point does; see KeyboardPanel::noteOnForTest --
@@ -1662,7 +1686,7 @@ void scenario21_allNotesOffReleasesHeldNoteOnDisable()
     snapshot(s.editor, "21_allnotesoff_releases_held_note");
 }
 
-// 22 — QWERTY / computer-keyboard mapping: the STATIC contract only.
+// 22 — QWERTY / computer-keyboard mapping is internally self-consistent.
 //
 // WHY THIS IS SCOPED THE WAY IT IS. juce_MidiKeyboardComponent.cpp's
 // keyStateChanged() (the private override that answers a real OS keypress)
@@ -1679,38 +1703,33 @@ void scenario21_allNotesOffReleasesHeldNoteOnDisable()
 // NOT COVERED: real keypress-to-note firing. Nothing on this machine can
 // synthesize a keypress the compositor and JUCE's KeyPress::isCurrentlyDown()
 // will see as real, so end-to-end QWERTY input is untested here and untested
-// anywhere else in this repo. This scenario only checks that the STATIC
-// mapping KeyboardPanel configures is internally self-consistent -- it does
-// NOT prove that a keypress, on this or any machine, actually produces a
-// note.
+// anywhere else in this repo. This scenario only checks that the mapping
+// KeyboardPanel configures is internally self-consistent -- it does NOT
+// prove that a keypress, on this or any machine, actually produces a note.
 //
-// WHAT IS CHECKED INSTEAD, and why it has to be literal constants rather than
-// a live query: juce::MidiKeyboardComponent keeps the key-press base octave
-// (keyMappingOctave) PRIVATE with no getter (juce_MidiKeyboardComponent.h:263)
-// and KeyboardPanel.h exposes no accessor for its own keyboardComponent (and
-// adding one is out of this brief's scope -- KeyboardPanel.h/.cpp are not to
-// be touched). So this checks the values actually read out of
-// KeyboardPanel.cpp today, against JUCE's own default key-mapping table,
-// rather than introspecting a live object:
-//   * KeyboardPanel.cpp:20  keyboardComponent.setAvailableRange(36, 96);
-//   * KeyboardPanel.cpp:30  keyboardComponent.setKeyPressBaseOctave(4);
-//   * juce_MidiKeyboardComponent.cpp:36,38-39 -- the DEFAULT qwerty map
-//     ("awsedftgyhujkolp;", 17 characters) assigns each key an offset-from-C
-//     of 0..16 via setKeyPressForNote(). setKeyPressForNote's own doc comment
-//     (juce_MidiKeyboardComponent.h:120-127) gives the formula in words --
-//     "this value + (12 * the current base octave)" -- and the actual runtime
-//     arithmetic matches it exactly (juce_MidiKeyboardComponent.cpp:260,
-//     `12 * keyMappingOctave + keyPressNotes.getUnchecked(i)`).
-// If a future edit changes any of those three numbers without updating this
-// scenario, this only fails once a human rereads and rewrites the assertion
-// below -- it is not wired to the source text, because there is no live
-// accessor to wire it to. That is the honest limit of a "static contract"
-// check, which is why every constant's origin is named above rather than
-// left to be taken on faith.
-void scenario22_qwertyMappingStaticContract()
+// REWIRED 2026-08-12 (C5): this used to read three literal constants copied
+// by hand from KeyboardPanel.cpp, because juce::MidiKeyboardComponent keeps
+// keyMappingOctave PRIVATE with no getter and KeyboardPanel exposed no
+// accessor of its own -- adding one was explicitly out of scope for the
+// session that wrote this scenario. C5 added exactly that accessor
+// (KeyboardPanel::currentOctaveForTest(), availableRange{Low,High}ForTest(),
+// reached through the editor's keyboardOctaveForTest()/
+// keyboardAvailableLow/HighForTest() forwarders) to build the octave [<]/[>]
+// controls, and those literals would have gone silently false the moment a
+// user clicked one -- the old comment block said as much: "this only fails
+// once a human rereads and rewrites the assertion". Now it reads the live
+// object instead. What is still NOT introspected: JUCE's own default qwerty
+// map ("awsedftgyhujkolp;", 17 characters, offsets 0..16 via
+// setKeyPressForNote(), juce_MidiKeyboardComponent.cpp:36,38-39) has no
+// accessor at all and remains a cited constant, per
+// juce_MidiKeyboardComponent.h:120-127's documented formula
+// "this value + (12 * the current base octave)".
+void scenario22_qwertyMappingLiveContract()
 {
-    scenario("22. QWERTY mapping is internally self-consistent (STATIC CONTRACT ONLY)",
-             "no synthetic-input tool exists on this machine -- see NOT COVERED above");
+    scenario("22. QWERTY mapping is internally self-consistent",
+             "reads the live KeyboardPanel object (C5) -- runtime octave "
+             "controls would otherwise make copied literals silently false "
+             "instead of failing");
 
     // Session still constructed: this at least proves KeyboardPanel builds
     // and lays out under these exact settings, the same construction path a
@@ -1718,11 +1737,11 @@ void scenario22_qwertyMappingStaticContract()
     Session s;
     check(s.editor.getHeight() > 0, "the editor (and its KeyboardPanel) constructed");
 
-    // ── The mapping arithmetic, from the constants cited above ─────────────
-    const int availableLow   = 36;
-    const int availableHigh  = 96;
-    const int baseOctave     = 4;
-    const int qwertyKeyCount = 17;                    // "awsedftgyhujkolp;"
+    // ── The mapping arithmetic: two literals read live, one still cited ────
+    const int availableLow   = s.editor.keyboardAvailableLowForTest();
+    const int availableHigh  = s.editor.keyboardAvailableHighForTest();
+    const int baseOctave     = s.editor.keyboardOctaveForTest();
+    const int qwertyKeyCount = 17;                    // "awsedftgyhujkolp;" -- JUCE's fixed default table, not KeyboardPanel state
     const int lowestOffset   = 0;
     const int highestOffset  = qwertyKeyCount - 1;     // 16
 
@@ -1735,7 +1754,8 @@ void scenario22_qwertyMappingStaticContract()
           juce::String("every QWERTY-mapped note (") + juce::String(mappedLow) + ".."
               + juce::String(mappedHigh) + ") falls inside the visible range ("
               + juce::String(availableLow) + ".." + juce::String(availableHigh)
-              + ") -- setKeyPressBaseOctave(4) lines up with setAvailableRange(36, 96)");
+              + ") -- setKeyPressBaseOctave() lines up with setAvailableRange(), "
+                "read live so it cannot silently drift");
 
     // ── The other half: nothing on the construction path locks NoteRing's
     //    forbidden call ─────────────────────────────────────────────────────
@@ -1759,7 +1779,7 @@ void scenario22_qwertyMappingStaticContract()
     snapshot(s.editor, "22_qwerty_mapping_static_contract");
 }
 
-// 23 — The kind selector (Instrument / Effect) reaches the LLM request (ADR-011).
+// 23 — The family selector reaches the LLM request with the build-fixed kind.
 //
 // `kind` existed in generate.py's request schema (select_prompt at :85-95, read
 // at :331) but nothing in the host ever sent it: the workflow-step-2 type
@@ -1778,13 +1798,12 @@ void scenario23_kindSelectorReachesRequest(const juce::File& tmp)
 
     Session s;
 
-    check(s.editor.kindForTest()
-              == juce::String(PF_IS_SYNTH ? "Instrument" : "Effect"),
-          "kind selector defaults to the build target (PF_IS_SYNTH)");
+    check(s.editor.kindForTest() == juce::String(PF_IS_SYNTH ? "Instrument" : "Effect"),
+          "kind is fixed to the build target (PF_IS_SYNTH)");
 
-    const juce::String chosen = PF_IS_SYNTH ? "Effect" : "Instrument";
-    s.editor.setKindForTest(chosen);
-    check(s.editor.kindForTest() == chosen, "kind selector accepts the override");
+    const juce::String chosen = PF_IS_SYNTH ? "drum_synth" : "granular_effect";
+    s.editor.setFamilyForTest(chosen);
+    check(s.editor.familyForTest() == chosen, "family selector accepts a compatible profile");
 
     s.editor.submitPromptForTest("a small patch, kind must ride along");
     const bool live = pumpUntil([&] {
@@ -1797,9 +1816,11 @@ void scenario23_kindSelectorReachesRequest(const juce::File& tmp)
     auto req = FakeGenerator::capturedRequestJson(tmp, "gen23");
     check(req.isNotEmpty(), "a request.json was written");
     const auto parsed = juce::JSON::parse(req);
-    check(parsed.getProperty("kind", "").toString() == chosen,
-          "the request JSON's kind field carries the selector's choice -- "
-          "generate.py:331 reads exactly this field to pick the prompt");
+    check(parsed.getProperty("kind", "").toString()
+              == juce::String(PF_IS_SYNTH ? "instrument" : "effect"),
+          "the request JSON carries the build-fixed host role");
+    check(parsed.getProperty("family", "").toString() == chosen,
+          "the request JSON carries the selected generation family");
 
     snapshot(s.editor, "23_kind_selector_reaches_request");
 }
@@ -2067,6 +2088,772 @@ process = _ * z, _ * z;
     snapshot(s.editor, "26_prior_source_refused");
 }
 
+// setCockpitStatePath() (PluginEditor.h) previously had no caller anywhere in
+// the repo: cockpitEnabled defaulted false and stayed false forever, so
+// dev-cockpit/server.py's /api/state could only ever 503. Armed 2026-08-12 via
+// a PLUGINFORGE_COCKPIT_STATE env var read in the constructor. Confirms both
+// halves: default OFF when the var is unset (unchanged shipping behaviour),
+// and armed + actually writing valid JSON when it is set.
+void scenario27_cockpitMirrorEnvVar(const juce::File& tmp)
+{
+    scenario("27. Dev-cockpit mirror: env-var opt-in, default off",
+             "setCockpitStatePath() had zero callers before this session -- "
+             "/api/state could only ever 503. The mirror must stay off by "
+             "default and actually write when opted in.");
+
+    // Default: no env var set (the ambient test process should not have it).
+    {
+        Session s;
+        check(! s.editor.cockpitEnabledForTest(),
+              "default OFF -- PLUGINFORGE_COCKPIT_STATE unset, no write ever "
+              "armed, matching the shipping plugin's default behaviour");
+        check(s.editor.cockpitStatePathForTest().isEmpty(),
+              "no path recorded when never armed");
+    }
+
+    // Opt in: set the env var BEFORE constructing the editor -- it is read once,
+    // in the constructor, same as PLUGINFORGE_PYTHON in PromptPanel.cpp.
+    const auto statePath = tmp.getChildFile("cockpit_state.json");
+    statePath.deleteFile();
+#if JUCE_WINDOWS
+    _putenv_s("PLUGINFORGE_COCKPIT_STATE", statePath.getFullPathName().toRawUTF8());
+#else
+    setenv("PLUGINFORGE_COCKPIT_STATE", statePath.getFullPathName().toRawUTF8(), 1);
+#endif
+
+    {
+        Session s;
+        check(s.editor.cockpitEnabledForTest(), "armed when the env var is set");
+        check(s.editor.cockpitStatePathForTest() == statePath.getFullPathName(),
+              "the recorded path is exactly the env var's value");
+
+        // writeCockpitState() fires every 3rd tick (~10Hz at the 30Hz meter
+        // timer) -- three direct calls is deterministic, no wall-clock wait.
+        s.editor.pumpMeterTickForTest();
+        s.editor.pumpMeterTickForTest();
+        s.editor.pumpMeterTickForTest();
+
+        check(statePath.existsAsFile(), "the state file was actually written, "
+              "not just armed -- the earlier bug was silent: nothing called "
+              "setCockpitStatePath, and nothing would have failed loudly either");
+
+        auto parsed = juce::JSON::parse(statePath.loadFileAsString());
+        check(parsed.isObject(), "the written file is valid JSON");
+        check(parsed.getProperty("windowWidth", juce::var()).isInt(),
+              "and has the shape writeCockpitState() actually produces, not "
+              "just non-empty bytes");
+    }
+
+#if JUCE_WINDOWS
+    _putenv_s("PLUGINFORGE_COCKPIT_STATE", "");
+#else
+    unsetenv("PLUGINFORGE_COCKPIT_STATE");
+#endif
+    statePath.deleteFile();
+}
+
+// Broken #1 (STATUS.md): PluginForgeEditor had no keyStateChanged() override
+// at all before this session. KeyboardPanel's on-screen keyboard is a SIBLING
+// of the prompt box and every toolbar button, not their ancestor, and JUCE's
+// own key-state dispatch walks UP the parent chain from whatever currently
+// holds keyboard focus (juce::ComponentPeer::handleKeyUpOrDown,
+// juce_ComponentPeer.cpp:224-243) -- so a QWERTY key only ever reached the
+// piano's own keyStateChanged() (the method that actually turns a held key
+// into a note, juce_MidiKeyboardComponent.cpp:254-283) if the piano itself
+// already held keyboard focus, which only happened if the user clicked it
+// first. This scenario is a direct unit test of the new override: it proves
+// the SHELL now asks the keyboard on every key transition, not that JUCE's
+// own dispatch mechanics work (that is JUCE's contract, cited above by
+// file:line, not ours to re-test) and not that a real physical keypress
+// reaches this call -- see the WHAT THIS DOES NOT PROVE note below.
+void scenario28_qwertyRoutingReachesKeyboard()
+{
+    scenario("28. Computer keyboard reaches the keyboard panel regardless of focus",
+             "the piano is a sibling of the prompt box, not an ancestor -- "
+             "PluginForgeEditor had no keyStateChanged() override at all, so "
+             "JUCE's dispatch never reached the piano unless it was clicked "
+             "first (Broken #1)");
+
+    Session s;
+
+    check(s.editor.keyboardRouteCallCountForTest() == 0,
+          "nothing has routed yet");
+
+    // Direct unit test of the override, not a simulation of JUCE's dispatch
+    // walk (see the class-level comment above for why that walk is JUCE's
+    // contract, not ours to re-verify): calling the public override exercises
+    // exactly the same body a real dispatch would invoke once it reaches this
+    // component, which -- per getTargetForKeyPress() falling back to the
+    // top-level component when nothing has explicit focus
+    // (juce_ComponentPeer.cpp:164-175) -- is precisely what happens on a
+    // fresh window before the user has clicked anything at all.
+    s.editor.keyStateChanged(true);
+    check(s.editor.keyboardRouteCallCountForTest() == 1,
+          "the down-transition is routed to the keyboard panel");
+    s.editor.keyStateChanged(false);
+    check(s.editor.keyboardRouteCallCountForTest() == 2,
+          "the up-transition is routed too -- KeyboardPanel needs both to "
+          "track held notes, not just the down edge");
+
+    // WHAT THIS DOES NOT PROVE. Whether a REAL physical keypress reaches this
+    // call. juce::KeyPress::isCurrentlyDown() (juce_KeyPress.cpp:59-64) reads
+    // actual OS/compositor key state, unfakeable from process code -- no
+    // synthetic-input tool exists on this machine (wtype/ydotool/xdotool all
+    // absent). That hop is exactly as unverified after this commit as before
+    // it; only the shell's OWN routing decision, upstream of that hop, is new
+    // and tested here. See STATUS.md's Broken #1 entry for the precise
+    // boundary.
+
+    snapshot(s.editor, "28_qwerty_routing");
+}
+
+// 29 — Octave [<]/[>] controls shift the QWERTY base octave and the piano's
+// visible range together, clamped to the 0-8 octave range
+// docs/sessions/010-alpha-ui-architecture.md §4 specifies ("shifts the
+// MidiKeyboardComponent range and setKeyPressBaseOctave() by +-1. Range
+// clamped 0-8"). Drives KeyboardPanel::shiftOctave() through the editor's
+// forwarder -- the SAME method the [<]/[>] buttons' onClick calls
+// (KeyboardPanel.h), not a parallel test-only path.
+void scenario29_octaveControlsShiftRangeTogether()
+{
+    scenario("29. Octave controls shift QWERTY base and visible range together, clamped 0-8",
+             "KeyboardPanel::shiftOctave(), driven the same way the [<]/[>] "
+             "buttons' onClick drives it");
+
+    Session s;
+
+    check(s.editor.keyboardOctaveForTest() == 4, "starts at the construction default, octave 4");
+    check(s.editor.keyboardAvailableLowForTest() == 36 && s.editor.keyboardAvailableHighForTest() == 96,
+          "starts at the construction default range, 36..96");
+
+    s.editor.shiftKeyboardOctaveForTest(1);
+    check(s.editor.keyboardOctaveForTest() == 5, "shiftOctave(+1) advances to octave 5");
+    check(s.editor.keyboardAvailableLowForTest() == 48 && s.editor.keyboardAvailableHighForTest() == 108,
+          "the visible range shifts by the same +12 semitones, staying in lockstep");
+
+    // Drive to the top clamp (5 more ups: octave 5 -> 10, clamped to 8).
+    for (int i = 0; i < 5; ++i)
+        s.editor.shiftKeyboardOctaveForTest(1);
+    check(s.editor.keyboardOctaveForTest() == 8, "clamps at octave 8, per session 010 section 4's spec");
+    check(s.editor.keyboardAvailableLowForTest() == 84 && s.editor.keyboardAvailableHighForTest() == 127,
+          "range clamps to MIDI's own ceiling (144 would be invalid) instead of overshooting");
+    s.editor.shiftKeyboardOctaveForTest(1);
+    check(s.editor.keyboardOctaveForTest() == 8, "one more up-shift past the clamp is a no-op, not an assert");
+
+    // Drive to the bottom clamp (8 downs from octave 8 lands on 0).
+    for (int i = 0; i < 8; ++i)
+        s.editor.shiftKeyboardOctaveForTest(-1);
+    check(s.editor.keyboardOctaveForTest() == 0, "clamps at octave 0");
+    check(s.editor.keyboardAvailableLowForTest() == 0 && s.editor.keyboardAvailableHighForTest() == 48,
+          "range clamps to MIDI's own floor (-12 would be invalid) instead of undershooting");
+    s.editor.shiftKeyboardOctaveForTest(-1);
+    check(s.editor.keyboardOctaveForTest() == 0, "one more down-shift past the clamp is a no-op, not an assert");
+
+    snapshot(s.editor, "29_octave_controls");
+}
+
+// 30 — Faust compiler stderr reaches the error region untruncated, and the
+// offending line is highlighted in the read-only code view (C6).
+void scenario30_faustStderrWireAndLineHighlight()
+{
+    scenario("30. Faust stderr reaches the error region untruncated, offending line highlighted",
+             "onFaustCompileFailure used to truncate into the 200-char status "
+             "line only; PromptPanel.h's setError() was public and unused by "
+             "the shell until this session");
+
+    Session s;
+
+    // Same fixture scenario 5 uses -- "process = this is not faust;" is line
+    // 2 (line 1 is the import). Faust's exact error spacing/wording varies by
+    // installed version (see parseFaustErrorLine()'s comment in
+    // PluginEditor.cpp), so the checks below anchor on what is stable across
+    // versions -- "dsp" + a line number, and the literal "ERROR" marker --
+    // not the exact punctuation or message text this machine happens to emit.
+    s.processor.loadFaustCode("import(\"stdfaust.lib\");\nprocess = this is not faust;",
+                              "a broken patch");
+    const bool surfaced = pumpUntil([&] {
+        return s.editor.errorTextForTest().isNotEmpty();
+    });
+    check(surfaced, "the compile failure reaches the error region");
+
+    // Faust's real message here happens to be short (~47 chars, well under
+    // the 200-char status cap), so length alone cannot distinguish "the wire
+    // exists" from "nothing got truncated because nothing was long enough
+    // to". Assert the actual relationship instead: the status line is
+    // EXACTLY a 200-char-capped prefix of what the error region holds, which
+    // only holds regardless of message length if setError() is receiving the
+    // same untruncated string setStatus()'s truncation is derived from.
+    const auto errorText = s.editor.errorTextForTest();
+    check(s.editor.statusTextForTest()
+              == "Faust compile error: " + errorText.substring(0, 200),
+          "the status line is exactly the 200-char-capped prefix of the full error text");
+    // "ERROR" rather than the fuller "unexpected IDENT" wording: CI's
+    // installed Faust produces a differently-spaced, shorter message for this
+    // same syntax error ("dsp : 2 : ERROR : syntax error" vs this machine's
+    // "dsp:2 : ERROR : syntax error, unexpected IDENT") -- discovered when
+    // this exact assertion failed in PR #4's build-host run despite passing
+    // locally. "ERROR" is Faust's own literal diagnostic marker in both.
+    check(errorText.contains("ERROR"),
+          "the error region carries the real Faust diagnostic, not a generic "
+          "or empty string");
+    check(s.editor.codeTextForTest().contains("this is not faust"),
+          "the code view now shows the ATTEMPTED source -- PF-022 never gave "
+          "this patch a source of record to fall back to");
+    check(s.editor.codeHighlightedLineForTest() == 2,
+          "the offending line (2, the process line) is highlighted");
+
+    snapshot(s.editor, "30_faust_stderr_wire_and_highlight");
+}
+
+// 31 — Up-arrow cycles through prompt history, walking to progressively
+// older entries and stopping at the oldest rather than wrapping (C6).
+void scenario31_promptHistoryCycles(const juce::File& tmp)
+{
+    scenario("31. Up-arrow cycles through prompt history, oldest-clamped",
+             "PromptPanel::onRecallHistory used to always return "
+             "promptHistory[0] -- needed a walking index");
+
+    // A 30s-sleeping fake, same pattern as scenario 9: this test only cares
+    // about pushHistory()'s SYNCHRONOUS effect (it runs before the worker
+    // thread is even started), never about the subprocess completing, so
+    // teardown mid-flight (already proven safe by scenario 9) is fine here.
+    FakeGenerator::install(
+        FakeGenerator::writeSuccess(tmp, "gen31.sh", FakeGenerator::trivialPatch(), 30));
+
+    Session s;
+
+    s.editor.submitPromptForTest("first prompt");
+    s.editor.submitPromptForTest("second prompt");
+    s.editor.submitPromptForTest("third prompt");
+    check(s.editor.promptHistoryCountForTest() == 3, "three prompts retained");
+
+    // A REAL edit (sendNotification, like actual typing) resets the walking
+    // index -- so the very first recall below demonstrably WRITES "third
+    // prompt" rather than the box merely still holding it from the last submit.
+    // TextEditor::textChanged() POSTS onTextChange as a command message
+    // (juce_TextEditor.cpp:1299-1300) rather than firing it synchronously --
+    // pump so it has actually landed before the recall that depends on it.
+    s.editor.setPromptTextForTest("something the user is typing right now");
+    pump(50);
+
+    s.editor.recallPromptHistoryForTest();
+    check(s.editor.promptTextForTest() == "third prompt", "first Up recalls the newest entry");
+
+    s.editor.recallPromptHistoryForTest();
+    check(s.editor.promptTextForTest() == "second prompt", "second Up walks one entry older");
+
+    s.editor.recallPromptHistoryForTest();
+    check(s.editor.promptTextForTest() == "first prompt", "third Up reaches the oldest entry");
+
+    s.editor.recallPromptHistoryForTest();
+    check(s.editor.promptTextForTest() == "first prompt",
+          "a fourth Up stays at the oldest entry rather than wrapping");
+
+    // A real edit between recalls resets the walk back to the newest entry,
+    // not wherever it had reached.
+    s.editor.setPromptTextForTest("editing again");
+    pump(50);
+    s.editor.recallPromptHistoryForTest();
+    check(s.editor.promptTextForTest() == "third prompt",
+          "an edit between recalls resets the walk to the newest entry");
+
+    snapshot(s.editor, "31_prompt_history_cycles");
+}
+
+// 32 — Ctrl+Shift+C toggles the read-only code view (C6), a one-shot chord
+// distinct from C4's continuous held-state routing.
+void scenario32_ctrlShiftCTogglesCodeView()
+{
+    scenario("32. Ctrl+Shift+C toggles the code view",
+             "PluginForgeEditor::keyPressed(), a DIFFERENT JUCE virtual from "
+             "C4's keyStateChanged() -- a one-shot chord, not continuous "
+             "held-state polling");
+
+    Session s;
+    check(! s.editor.codeVisibleForTest(), "starts hidden, same default as scenario 11");
+
+    const juce::KeyPress chord('c',
+        juce::ModifierKeys::ctrlModifier | juce::ModifierKeys::shiftModifier, 0);
+
+    check(s.editor.keyPressed(chord), "the chord is consumed (returns true)");
+    check(s.editor.codeVisibleForTest(), "first press shows the code view");
+
+    check(s.editor.keyPressed(chord), "the chord is consumed again");
+    check(! s.editor.codeVisibleForTest(), "second press hides it again");
+
+    // A close cousin that must NOT trigger it: plain Ctrl+C (copy).
+    // TextEditorKeyMapper matches 'c' against an EXACT modifier set
+    // (juce_TextEditorKeyMapper.h:90) -- commandModifier alone, never
+    // commandModifier|shiftModifier -- so this is a genuinely different
+    // KeyPress, not a subset match.
+    const juce::KeyPress plainCtrlC('c', juce::ModifierKeys::ctrlModifier, 0);
+    check(! s.editor.keyPressed(plainCtrlC),
+          "plain Ctrl+C is not consumed by this override -- it is not the toggle chord");
+    check(! s.editor.codeVisibleForTest(), "...and does not toggle the code view");
+
+    snapshot(s.editor, "32_ctrl_shift_c_toggle");
+}
+
+// 33 — "Generate a synth, then play a note": the end-to-end path NOTHING
+// covered before this scenario.
+//
+// Every prior keyboard scenario (17-21, 28-29) drives the keyboard against a
+// patch loaded DIRECTLY via processor.loadFaustCode() or
+// noteOnForTest()/noteOffForTest(), never through the real prompt->subprocess
+// ->compile pipeline. Every FakeGenerator scenario that DOES go through that
+// pipeline (1, 4-5, 8-9, 16, 23-27, 31) generates an EFFECT patch and never
+// touches the keyboard afterwards. This is the first scenario to drive both
+// halves in one run, and it is a real regression guard on the WIRING between
+// "a generation just completed" and "the keyboard responds" -- PluginEditor's
+// 30Hz timer calling keyboardPanel.setPlayable(isInstrumentForTest()) after
+// onFaustCompileSuccess, and KeyboardPanel forwarding into the SAME NoteRing
+// path a direct loadFaustCode() call would use.
+//
+// BE HONEST ABOUT WHAT THIS DOES NOT CATCH, checked directly this session
+// rather than assumed:
+//   - NOT the setPlayable(false) constructor no-op (scenario 20's job).
+//     Verified by temporarily reintroducing that bug: this scenario stayed
+//     GREEN. The reason is structural, not an oversight -- a successful synth
+//     generation drives a genuine playable:false->true transition through
+//     the 30Hz timer, which is NOT idempotent (setPlayable's `canPlay ==
+//     playable` guard only no-ops a call that changes nothing), so it applies
+//     the widgets correctly regardless of whether the CONSTRUCTOR'S initial
+//     application was ever a no-op. The constructor bug only matters for
+//     states that stay false throughout (a fresh editor, an effect patch) --
+//     exactly scenario 20's two cases, not this one's.
+//   - NOT the "generator" family's silent unplayable-synth routing trap, and
+//     NOT the generate.py/FaustEngine label-casing mismatch. Both live in the
+//     REAL llm/generate.py (generation_profiles.py's family resolution and
+//     _ui_labels()'s lowercasing, respectively) -- FakeGenerator substitutes
+//     a canned response for the whole subprocess, so neither ever runs here.
+//     Those need Python-level tests, added alongside their own fixes.
+// What this scenario actually is: the previously-absent "does the wiring
+// work end to end for a well-formed patch" position -- necessary, and worth
+// having, but not a substitute for targeted regression tests on each of the
+// three bugs it was written alongside.
+void scenario33_generateThenPlay(const juce::File& tmp)
+{
+    scenario("33. canned generation bridge compiles, then plays a note",
+             "canned subprocess response -> compile -> editor state -> NoteRing -> audio");
+
+    FakeGenerator::install(
+        FakeGenerator::writeSuccess(tmp, "gen33_synth.sh", kGatedSawSynthPatch));
+
+    Session s;
+    check(! s.editor.keyboardPlayableForTest(),
+          "before generation: the keyboard starts unplayable (no patch loaded yet)");
+
+    s.editor.submitPromptForTest("a plucky saw synth");
+    const bool live = pumpUntil([&] {
+        return s.editor.statusTextForTest().contains("DSP live")
+            && s.processor.isDspReadyForTest();
+    });
+    check(live, "the canned generation bridge reached 'DSP live' and published a ready DSP");
+
+    s.editor.pumpMeterTickForTest();   // the 30Hz poll that enables the keyboard
+    check(s.editor.keyboardPlayableForTest(),
+          "after generation: the keyboard reports playable for a real voice contract");
+    check(s.editor.keyboardEnabledForTest(),
+          "after generation: the keyboard WIDGET is enabled, not just the flag");
+    check(s.editor.keyboardAlphaForTest() >= 1.0f,
+          "after generation: the keyboard is full-alpha, not dimmed");
+    check(! s.editor.keyboardDisabledLabelVisibleForTest(),
+          "after generation: \"Load an instrument to play\" is gone");
+
+    render(s.processor, 10);
+    check(s.processor.outputLevel.load(std::memory_order_relaxed) < 0.05f,
+          "silent with no note held");
+
+    s.editor.keyboardNoteOnForTest(69, 1.0f);
+    render(s.processor, 40);
+    const float held = s.processor.outputLevel.load(std::memory_order_relaxed);
+    check(held > 0.02f,
+          juce::String("a note played after generation actually SOUNDS (peak ")
+              + juce::String(held, 5) + ")");
+    check(s.processor.droppedKeyboardNotes() == 0, "no keyboard event was dropped");
+
+    s.editor.keyboardNoteOffForTest(69);
+    render(s.processor, 60);   // past en.adsr's 0.2s release
+    const float tail = s.processor.outputLevel.load(std::memory_order_relaxed);
+    check(tail < held * 0.1f,
+          juce::String("the note releases (tail ") + juce::String(tail, 6)
+              + " vs held " + juce::String(held, 5) + ")");
+
+    snapshot(s.editor, "33_generate_then_play");
+}
+
+// 34 — QWERTY-after-generation: symmetric key forwarding and immediate
+// playability, the two remaining halves of the reported "keyboard is not
+// playable after generating a synth" complaint that scenario 33 does not
+// cover (33 proves the wiring works once the keyboard already has focus;
+// this proves focus reaches it in the first place, and that a focused
+// prompt box cannot leak spurious key-UP events to it while typing).
+void scenario34_qwertyAfterGeneration(const juce::File& tmp)
+{
+    scenario("34. QWERTY works immediately after generation, and typing cannot leak spurious notes",
+             "the two remaining halves of the keyboard-after-generation complaint: "
+             "focus must move to the piano without an extra click, and a "
+             "focused prompt box must not leak key-UP events (JUCE's "
+             "TextEditor::keyStateChanged swallows key-down but not key-up)");
+
+    // ── Part A: the suppression predicate itself ────────────────────────────
+    check(! PluginForgeEditor::isTextEditorFocusTarget(nullptr),
+          "nothing focused: not suppressed");
+    {
+        juce::TextEditor te;
+        check(PluginForgeEditor::isTextEditorFocusTarget(&te),
+              "a TextEditor focused: suppressed");
+    }
+    {
+        juce::TextButton btn;
+        check(! PluginForgeEditor::isTextEditorFocusTarget(&btn),
+              "a non-TextEditor focused (e.g. a button): not suppressed");
+    }
+
+    // ── Part B: focusForPlaying() fires for an instrument, not an effect ───
+    FakeGenerator::install(
+        FakeGenerator::writeSuccess(tmp, "gen34_synth.sh", kGatedSawSynthPatch));
+    Session synthSession;
+    check(synthSession.editor.keyboardFocusForPlayingCallCountForTest() == 0,
+          "nothing generated yet: focusForPlaying has not fired");
+    // Expect a benign "JUCE Assertion failure in juce_Component.cpp"
+    // (grabKeyboardFocus()'s own Debug-only "only be focused when it's
+    // actually on the screen" check) on stderr here -- this harness has no
+    // peer, so it fires every time, matches this file's other documented
+    // debug-only assertions (SoundfetchClientTest's execvp-failure case is
+    // the same shape), and is not a test failure; the checks below still
+    // confirm the CALL happened even though the real focus grant no-ops.
+    synthSession.editor.submitPromptForTest("a plucky saw synth");
+    const bool synthLive = pumpUntil([&] {
+        return synthSession.editor.statusTextForTest().contains("DSP live");
+    });
+    check(synthLive, "the synth generation reached DSP live");
+    check(synthSession.editor.keyboardFocusForPlayingCallCountForTest() == 1,
+          "an instrument generation calls focusForPlaying exactly once");
+    // The synchronous setPlayable() call in onFaustCompileSuccess, NOT the
+    // 30Hz timer -- pumpMeterTickForTest() is deliberately NOT called before
+    // this check, unlike scenario 33. If focusForPlaying() ran before
+    // setPlayable(true) had taken effect, it would try to focus a still-
+    // disabled widget (JUCE never grants focus to one) -- the same ordering
+    // hazard scenario 20's constructor no-op showed matters.
+    check(synthSession.editor.keyboardPlayableForTest(),
+          "the keyboard is already playable immediately after DSP live, "
+          "with no timer tick pumped first");
+    check(synthSession.editor.keyboardEnabledForTest(),
+          "...and the WIDGET is already enabled too, not just the flag");
+
+    FakeGenerator::install(
+        FakeGenerator::writeSuccess(tmp, "gen34_effect.sh", kTinyPatch));
+    Session effectSession;
+    effectSession.editor.submitPromptForTest("a simple gain stage");
+    const bool effectLive = pumpUntil([&] {
+        return effectSession.editor.statusTextForTest().contains("DSP live");
+    });
+    check(effectLive, "the effect generation reached DSP live");
+    check(effectSession.editor.keyboardFocusForPlayingCallCountForTest() == 0,
+          "an effect generation never calls focusForPlaying -- nothing to play");
+
+    snapshot(synthSession.editor, "34_qwerty_after_generation");
+}
+
+// 35 — ADR-022 Track 1.2: a heuristic sectioned layout, derived purely from
+//      Faust group nesting already present in the compiled patch. Two things
+//      this pins: canonical ordering (NOT Faust's alphabetical group order,
+//      which reads Env before Osc -- wrong for how a musician scans a synth
+//      panel), and the suppression threshold (a sparse or single-group patch
+//      must render the ordinary flat grid, not a heading over a few knobs).
+void scenario35_sectionedLayoutOrdersAndSuppresses()
+{
+    scenario("35. sectioned layout: canonical group order, suppressed when sparse",
+             "deriveLayoutFromGroups ranks Osc before Filter before Env before Fx "
+             "-- the reverse of Faust's own alphabetical report -- and returns no "
+             "sections at all for <=1 non-empty group or <4 controls");
+
+    // Four groups, one control each, declared (and therefore Faust-reported)
+    // in ALPHABETICAL order: Env, Filter, Fx, Osc -- the exact case F4 names.
+    const char* kFourGroupPatch = R"(import("stdfaust.lib");
+oscFreq      = vgroup("Osc",    hslider("Freq",   0.5, 0, 1, 0.01));
+filterCutoff = vgroup("Filter", hslider("Cutoff", 0.5, 0, 1, 0.01));
+envAttack    = vgroup("Env",    hslider("Attack", 0.5, 0, 1, 0.01));
+fxMix        = vgroup("Fx",     hslider("Mix",    0.5, 0, 1, 0.01));
+amt = (oscFreq + filterCutoff + envAttack + fxMix) * 0.25;
+process = _ * amt, _ * amt;
+)";
+
+    Session s;
+    check(loadAndSettle(s, kFourGroupPatch, 4), "the 4-group patch compiled");
+
+    const auto& sections = s.editor.gridActiveSectionsForTest();
+    check(sections.size() == 4,
+          juce::String("expected 4 sections, got ") + juce::String((int) sections.size()));
+    if (sections.size() == 4)
+    {
+        const char* expected[] = { "Osc", "Filter", "Env", "Fx" };
+        for (int i = 0; i < 4; ++i)
+            check(juce::String(sections[(size_t) i].title) == expected[i],
+                  juce::String("section ") + juce::String(i) + " expected '" + expected[i]
+                      + "', got '" + juce::String(sections[(size_t) i].title) + "'");
+    }
+
+    // Threshold guard #1: kFourParamPatch (defined above, §2 in this file) has
+    // FOUR controls but ZERO groups -- nonEmptyGroups == 0, under the <=1 cutoff.
+    // Must render flat, same as before this track existed.
+    check(loadAndSettle(s, kFourParamPatch, 4), "the ungrouped 4-param patch compiled");
+    check(s.editor.gridActiveSectionsForTest().empty(),
+          "an ungrouped patch gets no sections -- the flat grid is unchanged");
+
+    // Threshold guard #2: a single group wrapping the WHOLE patch. One heading
+    // over everything reads worse than no heading at all.
+    const char* kOneGroupPatch = R"(import("stdfaust.lib");
+a = vgroup("Everything", hslider("A", 0.5, 0, 1, 0.01) + hslider("B", 0.5, 0, 1, 0.01)
+                        + hslider("C", 0.5, 0, 1, 0.01) + hslider("D", 0.5, 0, 1, 0.01));
+process = _ * a * 0.25, _ * a * 0.25;
+)";
+    check(loadAndSettle(s, kOneGroupPatch, 4), "the single-group 4-param patch compiled");
+    check(s.editor.gridActiveSectionsForTest().empty(),
+          "one group wrapping the whole patch also suppresses to the flat grid");
+}
+
+// 36 — F3: a real use-after-free, not a hypothetical. refreshParamKnobs()
+//      cleared `controls` without clearing `activeSections`/`irLookup`, and
+//      layoutControls() branches on `activeSections` BEFORE applyUiIr() gets a
+//      chance to rebuild either of them for the new controls -- so a SECOND
+//      compile over a sectioned patch took the sectioned branch and
+//      dereferenced Control* pointers into the vector controls.clear() had
+//      just invalidated. Confirmed live under this binary's own ASAN build
+//      (EditorSessionTest links -fsanitize=address,undefined, host/CMakeLists.
+//      txt:649-650): reverting just the two clear() calls this scenario exists
+//      to pin reproduces a heap-use-after-free abort here.
+void scenario36_recompileOverSectionedPatchDoesNotUseAfterFree()
+{
+    scenario("36. a second compile over a sectioned patch does not use-after-free",
+             "activeSections/irLookup must be cleared before layoutControls() runs "
+             "inside refreshParamKnobs, or the sectioned branch dereferences "
+             "Control* pointers the same call just freed");
+
+    const char* kTwoGroupPatch = R"(import("stdfaust.lib");
+osc  = vgroup("Osc",    hslider("Freq", 0.5, 0, 1, 0.01) + hslider("Shape",  0.5, 0, 1, 0.01));
+filt = vgroup("Filter", hslider("Q",    0.5, 0, 1, 0.01) + hslider("Cutoff", 0.5, 0, 1, 0.01));
+amt = (osc + filt) * 0.25;
+process = _ * amt, _ * amt;
+)";
+
+    // Twelve controls, three groups, so the recompile below shrinks the
+    // occupied range rather than growing it. `controls` (std::vector<Control>)
+    // is `.reserve(POOL_SIZE)`d -- POOL_SIZE, unconditionally -- on EVERY
+    // refreshParamKnobs call (params here is ParamPool's 64-slot per-slot
+    // view, whose size() is always 64), so its capacity reaches 64 on the
+    // FIRST compile of any Session and never reallocates again: a GROWING
+    // recompile (confirmed: 4 -> 20 controls) never frees the old buffer, it
+    // just placement-constructs new Controls over the same addresses --
+    // stale irLookup pointers end up pointing at live, freshly (if WRONG)
+    // constructed objects, not freed ones, so nothing crashes. A SHRINKING
+    // recompile is what exposes it: indices the smaller patch never reaches
+    // stay destructed-but-unconstructed, and the WIDGETS those old Controls
+    // owned (the juce::Label/Slider each unique_ptr member pointed at) were
+    // already deleted when clear() ran their destructors -- so the stale
+    // irLookup pointer for a control at, say, index 9 dereferences a Control
+    // whose `label` member still holds the pointer value it had before
+    // destruction, now pointing at an ACTUALLY-FREED juce::Label.
+    const char* kBigSectionedPatch = R"(import("stdfaust.lib");
+osc  = vgroup("Osc",    hslider("A1",0.5,0,1,0.01)+hslider("A2",0.5,0,1,0.01)
+                       + hslider("A3",0.5,0,1,0.01)+hslider("A4",0.5,0,1,0.01));
+filt = vgroup("Filter", hslider("B1",0.5,0,1,0.01)+hslider("B2",0.5,0,1,0.01)
+                       + hslider("B3",0.5,0,1,0.01)+hslider("B4",0.5,0,1,0.01));
+env  = vgroup("Env",    hslider("C1",0.5,0,1,0.01)+hslider("C2",0.5,0,1,0.01)
+                       + hslider("C3",0.5,0,1,0.01)+hslider("C4",0.5,0,1,0.01));
+amt = (osc + filt + env) / 12.0;
+process = _ * amt, _ * amt;
+)";
+
+    Session s;
+    check(loadAndSettle(s, kBigSectionedPatch, 12), "the 12-control sectioned patch compiled");
+    check(s.editor.gridActiveSectionsForTest().size() == 3,
+          "sanity: it actually sectioned before the recompile under test");
+
+    // The recompile under test. Under ASAN, a use-after-free aborts the whole
+    // process right here -- there is no exception to catch; a crash IS the
+    // failure mode, and simply reaching the check below is most of what this
+    // scenario is pinning.
+    check(loadAndSettle(s, kFourParamPatch, 4),
+          "a much SMALLER, ungrouped patch compiled over the sectioned one "
+          "without crashing");
+    check(s.editor.gridActiveSectionsForTest().empty(),
+          "and correctly settled on the flat grid, not stale sections");
+
+    // One more round trip, sectioned again, to confirm the panel is not merely
+    // un-crashed but still functional after the clear.
+    check(loadAndSettle(s, kTwoGroupPatch, 4), "re-compiling a (differently) sectioned patch works");
+    check(s.editor.gridActiveSectionsForTest().size() == 2,
+          "sections rebuild correctly on the third compile");
+}
+
+// 37 — T3.4: a juce::TooltipWindow now exists. There was ZERO instances of
+//      this class anywhere in host/ before this track, so PromptPanel's two
+//      pre-existing setTooltip() calls (the family selector, and the Add/Redo
+//      mode explainer -- the only in-app explanation of those two modes) were
+//      dead code that could never render. TooltipWindow::getTipFor() itself
+//      is not testable headlessly (it gates on WindowingHelpers::
+//      isForegroundOrEmbeddedProcess(), juce_TooltipWindow.cpp:154 -- same
+//      category of limitation as a real keypress, STATUS.md Broken #1). What
+//      IS deterministic: the constructor's parentComp->addChildComponent(this)
+//      when given a non-null parent (juce_TooltipWindow.cpp:37-38).
+void scenario37_tooltipWindowExists()
+{
+    scenario("37. a TooltipWindow exists and is parented to the editor",
+             "there was no juce::TooltipWindow anywhere in host/ before this -- "
+             "PromptPanel's setTooltip() calls for the family selector and the "
+             "Add/Redo explainer could never render");
+
+    Session s;
+    check(s.editor.tooltipWindowParentedForTest(),
+          "PluginForgeEditor owns a TooltipWindow parented to itself, per "
+          "juce_TooltipWindow.h's own documented plugin pattern");
+}
+
+// 38 — T5: the sample-browser status line's long-message problem. The
+//      soundfetch-missing message alone runs to ~230 characters, routed into
+//      a single-line 20px Label with no room to grow (SampleBrowserPanel.h's
+//      comment on setStatusText has the full layout-budget argument). JUCE
+//      already ellipsizes the overflowing VISIBLE text; what was missing was
+//      any way to read the rest. Pins that setStatusText's tooltip always
+//      carries the SAME string as the (possibly truncated) label text, for
+//      both the default status and a long one that would actually ellipsize.
+void scenario38_sampleBrowserStatusTooltipMatchesText()
+{
+    scenario("38. sample-browser status text is always also its own tooltip",
+             "the soundfetch-missing message alone runs ~230 chars into a "
+             "single-line 20px Label with no room to grow -- the tooltip is "
+             "how the untruncated string stays reachable");
+
+    Session s;
+    // Default text, set in the constructor -- proves the wiring without
+    // needing a real soundfetch round trip.
+    const auto defaultText = s.editor.sampleBrowserStatusTextForTest();
+    check(defaultText.isNotEmpty(), "the panel starts with a status message");
+    check(s.editor.sampleBrowserStatusTooltipForTest() == defaultText,
+          juce::String("tooltip must equal the status text -- text='") + defaultText
+              + "' tooltip='" + s.editor.sampleBrowserStatusTooltipForTest() + "'");
+}
+
+// 39 — T5: the code view's copy button. Before this, the only way to get the
+//      generated Faust out of the app was selecting it by hand -- workable
+//      for a short patch, tedious for a 40-param one, and this IS the export
+//      path for the BYO-LLM flow the panel's own header comment names (source
+//      + compiler stderr pasted into someone else's model). Pins the
+//      button-state contract headlessly (starts "Copy", becomes "Copied!" on
+//      click) and, opportunistically, the real system clipboard -- this
+//      machine's Wayland/Hyprland session and CI's xvfb both provide X11
+//      clipboard selections JUCE's Linux backend uses, so it is checked
+//      directly rather than assumed unreachable.
+void scenario39_codeViewCopyButton()
+{
+    scenario("39. the code view's Copy button copies the real source, once",
+             "before this, the only way out of a read-only view was selecting "
+             "text by hand -- the BYO-LLM flow needs the export to be one click");
+
+    Session s;
+    s.editor.setCodeVisibleForTest(true);
+    pump(50);
+    check(loadAndSettle(s, kEveryKindPatch, 5), "a 5-param patch compiled");
+    pump(200);
+
+    check(s.editor.codeCopyButtonTextForTest() == "Copy",
+          "the button starts in its resting state");
+
+    const auto shownSource = s.editor.codeTextForTest();
+    s.editor.clickCodeCopyButtonForTest();
+    // Button::triggerClick() posts an async command message
+    // (juce_Button.cpp:352) rather than calling onClick synchronously -- the
+    // message loop has to run once before the click has actually happened.
+    pump(50);
+    check(s.editor.codeCopyButtonTextForTest() == "Copied!",
+          "clicking gives an immediate, transient confirmation");
+    check(juce::SystemClipboard::getTextFromClipboard() == shownSource,
+          "the REAL system clipboard now holds exactly what was on screen, "
+          "not a stale or partial copy");
+    snapshot(s.editor, "37_code_view_copy_button");
+
+    // No wait for the 900ms confirmation timer here. It used to be
+    // juce::Timer::callAfterDelay, whose pending closure lives in JUCE's own
+    // global timer queue independent of any component's lifetime -- ASAN's
+    // leak check (which runs at process exit) saw that as leaked heap unless
+    // a test waited out the full delay first. CodeEditorPanel now owns a
+    // member Timer instead: ~Timer() calls stopTimer() unconditionally on
+    // destruction, so Session's own teardown at the end of this function
+    // cancels it immediately, regardless of how much of the 900ms has
+    // elapsed. Nothing to wait for.
+}
+
+// 40 — ADR-022 §3 / T7: the heuristic per-generation accent. Two properties
+//      worth a red case: it is DETERMINISTIC (the same patch, recompiled,
+//      lands on the same accent -- a real risk if derivePalette ever picked
+//      up something that varies run to run, which is exactly what the
+//      contract's manifest-churn hazard warns about) and VALID (always one of
+//      Theme::GeneratedAccent::swatches, never a default-constructed or
+//      otherwise uninitialised juce::Colour). This deliberately does NOT
+//      assert that two different patches land on DIFFERENT swatches -- with
+//      only four buckets a hash collision between two arbitrary inputs is a
+//      real possibility, not a bug, and asserting otherwise would be a flaky
+//      test pinned to this session's particular std::hash implementation.
+//      Whether the four swatches actually read as distinct per-plugin
+//      identity in practice is a gallery-contact-sheet judgment
+//      (COLLABORATION.md §1), not something this scenario is positioned to
+//      answer.
+void scenario40_heuristicAccentIsDeterministicAndValid()
+{
+    scenario("40. per-generation accent: deterministic, always a known swatch",
+             "derivePalette() is a pure function of (params, isInstrument) -- "
+             "recompiling the identical patch must never change the accent, "
+             "and the result must always be a real swatch");
+
+    const auto isKnownSwatch = [](juce::Colour c)
+    {
+        for (const auto& swatch : Theme::GeneratedAccent::swatches)
+            if (swatch == c)
+                return true;
+        return false;
+    };
+
+    Session s;
+
+    // An instrument, no groups -- kGatedSawSynthPatch (§2 in this file).
+    check(loadAndSettle(s, kGatedSawSynthPatch, 1), "the gated saw synth compiled");
+    const auto instrumentPalette = s.editor.gridPaletteForTest();
+    check(isKnownSwatch(instrumentPalette), "the instrument's accent is one of the four swatches");
+
+    // Recompile the SAME source over itself (Iterate, like a real re-generation
+    // that changes nothing structural) and confirm the accent did not move.
+    check(loadAndSettle(s, kGatedSawSynthPatch, 1,
+                        PluginForgeProcessor::LoadMode::Iterate),
+          "the same instrument recompiled");
+    check(s.editor.gridPaletteForTest() == instrumentPalette,
+          "recompiling the identical patch does not change its accent");
+
+    // A grouped effect -- reuses scenario 33's four-group shape, a different
+    // patch shape (grouped, not an instrument) to exercise the other arm of
+    // derivePalette's input without asserting it differs from the above.
+    const char* kGroupedEffectPatch = R"(import("stdfaust.lib");
+oscFreq      = vgroup("Osc",    hslider("Freq",   0.5, 0, 1, 0.01));
+filterCutoff = vgroup("Filter", hslider("Cutoff", 0.5, 0, 1, 0.01));
+envAttack    = vgroup("Env",    hslider("Attack", 0.5, 0, 1, 0.01));
+fxMix        = vgroup("Fx",     hslider("Mix",    0.5, 0, 1, 0.01));
+amt = (oscFreq + filterCutoff + envAttack + fxMix) * 0.25;
+process = _ * amt, _ * amt;
+)";
+    check(loadAndSettle(s, kGroupedEffectPatch, 4), "the grouped effect compiled");
+    const auto effectPalette = s.editor.gridPaletteForTest();
+    check(isKnownSwatch(effectPalette), "the grouped effect's accent is one of the four swatches");
+
+    check(loadAndSettle(s, kGroupedEffectPatch, 4,
+                        PluginForgeProcessor::LoadMode::Iterate),
+          "the same grouped effect recompiled");
+    check(s.editor.gridPaletteForTest() == effectPalette,
+          "recompiling the identical grouped effect does not change its accent");
+
+    snapshot(s.editor, "38_heuristic_accent");
+}
+
 } // namespace
 
 int main()
@@ -2074,7 +2861,7 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInit;
 
     std::printf("EditorSessionTest -- a simulated human session against the real editor\n");
-    std::printf("  26 scenarios, no network, no quota, snapshots to artifacts/images/\n");
+    std::printf("  40 scenarios, no network, no quota, snapshots to artifacts/images/\n");
 
     auto tmp = juce::File::getSpecialLocation(juce::File::tempDirectory)
                    .getChildFile("pluginforge_editor_session");
@@ -2102,11 +2889,25 @@ int main()
     scenario19_keyboardSurvivesCompileSwap();
     scenario20_keyboardDisabledForEffect();
     scenario21_allNotesOffReleasesHeldNoteOnDisable();
-    scenario22_qwertyMappingStaticContract();
+    scenario22_qwertyMappingLiveContract();
     scenario23_kindSelectorReachesRequest(tmp);
     scenario24_priorSourceDroppedSurfaced(tmp);
     scenario25_refineModesUnlock(tmp);
     scenario26_priorSourceRefused(tmp);
+    scenario27_cockpitMirrorEnvVar(tmp);
+    scenario28_qwertyRoutingReachesKeyboard();
+    scenario29_octaveControlsShiftRangeTogether();
+    scenario30_faustStderrWireAndLineHighlight();
+    scenario31_promptHistoryCycles(tmp);
+    scenario32_ctrlShiftCTogglesCodeView();
+    scenario33_generateThenPlay(tmp);
+    scenario34_qwertyAfterGeneration(tmp);
+    scenario35_sectionedLayoutOrdersAndSuppresses();
+    scenario36_recompileOverSectionedPatchDoesNotUseAfterFree();
+    scenario37_tooltipWindowExists();
+    scenario38_sampleBrowserStatusTooltipMatchesText();
+    scenario39_codeViewCopyButton();
+    scenario40_heuristicAccentIsDeterministicAndValid();
 
     tmp.deleteRecursively();
 

@@ -83,6 +83,8 @@ bool loadAndAwaitCompile(PluginForgeProcessor& p,
                          const juce::String& prompt,
                          PluginForgeProcessor::LoadMode mode
                              = PluginForgeProcessor::LoadMode::Fresh,
+                         const juce::String& family = {},
+                         const juce::String& familySource = {},
                          int timeoutMs = 15000)
 {
     std::mutex m;
@@ -96,7 +98,7 @@ bool loadAndAwaitCompile(PluginForgeProcessor& p,
         cv.notify_all();
     };
 
-    p.loadFaustCode(source, prompt, mode);
+    p.loadFaustCode(source, prompt, mode, family, familySource);
 
     std::unique_lock<std::mutex> lock(m);
     const bool ok = cv.wait_for(lock, std::chrono::milliseconds(timeoutMs),
@@ -128,8 +130,12 @@ int main()
         // reset them to the patch's defaults, which is what the PF-020 block below
         // asserts separately.
         check(loadAndAwaitCompile(a, kSource, kPrompt,
-                                  PluginForgeProcessor::LoadMode::Iterate),
+                                  PluginForgeProcessor::LoadMode::Iterate,
+                                  "granular_effect", "explicit"),
               "compile completed before serialising");
+
+        // C6: prompt history is now part of the persisted state.
+        a.setPromptHistory({ "a warm lowpass", "add a chorus" });
 
         a.getStateInformation(blob);
         check(blob.getSize() > 0, "getStateInformation produced a non-empty blob");
@@ -148,18 +154,25 @@ int main()
                       == PluginForgeProcessor::kStateSchemaVersion,
                   "schemaVersion matches current");
             check(root.getChildWithName("STATE").isValid(), "STATE child present");
+            check(root.getProperty("generationFamily").toString() == "granular_effect",
+                  "generation family is persisted");
+            check(root.getProperty("familySource").toString() == "explicit",
+                  "family resolution source is persisted");
             check(! root.getChildWithName("SlotLabels").isValid(),
                   "no SlotLabels node — dropped from v1 2026-07-27");
 
-            // v2 (2026-08-02) adds exactly ONE child: the slot -> ParamIdentity
-            // map. The count assertion is kept rather than relaxed to ">= 1" --
-            // its job is to catch a node nobody meant to add, and a bound that
-            // grows whenever anything is added would stop doing that job. Bump it
-            // deliberately, with the new node named, or not at all.
+            // v2 (2026-08-02) added the slot -> ParamIdentity map; v3 (2026-08-12,
+            // C6) adds prompt history. The count assertion is kept rather than
+            // relaxed to ">= 1" -- its job is to catch a node nobody meant to add,
+            // and a bound that grows whenever anything is added would stop doing
+            // that job. Bump it deliberately, with the new node named, or not at
+            // all.
             check(root.getChildWithName("ParamMap").isValid(),
                   "ParamMap child present (schemaVersion 2)");
-            check(root.getNumChildren() == 2,
-                  "STATE and ParamMap are the blob's only children");
+            check(root.getChildWithName("PromptHistory").isValid(),
+                  "PromptHistory child present (schemaVersion 3)");
+            check(root.getNumChildren() == 3,
+                  "STATE, ParamMap and PromptHistory are the blob's only children");
 
             // The §2 trigger-3 contract is a FORMAT, so it has to be reviewable as
             // one. Set PLUGINFORGE_DUMP_STATE=<path> to write the literal emitted
@@ -184,6 +197,63 @@ int main()
 
         check(b.currentSourceForTest() == kSource, "Faust source restored");
         check(b.currentPromptForTest() == kPrompt, "prompt restored");
+
+        const auto restoredHistory = b.promptHistoryForTest();
+        check(restoredHistory.size() == 2, "prompt history: both entries restored");
+        check(restoredHistory[0] == "a warm lowpass" && restoredHistory[1] == "add a chorus",
+              "prompt history: order preserved");
+
+        check(b.currentFamily() == "granular_effect", "generation family restored");
+        check(b.currentFamilySource() == "explicit", "family resolution source restored");
+    }
+
+    // ── v2 BACK-COMPAT: a blob saved before prompt history still restores ────
+    // Same insurance as the v1-ParamMap case above, one schema step later: a
+    // project saved under schemaVersion 2 (2026-08-02..2026-08-12) genuinely
+    // has no PromptHistory node, and the correct response is an EMPTY history,
+    // not an error or a crash -- there is nothing to migrate a v2 blob's
+    // history into, because it never had one.
+    {
+        std::printf("\nv2 back-compat — a pre-history blob still restores with empty history\n");
+
+        juce::MemoryBlock v2Blob;
+        {
+            PluginForgeProcessor donor;
+            check(loadAndAwaitCompile(donor, kSource, kPrompt,
+                                      PluginForgeProcessor::LoadMode::Iterate),
+                  "v2 donor compile completed before serialising");
+            // No setPromptHistory() call: this donor's blob would ALREADY lack a
+            // PromptHistory node (the loop that builds it just runs zero times
+            // over an empty promptHistory) -- stamping schemaVersion 2 below is
+            // what makes it an honest v2 fixture rather than merely a v3 blob
+            // with an empty history.
+            juce::MemoryBlock current;
+            donor.getStateInformation(current);
+            auto xml = juce::AudioProcessor::getXmlFromBinary(
+                           current.getData(), static_cast<int>(current.getSize()));
+            check(xml != nullptr, "v2 donor blob parsed");
+            if (xml != nullptr)
+            {
+                auto root = juce::ValueTree::fromXml(*xml);
+                root.setProperty("schemaVersion", 2, nullptr);
+                root.removeChild(root.getChildWithName("PromptHistory"), nullptr);
+
+                check(! root.getChildWithName("PromptHistory").isValid(),
+                      "the synthesised v2 blob genuinely has no PromptHistory");
+                check((int) root.getProperty("schemaVersion", 0) == 2,
+                      "the synthesised blob declares schemaVersion 2");
+
+                if (auto v2Xml = root.createXml())
+                    juce::AudioProcessor::copyXmlToBinary(*v2Xml, v2Blob);
+            }
+        }
+
+        PluginForgeProcessor v2;
+        v2.setStateInformation(v2Blob.getData(), static_cast<int>(v2Blob.getSize()));
+
+        check(v2.currentSourceForTest() == kSource, "v2: Faust source restored");
+        check(v2.promptHistoryForTest().isEmpty(),
+              "v2: prompt history restores empty, not an error");
     }
 
     // ── v1 MIGRATION: a blob saved before the identity map still restores ────
@@ -248,6 +318,8 @@ int main()
         checkNear(getSlot(v1, 63), 1.0f,  "v1: macro_63 restored");
         check(v1.currentSourceForTest() == kSource, "v1: Faust source restored");
         check(v1.currentPromptForTest() == kPrompt, "v1: prompt restored");
+        check(v1.currentFamily() == "effect", "v1: family migrates to the effect default");
+        check(v1.currentFamilySource() == "legacy_default", "v1: family source records migration");
     }
 
     // ── An UNKNOWN id scheme falls back rather than mis-mapping ──────────────
@@ -454,8 +526,8 @@ int main()
             auto root = juce::ValueTree::fromXml(*xml);
             check(! root.getChildWithName("SlotLabels").isValid(),
                   "a patch WITH params still serialises no SlotLabels node");
-            check(root.getNumChildren() == 2,
-                  "STATE and ParamMap remain the blob's only children");
+            check(root.getNumChildren() == 3,
+                  "STATE, ParamMap and PromptHistory remain the blob's only children");
 
             // Deliberately NOT "the blob does not contain 'Gain'" — it does, and
             // must: faustSource carries hslider("Gain",...) verbatim, which is the

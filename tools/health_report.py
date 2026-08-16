@@ -171,7 +171,7 @@ def run_harness(name: str, artefact: str, jits: bool, needs_display: bool) -> di
     rec: dict = {
         "status": "ran",
         "exit_code": p.returncode,
-        "binary": str(binary.relative_to(ROOT)),
+        "binary": os.path.relpath(binary, ROOT),
     }
     if m:
         rec["checks"] = int(m.group(2))
@@ -263,7 +263,7 @@ def run_oracle_corpus(results_path: Path | None = None) -> dict:
 
     out = {
         "status": "ran",
-        "source_results": str(results_path.relative_to(ROOT)),
+        "source_results": os.path.relpath(results_path, ROOT),
         "source_records": len(records),
         "compiling_records": len(compiling),
         "started": _now(),
@@ -340,7 +340,7 @@ def lane_ai(runs: int, provider: str, authorized: bool) -> dict:
         archives = sorted((ROOT / "bench" / "results").glob("results_*_*.json"),
                           key=lambda q: q.stat().st_mtime)
         if archives:
-            entry["archive"] = str(archives[-1].relative_to(ROOT))
+            entry["archive"] = os.path.relpath(archives[-1], ROOT)
 
     res["scored"] = score_runs([r.get("archive") for r in res["runs"]
                                 if r.get("archive")])
@@ -465,8 +465,8 @@ def collect(strict: bool) -> int:
     mpath.write_text(render_markdown(report))
 
     absent = _absences(report)
-    print(f"wrote {jpath.relative_to(ROOT)}")
-    print(f"wrote {mpath.relative_to(ROOT)}")
+    print(f"wrote {os.path.relpath(jpath, ROOT)}")
+    print(f"wrote {os.path.relpath(mpath, ROOT)}")
     if absent:
         print(f"\n{len(absent)} thing(s) did not run:", file=sys.stderr)
         for a in absent:
@@ -639,7 +639,7 @@ def main() -> int:
         else:
             data = lane_ai(a.runs, a.provider, a.authorized)
         (LANEDIR / f"{a.lane}.json").write_text(json.dumps(data, indent=2))
-        print(f"lane {a.lane} -> {(LANEDIR / f'{a.lane}.json').relative_to(ROOT)}")
+        print(f"lane {a.lane} -> {os.path.relpath(LANEDIR / f'{a.lane}.json', ROOT)}")
         for n, h in (data.get("harnesses") or {}).items():
             print(f"  {n:28s} {h.get('status'):18s} "
                   f"checks={h.get('checks','-')} failures={h.get('failures','-')}")

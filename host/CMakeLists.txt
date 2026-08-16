@@ -17,6 +17,8 @@ add_subdirectory(${JUCE_PATH} JUCE)
 set(PF_CORE_SOURCES
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
+    Source/SampleBrowserPanel.cpp
+    Source/SoundfetchClient.cpp
     Source/PromptPanel.cpp
     Source/CodeEditorPanel.cpp
     Source/ParamGridPanel.cpp
@@ -37,7 +39,7 @@ juce_add_plugin(PluginForgeHost
     IS_MIDI_EFFECT FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS TRUE
     VST3_CATEGORIES Fx
-    COPY_PLUGIN_AFTER_BUILD FALSE
+    COPY_PLUGIN_AFTER_BUILD TRUE
     NEEDS_WEB_BROWSER FALSE
     NEEDS_CURL FALSE
 )
@@ -98,10 +100,10 @@ target_link_libraries(PluginForgeHost PRIVATE
 # layout and acceptsMidi() off JucePlugin_IsSynth, which JUCE defines from
 # IS_SYNTH -- so there is no PluginForge-specific build flag to keep in sync.
 #
-# Standalone is built for the same reason the Fx target builds it: the VST3 is
-# never installed to a scan path (COPY_PLUGIN_AFTER_BUILD FALSE), so the
-# Standalone is the only way to play a generated instrument from a MIDI
-# keyboard without a DAW -- which is the listening pass this whole effort is for.
+# Standalone is built alongside the VST3 (COPY_PLUGIN_AFTER_BUILD TRUE, since
+# 2026-08-16) so it remains the fastest way to play a generated instrument from
+# a MIDI keyboard without launching a host -- the VST3 install path is for
+# scanning/loading in an actual DAW or plugin host, a separate check.
 juce_add_plugin(PluginForgeSynth
     PLUGIN_MANUFACTURER_CODE Pfge
     PLUGIN_CODE Pfs1               # MUST differ from the Fx target's Pfh1 --
@@ -115,7 +117,7 @@ juce_add_plugin(PluginForgeSynth
     IS_MIDI_EFFECT FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS TRUE
     VST3_CATEGORIES Instrument
-    COPY_PLUGIN_AFTER_BUILD FALSE
+    COPY_PLUGIN_AFTER_BUILD TRUE
     NEEDS_WEB_BROWSER FALSE
     NEEDS_CURL FALSE
 )
@@ -153,6 +155,8 @@ target_sources(ParamPoolTsanTest PRIVATE
     tests/ParamPoolConcurrencyTest.cpp
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
+    Source/SampleBrowserPanel.cpp
+    Source/SoundfetchClient.cpp
     Source/PromptPanel.cpp
     Source/CodeEditorPanel.cpp
     Source/ParamGridPanel.cpp
@@ -197,6 +201,8 @@ target_sources(AuditionThreadingTest PRIVATE
     tests/AuditionThreadingTest.cpp
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
+    Source/SampleBrowserPanel.cpp
+    Source/SoundfetchClient.cpp
     Source/PromptPanel.cpp
     Source/CodeEditorPanel.cpp
     Source/ParamGridPanel.cpp
@@ -287,6 +293,72 @@ target_link_libraries(ParamMapTest PRIVATE
     ${LIBFAUST_LIB}
 )
 
+# SoundfetchClientTest -- the sample-search subprocess bridge
+# (host/Source/SoundfetchClient.cpp), which had ZERO tests before this target
+# despite three independent, fatal, live-confirmed defects on it (see the
+# comment block at the top of tests/SoundfetchClientTest.cpp). Pure juce_core:
+# ChildProcess, JSON and File are all this class touches, so unlike
+# ParamMapTest it needs no libfaust link -- SoundfetchClient.h never includes
+# FaustEngine.h.
+juce_add_console_app(SoundfetchClientTest
+    PRODUCT_NAME "Soundfetch Client Test"
+)
+
+target_sources(SoundfetchClientTest PRIVATE
+    tests/SoundfetchClientTest.cpp
+    Source/SoundfetchClient.cpp
+)
+
+target_compile_features(SoundfetchClientTest PRIVATE cxx_std_17)
+
+target_compile_definitions(SoundfetchClientTest PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_VST3_CAN_REPLACE_VST2=0
+)
+
+target_compile_options(SoundfetchClientTest PRIVATE -fsanitize=address,undefined -g -O1)
+target_link_options(SoundfetchClientTest PRIVATE -fsanitize=address,undefined)
+
+target_link_libraries(SoundfetchClientTest PRIVATE
+    juce::juce_core
+    juce::juce_recommended_config_flags
+)
+
+# ---------------------------------------------------------------------------
+# GenerationProfilesAutoTest -- GenerationProfiles::resolveAuto()
+# (host/Source/GenerationProfiles.generated.h,
+# host/tests/GenerationProfilesAutoTest.cpp). Pure juce_core, same shape as
+# SoundfetchClientTest above: EditorSessionTest never sets -DPF_IS_SYNTH=1
+# (see OfflineSynthRenderTest's own comment for why that needed a dedicated
+# target), so resolveAuto's synthHost==true branch -- the one the
+# generator/synth-override fix touches -- is unreachable through it. This is
+# the cheapest place that can actually exercise it.
+# ---------------------------------------------------------------------------
+juce_add_console_app(GenerationProfilesAutoTest
+    PRODUCT_NAME "Generation Profiles Auto Test"
+)
+
+target_sources(GenerationProfilesAutoTest PRIVATE
+    tests/GenerationProfilesAutoTest.cpp
+)
+
+target_compile_features(GenerationProfilesAutoTest PRIVATE cxx_std_17)
+
+target_compile_definitions(GenerationProfilesAutoTest PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_VST3_CAN_REPLACE_VST2=0
+)
+
+target_compile_options(GenerationProfilesAutoTest PRIVATE -fsanitize=address,undefined -g -O1)
+target_link_options(GenerationProfilesAutoTest PRIVATE -fsanitize=address,undefined)
+
+target_link_libraries(GenerationProfilesAutoTest PRIVATE
+    juce::juce_core
+    juce::juce_recommended_config_flags
+)
+
 # ---------------------------------------------------------------------------
 # ParamIdentityTest -- the parameter-identity derivation rule
 # (host/Source/ParamIdentity.h, host/tests/ParamIdentityTest.cpp).
@@ -357,6 +429,8 @@ target_sources(StatePersistenceTest PRIVATE
     tests/StatePersistenceTest.cpp
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
+    Source/SampleBrowserPanel.cpp
+    Source/SoundfetchClient.cpp
     Source/PromptPanel.cpp
     Source/CodeEditorPanel.cpp
     Source/ParamGridPanel.cpp
@@ -404,6 +478,8 @@ target_sources(ValidationGateTest PRIVATE
     tests/ValidationGateTest.cpp
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
+    Source/SampleBrowserPanel.cpp
+    Source/SoundfetchClient.cpp
     Source/PromptPanel.cpp
     Source/CodeEditorPanel.cpp
     Source/ParamGridPanel.cpp
@@ -453,6 +529,8 @@ target_sources(PromptPanelThreadingTest PRIVATE
     tests/PromptPanelThreadingTest.cpp
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
+    Source/SampleBrowserPanel.cpp
+    Source/SoundfetchClient.cpp
     Source/PromptPanel.cpp
     Source/CodeEditorPanel.cpp
     Source/ParamGridPanel.cpp
@@ -508,6 +586,8 @@ target_sources(OfflineRenderTest PRIVATE
     tests/OfflineRenderTest.cpp
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
+    Source/SampleBrowserPanel.cpp
+    Source/SoundfetchClient.cpp
     Source/PromptPanel.cpp
     Source/CodeEditorPanel.cpp
     Source/ParamGridPanel.cpp
@@ -607,6 +687,8 @@ target_sources(EditorSessionTest PRIVATE
     tests/EditorSessionTest.cpp
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
+    Source/SampleBrowserPanel.cpp
+    Source/SoundfetchClient.cpp
     Source/PromptPanel.cpp
     Source/CodeEditorPanel.cpp
     Source/ParamGridPanel.cpp
@@ -718,6 +800,8 @@ target_sources(UiDesignGallery PRIVATE
     tests/UiDesignGallery.cpp
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
+    Source/SampleBrowserPanel.cpp
+    Source/SoundfetchClient.cpp
     Source/PromptPanel.cpp
     Source/CodeEditorPanel.cpp
     Source/ParamGridPanel.cpp
