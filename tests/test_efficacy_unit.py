@@ -203,6 +203,23 @@ class TestRunEffectTier:
         assert any("API down" in e for e in record["errors"])
         generator.assert_called_once()
 
+    def test_rate_limit_records_efficiency_and_retry_metadata(self):
+        generator = MagicMock(side_effect=efs.providers.RateLimited(
+            "wait until tomorrow", retry_after=86400.0))
+
+        record = efs.run_effect_tier(
+            generator, self.EFFECT, self.TIER, self.PROMPT, retries=2,
+            provider="groq")
+
+        assert record["terminal_reason"] == "rate_limited"
+        assert record["retry_after_s"] == 86400.0
+        assert record["provider_wall_s"] >= 0.0
+        assert record["validation_wall_s"] == 0.0
+        assert record["cell_wall_s"] >= record["provider_wall_s"]
+        assert record["estimated_prompt_tokens"] > 0
+        assert record["estimated_output_tokens"] == 0
+        assert record["token_estimate_method"] == "groq_char_calibration_v1"
+
 
 # ---------------------------------------------------------------------------
 # Record schema completeness
@@ -280,6 +297,87 @@ class TestIncrementalWrite:
         on_disk = json.loads(out_file.read_text())
         assert len(on_disk) == 2
         assert on_disk[1]["errors"]  # second cell recorded the simulated crash
+
+    def test_transport_failure_stops_at_recoverable_checkpoint(self, tmp_path):
+        out_file = tmp_path / "results.json"
+        effect = FIXTURE_DATASET["effects"][0]
+        tasks = [(effect, tier, effect["tiers"][tier])
+                 for tier in ("L4", "L3", "L2")]
+        generator = MagicMock(side_effect=[VALID_FAUST, RuntimeError("quota"), VALID_FAUST])
+
+        with patch.object(efs, "validate_faust", return_value=(True, "")):
+            records = efs.run_study(
+                tasks, retries=0, out_file=out_file, generator=generator)
+
+        assert len(records) == 2
+        assert records[-1]["code"] == ""
+        assert "quota" in records[-1]["errors"][0]
+        assert generator.call_count == 2
+        assert json.loads(out_file.read_text()) == records
+
+    def test_default_generator_gets_a_fresh_budget_per_cell(self, tmp_path):
+        out_file = tmp_path / "results.json"
+        effect = FIXTURE_DATASET["effects"][0]
+        tasks = [(effect, tier, effect["tiers"][tier]) for tier in ("L4", "L3")]
+        budgets = []
+
+        def factory(_provider, _model, budget):
+            budgets.append(budget)
+            return MagicMock(return_value=VALID_FAUST)
+
+        with patch.object(efs, "make_generator", side_effect=factory), \
+             patch.object(efs, "validate_faust", return_value=(True, "")):
+            records = efs.run_study(tasks, retries=0, out_file=out_file)
+
+        assert len(records) == 2
+        assert len(budgets) == 2
+        assert budgets[0] is not budgets[1]
+        assert all(b.total == efs.GENERATION_BUDGET_S for b in budgets)
+
+    def test_24_hour_retry_after_checkpoints_without_sleeping_or_next_cell(self, tmp_path):
+        out_file = tmp_path / "results.json"
+        effect = FIXTURE_DATASET["effects"][0]
+        tasks = [(effect, tier, effect["tiers"][tier]) for tier in ("L4", "L3")]
+        response = MagicMock()
+        response.status_code = 429
+        response.headers = {"Retry-After": "86400"}
+        response.text = '{"error":"daily quota"}'
+
+        with patch.dict(os.environ, {"PLUGINFORGE_MIN_INTERVAL": "0"}), \
+             patch.object(efs.providers.httpx, "post", return_value=response) as post, \
+             patch.object(efs.providers.time, "sleep",
+                          side_effect=AssertionError("must not sleep 24 hours")):
+            records = efs.run_study(
+                tasks, retries=0, out_file=out_file, provider="groq")
+
+        assert len(records) == 1
+        assert records[0]["terminal_reason"] == "rate_limited"
+        assert records[0]["retry_after_s"] == 86400.0
+        assert records[0]["cell_wall_s"] < 1.0
+        assert post.call_count == 1
+        assert json.loads(out_file.read_text()) == records
+
+    def test_24_hour_retry_after_efficiency_ab_control(self):
+        response = MagicMock()
+        response.status_code = 429
+        response.headers = {"Retry-After": "86400"}
+        response.text = '{"error":"daily quota"}'
+        sleeps = []
+
+        # Legacy benchmark behavior: budget=None accepts every server delay,
+        # retries five times, and asks to sleep four full days in aggregate.
+        with patch.object(efs.providers.httpx, "post", return_value=response) as post, \
+             patch.object(efs.providers.time, "sleep", side_effect=sleeps.append):
+            with pytest.raises(RuntimeError, match="failed after 5 attempts"):
+                efs.providers._post_with_backoff(
+                    "https://example.invalid", {}, {}, budget=None)
+
+        assert post.call_count == 5
+        assert sleeps == [86400.0] * 4
+        assert sum(sleeps) == 345600.0
+
+        # Proposed behavior is covered by the preceding end-to-end harness
+        # test: one request, zero sleeps, one durable checkpoint, no next cell.
 
 
 class TestResume:
