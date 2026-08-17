@@ -199,7 +199,8 @@ def write_results(out_file: Path, records: list) -> None:
 
 def run_study(tasks: list, retries: int, out_file: Path,
               generator=None, dry_run: bool = False,
-              provider: str = "claude", model: str | None = None) -> list:
+              provider: str = "claude", model: str | None = None,
+              initial_records: list | None = None) -> list:
     if generator is None:
         generator = make_generator(provider, model)
 
@@ -210,7 +211,7 @@ def run_study(tasks: list, retries: int, out_file: Path,
         print(f"Efficacy study: {len(tasks)} generations "
               f"(up to {retries + 1} attempts each).", file=sys.stderr)
 
-    records = []
+    records = list(initial_records or [])
     for i, (effect, tier, prompt) in enumerate(tasks, 1):
         record = run_effect_tier(generator, effect, tier, prompt, retries,
                                  provider=provider, model=model)
@@ -228,6 +229,39 @@ def run_study(tasks: list, retries: int, out_file: Path,
               file=sys.stderr)
 
     return records
+
+
+def prepare_resume(tasks: list, existing: list, provider: str, model: str) -> tuple[list, list]:
+    """Return (kept records, pending tasks) for a safely resumable run.
+
+    A record with no generated code is a transport failure, not completed work,
+    and is retried. Provenance and prompt text must match so --resume cannot
+    silently combine different experiments.
+    """
+    task_by_key = {(effect["effect_id"], tier): (effect, tier, prompt)
+                   for effect, tier, prompt in tasks}
+    kept_by_key = {}
+    seen_keys = set()
+    for record in existing:
+        key = (record.get("effect_id"), record.get("tier"))
+        if key not in task_by_key:
+            raise ValueError(f"existing record {key!r} is outside the selected task grid")
+        if key in seen_keys:
+            raise ValueError(f"duplicate existing record for {key!r}")
+        seen_keys.add(key)
+        _, _, prompt = task_by_key[key]
+        if (record.get("provider"), record.get("model"), record.get("prompt")) != \
+                (provider, model, prompt):
+            raise ValueError(f"existing record {key!r} has incompatible provenance or prompt")
+        if record.get("code"):
+            kept_by_key[key] = record
+
+    kept = [kept_by_key[(effect["effect_id"], tier)]
+            for effect, tier, _ in tasks
+            if (effect["effect_id"], tier) in kept_by_key]
+    pending = [task for task in tasks
+               if (task[0]["effect_id"], task[1]) not in kept_by_key]
+    return kept, pending
 
 
 def print_summary(records: list, tiers: list) -> None:
@@ -257,6 +291,9 @@ def main(argv=None) -> int:
     parser.add_argument("--out", metavar="FILE", default=None,
                         help="Output JSON file (default: bench/results/efficacy/"
                              "efficacy_<UTCtimestamp>.json)")
+    parser.add_argument("--resume", action="store_true",
+                        help="Resume --out, preserving generated records and retrying cells "
+                             "whose request failed before producing code.")
     parser.add_argument("--dry-run", action="store_true",
                         help="Run a single generation to verify setup, then exit.")
     parser.add_argument("--provider", choices=run_benchmark.ALL_PROVIDERS, default="gemini",
@@ -295,6 +332,25 @@ def main(argv=None) -> int:
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         out_file = DEFAULT_OUT_DIR / f"efficacy_{stamp}.json"
 
+    initial_records = []
+    if args.resume:
+        if not args.out:
+            parser.error("--resume requires --out EXISTING.json")
+        if not out_file.exists():
+            parser.error(f"--resume file does not exist: {out_file}")
+        existing = json.loads(out_file.read_text())
+        resolved_model = args.model or run_benchmark.model_for(args.provider)
+        try:
+            initial_records, tasks = prepare_resume(
+                tasks, existing, args.provider, resolved_model)
+        except ValueError as exc:
+            parser.error(str(exc))
+        print(f"Resume: preserving {len(initial_records)} generated records; "
+              f"running {len(tasks)} pending cells.", file=sys.stderr)
+        if not tasks:
+            print("Resume complete — no pending cells.", file=sys.stderr)
+            return 0
+
     # PF-030. This harness spends the same free-tier quota as run_benchmark.py and
     # took no lock at all, so the two could run concurrently and interleave their
     # requests against one rate limit. That is the more dangerous half of PF-025:
@@ -317,7 +373,8 @@ def main(argv=None) -> int:
     try:
         preflight_check(args.provider)
         records = run_study(tasks, retries=args.retries, out_file=out_file,
-                            dry_run=args.dry_run, provider=args.provider, model=args.model)
+                            dry_run=args.dry_run, provider=args.provider, model=args.model,
+                            initial_records=initial_records)
     finally:
         release_lock()
 

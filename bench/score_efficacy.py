@@ -111,6 +111,7 @@ TRANSPORT_ERROR_KEYWORDS = [
     "quota",
     "rate_limit",
     "rate limited",
+    "rate limit reached",     # groq HTTP 429 wording
     "connection",
     "timed out",
     "timeout",

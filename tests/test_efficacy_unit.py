@@ -282,6 +282,47 @@ class TestIncrementalWrite:
         assert on_disk[1]["errors"]  # second cell recorded the simulated crash
 
 
+class TestResume:
+    def test_preserves_generated_records_and_retries_empty_transport_record(self, fixture_dataset):
+        tasks = efs.select_tasks(fixture_dataset, tiers=["L4"])
+        model = efs.run_benchmark.model_for("groq")
+        kept = {
+            "provider": "groq", "model": model, "effect_id": "filters-01",
+            "tier": "L4", "prompt": tasks[0][2], "code": VALID_FAUST,
+        }
+        transport = {
+            "provider": "groq", "model": model, "effect_id": "dynamics-01",
+            "tier": "L4", "prompt": tasks[1][2], "code": "",
+            "errors": ["HTTP 429: Rate limit reached"],
+        }
+
+        initial, pending = efs.prepare_resume(tasks, [kept, transport], "groq", model)
+
+        assert initial == [kept]
+        assert [(effect["effect_id"], tier) for effect, tier, _ in pending] == [
+            ("dynamics-01", "L4")
+        ]
+
+    def test_rejects_mismatched_provider(self, fixture_dataset):
+        tasks = efs.select_tasks(fixture_dataset, tiers=["L4"])
+        record = {
+            "provider": "gemini", "model": "wrong", "effect_id": "filters-01",
+            "tier": "L4", "prompt": tasks[0][2], "code": VALID_FAUST,
+        }
+        with pytest.raises(ValueError, match="incompatible provenance"):
+            efs.prepare_resume(tasks, [record], "groq", "expected")
+
+    def test_rejects_duplicate_empty_records(self, fixture_dataset):
+        tasks = efs.select_tasks(fixture_dataset, tiers=["L4"])
+        model = efs.run_benchmark.model_for("groq")
+        record = {
+            "provider": "groq", "model": model, "effect_id": "filters-01",
+            "tier": "L4", "prompt": tasks[0][2], "code": "",
+        }
+        with pytest.raises(ValueError, match="duplicate existing record"):
+            efs.prepare_resume(tasks, [record, record], "groq", model)
+
+
 # ---------------------------------------------------------------------------
 # Error-class keyword tagging — classify_error()
 # ---------------------------------------------------------------------------
@@ -316,6 +357,10 @@ class TestClassifyError:
 
     def test_unclassified_class(self):
         assert sco.classify_error(VALID_FAUST, "something totally novel went wrong here") == "UNCLASSIFIED"
+
+    def test_groq_rate_limit_reached_is_transport(self):
+        record = {"errors": ["RuntimeError: HTTP 429: Rate limit reached for model"]}
+        assert sco.is_transport_error(record) is True
 
 
 # ---------------------------------------------------------------------------
