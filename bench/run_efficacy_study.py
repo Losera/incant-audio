@@ -40,6 +40,7 @@ import argparse
 import json
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -67,6 +68,13 @@ SYSTEM_PROMPT = run_benchmark.SYSTEM_PROMPTS["faust"]
 
 DEFAULT_PROMPTS_FILE = BENCH_DIR / "prompts" / "tiered_prompts.json"
 DEFAULT_OUT_DIR = BENCH_DIR / "results" / "efficacy"
+
+# Match the product path's per-generation wall-clock envelope.  Benchmark
+# requests used to pass budget=None, so a provider's daily-quota Retry-After
+# could suspend the whole study for hours and prevent the incremental writer
+# from reaching a recoverable checkpoint.
+GENERATION_BUDGET_S = 140.0
+FAUST_VALIDATE_TIMEOUT_S = 15.0
 
 # Replicates llm/generate.py's generate_faust() error_context pattern exactly
 # (same wording, same em dash) so retry behavior is comparable to the product loop.
@@ -136,7 +144,15 @@ def build_user_message(prompt: str, error_context: str = "") -> str:
     return content
 
 
-def make_generator(provider: str = "claude", model: str | None = None):
+def make_generation_budget() -> providers.Budget:
+    per_attempt = max(10.0, (GENERATION_BUDGET_S / 3.0)
+                      - FAUST_VALIDATE_TIMEOUT_S / 3.0)
+    return providers.Budget(total=GENERATION_BUDGET_S,
+                            per_attempt_cap=per_attempt)
+
+
+def make_generator(provider: str = "claude", model: str | None = None,
+                   budget: providers.Budget | None = None):
     """Callable(user_message) -> code string. Matches run_benchmark._make_generators:
     temperature=0, max_tokens=providers.MAX_OUTPUT_TOKENS, pinned model per provider."""
     return providers.make_generator(
@@ -145,6 +161,7 @@ def make_generator(provider: str = "claude", model: str | None = None):
         model=model or run_benchmark.model_for(provider),
         temperature=0.0,
         max_tokens=providers.MAX_OUTPUT_TOKENS,
+        budget=budget,
     )
 
 
@@ -166,27 +183,60 @@ def run_effect_tier(generator, effect: dict, tier: str, prompt: str, retries: in
         "retry_success": False,
         "errors": [],
         "timestamp": datetime.now(timezone.utc).isoformat(),
+        "terminal_reason": "",
+        "retry_after_s": None,
+        "provider_wall_s": 0.0,
+        "validation_wall_s": 0.0,
+        "cell_wall_s": 0.0,
+        "estimated_prompt_tokens": 0 if provider == "groq" else None,
+        "estimated_output_tokens": 0 if provider == "groq" else None,
+        "token_estimate_method": "groq_char_calibration_v1" if provider == "groq" else None,
     }
 
+    cell_started = time.monotonic()
     error_ctx = ""
     for attempt in range(1, retries + 2):  # retries=2 → up to 3 total attempts
         record["attempts"] = attempt
+        user_message = build_user_message(prompt, error_ctx)
+        if provider == "groq":
+            record["estimated_prompt_tokens"] += providers.estimate_tokens(
+                SYSTEM_PROMPT + user_message)
+        provider_started = time.monotonic()
         try:
-            code = generator(build_user_message(prompt, error_ctx))
+            code = generator(user_message)
         except Exception as e:  # API failure: record and stop this cell
+            record["provider_wall_s"] += time.monotonic() - provider_started
             record["errors"].append(f"{type(e).__name__}: {e}"[:500])
+            record["retry_after_s"] = getattr(e, "retry_after", None)
+            if isinstance(e, providers.RateLimited):
+                record["terminal_reason"] = "rate_limited"
+            elif isinstance(e, providers.BudgetExhausted):
+                record["terminal_reason"] = "timeout"
+            else:
+                record["terminal_reason"] = "transport_error"
             break
+        record["provider_wall_s"] += time.monotonic() - provider_started
         record["code"] = code
+        if provider == "groq":
+            record["estimated_output_tokens"] += providers.estimate_tokens(code)
+        validation_started = time.monotonic()
         ok, err = validate_faust(code)
+        record["validation_wall_s"] += time.monotonic() - validation_started
         if ok:
             if attempt == 1:
                 record["first_try_compiles"] = True
             else:
                 record["retry_success"] = True
+            record["terminal_reason"] = "compiled"
             break
         record["errors"].append(err)
         error_ctx = err
 
+    if not record["terminal_reason"]:
+        record["terminal_reason"] = "compile_failed"
+    record["provider_wall_s"] = round(record["provider_wall_s"], 6)
+    record["validation_wall_s"] = round(record["validation_wall_s"], 6)
+    record["cell_wall_s"] = round(time.monotonic() - cell_started, 6)
     return record
 
 
@@ -201,9 +251,6 @@ def run_study(tasks: list, retries: int, out_file: Path,
               generator=None, dry_run: bool = False,
               provider: str = "claude", model: str | None = None,
               initial_records: list | None = None) -> list:
-    if generator is None:
-        generator = make_generator(provider, model)
-
     if dry_run:
         tasks = tasks[:1]
         print("DRY RUN — 1 generation to verify setup.", file=sys.stderr)
@@ -213,7 +260,12 @@ def run_study(tasks: list, retries: int, out_file: Path,
 
     records = list(initial_records or [])
     for i, (effect, tier, prompt) in enumerate(tasks, 1):
-        record = run_effect_tier(generator, effect, tier, prompt, retries,
+        # One budget per cell, shared by that cell's corrective attempts, just
+        # like one product generation.  Reusing one Budget for the whole study
+        # would expire every later cell after the first 140 seconds.
+        cell_generator = generator or make_generator(
+            provider, model, budget=make_generation_budget())
+        record = run_effect_tier(cell_generator, effect, tier, prompt, retries,
                                  provider=provider, model=model)
         records.append(record)
         # Incremental write: a crashed run keeps everything up to this record.
@@ -227,6 +279,13 @@ def run_study(tasks: list, retries: int, out_file: Path,
             status = "✗ FAIL"
         print(f"[{i:03d}/{len(tasks):03d}] {record['effect_id']:14s} {tier} → {status}",
               file=sys.stderr)
+
+        # Stop at a durable transport checkpoint instead of spending the same
+        # exhausted quota on every remaining cell.  --resume will retry it later.
+        if record["terminal_reason"] in {"rate_limited", "timeout", "transport_error"}:
+            print("Transport checkpoint written; stopping so --resume can retry "
+                  "without burning the remaining grid.", file=sys.stderr)
+            break
 
     return records
 
@@ -273,6 +332,37 @@ def print_summary(records: list, tiers: list) -> None:
         ft = sum(r["first_try_compiles"] for r in rs)
         rc = sum(r["first_try_compiles"] or r["retry_success"] for r in rs)
         print(f"  {tier}: {ft:2d} / {rc:2d} / {len(rs)}", file=sys.stderr)
+
+
+def print_efficiency_summary(records: list) -> None:
+    """Report operational efficiency separately from model efficacy.
+
+    Older records remain valid efficacy evidence but have no timing fields, so
+    they are excluded rather than silently treated as zero-duration work.
+    """
+    measured = [r for r in records if "cell_wall_s" in r]
+    if not measured:
+        return
+    compiled = sum(r.get("terminal_reason") == "compiled" for r in measured)
+    provider_s = sum(float(r.get("provider_wall_s", 0.0)) for r in measured)
+    validation_s = sum(float(r.get("validation_wall_s", 0.0)) for r in measured)
+    wall_s = sum(float(r.get("cell_wall_s", 0.0)) for r in measured)
+    estimates = [r for r in measured if r.get("estimated_prompt_tokens") is not None]
+    estimated_tokens = sum(
+        int(r.get("estimated_prompt_tokens", 0)) + int(r.get("estimated_output_tokens", 0))
+        for r in estimates
+    )
+    per_provider_min = (compiled / (provider_s / 60.0)) if provider_s > 0 else 0.0
+    per_1k_tokens = (compiled / (estimated_tokens / 1000.0)) if estimated_tokens else 0.0
+    print("\nOperational efficiency (instrumented cells only):", file=sys.stderr)
+    print(f"  compiled / measured: {compiled} / {len(measured)}", file=sys.stderr)
+    print(f"  wall / provider / validation seconds: "
+          f"{wall_s:.1f} / {provider_s:.1f} / {validation_s:.1f}", file=sys.stderr)
+    print(f"  compiled cells per provider-minute: {per_provider_min:.2f}", file=sys.stderr)
+    if estimates:
+        print(f"  estimated visible tokens ({estimates[0]['token_estimate_method']}): "
+              f"{estimated_tokens}; compiled cells per 1k estimated tokens: "
+              f"{per_1k_tokens:.2f}", file=sys.stderr)
 
 
 def main(argv=None) -> int:
@@ -379,6 +469,7 @@ def main(argv=None) -> int:
         release_lock()
 
     print_summary(records, dataset["tiers"])
+    print_efficiency_summary(records)
     print(f"\nResults saved to: {out_file}", file=sys.stderr)
     return 0
 
