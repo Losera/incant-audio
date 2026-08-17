@@ -154,7 +154,10 @@ def commit_line(sha: str) -> tuple[str, int | None]:
     if sha and HEAD and sha == HEAD:
         return f"{short} = HEAD", 0
     if sha:
-        n = git("rev-list", "--count", f"{sha}..HEAD")
+        # Report distance along the branch's integration history.  Plain
+        # rev-list counts every commit brought in by merges, so HEAD~3 can be
+        # reported as six commits behind after two merged side branches.
+        n = git("rev-list", "--first-parent", "--count", f"{sha}..HEAD")
         if n.isdigit():
             return f"{short} — HEAD is {n} commit(s) ahead of it", int(n)
     return f"{short} — not present locally, distance from HEAD unknown", None
