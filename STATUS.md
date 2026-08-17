@@ -1,4 +1,4 @@
-# PluginForge — Status  (2026-08-16)
+# PluginForge — Status  (2026-08-17)
 
 Rewritten each session per COLLABORATION.md §5. Single writer, no merge conflicts.
 Narrative history lives in git.
@@ -10,6 +10,27 @@ behind HEAD.
 ---
 
 ## Works — and how we know
+
+**2026-08-17: PF-011 runs are now resumable, bounded, and instrumented; the larger
+study is still incomplete.** PRs #20/#21 landed atomically as `8c0d724`. `--resume`
+preserves generated cells, rejects mismatched provider/model/prompt provenance and
+duplicate/out-of-grid records, and retries only cells with no generated body. The live
+run exposed a second failure mode (PF-064): the old unbudgeted provider path honoured a
+daily-quota `Retry-After` inside the process, leaving one Python process asleep for almost
+24 hours. Each cell now gets the product's 140-second budget and a transport failure writes
+a durable checkpoint then stops. Operational fields record terminal reason, requested retry,
+provider/validation/cell wall time, and labelled Groq visible-token estimates; older records
+without those fields are excluded from the efficiency summary. Deterministic A/B: a simulated
+24-hour retry asks the legacy path for 5 requests plus 345,600 seconds of sleep, versus one
+request, zero sleep and no next-cell request in the bounded path. Live confirmation: Groq
+returned `retry_after_s=158`; checkpoint in 0.255s. After reset, one cell compiled and the next
+daily-limit response (`retry_after_s=3326`) checkpointed in 0.222s; no background process was
+left behind. Current artifact: 63 records, 62 generated bodies, one transport checkpoint —
+PF-011 remains open until 125 unique cells are generated and scored. Verification: 83 relevant
+unit/budget tests passed (one credentialed integration test deliberately excluded); both stack
+layers' unit and host-build CI jobs passed before merge. PF-063 also landed separately as
+`c9a1c7a`: `/orient` now reports first-parent CI distance; its focused 15-test class and the
+complete local fast gate passed.
 
 **2026-08-16: Next-three #1 ("get it into a DAW") advanced — real new evidence,** including
 a real audio-thread bug found and fixed. Two of this file's own claims were stale and false:
@@ -389,14 +410,12 @@ Freesound key is sent and rejected (HTTP 403) — needs a replacement key from
 freesound.org. Internet Archive (the default provider) now works; Freesound will
 report the real 403 instead of failing silently once PF-054/055 are live.
 
-**13. The `/orient` digest's CI-staleness banner doesn't quantify how far behind HEAD the
-tested commit is.** *(unfiled, low, found 2026-08-16.)*
+**13. ~~The `/orient` digest's CI-staleness banner doesn't quantify how far behind HEAD the
+tested commit is.~~** *(PF-063, low, fixed 2026-08-17, `c9a1c7a`.)*
 `tests/test_control_wiring.py::TestDigestReportsCI::test_green_on_an_older_commit_is_not_reported_as_a_pass`
-fails at HEAD: the banner names the caveat ("green on a commit that is not HEAD") but not the
-commit count. Surfaced by an unrelated `tools/check.sh full` run this session (a PF-062
-verification pass) — confirmed pre-existing, not caused by that session's diff (which touched
-only `host/CMakeLists.txt`, `host/Source/PluginProcessor.cpp`, `host/tests/OfflineRenderTest.cpp`,
-none of which the failing test or its subject code touches). Not investigated further.
+used `HEAD~3` while the digest counted every commit reachable through merged side branches,
+so it reported 6 rather than 3. `git rev-list --first-parent --count` makes the metric match
+the branch integration history. Focused class: 15 passed; `tools/check.sh fast`: all green.
 
 ---
 
@@ -458,9 +477,10 @@ after the write-up; nothing from this trial landed or was intended to.
 **One claim** — the refine-preamble claim moved into Works this session with a live 2/2
 measurement (see the first Works bullet above); the efficacy pilot remains.
 
-- **The efficacy pilot generalizes to nothing.** *(PF-011, unchanged.)* 125 generations ≈
-  437k tokens ≈ 2.2 days on groq. Needs sharding — or ollama, unmetered but CPU-only until
-  the box reboots.
+- **The efficacy pilot generalizes to nothing.** *(PF-011, advanced but still open.)* The
+  resumable full run has 62/125 generated cells and one retryable transport checkpoint. Groq's
+  200k-token daily limit is now measured and checkpointed rather than slept through; 63 cells
+  remain, after which the corrected PF-041/PF-042 judge must score the complete corpus.
 
 ## Next three things
 
