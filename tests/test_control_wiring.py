@@ -180,6 +180,27 @@ _EXEMPT_RE = __import__("re").compile(
     __import__("re").I,
 )
 
+_gitignore_cache: dict[str, bool] = {}
+
+
+def _is_gitignored(ref: str) -> bool:
+    """A third legitimate reason a repo-relative path can be absent: it's a real,
+    documented build/runtime artifact (`host/build`, `host/JUCE`, a lock file) that
+    .gitignore keeps out of every checkout, including CI's. Found 2026-08-19 when
+    the widened live-doc check below passed on a dev machine that happened to have
+    built the host and run a benchmark -- so the artifacts existed locally -- and
+    then failed in CI's clean checkout, where they legitimately do not. A path this
+    project chose to gitignore is not a stale reference; requiring it to exist
+    would just move the false positive from "doc rot" to "not built yet."
+    """
+    if ref not in _gitignore_cache:
+        result = subprocess.run(
+            ["git", "check-ignore", "-q", ref],
+            cwd=str(ROOT), timeout=10,
+        )
+        _gitignore_cache[ref] = result.returncode == 0
+    return _gitignore_cache[ref]
+
 
 def _extension_files():
     for d in EXTENSION_DIRS:
@@ -199,7 +220,7 @@ class TestExtensionsDoNotReferenceDeletedFiles:
                 for ref in set(_PATH_RE.findall(line)):
                     if any(ch in ref for ch in "*{"):
                         continue  # a glob pattern, not a file reference
-                    if not (ROOT / ref).exists():
+                    if not (ROOT / ref).exists() and not _is_gitignored(ref):
                         broken.append(f"{f.relative_to(ROOT)} -> {ref}")
         assert not broken, (
             "Extension(s) reference repo paths that do not exist:\n  "
@@ -258,7 +279,7 @@ class TestLiveDocsDoNotReferenceDeletedFiles:
                         continue
                     if ref == str(f.relative_to(ROOT)):
                         continue  # a doc naming its own path (e.g. a purge manifest row)
-                    if not (ROOT / ref).exists():
+                    if not (ROOT / ref).exists() and not _is_gitignored(ref):
                         broken.append(f"{f.relative_to(ROOT)} -> {ref}")
         assert not broken, (
             "Live document(s) reference repo paths that do not exist:\n  "
