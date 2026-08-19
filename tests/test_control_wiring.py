@@ -192,13 +192,27 @@ def _is_gitignored(ref: str) -> bool:
     then failed in CI's clean checkout, where they legitimately do not. A path this
     project chose to gitignore is not a stale reference; requiring it to exist
     would just move the false positive from "doc rot" to "not built yet."
+
+    Second bug, same day, caught by reproducing against a fresh clone before re-
+    pushing rather than trusting the first fix: `git check-ignore -q host/build`
+    alone returns "not ignored" when `host/build` does not exist on disk, because
+    the matching .gitignore pattern (`build/`) is directory-only and git will not
+    treat a nonexistent path as a directory. It matched instantly on the machine
+    that had actually built the host (a real `host/build/` on disk) and failed
+    everywhere else -- the same "works on my machine" shape as the first bug, one
+    layer deeper. `bench/results/.run.lock` has no trailing slash in its pattern,
+    so it was never affected. Retrying with a trailing slash forces git to
+    evaluate the path as a directory regardless of whether it currently exists.
     """
     if ref not in _gitignore_cache:
-        result = subprocess.run(
-            ["git", "check-ignore", "-q", ref],
-            cwd=str(ROOT), timeout=10,
+        ignored = any(
+            subprocess.run(
+                ["git", "check-ignore", "-q", candidate],
+                cwd=str(ROOT), timeout=10,
+            ).returncode == 0
+            for candidate in (ref, ref + "/")
         )
-        _gitignore_cache[ref] = result.returncode == 0
+        _gitignore_cache[ref] = ignored
     return _gitignore_cache[ref]
 
 
