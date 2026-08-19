@@ -1,6 +1,8 @@
 # Session 001 — Playground shell: parameter identity, MIDI, code editor
 
-**Status: in progress.** Parameter identity and the note-queue half of MIDI are landed;
+**Frozen point-in-time record, 2026-08-03. Not maintained — "in progress" below is stale; check
+`STATUS.md` and `git log` for what actually landed, not this line.** Parameter identity and the
+note-queue half of MIDI are landed;
 the code editor and the shell layout are not.
 
 **This file is the living record for this session — keep editing it, do not fork a new one.**

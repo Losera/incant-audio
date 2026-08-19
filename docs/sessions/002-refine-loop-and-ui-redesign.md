@@ -1,6 +1,8 @@
 # Session 002 — Refine that actually refines, and a UI that stops looking unstyled
 
-**Status: in progress.** Part A (A1–A8, the refine wiring) is landed and committed —
+**Frozen point-in-time record, 2026-08-07. Not maintained — "in progress" below is stale; check
+`STATUS.md` and `git log` for what actually landed, not this line.** Part A (A1–A8, the refine
+wiring) is landed and committed —
 `tools/check.sh full` is green, including the new `EditorSessionTest::
 scenario16_refineCarriesTheSource`. Part B (B1–B6, the design-system pass) is starting:
 `Theme.h` exists on disk but is not yet wired into any panel.

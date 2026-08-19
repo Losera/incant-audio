@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """PreToolUse hook (Write/Edit/MultiEdit): blocks edits that introduce
 non-real-time-safe constructs inside any function reachable from the audio
-thread, per the RT-safety rules in docs/audio_thread_example.md.
+thread, per the RT-safety rules in docs/fixplan_pushtofaust_swap.md.
 
 SCOPED FUNCTIONS -- the transitive closure of PluginForgeProcessor::processBlock,
 enumerated by hand because a regex/brace-counter cannot build a call graph:
@@ -193,7 +193,7 @@ def main() -> int:
                 print(
                     f"BLOCKED (RT-safety): this edit introduces `{token}` inside "
                     f"`{func_name}`, which runs on the real-time audio thread (see "
-                    "docs/audio_thread_example.md; audio-path changes are Tier 2 "
+                    "docs/fixplan_pushtofaust_swap.md; audio-path changes are Tier 2 "
                     "under COLLABORATION.md §3). RT code must never allocate/free heap "
                     "memory, lock a mutex, or do I/O/logging. If you believe this "
                     "function was mis-scoped by this regex-based check (a known "

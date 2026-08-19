@@ -4,12 +4,13 @@ Regression check for llm/prompts/system_prompt.txt — the single system prompt,
 by the product and the benchmark since 2026-07-21.
 
 Operationalizes a manual step that's already written down but never automated:
-ADR-009's Consequences section and docs/next_steps.md B8 both say "re-run the
-benchmark to confirm >=96% Faust compile rate" after touching these prompts.
+ADR-009's Consequences section says "re-run the benchmark to confirm >=96% Faust
+compile rate" after touching these prompts (docs/next_steps.md B8 said the same,
+before that file was deleted 2026-08-19; see docs/records/doc-purge-2026-08-19.md).
 Nobody wired that follow-through up until now.
 
-Intended use: started manually during a PAIR session that edits either prompt
-file, e.g. via `/loop 15m` pointed at this script. NOT meant to run unattended
+Intended use: started manually during a session that edits either prompt file,
+e.g. via `/loop 15m` pointed at this script. NOT meant to run unattended
 on a schedule -- these files are HUMAN-OWNED (COLLABORATION.md SS1) and change
 deliberately and rarely, so a background cron would burn API cost for near-zero
 signal most of the time.

@@ -99,6 +99,7 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-062 | `processBlock`'s pre-generation early-return path (`enterAudio()` returns false, no patch loaded yet) left the output buffer untouched on the assumption it held "the host's real input" — true for the Fx target, false for the Synth target, which has no input bus at all. A freshly-loaded, never-generated `PluginForge Synth` echoed back whatever memory the host/JUCE last left in that buffer: `pluginval --strictness-level 5` found literal NaN and subnormal output, 200/450 Audio-processing sub-tests failing | high | fixed | S1 Backend | `PluginProcessor.cpp:251-273` | 2026-08-16 | 2026-08-16, same session |
 | PF-063 | `/orient` warned that green CI was behind HEAD but counted every merged side-branch commit, so its distance disagreed with the first-parent branch history and its own regression test | low | fixed | S4 Testing | `tools/status_digest.sh` `commit_line` | 2026-08-16 | `c9a1c7a` (2026-08-17) |
 | PF-064 | The efficacy harness passed no generation budget, so a daily-quota `Retry-After` could suspend the process for hours before incremental results reached a recoverable checkpoint | medium | fixed | S4 Testing | `bench/run_efficacy_study.py` | 2026-08-17 | `8c0d724` |
+| PF-065 | Generation fails with "generate.py not found" when the plugin runs as an installed VST3 (confirmed in REAPER) — ADR-011 marks this row Closed and it is not | high | open | S1 Backend | `host/Source/PromptPanel.cpp:143-154` | 2026-08-19 | |
 
 ---
 
@@ -228,8 +229,9 @@ a worker-exists predicate specifically so a test can assert it. Covered by
 ### PF-008 — No generated plugin has ever been listened to.
 **high · DISCHARGED 2026-07-24 · S4 Testing**
 The PF-001 denormalization fix is verified by unit test and by construction, **not by ear**. The
-P6 audible battery (`docs/prototype_test_plan.md` Part A, `docs/p6_test_battery.md`) has never
-run. This is the fastest way to find whatever the old denormalization bug was masking; the review
+P6 audible battery (`docs/p6_test_battery.md`; its deleted companion `docs/prototype_test_plan.md` Part A
+was superseded by the landed prototype) has never run. This is the fastest
+way to find whatever the old denormalization bug was masking; the review
 predicted "it will fail on the first patch" before PF-001. Needs the human's ears (use `groq`,
 not Gemini's ~20/day quota).
 
@@ -1034,6 +1036,47 @@ for a trustworthy fresh measurement, not the measurement itself.
 
 ---
 
+### PF-065 — "generate.py not found" when hosted as an installed VST3 (confirmed in REAPER). *(open, found 2026-08-19)*
+
+**high · open · S1 Backend · user-reported, running the built VST3 in REAPER**
+
+`PromptPanel`'s constructor resolves `generate.py` once (`host/Source/PromptPanel.cpp:136-157`):
+env override `PLUGINFORGE_LLM_SCRIPT`, else walk up to 10 parent directories from the loaded
+plugin binary looking for a sibling `llm/generate.py`. `currentExecutableFile` for a plugin
+resolves via `dladdr` to the loaded `.so`'s own path
+(`JUCE/modules/juce_core/native/juce_SharedCode_posix.h:609-624`), not the host process's.
+
+- **Standalone / an in-tree-built VST3**: the binary sits a handful of levels under the repo
+  root, so the upward walk finds `llm/generate.py` inside the 10-level budget. Works, but by
+  layout accident.
+- **The VST3 REAPER actually loads**: `host/CMakeLists.txt` sets `COPY_PLUGIN_AFTER_BUILD
+  TRUE`, installing to `~/.vst3/PluginForge Host.vst3/Contents/x86_64-linux/`. Confirmed on
+  the dev machine. There is no repo above `~/.vst3` — all 10 upward steps miss, `generateScript`
+  stays default-constructed, and `PromptPanel.cpp:306` reports `"generate.py not found at "`
+  with an **empty path**, which is why the on-screen error looks contentless.
+- The only fallback, `PLUGINFORGE_LLM_SCRIPT`, is inherited from whatever process launched the
+  DAW. A DAW started from a desktop launcher does not have it; a terminal session that exported
+  it does. The plugin is a guest in the host's environment with no other channel.
+
+**ADR-011 is wrong.** `docs/architectural_decisions/ADR-011-ipc-argv-subprocess.md`'s hardening
+table marked "Locating `generate.py` from the installed binary" **Closed 2026-07-19** —
+corrected to open, cross-referencing this entry, in the same commit that added this row.
+`PLUGIN_HEALTH_PLAN.md:19-20` had already said the opposite ("not yet exercised") the whole
+time; the ADR was never reconciled against it.
+
+**Also on record and undisturbed by this defect**: `docs/distribution.md:46-49` documents a
+product design that requires the user to export `PLUGINFORGE_LLM_SCRIPT` before every DAW
+launch, with nothing in the installer, bundle, or code enforcing or detecting it —
+`tests/test_release_packaging.py:105-106` only asserts the installer *prints* the string, never
+that a plugin can actually resolve the script from it.
+
+**Not fixed here.** The fix — bundle the script inside the plugin bundle, ship a config file
+the installer writes, or something else — is a distribution-architecture decision
+(COLLABORATION.md §2 consult-gate territory) and needs its own session, not a documentation-
+hygiene commit.
+
+---
+
 ## Closed — archive
 
 ### PF-005 — Editor exposes only 8 of 64 parameters. *(fixed `2e129cd`, 2026-07-23)*
@@ -1116,8 +1159,8 @@ guard this can't see `pushToFaust` → **PF-015**.
 
 ### PF-007 — Benchmark measured a prompt that diverged from production. *(fixed by prompt unification, 2026-07-21)*
 **high · was arch-review §2.4 (P1)**
-`llm/prompts/system_prompt.txt` and `bench/prompts/system_faust.txt` had drifted substantially
-(a 16-line stdlib-highlights block, extra stereo-wiring rules, a different example set), and
+`llm/prompts/system_prompt.txt` and the (deleted) `bench/prompts/system_faust.txt` had drifted
+substantially (a 16-line stdlib-highlights block, extra stereo-wiring rules, a different example set), and
 `check_adr009_prompt_sync.py` verified only one sentence — so it never caught the drift. Every
 benchmark number was measured on a prompt materially different from what the plugin shipped.
 Resolved by unifying to **one** prompt file (`llm/prompts/system_prompt.txt`); the stdlib section

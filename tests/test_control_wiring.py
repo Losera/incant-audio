@@ -221,6 +221,65 @@ class TestExtensionsDoNotReferenceDeletedFiles:
         )
 
 
+# The extension-only scope above (added when this class was written) left every other
+# markdown file free to rot silently -- which is exactly how INTERFACE.md's line
+# citations, ADR-011's "Closed" row, and a dozen dead `docs/collaboration_log.md` /
+# `bench/prompts/system_faust.txt` pointers went unnoticed until the 2026-08-19 audit
+# (docs/records/doc-purge-2026-08-19.md). This widens the same two checks to a curated
+# list of documents this project keeps continuously live -- deliberately NOT a blanket
+# docs/ rglob: `docs/decisions.md`, `docs/architectural_decisions/ADR-*.md`,
+# `docs/sessions/*.md`, and `docs/research/*.md` are append-only or point-in-time by
+# design (COLLABORATION.md §8) and are allowed to cite things that later got deleted,
+# same as git history. Add a file here only if it is meant to always be current.
+LIVE_DOC_FILES = [
+    ROOT / "CLAUDE.md",
+    ROOT / "COLLABORATION.md",
+    ROOT / "STATUS.md",
+    ROOT / "docs" / "BUGS.md",
+    ROOT / "PLUGIN_HEALTH_PLAN.md",
+    ROOT / "INTERFACE.md",
+    ROOT / "README.md",
+]
+
+
+class TestLiveDocsDoNotReferenceDeletedFiles:
+    """The always-current documents get the same two checks as skills/agents/rules."""
+
+    def test_referenced_repo_paths_exist(self):
+        broken = []
+        for f in LIVE_DOC_FILES:
+            if not f.exists():
+                continue
+            for line in f.read_text().splitlines():
+                if _EXEMPT_RE.search(line):
+                    continue
+                for ref in set(_PATH_RE.findall(line)):
+                    if any(ch in ref for ch in "*{"):
+                        continue
+                    if ref == str(f.relative_to(ROOT)):
+                        continue  # a doc naming its own path (e.g. a purge manifest row)
+                    if not (ROOT / ref).exists():
+                        broken.append(f"{f.relative_to(ROOT)} -> {ref}")
+        assert not broken, (
+            "Live document(s) reference repo paths that do not exist:\n  "
+            + "\n  ".join(sorted(broken))
+            + "\nThese files are meant to stay continuously accurate, unlike docs/sessions, "
+              "docs/research, or the ADR log, which are append-only/point-in-time by design."
+        )
+
+    def test_no_live_retired_mode_instructions(self):
+        stale = []
+        for f in LIVE_DOC_FILES:
+            if not f.exists():
+                continue
+            for m in RETIRED_MODE_RE.finditer(f.read_text()):
+                stale.append(f"{f.relative_to(ROOT)}: ...{m.group(0)}...")
+        assert not stale, (
+            "Live document(s) still instruct using the DELEGATE/PAIR/HUMAN-OWNED protocol "
+            "retired by COLLABORATION.md §9 on 2026-07-21:\n  " + "\n  ".join(sorted(stale))
+        )
+
+
 # --------------------------------------------------------------------------- teeth
 
 CWD = str(ROOT)
@@ -643,6 +702,33 @@ class TestDigestReportsCI:
         assert "!`" in body, (
             "The orient skill references the digest but no longer injects its output "
             "with !`...`, so the CI status is described rather than computed."
+        )
+
+    def test_orient_skill_declares_its_own_name(self):
+        """A frontmatter-less or misnamed skill can be silently shadowed.
+
+        Discovered 2026-08-19: `~/.claude/skills/orient/SKILL.md` (global, a different
+        project's skill) had NO YAML frontmatter at all -- no `name:` field -- and won the
+        `/orient` slot anyway, because the harness fell back to deriving a name from the
+        file's first line. Every session that ran `/orient` under that collision got that
+        other project's rules injected instead of this file's digest, and
+        `test_orient_actually_runs_the_digest` above could not have caught it: it only
+        reads THIS file, which was correct the whole time. This test is still not
+        sufficient on its own -- a same-named collision elsewhere would not be caught by
+        anything in this repo -- but a missing/wrong `name:` field here is the specific,
+        cheap-to-check half of that failure this project controls.
+        """
+        assert ORIENT.exists(), "the orient skill is gone; the digest has no reader"
+        body = ORIENT.read_text()
+        assert body.startswith("---\n"), (
+            "orient/SKILL.md has no YAML frontmatter block -- this is exactly the shape "
+            "that let a same-named global skill shadow it silently on 2026-08-19."
+        )
+        frontmatter = body.split("---\n", 2)[1]
+        assert re.search(r"^name:\s*orient\s*$", frontmatter, re.MULTILINE), (
+            "orient/SKILL.md's frontmatter does not declare `name: orient` -- without an "
+            "explicit, correct name a same-named skill anywhere else (global or another "
+            "project) can win the slot instead."
         )
 
 

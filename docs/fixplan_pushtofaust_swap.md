@@ -98,4 +98,5 @@ Error paths (`cb({}, errorMsg)` before any swap) are unchanged.
 
 ## Result
 
-See `docs/collaboration_log.md` 2026-07-19 entry for the executed outcome.
+Executed 2026-07-19 (`docs/collaboration_log.md`, retired and deleted 2026-07-27 — see
+`git log -- docs/collaboration_log.md` for the entry).

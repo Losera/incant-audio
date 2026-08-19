@@ -8,14 +8,16 @@ JIT-compiles LLM-generated Faust DSL at runtime. One `juce_add_plugin` call prod
 
 | Pair | Role |
 |---|---|
-| `Source/FaustEngine.h/.cpp` | libfaust JIT wrapper — async `compile()` on a background thread, atomic `llvm_dsp*` swap with acquire/release ordering, `ParamInfo` metadata via `MapUI`. Reference impl: `docs/audio_thread_example.md` |
+| `Source/FaustEngine.h/.cpp` | libfaust JIT wrapper — async `compile()` on a background thread, atomic `llvm_dsp*` swap with acquire/release ordering, `ParamInfo` metadata via `MapUI`. Protocol writeup: `docs/fixplan_pushtofaust_swap.md` |
 | `Source/ParamPool.h/.cpp` | 64-slot parameter pool — slots declared in `createParameterLayout()`, looked up by `slotId(i)`; `remap()` relabels after compile (double-buffer + atomic index); `pushToFaust()` runs per audio block |
 | `Source/PluginProcessor.h/.cpp` | `PluginForgeProcessor` — owns engine + pool, `loadFaustCode()` wires compile → remap, `onFaustCompileError` fires **off** the message thread |
 | `Source/PluginEditor.h/.cpp` | UI — prompt box + Generate button; spawns `llm/generate.py --prompt` via `juce::ChildProcess`, parses JSON, calls `loadFaustCode()` |
 
 ⚠️ Audio-thread code (`processBlock` and everything it calls) and atomic swap patterns are
-HUMAN-OWNED per `COLLABORATION.md` §1; `.claude/hooks/check_rt_safety.py` blocks non-RT-safe
-constructs there mechanically.
+high-consequence, Tier-2-evidence territory (`COLLABORATION.md` §3) — not author-gated (§1:
+"authorship is no longer gated by file category"), but `.claude/hooks/check_rt_safety.py`
+blocks non-RT-safe constructs there mechanically, and a change here should cite the code it
+changes, not just describe it.
 
 ## Build
 
@@ -39,17 +41,17 @@ cmake --build build --target ParamPoolTsanTest
 ```
 
 Known limitation: fixed 5s settle window for detached compile threads. Known open finding: a
-suspected TOCTOU in the `FaustEngine` `activeUI` swap — HUMAN-OWNED, report-only.
+suspected TOCTOU in the `FaustEngine` `activeUI` swap — report-only, not yet reproduced.
 
 ## Claude prompts for this area
 
-From the root README series — run in order, hold Claude to the stated mode:
+From the root README series. The DELEGATE/PAIR tags below are vestigial (COLLABORATION.md §9
+retired the three-mode protocol); items are listed in a sensible run order, not gated by mode.
 
-- **P2** *(DELEGATE)* — build + run `ParamPoolTsanTest`, report races verbatim, fix nothing
-  HUMAN-OWNED.
-- **P3** *(DELEGATE)* — extend `.github/workflows/test.yml` to build the C++ targets in CI.
-- **P4** *(PAIR)* — verify the `TODO VERIFY` path assumption at `Source/PluginEditor.cpp:15,29`
-  (finding `llm/generate.py` relative to the installed binary) against real VST3/Standalone
-  layouts.
-- **P6** *(PAIR)* — end-to-end smoke test in the Standalone app: prompt → Faust → JIT → audible
-  DSP with live parameters. This is the prototype finish line.
+- **P2** — build + run `ParamPoolTsanTest`, report races verbatim.
+- **P3** — extend `.github/workflows/test.yml` to build the C++ targets in CI.
+- **P4** — verify `generate.py` path resolution against real VST3/Standalone layouts. **Done,
+  and it failed**: confirmed broken for an installed VST3 in REAPER — see `docs/BUGS.md` PF-065.
+  The resolver is now `PromptPanel.cpp:136-157`, not `PluginEditor.cpp:15,29`.
+- **P6** — end-to-end smoke test in the Standalone app: prompt → Faust → JIT → audible DSP
+  with live parameters. This is the prototype finish line.

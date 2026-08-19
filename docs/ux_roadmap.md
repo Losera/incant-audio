@@ -1,7 +1,12 @@
 # PluginForge UX Roadmap: from one-shot generation to iterative development
 
-Status: DRAFT for human review (DELEGATE). Companion doc: `docs/ui_design_plan.md`
+Status: DRAFT for human review. Companion doc: `docs/ui_design_plan.md`
 (the UI mechanics; this doc is the delivery sequence).
+
+*The per-item DELEGATE/PAIR/HUMAN-OWNED tags throughout this document are vestigial —
+COLLABORATION.md §9 retired the three-mode protocol they came from ("authorship is no
+longer gated by file category," §1). Read them as historical color on how each item was
+originally scoped, not as live process.*
 
 **Framing.** PluginForge is a no-code tool for musicians: type a sentence, get a working
 plugin. But a one-shot generator is a demo, not an instrument-building tool. The roadmap

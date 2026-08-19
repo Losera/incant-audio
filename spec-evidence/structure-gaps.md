@@ -1,5 +1,8 @@
 # structure-gaps.md — Brief A: Structure extraction for PluginSpec
 
+**Frozen point-in-time record, 2026-08-04. Not maintained.** Referenced by
+`bench/presentation_checker.py` for provenance.
+
 Read-only evidence pass over `bench/ladder_corpus.json` (19 recorded results),
 cross-checked against what `host/Source/FaustEngine.h:66-101` (`ParamInfo`),
 `FaustEngine.cpp:239-260` (`extractVoiceControls`), `ParamIdentity.h`,

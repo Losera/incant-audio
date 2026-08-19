@@ -1,5 +1,8 @@
 # Benchmark Analysis
 
+**Frozen point-in-time record, 2026-05-04. Not maintained.** Referenced by
+`bench/score_efficacy.py` for provenance; do not treat the numbers below as current.
+
 Generated: 2026-05-04. Source: `bench/results/results.json` (50 records, Claude provider only).
 Benchmark run date: 2026-05-01.
 

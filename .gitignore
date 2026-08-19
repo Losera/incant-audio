@@ -57,8 +57,13 @@ bench/results/.run.lock
 .env.*
 !.env.example
 
-# agent-session git worktrees (separate checkouts, not repo content)
+# agent-session git worktrees (separate checkouts, not repo content). Found two more
+# instances of this same pattern outside .claude/ during the 2026-08-19 doc audit --
+# a full second PluginForge checkout and an unrelated repo (soundfetch), both silently
+# polluting `git status` and recursive greps because only the .claude/ path was ignored.
 .claude/worktrees/
+.worktrees/
+bench/.worktrees/
 
 # Claude Code plan-mode working files (transient planning scratch, not content)
 .claude/plans/

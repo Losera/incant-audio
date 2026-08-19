@@ -93,6 +93,16 @@ had never run (it ran 2026-07-24), and that the suite held 231 tests (312). A do
 that lies is worse than a missing one, because a reader cannot tell which half to trust.
 `git log` has every word of it.
 
+**"Run `/orient` first, every session" had been silently failing since before 2026-08-19,
+discovered when it finally was.** `~/.claude/skills/orient/SKILL.md` — outside this repo,
+Soundfetch's — had no YAML frontmatter and won the `/orient` name anyway; every session
+that followed this file's own instruction got Soundfetch's rules injected instead of the
+digest above. Per this project's own rule (§ "A control counts only once it has been seen
+failing," established 2026-07-25 after three prior controls were found never to have run):
+this is now that control's second recorded failure, not its first — logged so a third
+silent instance is less likely, not to imply the fix (a corrected global skill,
+`docs/records/doc-purge-2026-08-19.md`) makes a fourth impossible.
+
 ## The development cycle
 One command, cost-ordered, cumulative. Run the cheapest level that covers what you touched.
 

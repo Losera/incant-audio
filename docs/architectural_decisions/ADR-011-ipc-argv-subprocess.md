@@ -46,10 +46,10 @@ traceback can't take the plugin down; it degrades to an error label), trivially 
 |---|---|
 | Prompt injection via shell | Closed by design — argv array, never a shell string |
 | Unbounded hang if generate.py stalls | **Closed 2026-07-19** — 120s `waitForProcessToFinish` cap + `kill()` (PluginEditor.cpp) |
-| Locating `generate.py` from the installed binary | **Closed 2026-07-19** — upward search from the executable (dev layouts) + `PLUGINFORGE_LLM_SCRIPT` env override (installed layouts); old sibling-path guess never matched any real layout |
+| Locating `generate.py` from the installed binary | **Reopened 2026-08-19 — PF-065.** Upward search from the executable (dev layouts, works) + `PLUGINFORGE_LLM_SCRIPT` env override (installed layouts) was marked Closed 2026-07-19 on the strength of the design, never exercised against a real installed bundle. Confirmed broken in REAPER: an installed VST3 at `~/.vst3/…` has no repo above it for the upward search to find, and a DAW launched from a desktop icon does not inherit the env override. See `docs/BUGS.md` PF-065. |
 | Interpreter discovery (`python3` must be on PATH) | **Closed 2026-07-19** — `PLUGINFORGE_PYTHON` env override for venv/installed layouts; bare `python3` PATH lookup remains the dev default |
 | Per-call interpreter startup (~100ms) | Accepted — invisible behind LLM latency |
-| Ready-state UX (button re-enables before JIT finishes) | **Closed 2026-07-19** — `onFaustCompileSuccess` callback fires from the compile thread when the JIT swap lands; status label shows "Ready — DSP live, N params mapped" (point E of `docs/pair_draft_editor_llm_bridge.md`) |
+| Ready-state UX (button re-enables before JIT finishes) | **Closed 2026-07-19** — `onFaustCompileSuccess` callback fires from the compile thread when the JIT swap lands; status label shows "Ready — DSP live, N params mapped" |
 
 ## Revisit trigger
 

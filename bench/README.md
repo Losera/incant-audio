@@ -72,9 +72,10 @@ Each tick:
    `recorded_faust_compile_rate` in the baseline file; flags a regression if it
    drops more than 5 points below that, or under the provider's floor (default 90%).
    A provider with no recorded entry is reported, not compared — see below.
-5. Never edits the prompt files itself — report only. (They're HUMAN-OWNED per
-   COLLABORATION.md §1; `.claude/hooks/protect_human_owned.py` blocks a direct edit
-   to them regardless.)
+5. Never edits the prompt files itself — report only. (Authorship is not gated by file
+   category, COLLABORATION.md §1 — but `protect_human_owned.py`, which once blocked a
+   direct edit, was retired 2026-07-25; this script's own design still keeps its hands
+   off the prompts, by choice, not by an enforced gate.)
 
 This is **not** meant to run unattended on a schedule — start it manually, stop it
 manually when you're done editing prompts. The full, unfiltered 25-prompt run

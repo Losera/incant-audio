@@ -1,5 +1,11 @@
 # Prompt-Efficacy Study — how prompt knowledge-level affects Faust generation
 
+**Frozen point-in-time record, 2026-07-21. Not maintained.** Referenced by
+`bench/run_benchmark.py`, `bench/run_efficacy_study.py`, `bench/score_efficacy.py` and
+`llm/generate.py` for provenance; the design/pilot recorded below is historical, not a live plan.
+The DELEGATE/HUMAN-OWNED mode tags below are vocabulary from the retired three-mode protocol
+(COLLABORATION.md §9) — read as history, not instruction.
+
 **Status:** designed + pilot executed 2026-07-19 · full 125-prompt run deferred (P9)
 **Mode:** DELEGATE (new bench scaffolding + data files; human reviews diffs).
 The two system prompts (`llm/prompts/system_prompt.txt`, `bench/prompts/system_faust.txt`)

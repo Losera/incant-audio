@@ -1,5 +1,7 @@
 # R4 — Should we train or fine-tune our own model?
 
+**Frozen point-in-time record, 2026-07-25. Not maintained.** See `docs/research/README.md`.
+
 **Verdict: No. Not "not yet" for the fine-tuning question — no.** One adjacent thing *is*
 realistic and it is not a model. Written 2026-07-25, session 2 lane R.
 

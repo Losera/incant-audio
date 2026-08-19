@@ -96,12 +96,13 @@ mocked-client unit tests at a real API (this actually happened 2026-07-21 — th
 
 ## Claude prompts for this area
 
-From the root README series — run in order, hold Claude to the stated mode:
+From the root README series. The DELEGATE/HUMAN-OWNED tags below are vestigial
+(COLLABORATION.md §9 retired the three-mode protocol).
 
-- **P1** *(HUMAN-OWNED, draft-only)* — draft ADR-011 ratifying the argv IPC mechanism this
-  layer's `--prompt` mode implements; the human commits it to `docs/decisions.md`.
-- **P5** *(DELEGATE)* — re-run the full 25-prompt benchmark to settle ADR-009's ≥96% compile-rate
+- **P1** — **done.** ADR-011 (`docs/decisions.md`) ratifies the argv IPC mechanism this
+  layer's `--prompt` mode implements — Accepted.
+- **P5** — re-run the full 25-prompt benchmark to settle ADR-009's ≥96% compile-rate
   prediction (committed baseline: 84%; 9-prompt subset on 2026-07-18: 89%). See
   `bench/README.md` for baseline-seeding rules.
-- **P8** *(HUMAN-OWNED, draft-only)* — finish the ADR-008 Claude-vs-Gemini evaluation (the
-  Gemini benchmark run never completed) and draft the decision.
+- **P8** — finish the ADR-008 Claude-vs-Gemini evaluation (the Gemini benchmark run
+  never completed) and draft the decision.

@@ -1,5 +1,8 @@
 # docs/research
 
+**Frozen point-in-time index, 2026-07-25. Not maintained** — each linked note is itself a frozen
+record; verdicts below are what was true that day, not a live status board.
+
 Session 2 lane R, 2026-07-25. Written against the adversarial audit of the same date.
 Every claim cites `file:line` or a URL; every repo figure has a reproduction command in
 its own note.
@@ -13,7 +16,8 @@ its own note.
 | [R4-training-our-own-model](R4-training-our-own-model.md) | **No.** 4 GB VRAM, ~67 semantically unlabelled examples. The scarce asset is measurement, not model capability |
 | [R5-publishable-run](R5-publishable-run.md) | **Both 2026 venues closed.** Three confounds to fix first; target the 2027 cycle |
 
-Lane W is separate: [`docs/workflow/recommendation.md`](../workflow/recommendation.md).
+Lane W's `docs/workflow/recommendation.md` (the AXI-conformant `generate.py` pilot proposal) was
+deleted 2026-08-19, never adopted — see `docs/records/doc-purge-2026-08-19.md`.
 
 Published: [The 1024-Token Ceiling](https://claude.ai/code/artifact/b6233afc-4898-4c44-8c95-927ad86f934b) ·
 [One Pilot](https://claude.ai/code/artifact/277d4397-17b2-4813-ba9f-b0b586f8ac2a)
