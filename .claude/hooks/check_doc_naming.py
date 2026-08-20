@@ -5,8 +5,9 @@ WHY. A date in a filename is metadata that goes stale the moment the document
 outlives the day it was named for, and this repository has the receipts:
 `docs/session_plan_2026-08-02.md` was written on 08-01, planned for 08-02, and
 executed across 08-02 and 08-03 -- so its name was wrong for two of the three
-days it mattered. `docs/test_plan_today_2026-07-21.md` says "today" in a filename,
-which is wrong by construction on every day but one. A reader scanning `ls docs/`
+days it mattered. `docs/test_plan_today_2026-07-21.md` (deleted 2026-08-19, see
+docs/records/doc-purge-2026-08-19.md) said "today" in a filename, which was wrong
+by construction on every day but one. A reader scanning `ls docs/`
 cannot tell a stale document from a current one, and this project's recurring
 defect is precisely a document that outlived the thing it described (CLAUDE.md:
 three hooks that never ran, a benchmark measuring a deleted prompt).
@@ -58,7 +59,8 @@ DATE_PATTERNS = [
     (re.compile(r"(?<!\d)(19|20)\d{2}[-_]\d{2}(?!\d)"),
      "a year and month"),
     # "today", "yesterday", "tonight" in a filename are wrong by construction on
-    # every day but one. docs/test_plan_today_2026-07-21.md managed both at once.
+    # every day but one. docs/test_plan_today_2026-07-21.md (deleted) managed both
+    # at once.
     (re.compile(r"(?:^|[-_])(today|yesterday|tomorrow|tonight)(?:[-_]|$)", re.I),
      "a relative day word"),
 ]

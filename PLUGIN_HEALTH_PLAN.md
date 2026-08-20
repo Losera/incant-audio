@@ -108,9 +108,10 @@ remain human-gated under `COLLABORATION.md`.
 - [ ] **P2.2 Stress lifecycle latency.** Measure shutdown while libfaust compilation is in
   progress and exercise the audio-drain loop with adversarial block timing. Establish a
   latency/progress requirement before considering cancellation or timeout semantics.
-- [ ] **P2.3 Reconcile status documentation.** Correct the stale RT-hook scope in
-  `CLAUDE.md`, mark `docs/next_steps.md` as archival or replace its live routing role, and
-  refresh `STATUS.md` against clean HEAD/CI. Keep historical evidence intact.
+- [x] **P2.3 Reconcile status documentation.** Deleted `docs/next_steps.md` 2026-08-19 (it
+  routed to a since-deleted CLAUDE.md section) in the documentation purge —
+  `docs/records/doc-purge-2026-08-19.md`. `STATUS.md` refreshed the same session. The stale
+  RT-hook scope note in `CLAUDE.md` was not part of this pass — still open if found.
 - [ ] **P2.4 Refresh CI evidence comments.** Replace old “first push” TODOs with links or
   durable references to actual runs after CI access is restored.
 

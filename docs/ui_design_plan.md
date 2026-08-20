@@ -1,8 +1,10 @@
 # PluginForge UI: AI-Centered Design Plan
 
-Status: DRAFT for human review (DELEGATE). Companion doc: `docs/ux_roadmap.md` (phased
+Status: DRAFT for human review. Companion doc: `docs/ux_roadmap.md` (phased
 delivery of the same ideas). Nothing here is committed work; each actionable item carries
-an engagement-mode tag per COLLABORATION.md.
+an engagement-mode tag — vestigial: COLLABORATION.md §9 retired the three-mode protocol
+these tags came from ("authorship is no longer gated by file category," §1). Read them as
+historical color on how each item was originally scoped, not as live process.
 
 ---
 
@@ -98,15 +100,16 @@ Notes:
 
 ### Feeding the taxonomy back into generation
 
-- Runtime side (DELEGATE-able): infer type from compiled DSP I/O counts + param count and
-  pick a layout paradigm accordingly — pure host-side logic, no prompt changes.
-- Generation side — PROPOSED (HUMAN-OWNED — requires human authoring): tell the LLM which
-  design type it is producing (or ask it to declare one) and/or emit Faust `[group:...]`
-  metadata for UI grouping. Any such change touches `llm/prompts/system_prompt.txt`,
-  which is HUMAN-OWNED product IP per COLLABORATION.md; wording is the human's.
+- Runtime side: infer type from compiled DSP I/O counts + param count and pick a layout
+  paradigm accordingly — pure host-side logic, no prompt changes.
+- Generation side — proposed, not built: tell the LLM which design type it is producing
+  (or ask it to declare one) and/or emit Faust `[group:...]` metadata for UI grouping.
+  Any such change touches `llm/prompts/system_prompt.txt`; per COLLABORATION.md §1,
+  authorship is not gated by file category, but a prompt-wording change is still worth a
+  second read given how directly it shapes every generation.
   ParamCapture already sees Faust group structure via `openHorizontalBox`/`closeBox`
   callbacks it currently ignores (`FaustEngine.cpp:7-33` implements only the widget
-  adders) — capturing groups is host-side and DELEGATE/PAIR, not prompt work.
+  adders) — capturing groups is host-side, not prompt work.
 
 ---
 

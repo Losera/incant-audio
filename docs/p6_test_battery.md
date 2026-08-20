@@ -174,8 +174,9 @@ could ever fill in. Where you answer *partly* or *no*, one sentence on **how** i
 worth more than the score: wrong effect entirely? right effect, wrong intensity? right idea,
 unmusical parameter ranges?
 
-Then log the session in `docs/collaboration_log.md` — per the test plan, that entry is the
-prototype's birth certificate. Worth capturing there:
+Then log the session in `STATUS.md`'s change report (`docs/collaboration_log.md`, this test
+plan's original destination, was retired and deleted 2026-07-27 — see COLLABORATION.md §4/§5).
+Worth capturing:
 
 - First-try compile rate at **L1** vs the pilot's 50% on Claude, and at **L0** vs 60%. This is
   the first free-provider data point on the tier cliff.

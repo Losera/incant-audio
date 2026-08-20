@@ -296,8 +296,8 @@ described — and a filename is the one place where nobody thinks to check.
 So:
 
 - **Living documents** — plans, designs, roadmaps, anything that will be edited again —
-  live in `docs/sessions/NNN-topic.md`. The number is the sequence; the topic is what it is
-  about. Neither goes stale.
+  live in `docs/sessions/` as *number*-*topic*.md — see `docs/sessions/016-mechanism-b-pilot.md`
+  for the pattern. The number is the sequence; the topic is what it is about. Neither goes stale.
 - **The next number is one above the highest already in `docs/sessions/`.** No date
   arithmetic, nothing to recompute, no retroactive renumbering. Numbering began at `001`
   when this rule landed; the ~11 sessions before it are not numbered, and `git log` is
@@ -394,16 +394,17 @@ by file category. Four things went wrong.
 **PAIR was fictional.** It specified that Claude drafts and the human writes the committed
 version. CLAUDE.md records the actual outcome: `ParamPool.cpp — IMPLEMENTED (PAIR draft)`,
 and `PluginEditor.cpp — IMPLEMENTED (PAIR draft landed) … Awaiting human read-through per
-PAIR mode`. The drafts became the implementation; the read-through never happened. PAIR was
-DELEGATE plus latency plus a false impression that review had occurred.
+PAIR mode`. The drafts became the implementation; the read-through never happened. In practice
+PAIR amounted to DELEGATE plus latency plus a false impression that review had occurred.
 
-**The feedback loop never fired.** `docs/collaboration_log.md` has 22 entries. Its
+**The feedback loop never fired.** The retired, deleted `docs/collaboration_log.md` had 22
+entries (see `git log -- docs/collaboration_log.md`). Its
 `Mode signal` field was designed to surface wrong classifications. It says "Correct call,"
 "Correct mode," "The protocol did its job" almost every time. A self-graded rubric that
 never returns a failure is not a control.
 
-**The gating did not catch the bug it existed for.** `ParamPool::pushToFaust` was
-classified PAIR — it is COLLABORATION.md's own worked example, cited verbatim in the log.
+**The gating did not catch the bug it existed for.** `ParamPool::pushToFaust` carried the
+PAIR classification (retired) — it is COLLABORATION.md's own worked example, cited verbatim in the log.
 The parameter-denormalization defect, which silently disabled the controls on essentially
 every generated plugin, shipped through that gate and survived every one of 234 tests.
 What eventually found it was reading `MapUI.h` line by line against the calling code.

@@ -1,5 +1,7 @@
 # R2 — Modifying Faust, or a restricted "LLM-safe" dialect
 
+**Frozen point-in-time record, 2026-07-25. Not maintained.** See `docs/research/README.md`.
+
 **Verdict: do not modify Faust. The restricted dialect already exists — it is just not
 enforced.** Written 2026-07-25, session 2 lane R.
 

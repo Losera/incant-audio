@@ -23,8 +23,8 @@ REQUIRED_FILES = [
     "examples/lowpass.dsp",
     "examples/chorus.dsp",
     "examples/compressor.dsp",
-    "docs/architecture.md",
-    "docs/goals_and_next_steps.md",
+    "docs/decisions.md",
+    "COLLABORATION.md",
 ]
 
 

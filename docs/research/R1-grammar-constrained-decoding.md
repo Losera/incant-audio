@@ -1,5 +1,7 @@
 # R1 — Grammar-constrained decoding over the Faust grammar
 
+**Frozen point-in-time record, 2026-07-25. Not maintained.** See `docs/research/README.md`.
+
 **Verdict: NO-GO.** Not "later, when we have time" — no-go on the evidence, with a
 named cheaper substitute that dominates it on this corpus.
 

@@ -1,5 +1,9 @@
 # PluginForge — Architecture Review & Prompt-Routing Proposal Assessment
 
+**Frozen point-in-time record, 2026-07-21. Not maintained — read for what was known that day,
+verify anything load-bearing against current code.** (Kept on disk: cited as a live-file fixture
+by `tests/test_control_wiring.py:364`.)
+
 **Date:** 2026-07-21
 **Author:** Lead systems architect (Claude Code session)
 **Scope:** Full pipeline review, input → output; assessment of the proposed per-prompt

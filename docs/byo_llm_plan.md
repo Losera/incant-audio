@@ -1,5 +1,9 @@
 # Implementation Plan — BYO-LLM Mode ("spend your own inference")
 
+**Frozen point-in-time record, 2026-08-06. Not maintained — not implemented, no ADR ratified it.**
+Referenced by `llm/export_prompt.py` for provenance. The FLEET/S-lane roster named below was
+retired 2026-07-25 (COLLABORATION.md history) — read the origin line as history, not process.
+
 **Origin:** FLEET cross-lane request #6, **authorized by the human 2026-07-23.**
 **Author:** S7 Competitive Research. **Owns delivery:** S1 (core) + S2/S3 (UI), phased below.
 **Rationale:** `docs/competitive_landscape.md` — neutralizes our inference-cost/quota exposure

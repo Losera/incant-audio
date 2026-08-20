@@ -1,5 +1,7 @@
 # R3 — The evaluation oracle
 
+**Frozen point-in-time record, 2026-07-25. Not maintained.** See `docs/research/README.md`.
+
 **Recommendation: ship spectral render-and-measure. Do not build CLAP.**
 
 Unlike the rest of this lane, this note is not a proposal. The oracle is built, validated

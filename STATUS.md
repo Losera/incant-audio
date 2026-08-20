@@ -1,4 +1,4 @@
-# PluginForge — Status  (2026-08-17)
+# PluginForge — Status  (2026-08-19)
 
 Rewritten each session per COLLABORATION.md §5. Single writer, no merge conflicts.
 Narrative history lives in git.
@@ -10,6 +10,32 @@ behind HEAD.
 ---
 
 ## Works — and how we know
+
+**2026-08-19: a documentation purge and a shadowed `/orient` fixed — and a real production
+defect found while tracing it.** Three-agent audit (reference-graph, REAPER-bug root cause,
+context-protocol) found the repo's docs:code line ratio had actually *improved* since
+COLLABORATION.md §8's 2026-07-28 baseline (1.68:1 → 1.18:1), so the fix was staleness and
+dead pointers, not raw volume. **`/orient` had been running the wrong project.**
+`~/.claude/skills/orient/SKILL.md` — outside this repo — was Soundfetch's, had no YAML
+frontmatter, and won the `/orient` name; every session invoking it per `CLAUDE.md`'s own
+instruction got three false claims about a different codebase (`AGENTS.md`, `PLAN.md`,
+`freesound_download.py`, none of which exist here) while `tools/status_digest.sh` silently
+never ran. Fixed at the source (the global skill now declares `name: soundfetch-orient`
+with real frontmatter); a new regression test,
+`tests/test_control_wiring.py::TestDigestReportsCI::test_orient_skill_declares_its_own_name`,
+asserts this project's own skill still names itself correctly, though a same-named
+collision elsewhere is outside what any test in this repo can see. **27 stale/orphaned
+markdown files deleted** (manifest: `docs/records/doc-purge-2026-08-19.md`), 13 frozen with
+dated "not maintained" headers, `INTERFACE.md`'s line citations recomputed against current
+`PromptPanel.cpp` (every one had drifted), and the mechanical dead-reference/retired-mode
+checks (previously scoped only to `.claude/skills|agents|rules`) widened to a curated list
+of always-live root documents. **New defect found and filed, not fixed:** tracing why
+`generate.py` was reported "not found" when run in REAPER surfaced PF-065 — an installed
+VST3 in `~/.vst3/…` has no repo above it for `PromptPanel.cpp`'s upward search to find, and
+ADR-011 had wrongly marked this "Closed 2026-07-19." See Broken #14. Verification: this
+session's own file-existence and retired-mode-phrasing claims were checked mechanically
+(see the new/widened tests above); `tools/check.sh fast` run after all edits — see that
+gate's own record for pass/fail, not asserted here in prose.
 
 **2026-08-17: PF-011 runs are now resumable, bounded, and instrumented; the larger
 study is still incomplete.** PRs #20/#21 landed atomically as `8c0d724`. `--resume`
@@ -229,12 +255,14 @@ bullets before it are carried from the previous session, unchanged.**
   retired DELEGATE/PAIR/HUMAN-OWNED ritual still described as live in README (retired,
   `COLLABORATION.md` §9). All fixed in `docs/competitive_landscape.md` (five claims refreshed +
   ghost `FLEET.md`/P10 citations), `README.md`, `docs/architectural_decisions/README.md`
-  (ADR-008 "Accepted" → provisional + ADR-012), `docs/byo_llm_plan.md` + `docs/s3_plan_next.md`
-  (fleet-era lane framing fixed), and `docs/ui_design_plan.md` (P10 survey retirement noted).
+  (ADR-008 "Accepted" → provisional + ADR-012), `docs/byo_llm_plan.md` + `docs/s3_plan_next.md` (deleted 2026-08-19)
+  (fleet-era lane framing fixed there), and
+  `docs/ui_design_plan.md` (P10 survey retirement noted).
   `START_HERE.md` (pre-JIT stub) and `docs/handoff_s1_codex.md` (operated the retired fleet
   board) were deleted — nothing live linked to the latter except the fleet's own retrospective.
-  `docs/BUGS.md` and `docs/next_steps.md` were checked and already reconciled (BUGS.md names
-  the retirement explicitly; next_steps points at `git log` of the deleted survey).
+  `docs/BUGS.md` and `docs/next_steps.md` (also later deleted, 2026-08-19) were checked and
+  already reconciled at the time (BUGS.md names the retirement explicitly; next_steps pointed
+  at `git log` of the deleted survey).
 
 - **The editor is a two-panel authoring screen, not a vertical stack (Track 1.1).** The
   window is now a full-width title bar, a split region (left preview/grid column | right
@@ -417,6 +445,16 @@ used `HEAD~3` while the digest counted every commit reachable through merged sid
 so it reported 6 rather than 3. `git rev-list --first-parent --count` makes the metric match
 the branch integration history. Focused class: 15 passed; `tools/check.sh fast`: all green.
 
+**14. Generation fails as an installed VST3 (confirmed in REAPER): "generate.py not found."**
+*(PF-065, high, open, found 2026-08-19.)* `PromptPanel.cpp:143-154` walks ≤10 parent
+directories up from the loaded plugin binary looking for a sibling `llm/generate.py`; an
+installed VST3 at `~/.vst3/PluginForge Host.vst3/…` has no repo above it, and the only
+fallback (`PLUGINFORGE_LLM_SCRIPT`) is never inherited by a DAW launched from a desktop
+icon. ADR-011 had marked this row "Closed 2026-07-19" on the strength of the design, never
+against a real installed bundle — corrected to open the same session this was found. Not
+fixed here: the fix is a distribution-architecture decision (bundle the script? installer-
+written config?), COLLABORATION.md §2 territory. Full writeup: `docs/BUGS.md` PF-065.
+
 ---
 
 **2026-08-16, later the same day: Next-three #2 (evidence) run — Mechanism A's second,
@@ -561,9 +599,10 @@ clock).
    stays as-is, no policy change — unchanged, not revisited.
 1. **Superseded 2026-08-12** — the refine two-mode file list this item used to carry is
    long since committed. Session 010's alpha UI pass is now the live uncommitted work on
-   `feat/ui-design-system`; see the plan at `.claude/plans/you-are-a-lead-steady-cake.md`
-   for the current step-by-step (palette done, 65/35 split landing this session, keyboard/
-   prompt/cockpit reconciled and queued behind it).
+   `feat/ui-design-system`; see the plan at `~/.claude/plans/you-are-a-lead-steady-cake.md`
+   (global, user-scoped — not tracked in this repo) for the current step-by-step (palette
+   done, 65/35 split landing this session, keyboard/prompt/cockpit reconciled and queued
+   behind it).
 2. **RESOLVED 2026-08-16.** Session 010 §1/§3 made the 65/35 call (see item above); the
    second half of this item — **is the dark palette (Tokyo Night, not Catppuccin) what was
    wanted** — is now approved as-is against `artifacts/ui_gallery/index.html` (2026-08-15

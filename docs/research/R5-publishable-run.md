@@ -1,5 +1,7 @@
 # R5 — Making the tiered-prompt study publishable
 
+**Frozen point-in-time record, 2026-07-25. Not maintained.** See `docs/research/README.md`.
+
 **Two conclusions.** First: **both 2026 venues named in the audit are closed** — the
 deadline pressure is imaginary and the extra time is exactly what the study needs.
 Second: the headline result currently has **three independent confounds**, two of which I
