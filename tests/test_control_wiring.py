@@ -59,19 +59,23 @@ def _settings() -> dict:
     return json.loads(SETTINGS.read_text())
 
 
-def _run_hook_capture(script: str, payload: dict) -> subprocess.CompletedProcess:
+def _run_hook_capture(script: str, payload: dict, env: dict | None = None) -> subprocess.CompletedProcess:
     """Invoke a hook the way Claude Code does: JSON on stdin. Returns the full
     process so a caller can inspect stdout (e.g. additionalContext JSON), not just
-    the exit code."""
+    the exit code. `env`, if given, is merged over the inherited environment --
+    used by the handoff tests to redirect PLUGINFORGE_HANDOFF_LOG_PATH so a test
+    run never writes into the real, gitignored usage log."""
+    full_env = {**os.environ, **env} if env else None
     return subprocess.run(
         [sys.executable, str(HOOKS_DIR / script)],
         input=json.dumps(payload), capture_output=True, text=True, timeout=60,
+        env=full_env,
     )
 
 
-def _run_hook(script: str, payload: dict) -> int:
+def _run_hook(script: str, payload: dict, env: dict | None = None) -> int:
     """Invoke a hook the way Claude Code does: JSON on stdin, meaning in the exit code."""
-    return _run_hook_capture(script, payload).returncode
+    return _run_hook_capture(script, payload, env=env).returncode
 
 
 def _registered_commands() -> list[str]:
@@ -516,6 +520,25 @@ def _additional_context(proc: subprocess.CompletedProcess) -> str:
     return payload["hookSpecificOutput"]["additionalContext"]
 
 
+@pytest.fixture
+def clean_handoff(tmp_path):
+    """Shared by every handoff test class below. Yields an env dict redirecting
+    PLUGINFORGE_HANDOFF_LOG_PATH to a scratch file, and skips (rather than
+    clobbering) if any of the THREE real files this protocol touches already
+    exists: HANDOFF.md and handoff-state.json because a test must never overwrite
+    another session's real state (mirrors TestBenchmarkConcurrencyGuard.free_lock),
+    and handoff-state.json specifically also because handoff_precompact.py's STATE
+    path is not redirectable the way LOG is -- only the append-only usage log has
+    an env override, so any test invoking handoff_precompact.py without this guard
+    would write into the real state file regardless of what it thinks it is doing.
+    """
+    if HANDOFF_PATH.exists() or HANDOFF_STATE_PATH.exists():
+        pytest.skip("a real .claude/HANDOFF.md or handoff-state.json is on disk")
+    yield {"PLUGINFORGE_HANDOFF_LOG_PATH": str(tmp_path / "handoff-log.jsonl")}
+    HANDOFF_PATH.unlink(missing_ok=True)
+    HANDOFF_STATE_PATH.unlink(missing_ok=True)
+
+
 class TestHandoffHasTeeth:
     """The re-injection guard must never be silent, and the compaction snapshot must
     never overwrite a real handoff. Neither hook can BLOCK a session or a compaction
@@ -525,24 +548,13 @@ class TestHandoffHasTeeth:
     way.
     """
 
-    @pytest.fixture
-    def clean_handoff(self):
-        """Yield only if no real handoff/state is on disk; always leave the tree as
-        found. Mirrors TestBenchmarkConcurrencyGuard.free_lock — do not clobber
-        another session's in-progress state to run a test."""
-        if HANDOFF_PATH.exists() or HANDOFF_STATE_PATH.exists():
-            pytest.skip("a real .claude/HANDOFF.md or handoff-state.json is on disk")
-        yield
-        HANDOFF_PATH.unlink(missing_ok=True)
-        HANDOFF_STATE_PATH.unlink(missing_ok=True)
-
     def test_injector_reports_no_handoff_on_disk(self, clean_handoff):
         """The attention-report failure mode this project already knows: a short or
         empty signal must never be read as good news. See orient/SKILL.md's own
         warning about exactly this."""
         proc = _run_hook_capture("handoff_injector.py", {
             "hook_event_name": "SessionStart", "source": "clear", "cwd": CWD,
-        })
+        }, env=clean_handoff)
         assert proc.returncode == 0
         assert "NO HANDOFF ON DISK" in _additional_context(proc)
 
@@ -555,7 +567,7 @@ class TestHandoffHasTeeth:
         )
         proc = _run_hook_capture("handoff_injector.py", {
             "hook_event_name": "SessionStart", "source": "resume", "cwd": CWD,
-        })
+        }, env=clean_handoff)
         assert proc.returncode == 0
         ctx = _additional_context(proc)
         assert "STALENESS WARNING" in ctx, (
@@ -572,7 +584,7 @@ class TestHandoffHasTeeth:
         proc = _run_hook_capture("handoff_precompact.py", {
             "hook_event_name": "PreCompact", "trigger": "auto", "cwd": CWD,
             "session_id": "test-session",
-        })
+        }, env=clean_handoff)
         assert proc.returncode == 0
         assert HANDOFF_PATH.read_text() == sentinel, (
             "handoff_precompact.py modified .claude/HANDOFF.md. It must only ever "
@@ -581,6 +593,19 @@ class TestHandoffHasTeeth:
         assert HANDOFF_STATE_PATH.exists()
         state = json.loads(HANDOFF_STATE_PATH.read_text())
         assert state["trigger"] == "auto"
+
+    def test_log_write_failure_never_breaks_the_hook(self, clean_handoff, tmp_path):
+        """_log_event's try/except is a real guard, not decoration: point the log
+        path at something unwritable (a directory where a file is expected) and
+        confirm the hook still returns 0 and still emits valid additionalContext.
+        Telemetry must never be able to take the hook down with it."""
+        unwritable = tmp_path / "not-a-file"
+        unwritable.mkdir()  # writing to this path as a file raises IsADirectoryError
+        proc = _run_hook_capture("handoff_injector.py", {
+            "hook_event_name": "SessionStart", "source": "clear", "cwd": CWD,
+        }, env={"PLUGINFORGE_HANDOFF_LOG_PATH": str(unwritable)})
+        assert proc.returncode == 0
+        assert "NO HANDOFF ON DISK" in _additional_context(proc)
 
     def test_handoff_skill_declares_its_own_name(self):
         """Mirrors test_orient_skill_declares_its_own_name. Discovered 2026-08-19 for
@@ -605,14 +630,6 @@ class TestHandoffDoesNotOverreach:
     compaction from completing, either of which is much worse than a merely
     annoying gate."""
 
-    @pytest.fixture
-    def clean_handoff(self):
-        if HANDOFF_PATH.exists() or HANDOFF_STATE_PATH.exists():
-            pytest.skip("a real .claude/HANDOFF.md or handoff-state.json is on disk")
-        yield
-        HANDOFF_PATH.unlink(missing_ok=True)
-        HANDOFF_STATE_PATH.unlink(missing_ok=True)
-
     def test_fresh_handoff_raises_no_staleness_banner(self, clean_handoff):
         head = _current_head()
         HANDOFF_PATH.write_text(
@@ -622,7 +639,7 @@ class TestHandoffDoesNotOverreach:
         )
         proc = _run_hook_capture("handoff_injector.py", {
             "hook_event_name": "SessionStart", "source": "clear", "cwd": CWD,
-        })
+        }, env=clean_handoff)
         assert proc.returncode == 0
         ctx = _additional_context(proc)
         assert "STALENESS WARNING" not in ctx, f"A fresh, matching-HEAD handoff was flagged stale:\n{ctx}"
@@ -632,14 +649,97 @@ class TestHandoffDoesNotOverreach:
     def test_injector_never_blocks_any_session_start_source(self, source, clean_handoff):
         assert _run_hook("handoff_injector.py", {
             "hook_event_name": "SessionStart", "source": source, "cwd": CWD,
-        }) == 0
+        }, env=clean_handoff) == 0
 
     @pytest.mark.parametrize("trigger", ["auto", "manual"])
     def test_precompact_never_blocks_any_trigger(self, trigger, clean_handoff):
         assert _run_hook("handoff_precompact.py", {
             "hook_event_name": "PreCompact", "trigger": trigger, "cwd": CWD,
             "session_id": "test-session",
-        }) == 0
+        }, env=clean_handoff) == 0
+
+
+class TestHandoffTelemetry:
+    """The usage log (added 2026-08-21, alongside the decision to hold ADR-028
+    unpushed until real-usage stats exist) is the one piece of this protocol that is
+    deliberately append-only rather than overwritten in place. That makes its own
+    correctness worth pinning separately from the two files it sits beside: a
+    malformed or missing entry silently degrades "determine real stats on the
+    workflow" from a count into a guess, which is exactly the failure mode this file
+    exists to catch everywhere else.
+
+    NOT COVERED: whether the numbers derived from this log, once there are enough of
+    them to derive anything from, are read and acted on rather than left to
+    accumulate unexamined.
+    """
+
+    def test_session_start_appends_one_well_formed_line(self, clean_handoff):
+        """Uses clean_handoff (not a bare scratch dir) because the state=="none"
+        assertion below is only meaningful when no real handoff/state exists."""
+        log_path = Path(clean_handoff["PLUGINFORGE_HANDOFF_LOG_PATH"])
+        proc = _run_hook_capture("handoff_injector.py", {
+            "hook_event_name": "SessionStart", "source": "startup",
+            "session_id": "telemetry-test", "cwd": CWD,
+        }, env=clean_handoff)
+        assert proc.returncode == 0
+        lines = log_path.read_text().splitlines()
+        assert len(lines) == 1, f"expected exactly one log line, got {len(lines)}"
+        record = json.loads(lines[0])
+        assert record["event"] == "SessionStart"
+        assert record["source"] == "startup"
+        assert record["session_id"] == "telemetry-test"
+        assert record["state"] == "none"
+        assert "ts" in record and record["ts"], "log entry has no timestamp"
+
+    def test_session_start_records_state_label_per_case(self, clean_handoff):
+        """Confirms the label, not just that A line got written -- a log full of
+        entries that all say "none" would count sessions without answering the
+        actual question (was a handoff present, and was it stale)."""
+        log_path = Path(clean_handoff["PLUGINFORGE_HANDOFF_LOG_PATH"])
+        head = _current_head()
+        HANDOFF_PATH.write_text(
+            f"# Handoff\n\n<!-- handoff-meta: head={head} "
+            "written=2026-01-01T00:00:00Z branch=test -->\nOBJECTIVE x\n"
+        )
+        proc = _run_hook_capture("handoff_injector.py", {
+            "hook_event_name": "SessionStart", "source": "clear", "cwd": CWD,
+        }, env=clean_handoff)
+        assert proc.returncode == 0
+
+        record = json.loads(log_path.read_text().splitlines()[0])
+        assert record["state"] == "fresh", (
+            "a matching-HEAD handoff must log state=fresh, not any other label"
+        )
+
+    def test_precompact_appends_one_well_formed_line(self, clean_handoff):
+        """Uses clean_handoff, not a bare scratch dir: handoff_precompact.py's STATE
+        path has no env override, so this test would otherwise write into the real
+        .claude/handoff-state.json regardless of where the log is redirected."""
+        log_path = Path(clean_handoff["PLUGINFORGE_HANDOFF_LOG_PATH"])
+        proc = _run_hook_capture("handoff_precompact.py", {
+            "hook_event_name": "PreCompact", "trigger": "manual",
+            "session_id": "telemetry-test", "cwd": CWD,
+        }, env=clean_handoff)
+        assert proc.returncode == 0
+        lines = log_path.read_text().splitlines()
+        assert len(lines) == 1, f"expected exactly one log line, got {len(lines)}"
+        record = json.loads(lines[0])
+        assert record["event"] == "PreCompact"
+        assert record["trigger"] == "manual"
+        assert record["session_id"] == "telemetry-test"
+        assert "ts" in record and record["ts"], "log entry has no timestamp"
+
+    def test_repeated_firings_append_rather_than_overwrite(self, clean_handoff):
+        """The one property that makes this log different from HANDOFF.md and
+        handoff-state.json beside it, and the one worth a red case: those two are
+        overwritten in place by design; this one accumulates by design."""
+        log_path = Path(clean_handoff["PLUGINFORGE_HANDOFF_LOG_PATH"])
+        for _ in range(3):
+            assert _run_hook("handoff_precompact.py", {
+                "hook_event_name": "PreCompact", "trigger": "auto",
+                "session_id": "telemetry-test", "cwd": CWD,
+            }, env=clean_handoff) == 0
+        assert len(log_path.read_text().splitlines()) == 3
 
 
 # ------------------------------------------------------- benchmark concurrency (PF-025)

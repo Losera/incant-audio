@@ -18,8 +18,15 @@ compaction stalls. On any error it still tries to leave a note on stderr, then e
 
 NOT COVERED: whether Claude Code actually dispatches this hook at runtime, and whether
 handoff-state.json's snapshot is read before the next git operation changes it further.
+
+Also appends one line per firing to .claude/handoff-log.jsonl -- purely observational,
+gitignored, never read back by either hook. See handoff_injector.py's docstring for why.
+
+PLUGINFORGE_HANDOFF_LOG_PATH overrides the log destination -- same reason as in
+handoff_injector.py: a test run must not be the thing polluting the real-usage count.
 """
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -27,6 +34,18 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 STATE = ROOT / ".claude" / "handoff-state.json"
+LOG = Path(os.environ["PLUGINFORGE_HANDOFF_LOG_PATH"]) if os.environ.get(
+    "PLUGINFORGE_HANDOFF_LOG_PATH") else ROOT / ".claude" / "handoff-log.jsonl"
+
+
+def _log_event(record: dict) -> None:
+    """Best-effort, append-only. Never raises -- telemetry, not a control."""
+    try:
+        record = {"ts": datetime.now(timezone.utc).isoformat(), **record}
+        with LOG.open("a") as f:
+            f.write(json.dumps(record) + "\n")
+    except Exception:
+        pass
 
 
 def _git(*args) -> str | None:
@@ -56,6 +75,12 @@ def main() -> int:
 
     STATE.parent.mkdir(parents=True, exist_ok=True)
     STATE.write_text(json.dumps(state, indent=2) + "\n")
+
+    _log_event({
+        "event": "PreCompact",
+        "session_id": payload.get("session_id"),
+        "trigger": state["trigger"],
+    })
     return 0
 
 

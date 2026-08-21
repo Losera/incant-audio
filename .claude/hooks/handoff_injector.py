@@ -18,19 +18,45 @@ state below prints something distinguishable from every other state:
 
 NOT COVERED: whether the injected text is read. additionalContext lands as a system
 reminder; nothing in-process can prove the next turn actually used it.
+
+Also appends one line per firing to .claude/handoff-log.jsonl -- purely observational,
+gitignored, never read by this hook or any control. It exists so "is this protocol
+actually being used" can be answered by counting lines instead of by memory, per the
+2026-08-21 decision to hold ADR-028 unpushed for a real-usage evaluation window before
+landing it. Logging failures never affect the hook's return value -- see _log_event.
+
+PLUGINFORGE_HANDOFF_LOG_PATH overrides the log destination. Exists so
+tests/test_control_wiring.py can invoke this hook for real without a single pytest run
+outweighing weeks of actual usage in the same file -- the measurement this log exists
+to take must not be the thing polluting it.
 """
 import json
+import os
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 HANDOFF = ROOT / ".claude" / "HANDOFF.md"
 STATE = ROOT / ".claude" / "handoff-state.json"
+LOG = Path(os.environ["PLUGINFORGE_HANDOFF_LOG_PATH"]) if os.environ.get(
+    "PLUGINFORGE_HANDOFF_LOG_PATH") else ROOT / ".claude" / "handoff-log.jsonl"
 
 MAX_LINES = 400
 STALE_AGE_HOURS = 24
+
+
+def _log_event(record: dict) -> None:
+    """Best-effort, append-only. Never raises -- this is telemetry, not a control,
+    and a broken log must never be the reason a session fails to start."""
+    try:
+        record = {"ts": datetime.now(timezone.utc).isoformat(), **record}
+        with LOG.open("a") as f:
+            f.write(json.dumps(record) + "\n")
+    except Exception:
+        pass
 
 _META_RE = __import__("re").compile(
     r"<!--\s*handoff-meta:\s*head=(\S+)\s+written=(\S+)(?:\s+branch=(\S+))?\s*-->"
@@ -47,7 +73,8 @@ def _git(*args) -> str | None:
         return None
 
 
-def _handoff_context() -> str:
+def _handoff_context() -> tuple[str, bool]:
+    """Returns (context, was_flagged_stale)."""
     text = HANDOFF.read_text()
     meta = _META_RE.search(text[:2000])
     stale_reasons = []
@@ -90,7 +117,8 @@ def _handoff_context() -> str:
             "Treat CURRENT STATE below as a starting point to verify, not settled fact.\n"
         )
 
-    return "=== .claude/HANDOFF.md (previous session's handoff) ===\n" + banner + "\n" + body
+    context = "=== .claude/HANDOFF.md (previous session's handoff) ===\n" + banner + "\n" + body
+    return context, bool(stale_reasons)
 
 
 def _state_only_context() -> str:
@@ -120,11 +148,21 @@ def main() -> int:
         return 0
 
     if HANDOFF.exists():
-        context = _handoff_context()
+        context, stale = _handoff_context()
+        state = "stale" if stale else "fresh"
     elif STATE.exists():
         context = _state_only_context()
+        state = "state_only"
     else:
         context = _nothing_context()
+        state = "none"
+
+    _log_event({
+        "event": "SessionStart",
+        "session_id": payload.get("session_id"),
+        "source": payload.get("source"),
+        "state": state,
+    })
 
     print(json.dumps({
         "hookSpecificOutput": {

@@ -109,3 +109,15 @@ state plus `git log`, rather than trusting the state file alone.
 3. **Check whether a `/change-report` is owed** for the most recent landed change. If
    one hasn't been written yet, write it first — the change report and the handoff
    answer different questions and neither substitutes for the other.
+
+## Usage log (added 2026-08-21)
+
+Both hooks append one line to `.claude/handoff-log.jsonl` on every firing — event
+name, source/trigger, session id, and (for `SessionStart`) whether it found a fresh
+handoff, a stale one, state-only, or nothing. Gitignored, append-only, never read back
+by either hook. It exists because ADR-028 shipped with a real limitation nothing here
+can close — writing the doc still depends on remembering to run this skill — and that
+was reason enough to hold the protocol unpushed until there is a real count of how
+often it actually gets invoked, rather than an impression. Don't build anything that
+reads this log automatically; the point was to have numbers to look at by hand, not to
+add another thing that needs trusting on faith.
