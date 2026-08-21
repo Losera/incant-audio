@@ -256,7 +256,7 @@ traceback can't take the plugin down; it degrades to an error label), trivially 
 |---|---|
 | Prompt injection via shell | Closed by design — argv array, never a shell string |
 | Unbounded hang if generate.py stalls | **Closed 2026-07-19** — 120s `waitForProcessToFinish` cap + `kill()` (PluginEditor.cpp) |
-| Locating `generate.py` from the installed binary | **Closed 2026-07-19** — upward search from the executable (dev layouts) + `PLUGINFORGE_LLM_SCRIPT` env override (installed layouts); old sibling-path guess never matched any real layout |
+| Locating `generate.py` from the installed binary | **Still open — PF-065, partial fix 2026-08-20.** Upward search (dev layouts) + `PLUGINFORGE_LLM_SCRIPT` (installed layouts) was wrongly marked Closed 2026-07-19 — never exercised against a real installed bundle. Confirmed broken in REAPER, 2026-08-19 (`~/.vst3` has no repo above it). 2026-08-20 added a third step, checking the fixed location `install.sh` already documents (`$XDG_DATA_HOME/pluginforge` or `~/.local/share/pluginforge`) — closes the packaged-install case, does NOT close the reported REAPER repro (a dev-loop copy with no XDG runtime present), which still needs the env override. See `docs/BUGS.md` PF-065. |
 | Interpreter discovery (`python3` must be on PATH) | Open — acceptable on the Arch dev target; revisit at distribution time (venv/absolute path) |
 | Per-call interpreter startup (~100ms) | Accepted — invisible behind LLM latency |
 | Ready-state UX (button re-enables before JIT finishes) | Open — tracked as the follow-on in `docs/pair_draft_editor_llm_bridge.md` point E |
@@ -1160,3 +1160,97 @@ unattended runs against, which is the actual, still-live cost of ADR-021's defer
   beyond bench pilots) becomes an actual project goal — that changes the cost/benefit
   calculus Decision §1 rests on, since there would then be a live consumer with no human
   refine loop available to fall back on.
+
+## ADR-028 — Context-clear handoff protocol: guard and re-inject, do not gate
+
+| | |
+|---|---|
+| **Status** | Accepted 2026-08-21 |
+| **Date** | 2026-08-21 |
+
+**Context**
+Context clears are the one session boundary this project had no instrument for.
+`/orient` covers session start, `/change-report` covers a landed change, STATUS.md
+covers where the project is overall — none of them cover "the next agent has none of
+what I just learned." The loss is a recorded live failure, not a hypothetical:
+`STATUS.md`'s "Waiting on you" #0 records a machine dying mid-session and a later
+agent wrongly concluding the work was lost, and an earlier entry records four branches
+stranded across sessions and never reaching `main`. `.claude/RESUME.md`, the one
+harness-generated artifact that already exists for this moment, carries a session UUID
+and, in practice, "No task list was active; see transcript" — no project state at all.
+
+`~/.config/agent-policy/AGENTS.md` §11 ("Agent handoff") already specifies the ten
+fields a handoff needs and §2 says "do not make me reconstruct the previous session
+from raw logs." Nothing implemented it in any project. This ADR implements it here
+first (CLAUDE.md's own naming rule already commits future architectural work to a
+project-first rollout — see "Follow-up" below).
+
+The natural design — make `/handoff` **mandatory** — runs into a hard limit of the
+platform, not a gap in this project's discipline: no Claude Code hook can force a
+skill to run. Frontmatter controls only whether the model *may* invoke a skill, never
+whether it must. `/clear` does fire `SessionEnd`, but that event cannot block and runs
+on a roughly 1.5-second budget — far too late and far too small a window to author a
+document. A `Stop` hook can genuinely block a turn, but blocking the turn is exactly
+the shape `tests/test_control_wiring.py`'s `TestHooksDoNotOverreach` already argues
+against for every other control here: *"a gate that blocks ordinary work gets switched
+off, which is the same as dead"* — and Claude Code overrides a Stop hook after 8
+consecutive blocks regardless, so a narrow Stop gate would not even be durably
+mandatory if built.
+
+**Decision**
+1. **No blocking gate.** `/handoff` is a skill, invoked the same way `/change-report`
+   already is — by trigger-phrase matching and by CLAUDE.md instruction — with no
+   hook empowered to refuse a turn or a session for skipping it.
+2. **The guarantee moves from "the handoff is written" to "a handoff that exists is
+   never missed."** A `SessionStart` hook (`handoff_injector.py`) re-injects
+   `.claude/HANDOFF.md` as `additionalContext` on every `clear`, `compact`, `resume`,
+   and `startup`, and — following `tools/status_digest.sh`'s established rule that
+   silence is the one forbidden output — prints an explicit `NO HANDOFF ON DISK` line
+   rather than nothing when none exists, plus a staleness banner when the recorded
+   HEAD has moved or the file is over 24h old.
+3. **A narrower, unblockable safety net covers the unplanned case.** A `PreCompact`
+   hook (`handoff_precompact.py`) snapshots branch, HEAD, `git status --porcelain` and
+   `git diff --stat` to `.claude/handoff-state.json` before compaction discards
+   context. It **never writes `HANDOFF.md`** — a shell command has no access to the
+   agent's reasoning, so a machine-generated stub silently overwriting a real,
+   human-authored handoff would be a strict downgrade rather than a safety net.
+4. **One fixed path, overwritten in place.** `.claude/HANDOFF.md` and
+   `.claude/handoff-state.json`, always exactly those names, gitignored, never an
+   accumulating log. Count on disk is 0, 1, or 2, never more, and there is never a
+   window where zero handoffs exist between one being replaced and the next being
+   written, because there is no delete step — only overwrite.
+5. **Both hooks get the same four-part teeth pattern** every other control in
+   `tests/test_control_wiring.py` gets: a shape test (registration), a red case (a
+   missing handoff prints the marker; a stale HEAD is flagged; the PreCompact hook
+   leaves `HANDOFF.md` byte-identical), a green case (neither hook ever blocks, for
+   any source or trigger), and an explicit NOT COVERED paragraph — see
+   `TestHandoffHasTeeth` / `TestHandoffDoesNotOverreach`.
+
+**Reasons**
+- Matches the pattern this project already uses for the identical limitation on
+  `/orient`: `tests/test_control_wiring.py` states outright that "/orient is actually
+  run at session start… is a human habit, not a mechanism," and does not pretend
+  otherwise. This ADR extends the same honest framing to session end rather than
+  inventing a stronger claim it cannot back.
+- Separating prose (`HANDOFF.md`) from machine state (`handoff-state.json`) is what
+  makes the unplanned-exhaustion safety net safe to have at all — a merged file would
+  create a real risk of losing a good handoff to a worse one.
+- No architecture, schema, or build-system change; this is agent-workflow tooling
+  under `.claude/`, the same category `/orient` and `/change-report` already occupy.
+
+**Consequences**
+- A handoff can still simply not get written — this ADR does not close that gap and
+  states so rather than obscuring it. What it closes is the *next* failure mode: a
+  handoff that was written but never reaches the next session.
+- Two new hooks add to the `SessionStart`/`PreCompact` surface `tests/test_control_wiring.py`
+  already knows about (`KNOWN_EVENTS` already included both, unused until now).
+- Does not move `tools/check.sh assumed` — this is workflow infrastructure, not
+  evidence, and does not claim the reserved `*(evidence)*` slot in STATUS.md's "Next
+  three things."
+- **Follow-up, deliberately excluded here:** promoting the skill to
+  `~/.claude/skills/handoff/` so other projects get it too, once it has survived a few
+  real clears in this repo. It needs correct `name:` frontmatter before going global,
+  or it becomes the next `/orient` shadowing incident.
+- Revisit if: Claude Code ships a hook event that can genuinely gate `/clear` itself
+  (not just `SessionEnd`'s current no-block, ~1.5s-budget shape) — that would let a
+  future revision close the gap Consequence 1 names instead of only mitigating it.

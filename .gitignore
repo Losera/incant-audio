@@ -68,6 +68,15 @@ bench/.worktrees/
 # Claude Code plan-mode working files (transient planning scratch, not content)
 .claude/plans/
 
+# ADR-028 handoff protocol. Session-to-session working state, not repo content --
+# same reasoning as .claude/plans/ above. Overwritten in place each time, never
+# appended, so this is always 0-2 files, never an accumulating log. HANDOFF.md is
+# agent-authored prose; handoff-state.json is machine-captured by
+# handoff_precompact.py and MUST stay untracked too, or a stale compaction snapshot
+# could get committed and read as current.
+.claude/HANDOFF.md
+.claude/handoff-state.json
+
 # PF-014 real-user prompt log. Local observation data, not repo content: it records
 # what a person actually typed at this machine. Never committed — the benchmark
 # corpus is derived from it by hand, deliberately.

@@ -103,6 +103,18 @@ this is now that control's second recorded failure, not its first — logged so 
 silent instance is less likely, not to imply the fix (a corrected global skill,
 `docs/records/doc-purge-2026-08-19.md`) makes a fourth impossible.
 
+**`/orient` covers session start; `/handoff` (ADR-028, 2026-08-21) covers session end.**
+At a landed change, a green `check.sh` level, or a `.claude/RESUME.md` near-limit trigger,
+write `.claude/HANDOFF.md` so the next session doesn't reconstruct this one from raw logs
+(AGENTS.md §11). `SessionStart` re-injects it automatically after `/clear`, compaction, or
+resume, and prints an explicit `NO HANDOFF ON DISK` line rather than silence when none
+exists — the same "silence is the one forbidden output" rule `/orient`'s digest already
+follows. It is untracked (`.gitignore`), overwritten in place, never more than one file. As
+with `/orient` above: nothing forces this to run — no Claude Code mechanism can compel a
+skill — so `PreCompact` separately snapshots machine state (branch, HEAD, diffstat) to
+`.claude/handoff-state.json` as a narrower safety net for the unplanned case, and it never
+touches `HANDOFF.md` itself. See `.claude/skills/handoff/SKILL.md`.
+
 ## The development cycle
 One command, cost-ordered, cumulative. Run the cheapest level that covers what you touched.
 
