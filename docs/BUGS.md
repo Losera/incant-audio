@@ -1036,7 +1036,7 @@ for a trustworthy fresh measurement, not the measurement itself.
 
 ---
 
-### PF-065 — "generate.py not found" when hosted as an installed VST3 (confirmed in REAPER). *(open, found 2026-08-19)*
+### PF-065 — "generate.py not found" when hosted as an installed VST3 (confirmed in REAPER). *(open, found 2026-08-19; partial fix landed 2026-08-20)*
 
 **high · open · S1 Backend · user-reported, running the built VST3 in REAPER**
 
@@ -1070,10 +1070,40 @@ launch, with nothing in the installer, bundle, or code enforcing or detecting it
 `tests/test_release_packaging.py:105-106` only asserts the installer *prints* the string, never
 that a plugin can actually resolve the script from it.
 
-**Not fixed here.** The fix — bundle the script inside the plugin bundle, ship a config file
-the installer writes, or something else — is a distribution-architecture decision
-(COLLABORATION.md §2 consult-gate territory) and needs its own session, not a documentation-
-hygiene commit.
+**Decision (2026-08-20, COLLABORATION.md §2 consult — human chose the option, not Claude).**
+Presented three options: (A) bundle `generate.py` inside the plugin bundle and always resolve
+relative to the loaded binary; (B) an installer-written config file; (C) teach resolution about
+the fixed location `install.sh` already documents. Chose **C**: `docs/distribution.md`'s
+`install.sh` already places the Python runtime at `$XDG_DATA_HOME/pluginforge` or
+`~/.local/share/pluginforge` and only then tells the user to export `PLUGINFORGE_LLM_SCRIPT`
+pointing at it — nothing previously checked that location directly. (B) was folded into (C):
+the install location isn't user-configurable today, so a separate config file would record
+nothing (C) doesn't already know. (A) was logged as a deferred, larger question rather than
+solved here — it tends to reopen "should PluginForge vendor its own Python interpreter/deps,"
+which is bigger than this bug.
+
+**Partial fix landed** (`host/Source/PromptPanel.cpp`, `resolveGenerateScript()`, now a named,
+externally-linked function above the constructor): added a third resolution step after the env
+override and the upward walk — check `$XDG_DATA_HOME/pluginforge/llm/generate.py`, else
+`~/.local/share/pluginforge/llm/generate.py`. Covered by a new harness,
+`host/tests/PromptPanelPathResolutionTest.cpp` (5 checks: env override still wins over an XDG
+install; the pre-existing upward walk still finds a dev-tree sibling; the new XDG_DATA_HOME
+fallback; the new `~/.local/share` default; and the not-found case stays an invalid `File`),
+run against scratch directories so this repo's own real `llm/generate.py` cannot mask what's
+being tested. `cmake --build host/build --target PromptPanelPathResolutionTest` then running the
+binary directly: 5/5 passed, exit 0. Wired into `tools/check.sh full`'s pure/no-display group and
+into `.github/workflows/test.yml`'s matching build + run steps;
+`pytest tests/test_control_wiring.py -k Ladder` (the CI/ladder-parity guard) passes.
+
+**What this does NOT fix — still open, hence the status stays `open`.** The confirmed REAPER
+repro was against `COPY_PLUGIN_AFTER_BUILD`'s dev-loop copy to `~/.vst3`, not against a real
+`install.sh` install — that dev copy has no repo above it *and* no XDG-installed runtime, so the
+new step 3 does not fire for it either. Reproducing the exact reported failure today still
+requires exporting `PLUGINFORGE_LLM_SCRIPT` before launching the DAW — unchanged, and already
+the mechanism `PromptPanel.cpp`'s own comment names as supported for this case. Closing that
+residual either means running `install.sh` for real before the interactive-host session (Next
+three #1), or later choosing option (A) above. Not claiming "fixed" while the reported repro is
+unchanged — see ADR-011's own history of this exact mistake, just above.
 
 ---
 

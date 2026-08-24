@@ -568,6 +568,60 @@ target_link_libraries(PromptPanelThreadingTest PRIVATE
     ${LIBFAUST_LIB}
 )
 
+# PromptPanelPathResolutionTest -- the PF-065 regression harness
+# (host/tests/PromptPanelPathResolutionTest.cpp). Exercises
+# resolveGenerateScript() (PromptPanel.cpp, external linkage exactly for this)
+# directly against scratch directories: env override wins outright, the
+# pre-existing upward walk still finds a dev-tree sibling, and the new
+# XDG_DATA_HOME / ~/.local/share fallback finds an installed-but-unexported
+# runtime -- the exact "generate.py not found" shape confirmed in REAPER.
+#
+# Same source/link set as StatePersistenceTest: PromptPanel.cpp only compiles
+# as part of the same PluginForgeProcessor/editor closure the other harnesses
+# already build. Pure and fast like StatePersistenceTest/ValidationGateTest
+# beside it -- no display, no network, no JIT (resolveGenerateScript never
+# touches FaustEngine) -- so it belongs in the same no-display "pure" group,
+# not beside PromptPanelThreadingTest's xvfb-gated message-loop test.
+juce_add_console_app(PromptPanelPathResolutionTest
+    PRODUCT_NAME "Prompt Panel Path Resolution Test"
+)
+
+target_sources(PromptPanelPathResolutionTest PRIVATE
+    tests/PromptPanelPathResolutionTest.cpp
+    Source/PluginProcessor.cpp
+    Source/PluginEditor.cpp
+    Source/SampleBrowserPanel.cpp
+    Source/SoundfetchClient.cpp
+    Source/PromptPanel.cpp
+    Source/CodeEditorPanel.cpp
+    Source/ParamGridPanel.cpp
+    Source/KeyboardPanel.cpp
+    Source/FaustEngine.cpp
+    Source/ParamPool.cpp
+    Source/OutputGuard.cpp
+)
+
+target_compile_features(PromptPanelPathResolutionTest PRIVATE cxx_std_17)
+
+target_compile_definitions(PromptPanelPathResolutionTest PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_VST3_CAN_REPLACE_VST2=0
+)
+
+# -fno-sanitize=vptr: see the StatePersistenceTest block above -- libfaust.so is
+# built -fno-rtti and does not export typeinfo for llvm_dsp.
+target_compile_options(PromptPanelPathResolutionTest PRIVATE -fsanitize=address,undefined -fno-sanitize=vptr -g -O1)
+target_link_options(PromptPanelPathResolutionTest PRIVATE -fsanitize=address,undefined -fno-sanitize=vptr)
+
+target_link_libraries(PromptPanelPathResolutionTest PRIVATE
+    juce::juce_audio_utils
+    juce::juce_dsp
+    juce::juce_gui_extra
+    juce::juce_recommended_config_flags
+    ${LIBFAUST_LIB}
+)
+
 # OfflineRenderTest -- the OBJECTIVE half of the P6 listening battery
 # (host/tests/OfflineRenderTest.cpp). Renders a corpus of hand-written Faust
 # through the REAL plugin path (JIT, swap protocol, ParamPool denormalisation,

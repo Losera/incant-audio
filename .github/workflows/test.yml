@@ -245,7 +245,7 @@ jobs:
       # with CI green, and running it catches a fixture that will not compile
       # or a grid that never settles (see the "Run UiDesignGallery" step below).
       - name: Build behavioural test harnesses
-        run: cmake --build build-ci --target OfflineRenderTest OfflineSynthRenderTest PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery ParamIdentityTest NoteRingTest NoteRingTsanTest AuditionThreadingTest ValidationGateTest SoundfetchClientTest GenerationProfilesAutoTest
+        run: cmake --build build-ci --target OfflineRenderTest OfflineSynthRenderTest PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery ParamIdentityTest NoteRingTest NoteRingTsanTest AuditionThreadingTest ValidationGateTest SoundfetchClientTest GenerationProfilesAutoTest PromptPanelPathResolutionTest
 
       # ── PF-036: pin the JIT's target CPU for every harness that JITs ────────
       # GitHub's hosted fleet mixes EPYC 7763 (Zen 3, no AVX-512), Xeon 8573C
@@ -318,9 +318,9 @@ jobs:
       # GenerationProfilesAutoTest joined the same day: the one place that can
       # reach GenerationProfiles::resolveAuto()'s instrument-side branch,
       # which EditorSessionTest (PF_IS_SYNTH always 0 here) cannot.
-      - name: Run the pure harnesses (OutputGuard, ParamMap, StatePersistence, ParamIdentity, NoteRing, ValidationGate, SoundfetchClient, GenerationProfilesAuto)
+      - name: Run the pure harnesses (OutputGuard, ParamMap, StatePersistence, ParamIdentity, NoteRing, ValidationGate, SoundfetchClient, GenerationProfilesAuto, PromptPanelPathResolution)
         run: |
-          for t in OutputGuardTest ParamMapTest StatePersistenceTest ParamIdentityTest NoteRingTest ValidationGateTest SoundfetchClientTest GenerationProfilesAutoTest; do
+          for t in OutputGuardTest ParamMapTest StatePersistenceTest ParamIdentityTest NoteRingTest ValidationGateTest SoundfetchClientTest GenerationProfilesAutoTest PromptPanelPathResolutionTest; do
             BIN="$(find build-ci -type f -name "$t" | head -n 1)"
             if [ -z "$BIN" ]; then
               echo "$t binary not found" >&2

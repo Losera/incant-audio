@@ -71,6 +71,76 @@ static juce::String statusForReason(const juce::String& reason, double retryAfte
     return "LLM error (see errors below).";
 }
 
+// ── generate.py resolution (PF-065) ─────────────────────────────────────────
+// External linkage (no `static`) so PromptPanelPathResolutionTest can
+// forward-declare and exercise it directly, without constructing a full
+// PromptPanel/PluginForgeProcessor. binaryDir/homeDir default to the real
+// locations in production; tests override both with scratch directories so
+// the walk-upward and XDG-default steps can be exercised in isolation from
+// this actual repo (whose real llm/generate.py would otherwise mask a test
+// aimed at steps 2/3, since the test binary is built inside this tree).
+//
+// Three steps, in order:
+//   1. PLUGINFORGE_LLM_SCRIPT env override — always wins when set.
+//   2. Walk upward from the loaded binary looking for a sibling llm/generate.py.
+//      Verified against the real layouts (2026-07-19): dev Standalone binary
+//      sits at host/build/PluginForgeHost_artefacts/<config>/Standalone/ (repo
+//      root is 5 levels up), dev VST3 binary at .../VST3/PluginForge
+//      Host.vst3/Contents/<arch>/ (repo root is 8 levels up). Correct for a
+//      dev-tree or in-tree build; an *installed* bundle (e.g. ~/.vst3, or a
+//      dev build copied there by CMake's COPY_PLUGIN_AFTER_BUILD) has no repo
+//      above it, so every step of this walk misses.
+//   3. Check the location `install.sh` actually writes to (docs/distribution.md):
+//      $XDG_DATA_HOME/pluginforge/llm/generate.py, else
+//      ~/.local/share/pluginforge/llm/generate.py. Added for PF-065: the
+//      packaged install already places the runtime at this fixed, documented
+//      path and only THEN asks the user to export PLUGINFORGE_LLM_SCRIPT
+//      pointing at it (`install.sh`'s printed instruction) — nothing
+//      previously checked that path directly, so a DAW that doesn't inherit
+//      the env var (e.g. launched from a desktop icon, confirmed in REAPER)
+//      reported "generate.py not found" even though the script was sitting
+//      exactly where the installer put it.
+//
+// NOT fixed by this: the dev-inner-loop case (a CMake-copied build at
+// ~/.vst3 without ever having run install.sh) still has no repo above it and
+// no XDG-installed runtime, so it still requires exporting
+// PLUGINFORGE_LLM_SCRIPT before launching the DAW — the same "supported
+// mechanism" this function's step 1 already names. See docs/BUGS.md PF-065.
+juce::File resolveGenerateScript(
+    const juce::File& binaryDir = juce::File::getSpecialLocation(
+        juce::File::currentExecutableFile).getParentDirectory(),
+    const juce::File& homeDir = juce::File::getSpecialLocation(
+        juce::File::userHomeDirectory))
+{
+    auto envScript = juce::SystemStats::getEnvironmentVariable(
+        "PLUGINFORGE_LLM_SCRIPT", "");
+    if (envScript.isNotEmpty())
+        return juce::File(envScript);
+
+    auto dir = binaryDir;
+    for (int depth = 0; depth < 10; ++depth)
+    {
+        auto candidate = dir.getChildFile("llm").getChildFile("generate.py");
+        if (candidate.existsAsFile())
+            return candidate;
+        dir = dir.getParentDirectory();
+    }
+
+    auto xdgDataHome = juce::SystemStats::getEnvironmentVariable("XDG_DATA_HOME", "");
+    auto dataHome = xdgDataHome.isNotEmpty()
+        ? juce::File(xdgDataHome)
+        : homeDir.getChildFile(".local/share");
+    auto installedCandidate = dataHome.getChildFile("pluginforge")
+                                   .getChildFile("llm")
+                                   .getChildFile("generate.py");
+    if (installedCandidate.existsAsFile())
+        return installedCandidate;
+
+    // Not found by any step: return an invalid juce::File. submitPrompt()
+    // surfaces "generate.py not found" with the (empty) path in the UI.
+    return {};
+}
+
 // ── PromptPanel ─────────────────────────────────────────────────────────────
 PromptPanel::PromptPanel(PluginForgeProcessor& p)
     : processor(p)
@@ -124,37 +194,9 @@ PromptPanel::PromptPanel(PluginForgeProcessor& p)
     // typically runs before the editor (and this panel) is even constructed.
     promptHistory = processor.promptHistorySnapshot();
 
-    // Resolution order: PLUGINFORGE_LLM_SCRIPT env override, else walk upward from
-    // the binary looking for llm/generate.py. Verified against the real layouts
-    // (2026-07-19): dev Standalone binary sits at
-    // host/build/PluginForgeHost_artefacts/<config>/Standalone/ (repo root is 5
-    // levels up) and the dev VST3 binary at
-    // .../VST3/PluginForge Host.vst3/Contents/<arch>/ (repo root is 8 levels up) —
-    // the old getSiblingFile("llm") guess resolved inside the build tree and never
-    // matched either. An *installed* bundle (e.g. ~/.vst3) has no repo above it;
-    // there the env override is the supported mechanism.
-    auto envScript = juce::SystemStats::getEnvironmentVariable(
-        "PLUGINFORGE_LLM_SCRIPT", "");
-
-    if (envScript.isNotEmpty())
-        generateScript = juce::File(envScript);
-    else
-    {
-        auto dir = juce::File::getSpecialLocation(juce::File::currentExecutableFile)
-                       .getParentDirectory();
-        for (int depth = 0; depth < 10; ++depth)
-        {
-            auto candidate = dir.getChildFile("llm").getChildFile("generate.py");
-            if (candidate.existsAsFile())
-            {
-                generateScript = candidate;
-                break;
-            }
-            dir = dir.getParentDirectory();
-        }
-        // Not found: generateScript stays invalid; submitPrompt() surfaces
-        // "generate.py not found" with the (empty) path in the UI.
-    }
+    // Resolution order — see resolveGenerateScript() above the constructor for
+    // the third step (PF-065) and its rationale.
+    generateScript = resolveGenerateScript();
 
     addAndMakeVisible(generateButton);
     generateButton.onClick = [this] { submitPrompt(); };
