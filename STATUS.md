@@ -466,14 +466,15 @@ blocking CI on this branch (the same reasoning that reversed PF-067's original "
 now" call): removed the stale check and the now-unused test-only accessors it was the only
 caller of. Full writeup: `docs/BUGS.md` PF-066.
 
-**16. `requirements.txt`'s uncapped `anthropic>=0.40.0` now resolves to 1.0.0, which ships
-`httpx2` instead of `httpx` — every `import httpx` in `llm/providers.py` fails.** *(PF-067,
-critical, open, found 2026-08-25.)* Not test-only: `llm/generate.py` itself imports
-`providers.py`, so a fresh install of the real product breaks the same way. Confirmed
-pre-existing and universal — reproduces on CI for any branch pushed today, including a
-rebuild of committed `main`; the last green `main` run (2026-08-20) predates whenever
-`anthropic` 1.0.0 was published. Not fixed here — a dependency-pinning decision, out of
-scope for the UI/UX session that found it. Full writeup: `docs/BUGS.md` PF-067.
+**16. `requirements.txt`'s uncapped `anthropic>=0.40.0` resolved to 1.0.0, which ships
+`httpx2` instead of `httpx` — every `import httpx` in `llm/providers.py` failed.** *(PF-067,
+critical, fixed 2026-08-25, `73f3263`.)* Not test-only: `llm/generate.py` itself imports
+`providers.py`, so a fresh install of the real product broke the same way. Confirmed
+pre-existing and universal before the fix — reproduced on CI for any branch pushed that day,
+including a rebuild of committed `main`; the last green `main` run (2026-08-20) predates
+whenever `anthropic` 1.0.0 was published. Fixed once it became the one thing blocking CI on
+every branch: pinned `requirements.txt:1` to `anthropic>=0.40.0,<1.0.0`, restoring `httpx`
+without touching `providers.py` or vendoring anything. Full writeup: `docs/BUGS.md` PF-067.
 
 ---
 
