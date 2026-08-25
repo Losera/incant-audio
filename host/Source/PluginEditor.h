@@ -97,6 +97,8 @@ public:
     ParamGridPanel::WidgetKind gridControlKindForTest(int i) const;
     juce::String gridControlLabelForTest(int i) const;
     juce::String gridControlGroupForTest(int i) const;
+    juce::String gridControlStyleForTest(int i) const;
+    juce::String gridControlOrientationForTest(int i) const;
     double       gridControlValueForTest(int i) const;
     juce::String gridControlTextForTest(int i) const;
     // T1 (ADR-022 Track 1.2): the sectioned layout applyUiIr() is currently
@@ -106,11 +108,25 @@ public:
     {
         return paramGridPanel.activeSectionsForTest();
     }
+    // ADR-029 §4: the component descriptor applyUiIr() last received. Same
+    // forwarding rule as every accessor here.
+    UiIr::Components gridActiveComponentsForTest() const
+    {
+        return paramGridPanel.activeComponentsForTest();
+    }
     // T7 (ADR-022 §3): the per-generation accent the current compile derived.
     // Same forwarding rule as every accessor here.
     juce::Colour gridPaletteForTest() const
     {
         return paramGridPanel.currentPaletteForTest();
+    }
+    // ADR-029 §5: the generated title for the current compile, same forwarding
+    // rule as every accessor here. Also what paint() itself draws -- not a
+    // test-only recomputation, so this cannot pass by agreeing with paint()
+    // by construction while both are wrong.
+    juce::String gridTitleForTest() const
+    {
+        return paramGridPanel.getGeneratedTitle();
     }
     // T3.4: TooltipWindow::getTipFor() gates on WindowingHelpers::
     // isForegroundOrEmbeddedProcess() (juce_TooltipWindow.cpp:154), which this

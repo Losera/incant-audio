@@ -976,7 +976,9 @@ Phase 1a (this decision): the renderer (`ParamGridPanel::applyUiIr`) and the sch
 
 Phase 1b (gated on prompt headroom): the system prompt teaches the LLM to emit a
 `ui_ir` field alongside Faust code. Requires measuring the token cost against the
-existing ~124-token headroom budget.
+existing ~140-token headroom budget *(corrected 2026-08-25 — re-measured via
+`python3 tests/test_prompt_headroom.py`; the 124 figure predated the 2026-07-31
+stdlib trim and was copied forward uncorrected)*.
 
 **Reasons**
 - Sectioned layout is the first step toward visual identity without leaving native widgets
@@ -1254,3 +1256,104 @@ mandatory if built.
 - Revisit if: Claude Code ships a hook event that can genuinely gate `/clear` itself
   (not just `SessionEnd`'s current no-block, ~1.5s-budget shape) — that would let a
   future revision close the gap Consequence 1 names instead of only mitigating it.
+
+## ADR-029 — Component descriptor: let the compiled patch describe its own surface
+
+| | |
+|---|---|
+| **Status** | Accepted 2026-08-25 |
+| **Date** | 2026-08-25 |
+
+**Context**
+A 2026-08-24 audit ("The Discard Problem" / "Compiler as Instrument" session
+briefings) found five places where the compiler or the LLM already produces metadata
+useful for a distinct, professional-looking generated plugin, and the host discards
+it before it reaches the screen:
+
+1. `[style:knob]` is parsed and dropped — `FaustEngine.cpp:102-106` only tests for
+   `menu`/`radio`; `ParamInfo` (`FaustEngine.h:66-79`) has no generic style field to
+   hold anything else.
+2. `hgroup`/`vgroup` orientation is discarded at capture — `openHorizontalBox` and
+   `openVerticalBox` both call the identical `pushGroup(label)`
+   (`FaustEngine.cpp:218-219`), so a group's intended layout axis never survives.
+3. `Kind::Meter` is captured (`FaustEngine.cpp:197,203`) and has no pool slot to
+   render into — already filed as PF-052, unchanged by this proposal.
+4. The window title is the literal string `"PluginForge"`
+   (`PluginEditor.cpp:564`), regardless of what was generated.
+5. Which fixed UI bands a plugin gets is currently one bespoke boolean per band, not
+   a single descriptor: `89268ec` (2026-08-24, landed on this branch before this ADR
+   was drafted) already made the keyboard band conditional on
+   `processor.isInstrumentForTest()` via `PluginEditor.h:352`'s `includeKeyboard`
+   parameter to `verticalChrome()` — but the sample-browser band was a deliberate,
+   separate call to leave unconditional ("Sample browser stays unconditional by
+   design", same commit message). That is a real, already-made decision this ADR
+   does not reopen; it is cited here because the next two bullets generalize the
+   *mechanism* `89268ec` used for the keyboard into something that could decide
+   sample-browser inclusion too, if that decision is ever revisited — which is a
+   separate question from this ADR.
+
+ADR-024 already solved the adjacent problem — renderer-agnostic *section* layout,
+via `UiIr::Layout` (`host/Source/UiIr.h`), populated today by
+`ParamGridPanel::deriveLayoutFromGroups()`, a pure heuristic over `ParamInfo::group`
+with no LLM output and no prompt change (ADR-024's 2026-08-13 note). ADR-022 §3 used
+the same derivation pattern for `derivePalette()` (`ParamGridPanel.cpp:642-658`): hash
+the instrument bit plus sorted group names, modulo `Theme::GeneratedAccent`'s four
+swatches, applied to three `Slider` colour IDs (`ParamGridPanel.cpp:304-306`). Both
+existing systems are deterministic, post-compile, and reuse facts the compiler
+already produced. This ADR proposes extending that same pattern to answer one more
+question: not just how the parameter grid is sectioned or coloured, but **which
+components exist in the window at all**, and what it's titled.
+
+**Decision**
+1. Do not add a new LLM-emitted design artifact. ADR-021's "no PluginSpec" and
+   ADR-019's "no WebView" both stand; nothing here reopens either. Every input this
+   ADR proposes reading already exists post-compile: the voice contract
+   (`FaustEngine::isInstrument()`, `FaustEngine.h:178`), `ParamInfo::group`, and
+   `Kind::Meter` zones.
+2. Add a `style` field to `ParamInfo` (currently only `isMenu : bool`,
+   `FaustEngine.h:79`) so `[style:knob]` and future style hints survive capture
+   instead of being silently absorbed into the `menu`/`radio` check at
+   `FaustEngine.cpp:102-106`.
+3. Capture `hgroup`/`vgroup` orientation before it collapses into a bare group name
+   at `FaustEngine.cpp:218-219` — carry it on the group path so a future layout pass
+   can honor it, without committing yet to what the renderer does with it.
+4. Extend `UiIr::Layout`'s schema (version bump per ADR-024's own versioning design,
+   `UiIr.h:43`) with a component list — which of `{keyboard, sample browser, meter}`
+   are present — computed by the same deterministic pass that already produces
+   `deriveLayoutFromGroups()`, from the voice contract and captured `Kind::Meter`
+   zones. This generalizes `89268ec`'s single keyboard boolean into one descriptor
+   mechanism, without itself deciding to change the sample-browser call `89268ec`
+   already made on the record.
+5. Compute a short plugin title from the same inputs `derivePalette()` already
+   hashes (family + accent), replacing the literal `"PluginForge"` at
+   `PluginEditor.cpp:564`. No new information; a name instead of a colour index.
+
+**Reasons**
+- Every one of these is subtractive or derivative — nothing here asks the model for
+  more output, so none of it re-opens COLLABORATION.md §3's Tier-2 prompt/benchmark
+  obligations. The information already exists; this proposal stops discarding it.
+- Keeps faith with ADR-024's own versioned-schema design instead of adding a second,
+  parallel descriptor mechanism next to `UiIr::Layout`.
+- Point 5 (title) costs one function and zero new captured data.
+
+**Consequences**
+- `verticalChrome()` (`PluginEditor.h:352`) would need to read the descriptor rather
+  than a single hardcoded `includeKeyboard` bool once more than one band is
+  descriptor-driven — a real signature change, not just an additive field.
+- `PF-052` (`Kind::Meter` has no pool slot) becomes a prerequisite for the meter
+  component actually rendering, not just being listed as present — this ADR does not
+  close PF-052 itself.
+- Whether the sample-browser band ever becomes descriptor-driven (reopening
+  `89268ec`'s explicit "unconditional by design" call) is a separate decision this
+  ADR deliberately leaves open rather than answering by implication.
+- Revisit if: the schema version bump proves incompatible with saved state blobs
+  from patches authored under schema 1, or the component list's heuristic produces a
+  visibly wrong result on a real corpus patch (analogous to ADR-024's own suppression
+  threshold, added after `<4 controls` sectioning looked wrong in practice).
+
+**Accepted 2026-08-25, same session, by explicit user decision** — Proposed →
+Accepted, per COLLABORATION.md §2 ("Claude drafts an ADR and proposes it; the human
+decides"). Acceptance is the direction, not the implementation: none of the code
+changes in Decision §2-5 have been written yet. Landing them still goes through the
+ordinary `tools/check.sh` ladder and, for anything touching `host/Source/`, the
+Tier 2 evidence bar — this entry authorizes the direction, not a bypass of either.

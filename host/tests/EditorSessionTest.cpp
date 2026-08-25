@@ -1077,16 +1077,24 @@ void scenario12_readout()
 // groups into its manifest but makes no claims about them by design, which is
 // exactly the shape of a control that is believed to run and does not.
 //
+// ADR-029 §2/§3 (2026-08-25): the same patch now also pins the two fields that
+// used to be discarded at the SAME capture site -- group orientation (both
+// openHorizontalBox/openVerticalBox used to call the identical pushGroup(label),
+// FaustEngine.cpp:218-219 before this ADR) and the raw [style:...] declare()
+// value (only menu/radio were recognised; "knob" had nowhere to go,
+// FaustEngine.cpp:102-106). Neither renders anything yet -- see
+// controlStyleForTest/controlOrientationForTest's own comment.
+//
 // The expected values are not guessed. They are read off `faust -lang cpp` for
 // this exact patch, whose buildUserInterface emits:
 //     openVerticalBox("<filename>");     <- dropped: a filename, not a section
 //       openVerticalBox("Amp");
-//         addHorizontalSlider("Level", ...);        -> "Amp"
+//         addHorizontalSlider("Level", ...);        -> "Amp", vertical, style "knob"
 //       closeBox();
 //       addHorizontalSlider("Loose", ...);          -> ""   (no enclosing group)
 //       openVerticalBox("Osc");
 //         openHorizontalBox("Tune");
-//           addHorizontalSlider("Fine", ...);       -> "Osc/Tune"
+//           addHorizontalSlider("Fine", ...);       -> "Osc/Tune", horizontal
 //         closeBox();
 //       closeBox();
 //     closeBox();
@@ -1095,18 +1103,20 @@ void scenario12_readout()
 // anything the grid does -- see the note on ParamInfo::group about PF-038.
 void scenario14_groupCapture()
 {
-    scenario("14. the Faust group path is captured",
+    scenario("14. the Faust group path, orientation and style are captured",
              "nesting joins outermost-first; the filename wrapper is dropped; "
-             "an ungrouped param reports empty");
+             "an ungrouped param reports empty; hgroup/vgroup axis and "
+             "[style:...] both survive to the same retained ParamInfo");
 
     // Three params spanning the three cases in one patch, so the ungrouped case
     // is exercised ALONGSIDE grouped ones rather than in a patch that has no
     // groups at all -- an implementation that dropped the stack entirely would
-    // pass the latter.
+    // pass the latter. "Level" carries [style:knob] so the style check exercises
+    // a real declare() value, not an invented one.
     const char* kGroupedPatch = R"(import("stdfaust.lib");
 loose = hslider("Loose", 0.5, 0, 1, 0.01);
 inner = vgroup("Osc", hgroup("Tune", hslider("Fine", 0, -1, 1, 0.01)));
-outer = vgroup("Amp", hslider("Level", 0.5, 0, 1, 0.01));
+outer = vgroup("Amp", hslider("Level[style:knob]", 0.5, 0, 1, 0.01));
 amt = (loose + inner + outer) * 0.3;
 process = _ * amt, _ * amt;
 )";
@@ -1116,48 +1126,85 @@ process = _ * amt, _ * amt;
     if (s.editor.gridControlCountForTest() != 3) return;
 
     // Keyed by LABEL, not by index: index order is Faust's alphabetical ordering,
-    // and this scenario is about the group field, not about ordering. Asserting
-    // positionally would make it fail for an unrelated reason if that ordering
-    // ever changed.
-    std::map<juce::String, juce::String> byLabel;
+    // and this scenario is about the group/orientation/style fields, not about
+    // ordering. Asserting positionally would make it fail for an unrelated
+    // reason if that ordering ever changed.
+    struct Meta { juce::String group, orientation, style; };
+    std::map<juce::String, Meta> byLabel;
     for (int i = 0; i < 3; ++i)
-        byLabel[s.editor.gridControlLabelForTest(i)] = s.editor.gridControlGroupForTest(i);
+    {
+        const auto label = s.editor.gridControlLabelForTest(i);
+        byLabel[label] = { s.editor.gridControlGroupForTest(i),
+                           s.editor.gridControlOrientationForTest(i),
+                           s.editor.gridControlStyleForTest(i) };
+    }
 
-    const auto groupOf = [&byLabel](const char* label) -> juce::String
+    const auto metaOf = [&byLabel](const char* label) -> Meta
     {
         auto it = byLabel.find(juce::String(label));
-        return it == byLabel.end() ? juce::String("<no such control>") : it->second;
+        return it == byLabel.end() ? Meta{ "<no such control>", "", "" } : it->second;
     };
 
-    check(groupOf("Level") == "Amp",
-          juce::String("'Level' reports its enclosing vgroup -- got '")
-              + groupOf("Level") + "'");
-    check(groupOf("Fine") == "Osc/Tune",
+    const auto level = metaOf("Level");
+    const auto fine  = metaOf("Fine");
+    const auto loose = metaOf("Loose");
+
+    check(level.group == "Amp",
+          juce::String("'Level' reports its enclosing vgroup -- got '") + level.group + "'");
+    check(fine.group == "Osc/Tune",
           juce::String("'Fine' joins nested groups outermost-first -- got '")
-              + groupOf("Fine") + "'");
+              + fine.group + "'");
     // The two cases most likely to regress together: the wrapper leaking in would
     // turn this into the .dsp filename rather than the empty string.
-    check(groupOf("Loose").isEmpty(),
+    check(loose.group.isEmpty(),
           juce::String("'Loose' is outside every group and reports empty -- got '")
-              + groupOf("Loose") + "'");
+              + loose.group + "'");
     bool wrapperLeaked = false;
     for (const auto& kv : byLabel)
-        if (kv.second.startsWith("pluginforge") || kv.second.contains(".dsp"))
+        if (kv.second.group.startsWith("pluginforge") || kv.second.group.contains(".dsp"))
             wrapperLeaked = true;
     check(! wrapperLeaked,
           "Faust's outermost filename box never appears in any path");
+
+    // ADR-029 §3: the INNERMOST enclosing group's axis, not the outermost --
+    // "Fine" sits in vgroup("Osc") -> hgroup("Tune"), and it is the hgroup that
+    // determines how Fine's immediate siblings would flow.
+    check(level.orientation == "vertical",
+          juce::String("'Level' sits directly in a vgroup -- got '")
+              + level.orientation + "'");
+    check(fine.orientation == "horizontal",
+          juce::String("'Fine's innermost enclosing group is the hgroup, not the "
+                       "outer vgroup -- got '") + fine.orientation + "'");
+    check(loose.orientation == "none",
+          juce::String("'Loose' has no enclosing group, so no orientation -- got '")
+              + loose.orientation + "'");
+
+    // ADR-029 §2: the raw declare() value survives verbatim, not just the
+    // menu/radio boolean that already existed.
+    check(level.style == "knob",
+          juce::String("'Level' declared [style:knob] -- got '") + level.style + "'");
+    check(fine.style.isEmpty(),
+          juce::String("'Fine' declared no style -- got '") + fine.style + "'");
 
     // A patch with NO groups must report empty for every param -- the fallback a
     // sectioned layout has to handle, and the state every patch was in before the
     // callbacks were implemented.
     check(loadAndSettle(s, kFourParamPatch, 4), "an ungrouped 4-param patch compiled");
     int nonEmpty = 0;
+    int nonNoneOrientation = 0;
     for (int i = 0; i < s.editor.gridControlCountForTest(); ++i)
+    {
         if (s.editor.gridControlGroupForTest(i).isNotEmpty())
             ++nonEmpty;
+        if (s.editor.gridControlOrientationForTest(i) != "none")
+            ++nonNoneOrientation;
+    }
     check(nonEmpty == 0,
           juce::String("a patch with no groups reports no groups -- ")
               + juce::String(nonEmpty) + " non-empty");
+    check(nonNoneOrientation == 0,
+          juce::String("a patch with no groups reports no orientation -- ")
+              + juce::String(nonNoneOrientation) + " non-none");
 }
 
 // 15 — A regeneration that reorders, renames, adds and removes parameters must
@@ -2802,10 +2849,11 @@ void scenario39_codeViewCopyButton()
 //      answer.
 void scenario40_heuristicAccentIsDeterministicAndValid()
 {
-    scenario("40. per-generation accent: deterministic, always a known swatch",
-             "derivePalette() is a pure function of (params, isInstrument) -- "
-             "recompiling the identical patch must never change the accent, "
-             "and the result must always be a real swatch");
+    scenario("40. per-generation accent and title: deterministic, always known, always agree",
+             "derivePalette()/deriveTitle() are pure functions of the SAME "
+             "(params, isInstrument) hash (ADR-029 §5) -- recompiling the "
+             "identical patch must never change either, and the title's "
+             "accent name must always name the actual palette colour");
 
     const auto isKnownSwatch = [](juce::Colour c)
     {
@@ -2815,20 +2863,46 @@ void scenario40_heuristicAccentIsDeterministicAndValid()
         return false;
     };
 
+    // Mirrors ParamGridPanel.cpp's kAccentNames exactly (same order as
+    // Theme::GeneratedAccent::swatches) so this scenario can cross-check the
+    // title's name against the ACTUAL palette colour, not just assert the
+    // title looks plausible in isolation.
+    struct NamedSwatch { juce::Colour colour; const char* name; };
+    const auto accentNameOf = [](juce::Colour c) -> juce::String
+    {
+        const NamedSwatch kNamed[] = {
+            { Theme::GeneratedAccent::swatches[0], "Ember" },
+            { Theme::GeneratedAccent::swatches[1], "Amber" },
+            { Theme::GeneratedAccent::swatches[2], "Rust"  },
+            { Theme::GeneratedAccent::swatches[3], "Coral" },
+        };
+        for (const auto& kv : kNamed)
+            if (kv.colour == c)
+                return kv.name;
+        return "<unknown swatch>";
+    };
+
     Session s;
 
     // An instrument, no groups -- kGatedSawSynthPatch (§2 in this file).
     check(loadAndSettle(s, kGatedSawSynthPatch, 1), "the gated saw synth compiled");
     const auto instrumentPalette = s.editor.gridPaletteForTest();
+    const auto instrumentTitle   = s.editor.gridTitleForTest();
     check(isKnownSwatch(instrumentPalette), "the instrument's accent is one of the four swatches");
+    check(instrumentTitle == accentNameOf(instrumentPalette) + " Instrument",
+          juce::String("the title names the actual accent and says Instrument -- got '")
+              + instrumentTitle + "'");
 
     // Recompile the SAME source over itself (Iterate, like a real re-generation
-    // that changes nothing structural) and confirm the accent did not move.
+    // that changes nothing structural) and confirm neither the accent nor the
+    // title moved.
     check(loadAndSettle(s, kGatedSawSynthPatch, 1,
                         PluginForgeProcessor::LoadMode::Iterate),
           "the same instrument recompiled");
     check(s.editor.gridPaletteForTest() == instrumentPalette,
           "recompiling the identical patch does not change its accent");
+    check(s.editor.gridTitleForTest() == instrumentTitle,
+          "recompiling the identical patch does not change its title");
 
     // A grouped effect -- reuses scenario 33's four-group shape, a different
     // patch shape (grouped, not an instrument) to exercise the other arm of
@@ -2843,15 +2917,132 @@ process = _ * amt, _ * amt;
 )";
     check(loadAndSettle(s, kGroupedEffectPatch, 4), "the grouped effect compiled");
     const auto effectPalette = s.editor.gridPaletteForTest();
+    const auto effectTitle   = s.editor.gridTitleForTest();
     check(isKnownSwatch(effectPalette), "the grouped effect's accent is one of the four swatches");
+    check(effectTitle == accentNameOf(effectPalette) + " Effect",
+          juce::String("the title names the actual accent and says Effect -- got '")
+              + effectTitle + "'");
 
     check(loadAndSettle(s, kGroupedEffectPatch, 4,
                         PluginForgeProcessor::LoadMode::Iterate),
           "the same grouped effect recompiled");
     check(s.editor.gridPaletteForTest() == effectPalette,
           "recompiling the identical grouped effect does not change its accent");
+    check(s.editor.gridTitleForTest() == effectTitle,
+          "recompiling the identical grouped effect does not change its title");
 
     snapshot(s.editor, "38_heuristic_accent");
+}
+
+// 41 — ADR-029 §4: the component descriptor is populated in BOTH the
+//      sectioned and the suppressed path, and tracks the same voice-contract
+//      fact that already drives other behaviour rather than a second,
+//      potentially-diverging notion of it.
+//
+// The suppressed-path case matters specifically because deriveLayoutFromGroups
+// used to return UiIr::empty() (schema 0, no sections, no components) whenever
+// section headings would not help -- kGatedSawSynthPatch (1 control, no
+// groups) is exactly that case. Before this scenario, ADR-029 §4's components
+// would have been silently lost for every patch too small or too flat to earn
+// section headings, which is most of the corpus.
+//
+// The meter field is asserted SEPARATELY, directly against
+// ParamGridPanel::deriveComponents() with a hand-built ParamList, not through
+// a compiled patch -- see that assertion's own comment for why an end-to-end
+// meter test cannot pass today, and is not this scenario asserting the wrong
+// thing.
+void scenario41_componentDescriptor()
+{
+    scenario("41. the component descriptor tracks the voice contract",
+             "keyboard mirrors isInstrumentForTest(); sampleBrowser is always true "
+             "(89268ec, unchanged); populated whether or not sections were "
+             "suppressed");
+
+    Session s;
+
+    // Instrument, 1 control, no groups -- takes the SUPPRESSED path
+    // (occupiedSlots < 4). Reuses scenario 40's own fixture.
+    check(loadAndSettle(s, kGatedSawSynthPatch, 1), "the gated saw synth compiled");
+    check(s.editor.gridActiveSectionsForTest().empty(),
+          "sanity: this patch really did take the suppressed (no-sections) path");
+    {
+        const auto c = s.editor.gridActiveComponentsForTest();
+        check(c.keyboard, "an instrument reports a keyboard, even suppressed");
+        check(c.sampleBrowser, "sampleBrowser is always true (89268ec)");
+        check(! c.meter, "no bargraph in this patch -- no meter");
+    }
+
+    // A plain effect, 2 controls, no groups -- ALSO the suppressed path, but
+    // isInstrument's other arm: no keyboard.
+    const char* kPlainEffectPatch = R"(import("stdfaust.lib");
+drive = hslider("Drive", 2.0, 1.0, 10.0, 0.01);
+level = hslider("Level", 0.5, 0.0, 1.0, 0.01);
+process = (*(drive) : min(1.0) : max(-1.0) : *(level)), _;
+)";
+    check(loadAndSettle(s, kPlainEffectPatch, 2), "the plain effect compiled");
+    check(s.editor.gridActiveSectionsForTest().empty(),
+          "sanity: this patch also took the suppressed path");
+    {
+        const auto c = s.editor.gridActiveComponentsForTest();
+        check(! c.keyboard, "an effect reports no keyboard");
+        check(c.sampleBrowser, "sampleBrowser is always true (89268ec)");
+        check(! c.meter, "no bargraph in this patch -- no meter");
+    }
+
+    // The SECTIONED path (4 groups, >=4 controls) -- confirms components are
+    // populated there too, not only in the suppressed branch above. freq/
+    // gate/gain are withheld from the published list for an instrument (the
+    // voice contract), so the grid's control count is the 4 group sliders
+    // only, not 7.
+    const char* kGroupedInstrumentPatch = R"(import("stdfaust.lib");
+freq = hslider("freq", 440, 20, 4000, 0.01) : si.smoo;
+gate = button("gate");
+gain = hslider("gain", 0.5, 0, 1, 0.01) : si.smoo;
+oscFreq      = vgroup("Osc",    hslider("Detune", 0, -1, 1, 0.01));
+filterCutoff = vgroup("Filter", hslider("Cutoff", 0.5, 0, 1, 0.01));
+envAttack    = vgroup("Env",    hslider("Attack", 0.5, 0, 1, 0.01));
+fxMix        = vgroup("Fx",     hslider("Mix",    0.5, 0, 1, 0.01));
+amt = (oscFreq + filterCutoff + envAttack + fxMix) * 0.25;
+process = os.osc(freq) * gate * gain * amt, os.osc(freq) * gate * gain * amt;
+)";
+    check(loadAndSettle(s, kGroupedInstrumentPatch, 4), "the grouped instrument compiled");
+    check(! s.editor.gridActiveSectionsForTest().empty(),
+          "sanity: this patch really did take the sectioned path");
+    {
+        const auto c = s.editor.gridActiveComponentsForTest();
+        check(c.keyboard, "an instrument reports a keyboard in the sectioned path too");
+        check(c.sampleBrowser, "sampleBrowser is always true (89268ec)");
+        check(! c.meter, "no bargraph in this patch -- no meter");
+    }
+
+    // ParamGridPanel::deriveComponents() itself, called directly against a
+    // hand-built list -- NOT through a compiled patch. PF-052 (still open)
+    // means ParamPool's per-slot view -- what refreshParamKnobs and every
+    // scenario above actually feeds the function -- can never contain a
+    // Kind::Meter with a live zone (ParamPool::remap marks meters ineligible
+    // for a slot before this function ever sees the list). This checks that
+    // deriveComponents() itself is correct for the list PF-052's eventual fix
+    // would hand it, independent of whether that list reaches it today.
+    {
+        FAUSTFLOAT dummyZone = 0;
+        FaustEngine::ParamInfo meterParam {};
+        meterParam.label = "Out";
+        meterParam.kind = FaustEngine::Kind::Meter;
+        meterParam.zone = &dummyZone;
+        FaustEngine::ParamList withMeter { meterParam };
+
+        const auto c = ParamGridPanel::deriveComponents(withMeter, false);
+        check(c.meter,
+              "deriveComponents() itself reports a meter, given a list that "
+              "actually contains one -- PF-052 is what stops that list from "
+              "reaching here in production, not this function");
+        check(! c.keyboard, "isInstrument=false still reports no keyboard here");
+        check(c.sampleBrowser, "sampleBrowser is always true (89268ec)");
+
+        FaustEngine::ParamList withoutMeter {};
+        check(! ParamGridPanel::deriveComponents(withoutMeter, false).meter,
+              "an empty list reports no meter");
+    }
 }
 
 } // namespace
@@ -2861,7 +3052,7 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInit;
 
     std::printf("EditorSessionTest -- a simulated human session against the real editor\n");
-    std::printf("  40 scenarios, no network, no quota, snapshots to artifacts/images/\n");
+    std::printf("  41 scenarios, no network, no quota, snapshots to artifacts/images/\n");
 
     auto tmp = juce::File::getSpecialLocation(juce::File::tempDirectory)
                    .getChildFile("pluginforge_editor_session");
@@ -2908,6 +3099,7 @@ int main()
     scenario38_sampleBrowserStatusTooltipMatchesText();
     scenario39_codeViewCopyButton();
     scenario40_heuristicAccentIsDeterministicAndValid();
+    scenario41_componentDescriptor();
 
     tmp.deleteRecursively();
 

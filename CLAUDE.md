@@ -60,7 +60,9 @@ move with it, which is exactly why silent drift matters.
   `Faust version at generation: 2.85.5`. That is **not** a defect: `--check` validates the
   entry *names*, which are version-independent by design (`gen_stdlib_block.py:300-308`), and
   it passes. Regenerating under 2.85.9 would rewrite signatures and spend prompt headroom
-  there are only ~124 tokens of, so it is a deliberate deferral, not an oversight.
+  there are only ~140 tokens of *(corrected 2026-08-25; re-measured via
+  `python3 tests/test_prompt_headroom.py`, which prints `slack=140` — the 124 figure
+  predates the 2026-07-31 stdlib trim)*, so it is a deliberate deferral, not an oversight.
 - **LLVM 22.1.8** — backs the libfaust JIT inside the host plugin.
 - **JUCE 7.0.9 at `$HOME/JUCE` — NOT vendored in this repo** *(corrected 2026-08-11; this
   line had said "vendored at `host/JUCE`", which is a CMake **build** directory produced by

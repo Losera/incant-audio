@@ -209,12 +209,14 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
             // ADR-022 Track 1.2: derive a sectioned layout purely from Faust
             // group nesting already present in `params` -- no prompt change,
             // no LLM involvement. Called unconditionally; deriveLayoutFromGroups
-            // itself returns UiIr::empty() (schema 0) when sectioning would not
-            // help, and applyUiIr's own `ir.schema != 1` branch is already the
-            // "render the flat grid" path, so an ungrouped or sparse patch is
-            // unaffected byte-for-byte.
+            // itself leaves `sections` empty when sectioning would not help,
+            // and applyUiIr's own "sections.empty()" branch is already the
+            // "render the flat grid" path (ADR-029 §4 -- see that function's
+            // comment for why this moved off ir.schema != 1), so an ungrouped
+            // or sparse patch is unaffected byte-for-byte.
             safeThis->paramGridPanel.applyUiIr(
-                ParamGridPanel::deriveLayoutFromGroups(params));
+                ParamGridPanel::deriveLayoutFromGroups(
+                    params, safeThis->processor.isInstrumentForTest()));
             // The source of record is committed in the same success branch that
             // fires this callback (PluginProcessor.cpp:180-181), so by the time
             // this message-thread hop runs, currentSource() is the patch that
@@ -390,6 +392,16 @@ juce::String PluginForgeEditor::gridControlGroupForTest(int i) const
     return paramGridPanel.controlGroupForTest(i);
 }
 
+juce::String PluginForgeEditor::gridControlStyleForTest(int i) const
+{
+    return paramGridPanel.controlStyleForTest(i);
+}
+
+juce::String PluginForgeEditor::gridControlOrientationForTest(int i) const
+{
+    return paramGridPanel.controlOrientationForTest(i);
+}
+
 double PluginForgeEditor::gridControlValueForTest(int i) const
 {
     return paramGridPanel.controlValueForTest(i);
@@ -561,7 +573,12 @@ void PluginForgeEditor::paint(juce::Graphics& g)
     // disclosure row now shares this band on the right (titleTextBounds, set in
     // resized()), and centring the text would risk it drifting under those
     // controls as the window resizes.
-    g.drawText("PluginForge", titleTextBounds, juce::Justification::centredLeft);
+    // ADR-029 §5: a name derived from this compile's (params, isInstrument)
+    // hash, the same inputs derivePalette() already hashes for the accent --
+    // replaces the literal "PluginForge" so the title agrees with the accent
+    // colour rather than naming the engine regardless of what was generated.
+    g.drawText(paramGridPanel.getGeneratedTitle(), titleTextBounds,
+                juce::Justification::centredLeft);
 
     // Divider between the left (grid) and right (prompt) columns. Drawn as a thin
     // line down the middle of the dividerW gap. Set in resized().

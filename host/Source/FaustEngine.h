@@ -63,6 +63,12 @@ public:
     // be populated by a UI that implements declare(), never by parsing labels.
     enum class Scale { None, Log, Exp };
 
+    // Which box primitive opened the innermost group this parameter sits in.
+    // ADR-029 §2: hgroup/vgroup previously collapsed to the same pushGroup(label)
+    // call and this axis was discarded entirely. None means the parameter is
+    // declared outside any group (the ParamInfo::group == "" case).
+    enum class GroupOrientation { None, Horizontal, Vertical, Tab };
+
     struct ParamInfo
     {
         std::string label;
@@ -77,6 +83,14 @@ public:
         std::string unit;                 // "Hz", "dB", "ms", ... ; drives the
                                           // default curve when scale == None
         bool        isMenu = false;       // [style:menu{...}] -- discrete indices
+        std::string style;                // ADR-029 §2: the raw [style:...] value
+                                          // verbatim ("knob", "menu{...}", "radio{...}"),
+                                          // empty if undeclared. isMenu above is kept
+                                          // as-is (ParamMap.h:41 reads it); this is
+                                          // additive, for styles isMenu's menu/radio
+                                          // check does not distinguish -- e.g. "knob"
+                                          // was parsed at FaustEngine.cpp's declare()
+                                          // and then dropped on the floor.
 
         // ── Enclosing group path ────────────────────────────────────────────
         // Slash-joined names of the hgroup/vgroup/tgroup boxes this parameter
@@ -106,6 +120,13 @@ public:
         // ordering" (PF-038) is therefore Faust's own path ordering, not
         // anything ParamGridPanel does.
         std::string group;
+
+        // Orientation of the INNERMOST enclosing group (the one that would flow
+        // this parameter's immediate siblings), None when group is "". ADR-029 §2:
+        // previously discarded at capture -- openHorizontalBox/openVerticalBox both
+        // called the same pushGroup(label), so a group's intended layout axis never
+        // survived past ParamCapture. See GroupOrientation above.
+        GroupOrientation orientation = GroupOrientation::None;
 
         // ── Stable identity ─────────────────────────────────────────────────
         // Derived from group + label at capture by ParamIdentity::base/
