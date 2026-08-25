@@ -550,7 +550,12 @@ void PluginForgeEditor::paint(juce::Graphics& g)
 {
     g.fillAll(Theme::background);
     g.setColour(Theme::textPrimary);
-    g.setFont(Theme::Type::title());
+    // resolveThemeFont, not Theme::Type::title() directly -- see
+    // ForgeLookAndFeel.h's header comment on that function for why a
+    // name-based Font alone never actually resolves to the embedded Pirata
+    // One. Safe here: paint() only ever runs once this component is fully
+    // wired into the editor's tree.
+    g.setFont(resolveThemeFont(*this, Theme::Type::title()));
     // Title lives in the top-margin+title band so it reads as a shell header, not
     // as part of either column. Left-aligned (was centred) since 2026-08-12: the
     // disclosure row now shares this band on the right (titleTextBounds, set in

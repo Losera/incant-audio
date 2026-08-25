@@ -1,5 +1,6 @@
 #include "CodeEditorPanel.h"
 #include "Theme.h"
+#include "ForgeLookAndFeel.h"   // resolveThemeFont -- see its header comment
 
 CodeEditorPanel::CodeEditorPanel(PluginForgeProcessor& p)
     : processor(p)
@@ -7,7 +8,6 @@ CodeEditorPanel::CodeEditorPanel(PluginForgeProcessor& p)
     addAndMakeVisible(header);
     header.setText("Generated Faust (read-only)", juce::dontSendNotification);
     header.setJustificationType(juce::Justification::centredLeft);
-    header.setFont(Theme::Type::body());
     header.setColour(juce::Label::textColourId, Theme::textSecondary);
 
     addAndMakeVisible(copyButton);
@@ -24,7 +24,17 @@ CodeEditorPanel::CodeEditorPanel(PluginForgeProcessor& p)
     editor.setColour(juce::CodeEditorComponent::defaultTextColourId, Theme::textPrimary);
     editor.setColour(juce::CodeEditorComponent::lineNumberBackgroundId, Theme::surfaceSunken);
     editor.setColour(juce::CodeEditorComponent::lineNumberTextId, Theme::outline);
-    editor.setFont(Theme::Type::mono());
+
+    // No resolveThemeFont() call here -- this panel isn't attached under
+    // PluginForgeEditor yet (constructed from its member-initialiser list),
+    // so getLookAndFeel() would walk off the top of the tree and resolve
+    // against the process-default LookAndFeel: guaranteed wrong, and (worse)
+    // that default's fallback substitution for an unrecognised name has been
+    // observed to hand back a Typeface with an empty name in this
+    // environment, which trips juce_Font.cpp:229's jassert on construction.
+    // header/editor keep whatever plain default Label/CodeEditorComponent
+    // font already gives them until parentHierarchyChanged() below runs the
+    // real resolution, once this panel is actually attached.
 
     // Seed from whatever is already live, so a panel revealed AFTER a compile
     // shows the live patch instead of staying blank until the next one.
@@ -32,6 +42,17 @@ CodeEditorPanel::CodeEditorPanel(PluginForgeProcessor& p)
 }
 
 CodeEditorPanel::~CodeEditorPanel() = default;
+
+void CodeEditorPanel::applyFonts()
+{
+    header.setFont(resolveThemeFont(header, Theme::Type::body()));
+    editor.setFont(resolveThemeFont(editor, Theme::Type::mono()));
+}
+
+void CodeEditorPanel::parentHierarchyChanged()
+{
+    applyFonts();
+}
 
 void CodeEditorPanel::showSource(const juce::String& faustSource)
 {

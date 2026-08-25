@@ -2,6 +2,7 @@
 #include "ParamGridLayout.h"
 #include "ParamMap.h"
 #include "Theme.h"
+#include "ForgeLookAndFeel.h"   // resolveThemeFont -- see its header comment
 #include <algorithm>   // find_if, stable_sort, count_if — deriveLayoutFromGroups + applyUiIr
 #include <functional>  // std::hash — derivePalette
 #include <set>         // canonical sorted group names — derivePalette
@@ -187,7 +188,14 @@ void ParamGridPanel::refreshParamKnobs(const FaustEngine::ParamList& params)
 
         c.label = std::make_unique<juce::Label>();
         c.label->setJustificationType(juce::Justification::centred);
-        c.label->setFont(Theme::Type::label());
+        // resolveThemeFont anchored on `content`, not `*c.label` -- the label
+        // isn't addAndMakeVisible()'d until the next line, so its own
+        // parentComponent is still null here and would resolve against the
+        // process default instead. `content` has been part of the editor's
+        // fully-wired tree since construction; refreshParamKnobs() only ever
+        // runs after a successful compile, well after that, so anchoring on
+        // it resolves correctly regardless of *c.label's own wiring state.
+        c.label->setFont(resolveThemeFont(content, Theme::Type::label()));
         c.label->setText(juce::String(p.label), juce::dontSendNotification);
         content.addAndMakeVisible(*c.label);
 
@@ -795,7 +803,9 @@ void ParamGridPanel::layoutSectioned()
 
 void ParamGridPanel::ContentArea::paint(juce::Graphics& g)
 {
-    g.setFont(Theme::Type::sectionTitle());
+    // Safe unresolved-name-free: paint() only ever runs once this component
+    // is fully wired into the editor's tree.
+    g.setFont(resolveThemeFont(*this, Theme::Type::sectionTitle()));
     for (const auto& h : headings)
     {
         g.setColour(Theme::textSecondary);

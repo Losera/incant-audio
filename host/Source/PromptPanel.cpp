@@ -1,5 +1,6 @@
 #include "PromptPanel.h"
 #include "Theme.h"
+#include "ForgeLookAndFeel.h"   // resolveThemeFont -- see its header comment
 #include <thread>
 #include <cmath>
 #include <optional>
@@ -268,7 +269,27 @@ PromptPanel::PromptPanel(PluginForgeProcessor& p)
     errorBox.setCaretVisible(false);
     errorBox.setColour(juce::TextEditor::backgroundColourId, Theme::surface);
     errorBox.setColour(juce::TextEditor::textColourId,       Theme::danger);
-    errorBox.setFont(Theme::Type::mono());
+
+    // No resolveThemeFont() call here -- this panel isn't attached under
+    // PluginForgeEditor yet (constructed from its member-initialiser list),
+    // so getLookAndFeel() would walk off the top of the tree and resolve
+    // against the process-default LookAndFeel: guaranteed wrong, and (worse)
+    // that default's fallback substitution for an unrecognised name has been
+    // observed to hand back a Typeface with an empty name in this
+    // environment, which trips juce_Font.cpp:229's jassert on construction.
+    // errorBox keeps whatever plain default TextEditor font already gives it
+    // until parentHierarchyChanged() below runs the real resolution, once
+    // this panel is actually attached.
+}
+
+void PromptPanel::applyFonts()
+{
+    errorBox.setFont(resolveThemeFont(errorBox, Theme::Type::mono()));
+}
+
+void PromptPanel::parentHierarchyChanged()
+{
+    applyFonts();
 }
 
 PromptPanel::~PromptPanel()

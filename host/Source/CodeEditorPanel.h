@@ -50,6 +50,15 @@ public:
     void resized() override;
     void paint(juce::Graphics&) override;
 
+    // Re-applies header/editor fonts once this panel is actually attached
+    // under PluginForgeEditor. See ForgeLookAndFeel.h's resolveThemeFont()
+    // header comment: the constructor's own setFont() calls run before that
+    // attachment exists (PluginForgeEditor's member-initialiser list, before
+    // addAndMakeVisible), so they resolve against the wrong LookAndFeel.
+    // JUCE calls this automatically the moment addChildComponent() sets
+    // parentComponent (juce_Component.cpp:1166-1187).
+    void parentHierarchyChanged() override;
+
     // Message-thread only. Replaces the displayed source. Called by the shell
     // after a successful compile, and on becoming visible, so a panel opened
     // after the fact still shows the live patch rather than staying blank.
@@ -96,6 +105,11 @@ private:
     // header comment for why this owns a Timer instead of using
     // juce::Timer::callAfterDelay.
     void timerCallback() override;
+
+    // Called from parentHierarchyChanged() below, once this panel is
+    // actually attached under PluginForgeEditor -- see that override's
+    // comment for why resolving any earlier would be both wrong and noisy.
+    void applyFonts();
 
     PluginForgeProcessor& processor;
 

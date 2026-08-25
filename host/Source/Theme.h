@@ -142,27 +142,40 @@ namespace Stroke
 } // namespace Stroke
 
 // ── Type scale ──────────────────────────────────────────────────────────────
-// The actual visual problem today isn't the typeface -- it's that four of the
-// five existing font call sites are the identical bare 12.0f (CodeEditorPanel.
-// cpp:9,27, ParamGridPanel.cpp:132, PromptPanel.cpp:154) with no hierarchy at
-// all; the fifth (PluginEditor.cpp:263, the "PluginForge" title) is 16.0f with
-// nothing between it and the rest. A real scale, even a small one, is most of
-// the fix.
+// Four bundled OFL faces (Ember Console repaint, Phase 2) replace the
+// platform-default sans that every token used until now. Named explicitly so
+// ForgeLookAndFeel::getTypefaceForFont can dispatch by exact typeface name
+// onto the embedded PluginForgeAssets bytes -- see that file's header
+// comment for why the lookup is name-based rather than style-flag-based:
+// SemiBold is a real embedded weight, not a synthetic bold laid over
+// Regular, so styleFlags stays plain everywhere below.
+//
+//   title()                                  Pirata One       -- exactly
+//     once (the concept's own discipline: everything a user actually has
+//     to read falls back to a plain face; this is decoration, not copy).
+//   heading() / label() / sectionTitle()     Big Shoulders Display SemiBold
+//     -- a condensed display face. Check the contact sheet
+//     (tools/ui_iterate.sh) before shipping: condensed faces read narrower
+//     at a given point size than the platform sans these sizes were tuned
+//     against, and may want a size or tracking bump to read as deliberate
+//     rather than squeezed.
+//   body() / caption()                       Work Sans        -- everything
+//     a user must actually read: prompt text, status lines, error copy.
+//   mono()                                   JetBrains Mono   -- replaces
+//     getDefaultMonospacedFontName(); the Faust code view and error box are
+//     the only places monospace is semantically correct in this repaint.
 namespace Type
 {
-    inline juce::Font caption()      { return juce::Font(11.0f); }                    // fine print
-    inline juce::Font body()         { return juce::Font(12.0f); }                    // default UI text
-    inline juce::Font label()        { return juce::Font(12.0f, juce::Font::bold); }  // knob captions
-    inline juce::Font sectionTitle() { return juce::Font(11.0f, juce::Font::bold); }  // tracked in paint
-    inline juce::Font heading()      { return juce::Font(14.0f, juce::Font::bold); }  // panel headers
-    inline juce::Font title()        { return juce::Font(18.0f, juce::Font::bold); }  // shell title
+    inline juce::Font caption()      { return juce::Font("Work Sans", 11.0f, juce::Font::plain); }
+    inline juce::Font body()         { return juce::Font("Work Sans", 12.0f, juce::Font::plain); }
+    inline juce::Font label()        { return juce::Font("Big Shoulders Display SemiBold", 12.0f, juce::Font::plain); }
+    inline juce::Font sectionTitle() { return juce::Font("Big Shoulders Display SemiBold", 11.0f, juce::Font::plain); }
+    inline juce::Font heading()      { return juce::Font("Big Shoulders Display SemiBold", 14.0f, juce::Font::plain); }
+    inline juce::Font title()        { return juce::Font("Pirata One", 18.0f, juce::Font::plain); }
 
-    // Both existing monospaced call sites (CodeEditorPanel.cpp:27, PromptPanel.
-    // cpp:154) already use exactly 12.0f -- one token, not a parameterised
-    // factory, until a second size is ever actually needed.
     inline juce::Font mono()
     {
-        return juce::Font(juce::Font::getDefaultMonospacedFontName(), 12.0f, juce::Font::plain);
+        return juce::Font("JetBrains Mono", 12.0f, juce::Font::plain);
     }
 } // namespace Type
 

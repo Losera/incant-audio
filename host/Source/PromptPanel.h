@@ -92,6 +92,15 @@ public:
 
     void resized() override;
 
+    // Re-applies errorBox's font once this panel is actually attached under
+    // PluginForgeEditor. See ForgeLookAndFeel.h's resolveThemeFont() header
+    // comment: the constructor's own setFont() call runs before that
+    // attachment exists (PluginForgeEditor's member-initialiser list, before
+    // addAndMakeVisible), so it resolves against the wrong LookAndFeel. JUCE
+    // calls this automatically the moment addChildComponent() sets
+    // parentComponent (juce_Component.cpp:1166-1187).
+    void parentHierarchyChanged() override;
+
     // Message-thread only. The shell routes compile-success / output-guard-mute
     // status text through here, since this panel owns the one status line.
     void setStatus(const juce::String& text);
@@ -212,6 +221,11 @@ public:
 
 private:
     void timerCallback() override;
+
+    // Called from parentHierarchyChanged() above, once this panel is
+    // actually attached under PluginForgeEditor -- see that override's
+    // comment for why resolving any earlier would be both wrong and noisy.
+    void applyFonts();
 
     void submitPrompt();
     void startWorking();
