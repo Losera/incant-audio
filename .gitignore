@@ -77,6 +77,18 @@ bench/.worktrees/
 .claude/HANDOFF.md
 .claude/handoff-state.json
 
+# Claude Code's own near-limit resume file (CLAUDE.md, .claude/skills/handoff/SKILL.md
+# both reference it as a /handoff trigger). Written by the harness itself, not this
+# repo's tooling; only ever ignored locally via .git/info/exclude before 2026-08-25,
+# which doesn't travel to a fresh checkout -- CI's dead-link checks
+# (tests/test_control_wiring.py's TestExtensionsDoNotReferenceDeletedFiles /
+# TestLiveDocsDoNotReferenceDeletedFiles) flagged both references as broken the first
+# time a `design/ember-console` CI run actually reached them, previously masked by the
+# unrelated PF-067 collection failure aborting the suite before these tests ran. Same
+# "session-to-session working state, not repo content" reasoning as
+# HANDOFF.md/handoff-state.json above.
+/.claude/RESUME.md
+
 # The one deliberate exception: handoff-log.jsonl IS append-only, by design -- added
 # 2026-08-21 so "is /handoff actually getting used" is a count, not a memory, for the
 # real-usage evaluation window before ADR-028 gets pushed. Pure observation, never

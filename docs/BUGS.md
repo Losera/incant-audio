@@ -1157,10 +1157,10 @@ deciding the band should lay out (but stay dimmed) even when invisible so its ch
 real bounds — a small design call, not an emergency, and out of scope for the session that
 found it.
 
-### PF-067 — `anthropic>=0.40.0`'s uncapped upper bound resolved to 1.0.0, which ships `httpx2` instead of `httpx`, breaking every `import httpx` in `llm/providers.py`. *(open, found 2026-08-25)*
+### PF-067 — `anthropic>=0.40.0`'s uncapped upper bound resolved to 1.0.0, which ships `httpx2` instead of `httpx`, breaking every `import httpx` in `llm/providers.py`. *(fixed 2026-08-25, `73f3263`)*
 
-**critical · open · S1 Backend · found via CI on `design/ember-console`, reproduces on any
-branch/PR pushed today — confirmed unrelated to that branch's own content**
+**critical · fixed `73f3263` · S1 Backend · found via CI on `design/ember-console`, reproduced
+on any branch/PR pushed that day — confirmed unrelated to that branch's own content**
 
 `requirements.txt:1` pins `anthropic>=0.40.0` with no upper bound. `pip index versions
 anthropic` (run this session): latest is `1.0.0`; the last pre-1.0 release is `0.125.0`.
