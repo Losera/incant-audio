@@ -2,6 +2,7 @@
 tests/test_prompt_builder.py — Unit tests for llm/prompt_builder.py
 """
 
+import os
 import re
 import sys
 from pathlib import Path
@@ -46,6 +47,45 @@ def test_dynamic_prompt_builder_preserves_headroom():
     
     slack = providers.headroom_tokens(dynamic_prompt, providers.MAX_OUTPUT_TOKENS)
     assert slack > 300, f"Expected >300 tokens slack, got {slack}"
+
+
+def test_stdlib_filter_always_env_var_forces_filtering_despite_headroom(monkeypatch):
+    """Queue item 6's A/B knob: PLUGINFORGE_STDLIB_FILTER_ALWAYS=1 must trim
+    the stdlib block even when unfiltered headroom would otherwise pass the
+    _MIN_UNFILTERED_HEADROOM gate. Benchmark-only -- see the flag's own
+    comment in prompt_builder.py for why this must not become a permanent
+    toggle if the A/B ships it.
+
+    Uses the INSTRUMENT prompt deliberately, not the effects one: the
+    effects prompt's own unfiltered headroom for almost any real user
+    prompt is already below _MIN_UNFILTERED_HEADROOM (measured 135 tokens
+    for "a warm compressor" against system_prompt.txt), so the baseline
+    ALREADY always filters there and this flag would be observably a
+    no-op if tested against it -- exactly the finding that sent item 6's
+    benchmark to the instrument side instead. The instrument prompt's
+    676-token headroom margin is what makes "pressure-only" and "always"
+    actually differ.
+    """
+    instrument = (ROOT / "llm" / "prompts" / "instrument_prompt.txt").read_text()
+    user_prompt = "a warm pad"
+    baseline = prompt_builder.build_dynamic_prompt(user_prompt, base_system_prompt=instrument)
+
+    monkeypatch.setenv("PLUGINFORGE_STDLIB_FILTER_ALWAYS", "1")
+    forced = prompt_builder.build_dynamic_prompt(user_prompt, base_system_prompt=instrument)
+
+    assert len(forced) < len(baseline), (
+        "PLUGINFORGE_STDLIB_FILTER_ALWAYS=1 must shrink the instrument prompt "
+        "relative to the default (unfiltered, since it has ample headroom) behavior"
+    )
+    assert "# BEGIN GENERATED STDLIB REFERENCE" in forced
+    assert "# END GENERATED STDLIB REFERENCE" in forced
+
+
+def test_stdlib_filter_always_off_by_default():
+    assert os.environ.get("PLUGINFORGE_STDLIB_FILTER_ALWAYS", "0") == "0", (
+        "must default to off outside a benchmark run -- see conftest.py if "
+        "this ever fails in CI"
+    )
 
 
 def test_dynamic_prompt_filters_the_selected_base_instead_of_effects_default():
