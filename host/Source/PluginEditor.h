@@ -340,12 +340,20 @@ private:
         return c.promptH + c.gapMeter + c.meterH;
     }
 
-    // Everything outside the split region: title bar, both margins, keyboard band.
-    // The code band is added by the caller only when the panel is visible.
-    static constexpr int verticalChrome(const Chrome& c)
+    // Everything outside the split region: title bar, both margins, sample-
+    // browser band, and (when `includeKeyboard`) the keyboard band. The code
+    // band is added by the caller only when the panel is visible -- same
+    // pattern here since 2026-08-24: `includeKeyboard` defaults true so the
+    // static_assert below keeps checking the full/max chrome sum, and the two
+    // runtime call sites (resized(), updateWindowSizeForParams()) pass the
+    // live FaustEngine::isInstrument() value so an effect patch's window is
+    // shorter by gapKeyboard+keyboardH rather than reserving dead space for a
+    // band that is not laid out at all.
+    static constexpr int verticalChrome(const Chrome& c, bool includeKeyboard = true)
     {
         return c.margin + c.titleH + c.gapSamples + c.samplesH
-             + c.gapKeyboard + c.keyboardH + c.margin;
+             + (includeKeyboard ? (c.gapKeyboard + c.keyboardH) : 0)
+             + c.margin;
     }
 
     // The two sums are pinned by a static_assert at the top of resized() — NOT here.
