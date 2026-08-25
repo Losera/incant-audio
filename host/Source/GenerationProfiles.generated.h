@@ -5,13 +5,14 @@
 
 namespace GenerationProfiles
 {
-struct Profile { const char* id; const char* displayName; const char* kind; };
+struct Profile { const char* id; const char* displayName; const char* kind;
+                 const char* promptBrief; };
 inline constexpr std::array<Profile, 5> all {{
-    { "effect", "Effect", "effect" },
-    { "granular_effect", "Granular Effect", "effect" },
-    { "synth", "Synth", "instrument" },
-    { "drum_synth", "Drum Synth", "instrument" },
-    { "generator", "Generator / Drone", "instrument" },
+    { "effect", "Effect", "effect", "Generate an audio effect that processes its input. The process must accept one or two audio inputs and produce one or two bounded audio outputs." },
+    { "granular_effect", "Granular Effect", "effect", "Generate a LIVE-INPUT granular texture effect, not a sample player. Build grains from bounded delay lines fed by the incoming audio. Expose Grain Size, Density, Position or Delay, Pitch or Spray, Feedback, and Mix controls." },
+    { "synth", "Synth", "instrument", "Generate a playable synthesized instrument voice following the required gate, freq or key, and gain or velocity voice contract." },
+    { "drum_synth", "Drum Synth", "instrument", "Generate a procedural one-shot percussion voice with no soundfile dependency. Follow the required gate, freq or key, and gain or velocity voice contract; each trigger must have a clear transient and bounded decay." },
+    { "generator", "Generator / Drone", "instrument", "Generate a self-running bounded sound generator or drone. It must take zero audio inputs and produce audio without requiring MIDI gate, pitch, or velocity controls." },
 }};
 
 inline constexpr std::array<const char*, 0> terms_effect {{}};

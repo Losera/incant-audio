@@ -3059,6 +3059,76 @@ process = os.osc(freq) * gate * gain * amt, os.osc(freq) * gate * gain * amt;
     }
 }
 
+// 42 — Deterministic prompt-writing hint (queue item 3, "a search box, not a
+//      text box"): the family selector's tooltip carries
+//      llm/generation_profiles.json's prompt_brief for whatever family will
+//      ACTUALLY be used, updated on the same promptInput.onTextChange slot
+//      that already drives the "Auto -> X" label -- no model call, no new
+//      round trip, no generation budget spent.
+//
+// EditorSessionTest never sets -DPF_IS_SYNTH=1 (see the comment above this
+// file's SoundfetchClientTest section), so only the effect-side families
+// (effect / granular_effect) are reachable here.
+//
+// This scenario is also the regression test for a real bug this session
+// found and fixed while writing it: ComboBox::getSelectedId() (JUCE,
+// juce_ComboBox.cpp:250-256) returns 0 unless the LABEL's displayed text
+// still equals the stored item text, and changeItemText() -- which
+// updateAutoFamilyLabel() calls on every keystroke to update the
+// "Auto -> X" text -- rewrites the stored text but never the label. Before
+// the fix in updateAutoFamilyLabel() (PromptPanel.cpp), this desynced them
+// on the SECOND keystroke onward, permanently: selectedFamilyId() then read
+// "effect" instead of "auto", so every hint below computed against "effect"
+// regardless of what was actually typed -- confirmed with a real X11 window
+// (juce::TopLevelWindow + addToDesktop()), not just this headless harness,
+// so it was a live product bug, not a test-only artifact. All the checks
+// below go through the REAL async path (pumpUntil, not a manual refresh) --
+// they are the regression test for that fix, and would never have passed,
+// no matter how long pumpUntil waited, before it landed.
+void scenario42_promptWritingHint()
+{
+    scenario("42. the family selector's tooltip is a deterministic prompt-writing hint",
+             "prompt_brief rides the same keystroke slot that drives the Auto "
+             "label; an explicit family pick overrides Auto's guess for the "
+             "hint too");
+
+    Session s;
+
+    // Auto, no granular vocabulary -- resolves to the "effect" default.
+    const juce::String plainEffectHint =
+        "Generate an audio effect that processes its input. The process "
+        "must accept one or two audio inputs and produce one or two "
+        "bounded audio outputs.";
+    s.editor.setPromptTextForTest("a warm compressor");
+    const bool gotPlainEffect = pumpUntil([&] { return s.editor.familyHintForTest() == plainEffectHint; });
+    check(gotPlainEffect,
+          juce::String("plain-effect hint -- got '") + s.editor.familyHintForTest() + "'");
+
+    // Auto, granular vocabulary -- resolves to "granular_effect", and the hint
+    // follows without any explicit family selection.
+    s.editor.setPromptTextForTest("a granular texture effect");
+    const bool gotGranular = pumpUntil([&] {
+        return s.editor.familyHintForTest().startsWith("Generate a LIVE-INPUT granular texture effect");
+    });
+    check(gotGranular,
+          juce::String("granular-effect hint -- got '") + s.editor.familyHintForTest() + "'");
+
+    // Explicit selection overrides Auto's guess for the hint too -- typing
+    // something that would Auto-resolve to "effect" must NOT revert the hint
+    // once the user has picked a specific family by hand.
+    s.editor.setFamilyForTest("granular_effect");
+    const bool gotExplicit = pumpUntil([&] {
+        return s.editor.familyHintForTest().startsWith("Generate a LIVE-INPUT granular texture effect");
+    });
+    check(gotExplicit, "explicit granular_effect selection sets the hint");
+
+    s.editor.setPromptTextForTest("a warm compressor");
+    pump(200);   // let any (wrongly) pending Auto-driven update land, then assert it did not change anything
+    check(s.editor.familyHintForTest().startsWith("Generate a LIVE-INPUT granular texture effect"),
+          juce::String("the explicit pick's hint survives typing that would Auto-resolve "
+                       "elsewhere -- got '") + s.editor.familyHintForTest() + "'");
+}
+
 } // namespace
 
 int main()
@@ -3066,7 +3136,7 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInit;
 
     std::printf("EditorSessionTest -- a simulated human session against the real editor\n");
-    std::printf("  41 scenarios, no network, no quota, snapshots to artifacts/images/\n");
+    std::printf("  42 scenarios, no network, no quota, snapshots to artifacts/images/\n");
 
     auto tmp = juce::File::getSpecialLocation(juce::File::tempDirectory)
                    .getChildFile("pluginforge_editor_session");
@@ -3114,6 +3184,7 @@ int main()
     scenario39_codeViewCopyButton();
     scenario40_heuristicAccentIsDeterministicAndValid();
     scenario41_componentDescriptor();
+    scenario42_promptWritingHint();
 
     tmp.deleteRecursively();
 

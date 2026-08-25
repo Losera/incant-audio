@@ -183,6 +183,12 @@ public:
     juce::String familyForTest() const;
     void setFamilyForTest(const juce::String& family);
 
+    // Deterministic prompt-writing hint (queue item 3): the resolved family's
+    // prompt_brief, cached alongside the tooltip it's also shown as --
+    // ComboBox::getTooltip() is non-const, so this reads the cache rather
+    // than the live widget, updated in lockstep by updateAutoFamilyLabel().
+    juce::String familyHintForTest() const { return currentFamilyHint; }
+
     // Test-only. True if the last successful generation reported that the prior
     // source was dropped due to token-budget overflow (generate.py's
     // prior_source_dropped flag, generate.py:381-386).
@@ -242,6 +248,9 @@ private:
     juce::TextButton  generateButton { "Generate" };
     juce::TextButton  historyButton  { "History" };
     juce::ComboBox    familySelector;
+    // Cached alongside familySelector's tooltip -- see familyHintForTest()'s
+    // own comment for why this exists rather than reading the widget back.
+    juce::String      currentFamilyHint;
     juce::ComboBox    refineSelector;
     juce::Label       statusLabel;
     juce::Label       progressLabel;

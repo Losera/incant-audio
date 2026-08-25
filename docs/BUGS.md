@@ -102,6 +102,7 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-065 | Generation fails with "generate.py not found" when the plugin runs as an installed VST3 (confirmed in REAPER) — ADR-011 marks this row Closed and it is not | high | open | S1 Backend | `host/Source/PromptPanel.cpp:143-154` | 2026-08-19 | |
 | PF-066 | `EditorSessionTest` scenario 20's octave-hit-test assertion is stale against the instrument-conditional keyboard band: `KeyboardPanel::resized()` never runs for a fresh/non-instrument editor, so the octave buttons it positions stay at default zero-size bounds | low | fixed | S3 Plugin UX | `host/Source/PluginEditor.cpp:648-654`, `host/tests/EditorSessionTest.cpp:1560-1561` | 2026-08-25 | this session |
 | PF-067 | `requirements.txt` pins `anthropic>=0.40.0` with no upper bound; `anthropic` 1.0.0 (released after the 2026-08-20 last-green CI run) ships `httpx2` instead of `httpx`, so every `import httpx` in `llm/providers.py` fails — breaks real generation, not just tests, anywhere a fresh `pip install -r requirements.txt` resolves 1.0.0 | critical | fixed | S1 Backend | `requirements.txt:1`, `llm/providers.py:56` | 2026-08-25 | this session |
+| PF-068 | Auto family selection silently stopped working from the second keystroke onward: `ComboBox::getSelectedId()` returns 0 once the displayed label desyncs from the stored item text, which `updateAutoFamilyLabel()`'s per-keystroke `changeItemText(1, ...)` call always caused — `selectedFamilyId()` then read "effect"/"synth" instead of "auto", skipping `resolveAuto()` entirely | high | fixed | S2 Prompting UX | `PromptPanel.cpp` `updateAutoFamilyLabel`; `/home/losera/JUCE/modules/juce_gui_basics/widgets/juce_ComboBox.cpp:250-256,133-139` | 2026-08-25 | this session |
 
 ---
 
@@ -1199,6 +1200,57 @@ per `.github/workflows/test.yml:36-45`) — `anthropic` resolves to `0.125.0`, `
 (`pytest tests/ -q -m "not integration"`) passes: 666 passed, 21 skipped, 17 deselected, 1
 xfailed. Revisit if `providers.py` ever needs a `1.0.0+`-only feature — that would mean
 doing the `httpx2` migration this fix deliberately deferred.
+
+### PF-068 — Auto family selection silently broke on the second keystroke: `ComboBox::getSelectedId()` desyncs against `changeItemText()`, so `selectedFamilyId()` read "effect"/"synth" instead of "auto". *(fixed 2026-08-25, same session)*
+
+**high · fixed · S2 Prompting UX · found while adding queue item 3's prompt-writing hint,
+confirmed against a real X11 window, not just the headless test harness**
+
+`PromptPanel::updateAutoFamilyLabel()` calls `familySelector.changeItemText(1, "Auto -> " +
+displayName)` on every keystroke (`promptInput.onTextChange`), to keep the combo box's first
+item showing the live "Auto -> Effect" / "Auto -> Drum Synth" preview. `ComboBox::changeItemText`
+(`/home/losera/JUCE/modules/juce_gui_basics/widgets/juce_ComboBox.cpp:133-139`) rewrites the
+item's *stored* text but never touches the *displayed* label. `ComboBox::getSelectedId()`
+(`:250-256`) does not trust its own `currentId` — it returns `0` unless `getText() ==
+item->text`, i.e. unless the label and the stored text still agree. The very first
+`changeItemText` call after construction (the second keystroke, since the first
+`updateAutoFamilyLabel()` call happens once at construction with an empty prompt) desyncs them
+permanently: the label keeps whatever text `setSelectedId` last wrote, the stored item text keeps
+changing underneath it every keystroke, and `getSelectedId()` returns `0` from then on for the
+rest of that editor's lifetime.
+
+`PromptPanel::selectedFamilyId()` treats any ID that is not literally `1` or `3` as `"effect"`
+(or, on the synth side, falls through to `"synth"`) — there is no "0 means invalid, treat as
+auto" branch. `familyForTest()` (and the equivalent production request-building path) checks
+`selectedFamilyId() != "auto"` first and, if true, uses that value directly, **skipping
+`resolveAuto()` entirely**. Net effect: any user who leaves "Auto" selected and types anything
+has every subsequent keystroke silently routed as if they had explicitly picked Effect (or
+Synth) — Auto's entire purpose, detecting drum/granular/generator language in the prompt,
+stopped working the moment typing began. This is not cosmetic: it changes which family
+`generate.py` is asked to produce.
+
+**Confirmed with a genuine window, not just this project's headless `EditorSessionTest`
+harness** (which never calls `addToDesktop()` — a real, separately-documented limitation,
+`PluginForgeEditor::isTextEditorFocusTarget`'s own comment). Built an isolated repro linking
+real `juce_gui_basics`/`juce_gui_extra` against a `juce::TopLevelWindow` with `addToDesktop()`
+called for real: `getSelectedId()` read `1` immediately after `setSelectedId(1, ...)`, then `0`
+after exactly one `changeItemText(1, ...)` call on the same item — byte-identical to the
+headless harness's own behavior, ruling out "no peer" as the cause.
+
+**Fixed** in `updateAutoFamilyLabel()`: read `familySelector.getSelectedId() == 1` into
+`wasAuto` *before* calling `changeItemText` (so it reflects real state, not the
+about-to-be-corrupted one), then, only if `wasAuto`, call
+`familySelector.setText(newAutoItemText, juce::dontSendNotification)` immediately after.
+`ComboBox::setText` (`:311-333`) searches for an item whose stored text already equals the
+argument — which item 1 now does, since `changeItemText` just set it — and routes through
+`setSelectedId()` internally, which is what actually keeps `currentId` and the label in
+agreement. An explicit (non-Auto) selection is left untouched, since `wasAuto` is false for it.
+
+Verified via `EditorSessionTest` scenario 42 (`host/tests/EditorSessionTest.cpp`), which
+exercises the real async `onTextChange`/`pumpUntil` path end-to-end and would not have passed,
+no matter how long it waited, before this fix — added specifically as the regression test for
+this bug. Full suite: 343 checks, 0 failures. Also reproduced and confirmed fixed against the
+standalone X11 repro above.
 
 ---
 

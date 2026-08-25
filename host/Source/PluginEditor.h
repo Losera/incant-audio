@@ -184,6 +184,7 @@ public:
     void         setKindForTest(const juce::String& kind) { promptPanel.setKindForTest(kind); }
     juce::String familyForTest() const { return promptPanel.familyForTest(); }
     void         setFamilyForTest(const juce::String& family) { promptPanel.setFamilyForTest(family); }
+    juce::String familyHintForTest() const { return promptPanel.familyHintForTest(); }
     bool         priorSourceDroppedForTest() const { return promptPanel.priorSourceDroppedForTest(); }
     // Dev-cockpit state export — OFF by default. Nothing is written anywhere
     // until a caller (the Standalone app or the /cockpit skill) opts in via

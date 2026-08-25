@@ -461,9 +461,45 @@ void PromptPanel::setFamilyForTest(const juce::String& family)
 
 void PromptPanel::updateAutoFamilyLabel()
 {
-    const auto displayName = juce::String(
-        GenerationProfiles::resolveAuto(promptInput.getText(), PF_IS_SYNTH != 0).displayName);
-    familySelector.changeItemText(1, "Auto -> " + displayName);
+    const auto& autoResolved = GenerationProfiles::resolveAuto(promptInput.getText(), PF_IS_SYNTH != 0);
+
+    // Real bug, found 2026-08-25 while adding the hint below, confirmed against
+    // a genuine X11 window (not just this headless test target's own gap):
+    // ComboBox::getSelectedId() (juce_ComboBox.cpp:250-256) does not trust its
+    // own currentId -- it returns 0 unless the LABEL's currently displayed text
+    // still equals the stored item's text. ComboBox::changeItemText() rewrites
+    // the stored item text but never the label, so the very next line used to
+    // desync them the first time this function ever ran, silently turning
+    // every "Auto" selection into "nothing selected" (-> selectedFamilyId()'s
+    // fallback, "effect"/"synth") from the SECOND keystroke onward -- Auto's
+    // whole point (routing drum/granular/generator prompts) stopped working
+    // for any user who left it selected and typed. wasAuto is read BEFORE
+    // changeItemText so it reflects real state, not the about-to-be-corrupted
+    // one; the setText() call below re-finds item 1 by its NEW text (already
+    // equal, since changeItemText just set it) and goes through
+    // setSelectedId() internally, which is what actually keeps currentId and
+    // the label in agreement.
+    const bool wasAuto = familySelector.getSelectedId() == 1;
+    const auto newAutoItemText = "Auto -> " + juce::String(autoResolved.displayName);
+    familySelector.changeItemText(1, newAutoItemText);
+    if (wasAuto)
+        familySelector.setText(newAutoItemText, juce::dontSendNotification);
+
+    // Deterministic prompt-writing hint, riding this same keystroke-triggered
+    // slot rather than a new round trip -- no model call, no prompt/generation
+    // budget spent. Uses the family that will ACTUALLY be used: resolveAuto()'s
+    // guess when "Auto" is selected, but the explicitly-picked family
+    // otherwise, so the hint stays correct even when the user overrides Auto.
+    // A future LLM-backed expander can sit behind its own gate later; this is
+    // the deterministic vocabulary already sitting in
+    // llm/generation_profiles.json's prompt_brief, unused until now.
+    const auto* activeProfile = selectedFamilyId() == "auto"
+                                     ? &autoResolved
+                                     : GenerationProfiles::find(selectedFamilyId());
+    currentFamilyHint = activeProfile != nullptr
+                             ? juce::String(activeProfile->promptBrief)
+                             : "Generation family. Auto resolves deterministically from the prompt.";
+    familySelector.setTooltip(currentFamilyHint);
 }
 
 // ── Generation worker ───────────────────────────────────────────────────────
