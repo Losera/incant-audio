@@ -101,7 +101,7 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-064 | The efficacy harness passed no generation budget, so a daily-quota `Retry-After` could suspend the process for hours before incremental results reached a recoverable checkpoint | medium | fixed | S4 Testing | `bench/run_efficacy_study.py` | 2026-08-17 | `8c0d724` |
 | PF-065 | Generation fails with "generate.py not found" when the plugin runs as an installed VST3 (confirmed in REAPER) — ADR-011 marks this row Closed and it is not | high | open | S1 Backend | `host/Source/PromptPanel.cpp:143-154` | 2026-08-19 | |
 | PF-066 | `EditorSessionTest` scenario 20's octave-hit-test assertion is stale against the instrument-conditional keyboard band: `KeyboardPanel::resized()` never runs for a fresh/non-instrument editor, so the octave buttons it positions stay at default zero-size bounds | low | open | S3 Plugin UX | `host/Source/PluginEditor.cpp:648-654`, `host/tests/EditorSessionTest.cpp:1560-1561` | 2026-08-25 | |
-| PF-067 | `requirements.txt` pins `anthropic>=0.40.0` with no upper bound; `anthropic` 1.0.0 (released after the 2026-08-20 last-green CI run) ships `httpx2` instead of `httpx`, so every `import httpx` in `llm/providers.py` fails — breaks real generation, not just tests, anywhere a fresh `pip install -r requirements.txt` resolves 1.0.0 | critical | open | S1 Backend | `requirements.txt:1`, `llm/providers.py:56` | 2026-08-25 | |
+| PF-067 | `requirements.txt` pins `anthropic>=0.40.0` with no upper bound; `anthropic` 1.0.0 (released after the 2026-08-20 last-green CI run) ships `httpx2` instead of `httpx`, so every `import httpx` in `llm/providers.py` fails — breaks real generation, not just tests, anywhere a fresh `pip install -r requirements.txt` resolves 1.0.0 | critical | fixed | S1 Backend | `requirements.txt:1`, `llm/providers.py:56` | 2026-08-25 | this session |
 
 ---
 
@@ -1181,11 +1181,17 @@ commit, the initial import) and `httpx` was never listed there directly — it r
 `anthropic`'s own transitive dependency, silently, until that dependency itself changed shape
 upstream. Every branch's CI is red on this today, including a rebuild of committed `main`.
 
-**Not fixed here** — a Python dependency-pinning decision (pin `anthropic<1.0.0` to restore
-`httpx`? migrate `providers.py` onto `anthropic`'s new `httpx2`-based transport? vendor
-`httpx` directly and stop relying on it being a free rider?), out of scope for the UI/UX
-session that found it while verifying an unrelated typography change. Filed per user
-decision (2026-08-25): record it, don't fix it now.
+**Fixed, same day, in a later session** — reversing the original "record it, don't fix it
+now" call once CI blocking every branch made the cost of waiting concrete. Pinned
+`requirements.txt:1` to `anthropic>=0.40.0,<1.0.0`, the narrowest fix of the three named
+above: restores `httpx` (the transport `providers.py:56,886,888,982` already assumes) without
+touching `providers.py` itself or vendoring anything. Verified against a fresh venv replicating
+CI's exact install sequence (`pip install -r requirements.txt` then `pip install numpy scipy`,
+per `.github/workflows/test.yml:36-45`) — `anthropic` resolves to `0.125.0`, `httpx` to a real
+`httpx` (not `httpx2`) `0.28.1`, `import providers` succeeds, and the full unit suite
+(`pytest tests/ -q -m "not integration"`) passes: 666 passed, 21 skipped, 17 deselected, 1
+xfailed. Revisit if `providers.py` ever needs a `1.0.0+`-only feature — that would mean
+doing the `httpx2` migration this fix deliberately deferred.
 
 ---
 
