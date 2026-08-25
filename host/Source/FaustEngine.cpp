@@ -33,10 +33,27 @@ struct ParamCapture : public UI
     int openedBoxes = 0;
     int closedBoxes = 0;
 
-    void pushGroup(const char* label)
+    // ADR-029 §2: parallel to groupStack, pushed/popped in lockstep, so the
+    // innermost real group's orientation survives to consume() the same way
+    // currentGroup() survives the name. orientationStack[0] is always the
+    // outermost filename wrapper's orientation and is skipped the same way
+    // currentGroup() skips groupStack[0].
+    std::vector<FaustEngine::GroupOrientation> orientationStack;
+
+    void pushGroup(const char* label, FaustEngine::GroupOrientation orientation)
     {
         groupStack.emplace_back(label ? label : "");
+        orientationStack.push_back(orientation);
         ++openedBoxes;
+    }
+
+    FaustEngine::GroupOrientation currentOrientation() const
+    {
+        return orientationStack.size() > 1   // > 1: at least one real group beyond
+                                             // the wrapper, mirrors currentGroup()'s
+                                             // "i = 1 skips the wrapper" loop bound
+                   ? orientationStack.back()
+                   : FaustEngine::GroupOrientation::None;
     }
 
     // Slash-joined, outermost first, with Faust's filename wrapper dropped.
@@ -73,6 +90,7 @@ struct ParamCapture : public UI
     FaustEngine::Scale  pendingScale = FaustEngine::Scale::None;
     std::string         pendingUnit;
     bool                pendingIsMenu = false;
+    std::string         pendingStyle;   // ADR-029 §2: raw [style:...] value, verbatim
 
     void declare(FAUSTFLOAT* zone, const char* key, const char* value) override
     {
@@ -85,6 +103,7 @@ struct ParamCapture : public UI
             pendingScale  = FaustEngine::Scale::None;
             pendingUnit.clear();
             pendingIsMenu = false;
+            pendingStyle.clear();
         }
 
         const std::string k = key ? key : "";
@@ -103,6 +122,7 @@ struct ParamCapture : public UI
         {
             // "menu{'A':0;'B':1}" / "radio{...}" -- both are discrete choosers.
             pendingIsMenu = v.rfind("menu", 0) == 0 || v.rfind("radio", 0) == 0;
+            pendingStyle  = v;   // kept verbatim -- "knob" previously had nowhere to go
         }
     }
 
@@ -113,8 +133,9 @@ struct ParamCapture : public UI
                                    FaustEngine::Kind kind)
     {
         FaustEngine::ParamInfo info { label ? label : "", init, fmin, fmax, step, kind };
-        info.zone  = zone;
-        info.group = currentGroup();
+        info.zone        = zone;
+        info.group       = currentGroup();
+        info.orientation = currentOrientation();
 
         // Stable identity, derived here and nowhere else. Collisions are resolved
         // against the ids assigned EARLIER IN THIS SAME PASS, which is why the
@@ -135,12 +156,14 @@ struct ParamCapture : public UI
             info.scale  = pendingScale;
             info.unit   = pendingUnit;
             info.isMenu = pendingIsMenu;
+            info.style  = pendingStyle;
         }
 
         pendingZone   = nullptr;
         pendingScale  = FaustEngine::Scale::None;
         pendingUnit.clear();
         pendingIsMenu = false;
+        pendingStyle.clear();
         return info;
     }
 
@@ -214,9 +237,18 @@ struct ParamCapture : public UI
     // after the .dsp file, which is a filename, not a section. Tracking depth
     // rather than testing the name keeps that robust when a patch happens to
     // name a real group the same thing as the file.
-    void openTabBox(const char* label) override        { pushGroup(label); }
-    void openHorizontalBox(const char* label) override { pushGroup(label); }
-    void openVerticalBox(const char* label) override   { pushGroup(label); }
+    void openTabBox(const char* label) override
+    {
+        pushGroup(label, FaustEngine::GroupOrientation::Tab);
+    }
+    void openHorizontalBox(const char* label) override
+    {
+        pushGroup(label, FaustEngine::GroupOrientation::Horizontal);
+    }
+    void openVerticalBox(const char* label) override
+    {
+        pushGroup(label, FaustEngine::GroupOrientation::Vertical);
+    }
 
     void closeBox() override
     {
@@ -225,6 +257,8 @@ struct ParamCapture : public UI
         // future libfaust ever did.
         if (! groupStack.empty())
             groupStack.pop_back();
+        if (! orientationStack.empty())
+            orientationStack.pop_back();
         ++closedBoxes;
     }
 };

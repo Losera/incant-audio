@@ -44,6 +44,16 @@ public:
 
     void resized() override;
 
+    // Re-applies octaveLabel/disabledLabel fonts once this panel is actually
+    // attached under PluginForgeEditor. See ForgeLookAndFeel.h's
+    // resolveThemeFont() header comment: the constructor's own setFont()
+    // calls run before that attachment exists (PluginForgeEditor's
+    // member-initialiser list, before addAndMakeVisible), so they resolve
+    // against the wrong LookAndFeel. JUCE calls this automatically the
+    // moment addChildComponent() sets parentComponent
+    // (juce_Component.cpp:1166-1187).
+    void parentHierarchyChanged() override;
+
     // Called from the editor's EXISTING 30Hz timer (PluginEditor.cpp's
     // timerCallback, already ticking for the level meter -- see
     // PluginForgeProcessor::isInstrumentForTest()'s header comment for why
@@ -161,10 +171,6 @@ public:
     int  currentOctaveForTest() const { return currentOctave; }
     int  availableRangeLowForTest() const  { return keyboardComponent.getRangeStart(); }
     int  availableRangeHighForTest() const { return keyboardComponent.getRangeEnd(); }
-    bool octaveUpIsHitTargetForTest()
-    {
-        return getComponentAt(octaveUpButton.getBounds().getCentre()) == &octaveUpButton;
-    }
 
 private:
     // juce::MidiKeyboardState::Listener. Fires synchronously from
@@ -177,6 +183,11 @@ private:
                       int midiNoteNumber, float velocity) override;
     void handleNoteOff(juce::MidiKeyboardState*, int midiChannel,
                        int midiNoteNumber, float velocity) override;
+
+    // Called from parentHierarchyChanged() below, once this panel is
+    // actually attached under PluginForgeEditor -- see that override's
+    // comment for why resolving any earlier would be both wrong and noisy.
+    void applyFonts();
 
     static constexpr int kMidiChannel = 1;
 

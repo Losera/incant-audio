@@ -68,6 +68,33 @@ bench/.worktrees/
 # Claude Code plan-mode working files (transient planning scratch, not content)
 .claude/plans/
 
+# ADR-028 handoff protocol. Session-to-session working state, not repo content --
+# same reasoning as .claude/plans/ above. HANDOFF.md and handoff-state.json are each
+# overwritten in place, never appended, so those two are always 0-2 files, never an
+# accumulating log. HANDOFF.md is agent-authored prose; handoff-state.json is
+# machine-captured by handoff_precompact.py and MUST stay untracked too, or a stale
+# compaction snapshot could get committed and read as current.
+.claude/HANDOFF.md
+.claude/handoff-state.json
+
+# Claude Code's own near-limit resume file (CLAUDE.md, .claude/skills/handoff/SKILL.md
+# both reference it as a /handoff trigger). Written by the harness itself, not this
+# repo's tooling; only ever ignored locally via .git/info/exclude before 2026-08-25,
+# which doesn't travel to a fresh checkout -- CI's dead-link checks
+# (tests/test_control_wiring.py's TestExtensionsDoNotReferenceDeletedFiles /
+# TestLiveDocsDoNotReferenceDeletedFiles) flagged both references as broken the first
+# time a `design/ember-console` CI run actually reached them, previously masked by the
+# unrelated PF-067 collection failure aborting the suite before these tests ran. Same
+# "session-to-session working state, not repo content" reasoning as
+# HANDOFF.md/handoff-state.json above.
+/.claude/RESUME.md
+
+# The one deliberate exception: handoff-log.jsonl IS append-only, by design -- added
+# 2026-08-21 so "is /handoff actually getting used" is a count, not a memory, for the
+# real-usage evaluation window before ADR-028 gets pushed. Pure observation, never
+# read by either hook; local per-machine telemetry, never repo content.
+.claude/handoff-log.jsonl
+
 # PF-014 real-user prompt log. Local observation data, not repo content: it records
 # what a person actually typed at this machine. Never committed — the benchmark
 # corpus is derived from it by hand, deliberately.

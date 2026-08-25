@@ -73,11 +73,26 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
     addAndMakeVisible(promptPanel);
     addAndMakeVisible(paramGridPanel);
 
-    // Always in the layout, unlike codeEditorPanel below -- an effect patch's
-    // "you can't play this" is communicated by dimming (KeyboardPanel::
-    // setPlayable), not by removing the control from the window, so the user
-    // is never left wondering whether playing is possible at all.
-    addAndMakeVisible(keyboardPanel);
+    // Conditional band since 2026-08-24 (item 1 of the generated-plugin-identity
+    // work): laid out only for a patch that has actually declared a voice
+    // contract, gated on the exact same FaustEngine::isInstrument() boolean
+    // that already drives KeyboardPanel::setPlayable()'s dimming, below and in
+    // resized()/updateWindowSizeForParams(). This retires the older design --
+    // "always show it dimmed so nobody wonders if playing is possible" -- which
+    // made sense for one shell hosting every patch, but stops making sense once
+    // a generated effect is exported as its own standalone plugin: a dimmed
+    // keyboard on a reverb is 80px of dead chrome explaining a synth case that
+    // plugin will never hit. addChildComponent (not addAndMakeVisible): starts
+    // invisible, matching voiceValid's own default-false until a patch compiles
+    // (FaustEngine.h:338); resized() sets the real visibility every layout pass.
+    addChildComponent(keyboardPanel);
+
+    // Sample browser stays unconditional -- NOT gated the same way. It feeds
+    // the audition input bus for auditioning a generated EFFECT against a real
+    // source (PluginProcessor.h's "Sample audition" block, loadAuditionSample),
+    // which is the opposite of the instrument case the keyboard boolean tracks.
+    // Gating both bands on one boolean would hide the sample browser for
+    // exactly the patches it exists to serve.
     addAndMakeVisible(sampleBrowserPanel);
 
     // The read-only Faust view (ux_roadmap Phase 3a). Still an invisible child
@@ -194,12 +209,14 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
             // ADR-022 Track 1.2: derive a sectioned layout purely from Faust
             // group nesting already present in `params` -- no prompt change,
             // no LLM involvement. Called unconditionally; deriveLayoutFromGroups
-            // itself returns UiIr::empty() (schema 0) when sectioning would not
-            // help, and applyUiIr's own `ir.schema != 1` branch is already the
-            // "render the flat grid" path, so an ungrouped or sparse patch is
-            // unaffected byte-for-byte.
+            // itself leaves `sections` empty when sectioning would not help,
+            // and applyUiIr's own "sections.empty()" branch is already the
+            // "render the flat grid" path (ADR-029 §4 -- see that function's
+            // comment for why this moved off ir.schema != 1), so an ungrouped
+            // or sparse patch is unaffected byte-for-byte.
             safeThis->paramGridPanel.applyUiIr(
-                ParamGridPanel::deriveLayoutFromGroups(params));
+                ParamGridPanel::deriveLayoutFromGroups(
+                    params, safeThis->processor.isInstrumentForTest()));
             // The source of record is committed in the same success branch that
             // fires this callback (PluginProcessor.cpp:180-181), so by the time
             // this message-thread hop runs, currentSource() is the patch that
@@ -215,6 +232,20 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
             safeThis->promptPanel.setRefineModesAvailable(
                 safeThis->processor.currentSource().isNotEmpty());
             safeThis->updateWindowSizeForParams();
+            // Belt-and-suspenders with the line above, same reason
+            // setCodeViewVisible() pairs the two calls: JUCE's setSize() only
+            // triggers resized() when width or height actually CHANGE, and an
+            // instrument <-> effect transition does not guarantee that -- the
+            // grid's own height can coincidentally absorb the keyboard band's
+            // 80px. Found live: recompiling an instrument straight after
+            // another compile could leave keyboardPanel invisible (stale from
+            // the previous resized() call) even though this patch IS an
+            // instrument, and focusForPlaying() below would then grab focus on
+            // a non-showing component -- a real jassert in
+            // juce_Component.cpp's grabKeyboardFocus(), not a hypothetical
+            // one. An explicit call makes keyboardPanel's visibility and
+            // bounds authoritative regardless of whether setSize() no-opped.
+            safeThis->resized();
 
             // Run setPlayable() HERE rather than waiting for the next 30Hz
             // timerCallback tick: focusForPlaying() below needs the widget
@@ -302,7 +333,12 @@ void PluginForgeEditor::updateWindowSizeForParams()
     const int gridH  = juce::jmin(wanted, capH);
     const int splitH = juce::jmax(gridH, rightColumnHeight(chrome));
     const int codeH  = codeEditorPanel.isVisible() ? (chrome.gapCode + chrome.codeH) : 0;
-    const int winH   = juce::jmax(kMinWindowH, verticalChrome(chrome) + splitH + codeH);
+    // Same voice-contract boolean as resized()'s keyboard band and
+    // KeyboardPanel::setPlayable() -- an effect patch's window does not
+    // reserve gapKeyboard+keyboardH for a band it will not lay out.
+    const bool instrument = processor.isInstrumentForTest();
+    const int winH   = juce::jmax(kMinWindowH,
+                                   verticalChrome(chrome, instrument) + splitH + codeH);
     setSize(getWidth(), winH);   // synchronously triggers resized() below
 }
 
@@ -354,6 +390,16 @@ juce::String PluginForgeEditor::gridControlLabelForTest(int i) const
 juce::String PluginForgeEditor::gridControlGroupForTest(int i) const
 {
     return paramGridPanel.controlGroupForTest(i);
+}
+
+juce::String PluginForgeEditor::gridControlStyleForTest(int i) const
+{
+    return paramGridPanel.controlStyleForTest(i);
+}
+
+juce::String PluginForgeEditor::gridControlOrientationForTest(int i) const
+{
+    return paramGridPanel.controlOrientationForTest(i);
 }
 
 double PluginForgeEditor::gridControlValueForTest(int i) const
@@ -515,24 +561,43 @@ bool PluginForgeEditor::keyPressed(const juce::KeyPress& key)
 void PluginForgeEditor::paint(juce::Graphics& g)
 {
     g.fillAll(Theme::background);
-    g.setColour(juce::Colours::white);
-    g.setFont(Theme::Type::title());
+    g.setColour(Theme::textPrimary);
+    // resolveThemeFont, not Theme::Type::title() directly -- see
+    // ForgeLookAndFeel.h's header comment on that function for why a
+    // name-based Font alone never actually resolves to the embedded Pirata
+    // One. Safe here: paint() only ever runs once this component is fully
+    // wired into the editor's tree.
+    g.setFont(resolveThemeFont(*this, Theme::Type::title()));
     // Title lives in the top-margin+title band so it reads as a shell header, not
     // as part of either column. Left-aligned (was centred) since 2026-08-12: the
     // disclosure row now shares this band on the right (titleTextBounds, set in
     // resized()), and centring the text would risk it drifting under those
     // controls as the window resizes.
-    g.drawText("PluginForge", titleTextBounds, juce::Justification::centredLeft);
+    // ADR-029 §5: a name derived from this compile's (params, isInstrument)
+    // hash, the same inputs derivePalette() already hashes for the accent --
+    // replaces the literal "PluginForge" so the title agrees with the accent
+    // colour rather than naming the engine regardless of what was generated.
+    g.drawText(paramGridPanel.getGeneratedTitle(), titleTextBounds,
+                juce::Justification::centredLeft);
 
     // Divider between the left (grid) and right (prompt) columns. Drawn as a thin
     // line down the middle of the dividerW gap. Set in resized().
+    //
+    // Bottom subtraction must track the SAME instrument conditional resized()
+    // and updateWindowSizeForParams() use: when the keyboard band is not laid
+    // out, getHeight() no longer includes gapKeyboard+keyboardH at all, so
+    // subtracting them unconditionally here would shorten the line by that
+    // same amount a second time -- found while wiring the conditional band,
+    // 2026-08-24, not previously reachable because the band was unconditional.
     if (dividerX > 0)
     {
         g.setColour(Theme::surfaceSunken);
+        const bool instrument = processor.isInstrumentForTest();
+        const int bottomChrome = chrome.margin
+                                + (instrument ? (chrome.gapKeyboard + chrome.keyboardH) : 0);
         g.fillRect(juce::Rectangle<int>(dividerX, chrome.margin + chrome.titleH,
                                         1, getHeight() - (chrome.margin + chrome.titleH)
-                                              - chrome.margin - chrome.gapKeyboard
-                                              - chrome.keyboardH));
+                                              - bottomChrome));
     }
 
     // ── Output level meter (post-DSP peak) ──────────────────────────────────
@@ -591,12 +656,19 @@ void PluginForgeEditor::resized()
     titleArea.removeFromRight(6);
     titleTextBounds = titleArea;
 
-    // Keyboard: full-width band at the bottom, ALWAYS laid out (see the
-    // addAndMakeVisible comment in the constructor) so an effect patch's dimmed
-    // keyboard is still visible rather than absent.
-    auto keyboardArea = area.removeFromBottom(c.keyboardH);
-    keyboardPanel.setBounds(keyboardArea);
-    area.removeFromBottom(c.gapKeyboard);
+    // Keyboard: full-width band at the bottom, laid out only for a patch that
+    // has declared a voice contract (see the addChildComponent comment in the
+    // constructor) -- the same FaustEngine::isInstrument() boolean
+    // updateWindowSizeForParams() already reads for the window-height sum
+    // above, so the two cannot disagree about whether the band exists.
+    const bool instrument = processor.isInstrumentForTest();
+    keyboardPanel.setVisible(instrument);
+    if (instrument)
+    {
+        auto keyboardArea = area.removeFromBottom(c.keyboardH);
+        keyboardPanel.setBounds(keyboardArea);
+        area.removeFromBottom(c.gapKeyboard);
+    }
 
     sampleBrowserPanel.setBounds(area.removeFromBottom(c.samplesH));
     area.removeFromBottom(c.gapSamples);

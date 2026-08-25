@@ -59,13 +59,23 @@ def _settings() -> dict:
     return json.loads(SETTINGS.read_text())
 
 
-def _run_hook(script: str, payload: dict) -> int:
-    """Invoke a hook the way Claude Code does: JSON on stdin, meaning in the exit code."""
-    proc = subprocess.run(
+def _run_hook_capture(script: str, payload: dict, env: dict | None = None) -> subprocess.CompletedProcess:
+    """Invoke a hook the way Claude Code does: JSON on stdin. Returns the full
+    process so a caller can inspect stdout (e.g. additionalContext JSON), not just
+    the exit code. `env`, if given, is merged over the inherited environment --
+    used by the handoff tests to redirect PLUGINFORGE_HANDOFF_LOG_PATH so a test
+    run never writes into the real, gitignored usage log."""
+    full_env = {**os.environ, **env} if env else None
+    return subprocess.run(
         [sys.executable, str(HOOKS_DIR / script)],
         input=json.dumps(payload), capture_output=True, text=True, timeout=60,
+        env=full_env,
     )
-    return proc.returncode
+
+
+def _run_hook(script: str, payload: dict, env: dict | None = None) -> int:
+    """Invoke a hook the way Claude Code does: JSON on stdin, meaning in the exit code."""
+    return _run_hook_capture(script, payload, env=env).returncode
 
 
 def _registered_commands() -> list[str]:
@@ -112,6 +122,26 @@ class TestSettingsShape:
             for group in groups:
                 assert "matcher" in group, f"{event}: matcher group has no 'matcher'"
                 assert group.get("hooks"), f"{event}/{group.get('matcher')}: no handlers"
+
+    def test_no_literal_wildcard_matcher(self):
+        """`"matcher": "*"` was written for handoff_injector.py / handoff_precompact.py
+        (ADR-028) and would have silently never fired: the harness's own settings
+        validator (confirmed 2026-08-21 by inspecting the installed 2.1.239 binary's
+        Zod schema description strings, since the public docs claimed "*" works and
+        were wrong) documents the matcher as "a tool name, pipe-separated list, or
+        empty to match all" -- "*" is not a case it names, so it is compared literally
+        against the event's matched field (a tool name, or a SessionStart source /
+        PreCompact trigger) and matches nothing. Caught before commit, but exactly
+        the "declared control that never ran" shape this file exists to prevent, so
+        it gets a permanent case rather than trusting it was fixed once.
+        """
+        for event, groups in _settings()["hooks"].items():
+            for group in groups:
+                assert group.get("matcher") != "*", (
+                    f"{event} hook uses matcher \"*\", which is not a wildcard in "
+                    "Claude Code's own matcher syntax. Use \"\" (empty string) to "
+                    "match every case, or omit the field."
+                )
                 for handler in group["hooks"]:
                     assert handler.get("type") == "command", "only 'command' handlers are used here"
                     assert handler.get("command"), "handler has an empty command"
@@ -468,6 +498,248 @@ class TestHooksDoNotOverreach:
             "tool_name": "Write", "cwd": CWD,
             "tool_input": {"file_path": PROMPT, "content": Path(PROMPT).read_text()},
         }) == 0
+
+
+# ------------------------------------------------------------- handoff (ADR-028)
+
+
+HANDOFF_PATH = ROOT / ".claude" / "HANDOFF.md"
+HANDOFF_STATE_PATH = ROOT / ".claude" / "handoff-state.json"
+HANDOFF_SKILL = ROOT / ".claude" / "skills" / "handoff" / "SKILL.md"
+
+
+def _current_head() -> str:
+    out = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(ROOT),
+                          capture_output=True, text=True, timeout=10)
+    assert out.returncode == 0, "test needs a real git HEAD to run against"
+    return out.stdout.strip()
+
+
+def _additional_context(proc: subprocess.CompletedProcess) -> str:
+    payload = json.loads(proc.stdout)
+    return payload["hookSpecificOutput"]["additionalContext"]
+
+
+@pytest.fixture
+def clean_handoff(tmp_path):
+    """Shared by every handoff test class below. Yields an env dict redirecting
+    PLUGINFORGE_HANDOFF_LOG_PATH to a scratch file, and skips (rather than
+    clobbering) if any of the THREE real files this protocol touches already
+    exists: HANDOFF.md and handoff-state.json because a test must never overwrite
+    another session's real state (mirrors TestBenchmarkConcurrencyGuard.free_lock),
+    and handoff-state.json specifically also because handoff_precompact.py's STATE
+    path is not redirectable the way LOG is -- only the append-only usage log has
+    an env override, so any test invoking handoff_precompact.py without this guard
+    would write into the real state file regardless of what it thinks it is doing.
+    """
+    if HANDOFF_PATH.exists() or HANDOFF_STATE_PATH.exists():
+        pytest.skip("a real .claude/HANDOFF.md or handoff-state.json is on disk")
+    yield {"PLUGINFORGE_HANDOFF_LOG_PATH": str(tmp_path / "handoff-log.jsonl")}
+    HANDOFF_PATH.unlink(missing_ok=True)
+    HANDOFF_STATE_PATH.unlink(missing_ok=True)
+
+
+class TestHandoffHasTeeth:
+    """The re-injection guard must never be silent, and the compaction snapshot must
+    never overwrite a real handoff. Neither hook can BLOCK a session or a compaction
+    (no decision control exists for SessionStart/PreCompact) — so "teeth" here means
+    the honest-signal cases: a missing handoff says so explicitly, staleness is
+    flagged, and the machine-written safety net stays out of the human-written file's
+    way.
+    """
+
+    def test_injector_reports_no_handoff_on_disk(self, clean_handoff):
+        """The attention-report failure mode this project already knows: a short or
+        empty signal must never be read as good news. See orient/SKILL.md's own
+        warning about exactly this."""
+        proc = _run_hook_capture("handoff_injector.py", {
+            "hook_event_name": "SessionStart", "source": "clear", "cwd": CWD,
+        }, env=clean_handoff)
+        assert proc.returncode == 0
+        assert "NO HANDOFF ON DISK" in _additional_context(proc)
+
+    def test_injector_flags_a_stale_head(self, clean_handoff):
+        HANDOFF_PATH.write_text(
+            "# Handoff\n\n"
+            "<!-- handoff-meta: head=0000000000000000000000000000000000000000 "
+            "written=2020-01-01T00:00:00Z branch=nowhere -->\n"
+            "OBJECTIVE test fixture only\n"
+        )
+        proc = _run_hook_capture("handoff_injector.py", {
+            "hook_event_name": "SessionStart", "source": "resume", "cwd": CWD,
+        }, env=clean_handoff)
+        assert proc.returncode == 0
+        ctx = _additional_context(proc)
+        assert "STALENESS WARNING" in ctx, (
+            "A handoff recording a HEAD that no longer matches the repo must be "
+            f"flagged, not presented as current. Got:\n{ctx}"
+        )
+
+    def test_precompact_leaves_handoff_byte_identical(self, clean_handoff):
+        """The one that matters most: this pins the prose/state separation as a
+        mechanism, not a comment. A script has no access to the agent's reasoning,
+        so it must never overwrite a real handoff with a machine-generated stub."""
+        sentinel = "# Handoff\n\nOBJECTIVE sentinel content, must not be touched\n"
+        HANDOFF_PATH.write_text(sentinel)
+        proc = _run_hook_capture("handoff_precompact.py", {
+            "hook_event_name": "PreCompact", "trigger": "auto", "cwd": CWD,
+            "session_id": "test-session",
+        }, env=clean_handoff)
+        assert proc.returncode == 0
+        assert HANDOFF_PATH.read_text() == sentinel, (
+            "handoff_precompact.py modified .claude/HANDOFF.md. It must only ever "
+            "write .claude/handoff-state.json — see its module docstring."
+        )
+        assert HANDOFF_STATE_PATH.exists()
+        state = json.loads(HANDOFF_STATE_PATH.read_text())
+        assert state["trigger"] == "auto"
+
+    def test_log_write_failure_never_breaks_the_hook(self, clean_handoff, tmp_path):
+        """_log_event's try/except is a real guard, not decoration: point the log
+        path at something unwritable (a directory where a file is expected) and
+        confirm the hook still returns 0 and still emits valid additionalContext.
+        Telemetry must never be able to take the hook down with it."""
+        unwritable = tmp_path / "not-a-file"
+        unwritable.mkdir()  # writing to this path as a file raises IsADirectoryError
+        proc = _run_hook_capture("handoff_injector.py", {
+            "hook_event_name": "SessionStart", "source": "clear", "cwd": CWD,
+        }, env={"PLUGINFORGE_HANDOFF_LOG_PATH": str(unwritable)})
+        assert proc.returncode == 0
+        assert "NO HANDOFF ON DISK" in _additional_context(proc)
+
+    def test_handoff_skill_declares_its_own_name(self):
+        """Mirrors test_orient_skill_declares_its_own_name. Discovered 2026-08-19 for
+        /orient: a frontmatter-less same-named global skill can silently win the
+        slot. A missing/wrong `name:` field here is the cheap half of that failure
+        this repo controls."""
+        assert HANDOFF_SKILL.exists(), "the handoff skill is gone; nothing writes the doc"
+        body = HANDOFF_SKILL.read_text()
+        assert body.startswith("---\n"), (
+            "handoff/SKILL.md has no YAML frontmatter block -- the exact shape that "
+            "let a same-named global skill shadow /orient on 2026-08-19."
+        )
+        frontmatter = body.split("---\n", 2)[1]
+        assert re.search(r"^name:\s*handoff\s*$", frontmatter, re.MULTILINE), (
+            "handoff/SKILL.md's frontmatter does not declare `name: handoff`."
+        )
+
+
+class TestHandoffDoesNotOverreach:
+    """A gate that blocks ordinary work gets switched off, which is the same as
+    dead — and here that would mean blocking a session from starting or a
+    compaction from completing, either of which is much worse than a merely
+    annoying gate."""
+
+    def test_fresh_handoff_raises_no_staleness_banner(self, clean_handoff):
+        head = _current_head()
+        HANDOFF_PATH.write_text(
+            f"# Handoff\n\n<!-- handoff-meta: head={head} "
+            "written=2026-01-01T00:00:00Z branch=test -->\n"
+            "OBJECTIVE test fixture only\n"
+        )
+        proc = _run_hook_capture("handoff_injector.py", {
+            "hook_event_name": "SessionStart", "source": "clear", "cwd": CWD,
+        }, env=clean_handoff)
+        assert proc.returncode == 0
+        ctx = _additional_context(proc)
+        assert "STALENESS WARNING" not in ctx, f"A fresh, matching-HEAD handoff was flagged stale:\n{ctx}"
+        assert "NO HANDOFF ON DISK" not in ctx
+
+    @pytest.mark.parametrize("source", ["startup", "resume", "clear", "compact"])
+    def test_injector_never_blocks_any_session_start_source(self, source, clean_handoff):
+        assert _run_hook("handoff_injector.py", {
+            "hook_event_name": "SessionStart", "source": source, "cwd": CWD,
+        }, env=clean_handoff) == 0
+
+    @pytest.mark.parametrize("trigger", ["auto", "manual"])
+    def test_precompact_never_blocks_any_trigger(self, trigger, clean_handoff):
+        assert _run_hook("handoff_precompact.py", {
+            "hook_event_name": "PreCompact", "trigger": trigger, "cwd": CWD,
+            "session_id": "test-session",
+        }, env=clean_handoff) == 0
+
+
+class TestHandoffTelemetry:
+    """The usage log (added 2026-08-21, alongside the decision to hold ADR-028
+    unpushed until real-usage stats exist) is the one piece of this protocol that is
+    deliberately append-only rather than overwritten in place. That makes its own
+    correctness worth pinning separately from the two files it sits beside: a
+    malformed or missing entry silently degrades "determine real stats on the
+    workflow" from a count into a guess, which is exactly the failure mode this file
+    exists to catch everywhere else.
+
+    NOT COVERED: whether the numbers derived from this log, once there are enough of
+    them to derive anything from, are read and acted on rather than left to
+    accumulate unexamined.
+    """
+
+    def test_session_start_appends_one_well_formed_line(self, clean_handoff):
+        """Uses clean_handoff (not a bare scratch dir) because the state=="none"
+        assertion below is only meaningful when no real handoff/state exists."""
+        log_path = Path(clean_handoff["PLUGINFORGE_HANDOFF_LOG_PATH"])
+        proc = _run_hook_capture("handoff_injector.py", {
+            "hook_event_name": "SessionStart", "source": "startup",
+            "session_id": "telemetry-test", "cwd": CWD,
+        }, env=clean_handoff)
+        assert proc.returncode == 0
+        lines = log_path.read_text().splitlines()
+        assert len(lines) == 1, f"expected exactly one log line, got {len(lines)}"
+        record = json.loads(lines[0])
+        assert record["event"] == "SessionStart"
+        assert record["source"] == "startup"
+        assert record["session_id"] == "telemetry-test"
+        assert record["state"] == "none"
+        assert "ts" in record and record["ts"], "log entry has no timestamp"
+
+    def test_session_start_records_state_label_per_case(self, clean_handoff):
+        """Confirms the label, not just that A line got written -- a log full of
+        entries that all say "none" would count sessions without answering the
+        actual question (was a handoff present, and was it stale)."""
+        log_path = Path(clean_handoff["PLUGINFORGE_HANDOFF_LOG_PATH"])
+        head = _current_head()
+        HANDOFF_PATH.write_text(
+            f"# Handoff\n\n<!-- handoff-meta: head={head} "
+            "written=2026-01-01T00:00:00Z branch=test -->\nOBJECTIVE x\n"
+        )
+        proc = _run_hook_capture("handoff_injector.py", {
+            "hook_event_name": "SessionStart", "source": "clear", "cwd": CWD,
+        }, env=clean_handoff)
+        assert proc.returncode == 0
+
+        record = json.loads(log_path.read_text().splitlines()[0])
+        assert record["state"] == "fresh", (
+            "a matching-HEAD handoff must log state=fresh, not any other label"
+        )
+
+    def test_precompact_appends_one_well_formed_line(self, clean_handoff):
+        """Uses clean_handoff, not a bare scratch dir: handoff_precompact.py's STATE
+        path has no env override, so this test would otherwise write into the real
+        .claude/handoff-state.json regardless of where the log is redirected."""
+        log_path = Path(clean_handoff["PLUGINFORGE_HANDOFF_LOG_PATH"])
+        proc = _run_hook_capture("handoff_precompact.py", {
+            "hook_event_name": "PreCompact", "trigger": "manual",
+            "session_id": "telemetry-test", "cwd": CWD,
+        }, env=clean_handoff)
+        assert proc.returncode == 0
+        lines = log_path.read_text().splitlines()
+        assert len(lines) == 1, f"expected exactly one log line, got {len(lines)}"
+        record = json.loads(lines[0])
+        assert record["event"] == "PreCompact"
+        assert record["trigger"] == "manual"
+        assert record["session_id"] == "telemetry-test"
+        assert "ts" in record and record["ts"], "log entry has no timestamp"
+
+    def test_repeated_firings_append_rather_than_overwrite(self, clean_handoff):
+        """The one property that makes this log different from HANDOFF.md and
+        handoff-state.json beside it, and the one worth a red case: those two are
+        overwritten in place by design; this one accumulates by design."""
+        log_path = Path(clean_handoff["PLUGINFORGE_HANDOFF_LOG_PATH"])
+        for _ in range(3):
+            assert _run_hook("handoff_precompact.py", {
+                "hook_event_name": "PreCompact", "trigger": "auto",
+                "session_id": "telemetry-test", "cwd": CWD,
+            }, env=clean_handoff) == 0
+        assert len(log_path.read_text().splitlines()) == 3
 
 
 # ------------------------------------------------------- benchmark concurrency (PF-025)

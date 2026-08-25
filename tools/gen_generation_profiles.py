@@ -27,12 +27,14 @@ def render() -> str:
         "",
         "namespace GenerationProfiles",
         "{",
-        "struct Profile { const char* id; const char* displayName; const char* kind; };",
+        "struct Profile { const char* id; const char* displayName; const char* kind;",
+        "                 const char* promptBrief; };",
         f"inline constexpr std::array<Profile, {len(profiles)}> all {{{{",
     ]
     for profile in profiles:
         lines.append(
-            f"    {{ {_cpp(profile['id'])}, {_cpp(profile['display_name'])}, {_cpp(profile['kind'])} }},"
+            f"    {{ {_cpp(profile['id'])}, {_cpp(profile['display_name'])}, "
+            f"{_cpp(profile['kind'])}, {_cpp(profile['prompt_brief'])} }},"
         )
     lines.extend(["}};", ""])
     for profile in profiles:

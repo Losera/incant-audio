@@ -147,7 +147,8 @@ level_full() {
               PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim \
               OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery \
               ParamIdentityTest NoteRingTest NoteRingTsanTest ValidationGateTest \
-              SoundfetchClientTest GenerationProfilesAutoTest
+              SoundfetchClientTest GenerationProfilesAutoTest \
+              PromptPanelPathResolutionTest
 
     # ── Three harnesses that existed and ran nowhere ─────────────────────────
     # Found 2026-07-30 while surveying the measurement surface: OutputGuardTest
@@ -190,10 +191,15 @@ level_full() {
     # GenerationProfiles::resolveAuto()'s instrument-side branch -- exactly
     # the one the generator/synth-override fix touches. Pure juce_core, same
     # shape as SoundfetchClientTest.
+    # PromptPanelPathResolutionTest joined 2026-08-20, in the commit that fixed
+    # PF-065 (generate.py unresolvable from an installed VST3 -- confirmed in
+    # REAPER). Same source/link set as StatePersistenceTest beside it, but no
+    # message loop, no display, no JIT -- exercises resolveGenerateScript()
+    # (PromptPanel.cpp) directly against scratch directories.
     local pure
     for pure in OutputGuardTest ParamMapTest StatePersistenceTest ParamIdentityTest \
                 NoteRingTest ValidationGateTest SoundfetchClientTest \
-                GenerationProfilesAutoTest; do
+                GenerationProfilesAutoTest PromptPanelPathResolutionTest; do
       local bin
       bin="$(find host/build -type f -name "$pure" 2>/dev/null | head -n1)"
       if [[ -n "$bin" ]]; then

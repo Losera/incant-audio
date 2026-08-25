@@ -29,66 +29,87 @@ namespace Theme
 {
 
 // ── Colour ──────────────────────────────────────────────────────────────────
-// Palette: TOKYO NIGHT (adopted 2026-08-11, docs/sessions/010 §2). Replaced
-// Catppuccin Mocha. The structural ROLE of each token below is unchanged --
-// only the hex values moved -- so this commit is a pure repaint and must
-// produce an empty semantic layout diff.
+// Palette: EMBER CONSOLE (adopted 2026-08-24, per the "Five Faces of
+// PluginForge" design review -- a hybrid of that deck's concept 04 Console
+// Brutalism and concept 05 Cybersigilism: this file and ForgeLookAndFeel.h
+// take Cybersigilism's colour/type; PluginEditor's paint()/resized() and
+// ForgeLookAndFeel's drawXxx overrides take Brutalism's flat, hairline-ruled
+// geometry. Replaced Tokyo Night (2026-08-11). The structural ROLE of each
+// token below is unchanged -- only the hex values moved -- so this commit is
+// a pure repaint and must produce an empty semantic layout diff.
 //
-// Why: blue accent + amber hot is the conventional modern-app / pro-audio
-// pairing. Catppuccin's teal+pink reads as a terminal colour scheme, which is
-// precisely the "someone applied a theme to a stock app" impression the design
-// pass exists to escape (docs/competitive_landscape.md Threat #6).
+// Why: pure black + a single warm ember accent is a deliberate departure from
+// "conventional pro-audio blue" toward something more distinctive -- the
+// stated goal of the design review that chose it. Ember also reads as one
+// family with `progress`/`meterHot` (both warm), rather than pairing a cool
+// accent against warm status colours the way Tokyo Night did.
 //
-// ONE DELIBERATE DEVIATION from session 010's table, flagged in the approved
-// plan: 010 sets meterHot to #e0af68, which is ALSO its `yellow` token. The
-// meter's hot end and the "generation in progress" state would then be the same
-// colour -- a role collision that bites the moment both are on screen at once.
-// meterHot is Tokyo Night's orange #ff9e64 instead; `yellow` keeps #e0af68.
+// Contrast against `background`, measured with the WCAG relative-luminance
+// formula (tools/*, not assumed) -- so nobody reaches for a token that cannot
+// carry the text they are about to put in it:
+//   textPrimary   #f5f0e6 on background  17.94:1  AAA
+//   textSecondary #8a8378 on background   5.43:1  AA
+//   accent        #ff4b1f on background   6.09:1  AA
+//   progress      #ffb03d on background  11.19:1  AAA
+//   danger        #ec3b52 on background   5.16:1  AA
+//   meterHot      #ff8f4d on background   9.01:1  AAA
+//   outline       #383838 on background   1.74:1  FAILS AA for body text. It
+//                 is for disabled states and hairline outlines, never
+//                 required text -- same role and same failing status the
+//                 Tokyo Night outline token carried.
 //
-// Contrast against `background`, measured rather than assumed -- so nobody
-// reaches for a token that cannot carry the text they are about to put in it:
-//   textPrimary   #c0caf5 on background  ~11:1   passes AA/AAA for body text
-//   textSecondary #a9b1d6 on background  ~8.6:1  passes AA/AAA
-//   outline       #565f89 on background  ~3.0:1  FAILS AA for body text. It is
-//                 for disabled states and hairline outlines, never required text.
-inline const juce::Colour background    { 0xff1a1b26 };  // window background
-inline const juce::Colour surface       { 0xff16161e };  // panel/code-editor background
-inline const juce::Colour surfaceSunken { 0xff0f0f17 };  // meter track and line-number wells
-inline const juce::Colour surfaceRaised { 0xff242536 };  // cards and raised controls
-inline const juce::Colour outline       { 0xff565f89 };  // hairlines and disabled states
-inline const juce::Colour textPrimary   { 0xffc0caf5 };  // primary text
-inline const juce::Colour textSecondary { 0xffa9b1d6 };  // panel headers and supporting text
-inline const juce::Colour accent        { 0xff7aa2f7 };  // values, focus, and meter cool end
-inline const juce::Colour progress      { 0xffe0af68 };  // in-progress / working state
-inline const juce::Colour danger        { 0xfff7768e };  // error-region text
-inline const juce::Colour meterHot      { 0xffff9e64 };  // clipping-proximity signal only
+// ONE DELIBERATE DEVIATION from the design review's concept 05 table: it
+// specifies danger as #e0263f, which computes to 4.39:1 -- below the 4.5
+// line for body text, and PromptPanel.cpp's errorBox renders danger as real
+// 12px body copy carrying compiler stderr, not decoration. The deck flags
+// this itself ("worth a real re-check before shipping error copy at this
+// weight"). Nudged to #ec3b52 -- same crimson, clears AA, still visibly
+// distinct from `accent`.
+inline const juce::Colour background    { 0xff050505 };  // window background
+inline const juce::Colour surface       { 0xff0c0c0c };  // panel/code-editor background
+inline const juce::Colour surfaceSunken { 0xff000000 };  // meter track and line-number wells
+inline const juce::Colour surfaceRaised { 0xff131313 };  // cards and raised controls
+inline const juce::Colour outline       { 0xff383838 };  // hairlines and disabled states
+inline const juce::Colour textPrimary   { 0xfff5f0e6 };  // primary text
+inline const juce::Colour textSecondary { 0xff8a8378 };  // panel headers and supporting text
+inline const juce::Colour accent        { 0xffff4b1f };  // values, focus, and meter cool end
+inline const juce::Colour progress      { 0xffffb03d };  // in-progress / working state
+inline const juce::Colour danger        { 0xffec3b52 };  // error-region text
+inline const juce::Colour meterHot      { 0xffff8f4d };  // clipping-proximity signal only
 
 // ── Generated-plugin accent swatches (ADR-022 §3, T7) ──────────────────────
 // A small, fixed set of alternative accents ParamGridPanel::derivePalette
-// picks from, one per generated patch -- NOT new hues: the same Tokyo Night
-// family as `accent` above, so a generated plugin's identity always reads as
-// native to the shell around it rather than a mismatched sticker slapped on.
+// picks from, one per generated patch -- NOT new hues: the same Ember family
+// as `accent` above, so a generated plugin's identity always reads as native
+// to the shell around it rather than a mismatched sticker slapped on.
 //
 // ForgeLookAndFeel's highlightedText pairs Theme::background directly on TOP
 // of whichever of these is picked (dark text on the fill), so contrast
 // against background is what has to hold. Measured the same way as the
 // ratios in the Colour section above (WCAG relative-luminance formula,
-// background = #1a1b26):
-//   #7aa2f7 blue    (== accent)   6.79:1
-//   #bb9af7 purple                7.39:1
-//   #7dcfff teal                  9.96:1
-//   #9ece6a green                 9.35:1
-// All four clear AA (3:1 for UI components, 4.5:1 for text) with margin --
-// the lowest of the four still beats `danger` (6.46:1), which already ships
-// as error-region text, so none of this is a new contrast risk.
+// background = #050505):
+//   #ff4b1f ember   (== accent)   6.09:1
+//   #ffb03d amber                11.19:1
+//   #d9542b rust                  5.10:1
+//   #ff7a45 coral                 7.88:1
+// All four clear AA (3:1 for UI components, 4.5:1 for text) with margin.
+//
+// RESOLVED RISK: the design deck's fourth swatch was bone #f5f0e6, byte-
+// identical to `textPrimary`. Rendered via tools/ui_iterate.sh
+// (04_generator_grouped__rotary.png): on a bone-accented patch every knob
+// fill and every label shared one colour -- white-on-black with no
+// value/label separation at all, erasing the distinction ForgeLookAndFeel.h's
+// "ONE ACCENT" reasoning exists to protect. Swapped for coral -- still
+// heat-family, still visibly distinct from the other three and from
+// `textPrimary`.
 namespace GeneratedAccent
 {
     inline const std::array<juce::Colour, 4> swatches
     {
-        juce::Colour{ 0xff7aa2f7 },
-        juce::Colour{ 0xffbb9af7 },
-        juce::Colour{ 0xff7dcfff },
-        juce::Colour{ 0xff9ece6a },
+        juce::Colour{ 0xffff4b1f },   // ember
+        juce::Colour{ 0xffffb03d },   // amber
+        juce::Colour{ 0xffd9542b },   // rust
+        juce::Colour{ 0xffff7a45 },   // coral
     };
 } // namespace GeneratedAccent
 
@@ -121,27 +142,40 @@ namespace Stroke
 } // namespace Stroke
 
 // ── Type scale ──────────────────────────────────────────────────────────────
-// The actual visual problem today isn't the typeface -- it's that four of the
-// five existing font call sites are the identical bare 12.0f (CodeEditorPanel.
-// cpp:9,27, ParamGridPanel.cpp:132, PromptPanel.cpp:154) with no hierarchy at
-// all; the fifth (PluginEditor.cpp:263, the "PluginForge" title) is 16.0f with
-// nothing between it and the rest. A real scale, even a small one, is most of
-// the fix.
+// Four bundled OFL faces (Ember Console repaint, Phase 2) replace the
+// platform-default sans that every token used until now. Named explicitly so
+// ForgeLookAndFeel::getTypefaceForFont can dispatch by exact typeface name
+// onto the embedded PluginForgeAssets bytes -- see that file's header
+// comment for why the lookup is name-based rather than style-flag-based:
+// SemiBold is a real embedded weight, not a synthetic bold laid over
+// Regular, so styleFlags stays plain everywhere below.
+//
+//   title()                                  Pirata One       -- exactly
+//     once (the concept's own discipline: everything a user actually has
+//     to read falls back to a plain face; this is decoration, not copy).
+//   heading() / label() / sectionTitle()     Big Shoulders Display SemiBold
+//     -- a condensed display face. Check the contact sheet
+//     (tools/ui_iterate.sh) before shipping: condensed faces read narrower
+//     at a given point size than the platform sans these sizes were tuned
+//     against, and may want a size or tracking bump to read as deliberate
+//     rather than squeezed.
+//   body() / caption()                       Work Sans        -- everything
+//     a user must actually read: prompt text, status lines, error copy.
+//   mono()                                   JetBrains Mono   -- replaces
+//     getDefaultMonospacedFontName(); the Faust code view and error box are
+//     the only places monospace is semantically correct in this repaint.
 namespace Type
 {
-    inline juce::Font caption()      { return juce::Font(11.0f); }                    // fine print
-    inline juce::Font body()         { return juce::Font(12.0f); }                    // default UI text
-    inline juce::Font label()        { return juce::Font(12.0f, juce::Font::bold); }  // knob captions
-    inline juce::Font sectionTitle() { return juce::Font(11.0f, juce::Font::bold); }  // tracked in paint
-    inline juce::Font heading()      { return juce::Font(14.0f, juce::Font::bold); }  // panel headers
-    inline juce::Font title()        { return juce::Font(18.0f, juce::Font::bold); }  // shell title
+    inline juce::Font caption()      { return juce::Font("Work Sans", 11.0f, juce::Font::plain); }
+    inline juce::Font body()         { return juce::Font("Work Sans", 12.0f, juce::Font::plain); }
+    inline juce::Font label()        { return juce::Font("Big Shoulders Display SemiBold", 12.0f, juce::Font::plain); }
+    inline juce::Font sectionTitle() { return juce::Font("Big Shoulders Display SemiBold", 11.0f, juce::Font::plain); }
+    inline juce::Font heading()      { return juce::Font("Big Shoulders Display SemiBold", 14.0f, juce::Font::plain); }
+    inline juce::Font title()        { return juce::Font("Pirata One", 18.0f, juce::Font::plain); }
 
-    // Both existing monospaced call sites (CodeEditorPanel.cpp:27, PromptPanel.
-    // cpp:154) already use exactly 12.0f -- one token, not a parameterised
-    // factory, until a second size is ever actually needed.
     inline juce::Font mono()
     {
-        return juce::Font(juce::Font::getDefaultMonospacedFontName(), 12.0f, juce::Font::plain);
+        return juce::Font("JetBrains Mono", 12.0f, juce::Font::plain);
     }
 } // namespace Type
 

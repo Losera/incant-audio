@@ -55,7 +55,12 @@ from dataclasses import dataclass, field
 
 import httpx
 
-DEFAULT_PROVIDER = "anthropic"
+DEFAULT_PROVIDER = "groq"
+# Falls back to a free provider, not "anthropic", so an unconfigured environment
+# (no .env — a fresh clone, a fresh git worktree) is incapable of hitting the paid
+# gate below. Was "anthropic" until 2026-08-19; that silently contradicted ADR-012's
+# own "free-only by default" (`docs/decisions.md`), because "default" only meant
+# "unless PLUGINFORGE_PROVIDER is set" — the unset case defaulted to paid.
 
 # Output budget for one generation. THE single source of truth — llm/generate.py,
 # bench/run_benchmark.py and bench/run_efficacy_study.py all read it from here.

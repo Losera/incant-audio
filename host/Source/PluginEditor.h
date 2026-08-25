@@ -97,6 +97,8 @@ public:
     ParamGridPanel::WidgetKind gridControlKindForTest(int i) const;
     juce::String gridControlLabelForTest(int i) const;
     juce::String gridControlGroupForTest(int i) const;
+    juce::String gridControlStyleForTest(int i) const;
+    juce::String gridControlOrientationForTest(int i) const;
     double       gridControlValueForTest(int i) const;
     juce::String gridControlTextForTest(int i) const;
     // T1 (ADR-022 Track 1.2): the sectioned layout applyUiIr() is currently
@@ -106,11 +108,25 @@ public:
     {
         return paramGridPanel.activeSectionsForTest();
     }
+    // ADR-029 §4: the component descriptor applyUiIr() last received. Same
+    // forwarding rule as every accessor here.
+    UiIr::Components gridActiveComponentsForTest() const
+    {
+        return paramGridPanel.activeComponentsForTest();
+    }
     // T7 (ADR-022 §3): the per-generation accent the current compile derived.
     // Same forwarding rule as every accessor here.
     juce::Colour gridPaletteForTest() const
     {
         return paramGridPanel.currentPaletteForTest();
+    }
+    // ADR-029 §5: the generated title for the current compile, same forwarding
+    // rule as every accessor here. Also what paint() itself draws -- not a
+    // test-only recomputation, so this cannot pass by agreeing with paint()
+    // by construction while both are wrong.
+    juce::String gridTitleForTest() const
+    {
+        return paramGridPanel.getGeneratedTitle();
     }
     // T3.4: TooltipWindow::getTipFor() gates on WindowingHelpers::
     // isForegroundOrEmbeddedProcess() (juce_TooltipWindow.cpp:154), which this
@@ -168,6 +184,7 @@ public:
     void         setKindForTest(const juce::String& kind) { promptPanel.setKindForTest(kind); }
     juce::String familyForTest() const { return promptPanel.familyForTest(); }
     void         setFamilyForTest(const juce::String& family) { promptPanel.setFamilyForTest(family); }
+    juce::String familyHintForTest() const { return promptPanel.familyHintForTest(); }
     bool         priorSourceDroppedForTest() const { return promptPanel.priorSourceDroppedForTest(); }
     // Dev-cockpit state export — OFF by default. Nothing is written anywhere
     // until a caller (the Standalone app or the /cockpit skill) opts in via
@@ -225,7 +242,6 @@ public:
     bool keyboardEnabledForTest() const           { return keyboardPanel.keyboardEnabledForTest(); }
     float keyboardAlphaForTest() const            { return keyboardPanel.keyboardAlphaForTest(); }
     bool keyboardDisabledLabelVisibleForTest() const { return keyboardPanel.disabledLabelVisibleForTest(); }
-    bool keyboardOctaveUpIsHitTargetForTest()        { return keyboardPanel.octaveUpIsHitTargetForTest(); }
     // How many times focusForPlaying() has been called -- see
     // KeyboardPanel.h's comment on what this proves (the shell-level wiring)
     // versus what it cannot (a headless harness has no peer, so
@@ -340,12 +356,20 @@ private:
         return c.promptH + c.gapMeter + c.meterH;
     }
 
-    // Everything outside the split region: title bar, both margins, keyboard band.
-    // The code band is added by the caller only when the panel is visible.
-    static constexpr int verticalChrome(const Chrome& c)
+    // Everything outside the split region: title bar, both margins, sample-
+    // browser band, and (when `includeKeyboard`) the keyboard band. The code
+    // band is added by the caller only when the panel is visible -- same
+    // pattern here since 2026-08-24: `includeKeyboard` defaults true so the
+    // static_assert below keeps checking the full/max chrome sum, and the two
+    // runtime call sites (resized(), updateWindowSizeForParams()) pass the
+    // live FaustEngine::isInstrument() value so an effect patch's window is
+    // shorter by gapKeyboard+keyboardH rather than reserving dead space for a
+    // band that is not laid out at all.
+    static constexpr int verticalChrome(const Chrome& c, bool includeKeyboard = true)
     {
         return c.margin + c.titleH + c.gapSamples + c.samplesH
-             + c.gapKeyboard + c.keyboardH + c.margin;
+             + (includeKeyboard ? (c.gapKeyboard + c.keyboardH) : 0)
+             + c.margin;
     }
 
     // The two sums are pinned by a static_assert at the top of resized() — NOT here.

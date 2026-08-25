@@ -100,6 +100,9 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-063 | `/orient` warned that green CI was behind HEAD but counted every merged side-branch commit, so its distance disagreed with the first-parent branch history and its own regression test | low | fixed | S4 Testing | `tools/status_digest.sh` `commit_line` | 2026-08-16 | `c9a1c7a` (2026-08-17) |
 | PF-064 | The efficacy harness passed no generation budget, so a daily-quota `Retry-After` could suspend the process for hours before incremental results reached a recoverable checkpoint | medium | fixed | S4 Testing | `bench/run_efficacy_study.py` | 2026-08-17 | `8c0d724` |
 | PF-065 | Generation fails with "generate.py not found" when the plugin runs as an installed VST3 (confirmed in REAPER) — ADR-011 marks this row Closed and it is not | high | open | S1 Backend | `host/Source/PromptPanel.cpp:143-154` | 2026-08-19 | |
+| PF-066 | `EditorSessionTest` scenario 20's octave-hit-test assertion is stale against the instrument-conditional keyboard band: `KeyboardPanel::resized()` never runs for a fresh/non-instrument editor, so the octave buttons it positions stay at default zero-size bounds | low | fixed | S3 Plugin UX | `host/Source/PluginEditor.cpp:648-654`, `host/tests/EditorSessionTest.cpp:1560-1561` | 2026-08-25 | this session |
+| PF-067 | `requirements.txt` pins `anthropic>=0.40.0` with no upper bound; `anthropic` 1.0.0 (released after the 2026-08-20 last-green CI run) ships `httpx2` instead of `httpx`, so every `import httpx` in `llm/providers.py` fails — breaks real generation, not just tests, anywhere a fresh `pip install -r requirements.txt` resolves 1.0.0 | critical | fixed | S1 Backend | `requirements.txt:1`, `llm/providers.py:56` | 2026-08-25 | this session |
+| PF-068 | Auto family selection silently stopped working from the second keystroke onward: `ComboBox::getSelectedId()` returns 0 once the displayed label desyncs from the stored item text, which `updateAutoFamilyLabel()`'s per-keystroke `changeItemText(1, ...)` call always caused — `selectedFamilyId()` then read "effect"/"synth" instead of "auto", skipping `resolveAuto()` entirely | high | fixed | S2 Prompting UX | `PromptPanel.cpp` `updateAutoFamilyLabel`; `/home/losera/JUCE/modules/juce_gui_basics/widgets/juce_ComboBox.cpp:250-256,133-139` | 2026-08-25 | this session |
 
 ---
 
@@ -1036,7 +1039,7 @@ for a trustworthy fresh measurement, not the measurement itself.
 
 ---
 
-### PF-065 — "generate.py not found" when hosted as an installed VST3 (confirmed in REAPER). *(open, found 2026-08-19)*
+### PF-065 — "generate.py not found" when hosted as an installed VST3 (confirmed in REAPER). *(open, found 2026-08-19; partial fix landed 2026-08-20)*
 
 **high · open · S1 Backend · user-reported, running the built VST3 in REAPER**
 
@@ -1070,10 +1073,184 @@ launch, with nothing in the installer, bundle, or code enforcing or detecting it
 `tests/test_release_packaging.py:105-106` only asserts the installer *prints* the string, never
 that a plugin can actually resolve the script from it.
 
-**Not fixed here.** The fix — bundle the script inside the plugin bundle, ship a config file
-the installer writes, or something else — is a distribution-architecture decision
-(COLLABORATION.md §2 consult-gate territory) and needs its own session, not a documentation-
-hygiene commit.
+**Decision (2026-08-20, COLLABORATION.md §2 consult — human chose the option, not Claude).**
+Presented three options: (A) bundle `generate.py` inside the plugin bundle and always resolve
+relative to the loaded binary; (B) an installer-written config file; (C) teach resolution about
+the fixed location `install.sh` already documents. Chose **C**: `docs/distribution.md`'s
+`install.sh` already places the Python runtime at `$XDG_DATA_HOME/pluginforge` or
+`~/.local/share/pluginforge` and only then tells the user to export `PLUGINFORGE_LLM_SCRIPT`
+pointing at it — nothing previously checked that location directly. (B) was folded into (C):
+the install location isn't user-configurable today, so a separate config file would record
+nothing (C) doesn't already know. (A) was logged as a deferred, larger question rather than
+solved here — it tends to reopen "should PluginForge vendor its own Python interpreter/deps,"
+which is bigger than this bug.
+
+**Partial fix landed** (`host/Source/PromptPanel.cpp`, `resolveGenerateScript()`, now a named,
+externally-linked function above the constructor): added a third resolution step after the env
+override and the upward walk — check `$XDG_DATA_HOME/pluginforge/llm/generate.py`, else
+`~/.local/share/pluginforge/llm/generate.py`. Covered by a new harness,
+`host/tests/PromptPanelPathResolutionTest.cpp` (5 checks: env override still wins over an XDG
+install; the pre-existing upward walk still finds a dev-tree sibling; the new XDG_DATA_HOME
+fallback; the new `~/.local/share` default; and the not-found case stays an invalid `File`),
+run against scratch directories so this repo's own real `llm/generate.py` cannot mask what's
+being tested. `cmake --build host/build --target PromptPanelPathResolutionTest` then running the
+binary directly: 5/5 passed, exit 0. Wired into `tools/check.sh full`'s pure/no-display group and
+into `.github/workflows/test.yml`'s matching build + run steps;
+`pytest tests/test_control_wiring.py -k Ladder` (the CI/ladder-parity guard) passes.
+
+**What this does NOT fix — still open, hence the status stays `open`.** The confirmed REAPER
+repro was against `COPY_PLUGIN_AFTER_BUILD`'s dev-loop copy to `~/.vst3`, not against a real
+`install.sh` install — that dev copy has no repo above it *and* no XDG-installed runtime, so the
+new step 3 does not fire for it either. Reproducing the exact reported failure today still
+requires exporting `PLUGINFORGE_LLM_SCRIPT` before launching the DAW — unchanged, and already
+the mechanism `PromptPanel.cpp`'s own comment names as supported for this case. Closing that
+residual either means running `install.sh` for real before the interactive-host session (Next
+three #1), or later choosing option (A) above. Not claiming "fixed" while the reported repro is
+unchanged — see ADR-011's own history of this exact mistake, just above.
+
+### PF-066 — `EditorSessionTest` scenario 20's octave-hit-test assertion is stale against the instrument-conditional keyboard band. *(fixed 2026-08-25, this session)*
+
+**low · fixed, this session · S3 Plugin UX · found while verifying an unrelated change (Ember
+Console typography, `cf336ff`) — reproduced independently on a clean build of committed HEAD
+with none of that change's diff present, so it predates it and is not caused by it**
+
+`89268ec` ("feat: instrument-conditional keyboard band") changed `keyboardPanel` from an
+always-laid-out, dimmed-when-disabled child (`addAndMakeVisible`) to one that starts and
+stays invisible (`addChildComponent`) until `processor.isInstrumentForTest()` is true
+(`PluginEditor.cpp:648-654`): `keyboardPanel.setBounds(keyboardArea)` is called **only**
+inside `if (instrument)`. JUCE calls a component's own `resized()` only when `setBounds()`
+actually runs on it — so for a fresh editor (no patch compiled yet, `isInstrumentForTest()`
+false) or any effect patch, `KeyboardPanel::resized()` never fires at all, and everything it
+positions (`octaveUpButton`, `octaveDownButton`, `octaveLabel`, `disabledLabel`,
+`keyboardComponent` — `KeyboardPanel.cpp:109-127`) stays at JUCE's default `{0,0,0,0}`.
+
+`EditorSessionTest.cpp:1560-1561` (scenario 20, "an effect patch disables the keyboard")
+checks, on a brand-new `Session`, `s.editor.keyboardOctaveUpIsHitTargetForTest()` — which
+resolves to `getComponentAt(octaveUpButton.getBounds().getCentre()) == &octaveUpButton`
+(`KeyboardPanel.h:174-177`). Against a zero-size button this asks whether point `(0,0)`
+inside a zero-area rectangle hit-tests as that rectangle, which JUCE's
+`Rectangle::contains()` treats as false, so `getComponentAt` returns something other than
+`&octaveUpButton` and the check fails. **311 checks, 1 failure**, reproduced identically on
+a clean worktree build of committed HEAD (`915655c`) with zero of this session's font/timing
+changes present — confirmed pre-existing, not introduced by `cf336ff`.
+
+**Read as a test-currency bug, not a functional regression.** The assertion's own docstring
+("the disabled overlay does not block the enabled octave controls") encodes the *pre-89268ec*
+invariant — from back when the keyboard band was always laid out, just dimmed
+(`89268ec`'s own diff removes the comment "Always in the layout... an effect patch's 'you
+can't play this' is communicated by dimming... not by removing the control"). `89268ec`
+deliberately inverted that design (an effect gets 80px less chrome instead of a dimmed
+band), and correctly re-lays-out the band once a real instrument compiles —
+`onFaustCompileSuccess`'s explicit `resized()` call (`PluginEditor.cpp`, same commit) covers
+exactly that transition. Nothing found here suggests the octave controls are unreachable
+once an instrument is actually loaded; the gap is a fresh/effect state whose keyboard band
+is entirely invisible anyway, where "are its internal buttons hit-testable" is moot — the
+test just never got updated to stop asserting it.
+
+**Why this is `docs/BUGS.md`'s first record of it despite `89268ec` landing a day earlier**:
+this project's own recurring finding applies again — "a control counts only once it has been
+seen failing" (`CLAUDE.md`). Nothing indicates `EditorSessionTest` was run between `89268ec`
+landing and this discovery; `tools/check.sh fast` (pytest-only) would not have caught it.
+
+**Fixed, same session, once CI blocking every push on this branch made it worth the small
+detour.** Removed scenario 20's stale `keyboardOctaveUpIsHitTargetForTest()` check (and the
+now-unused `KeyboardPanel::octaveUpIsHitTargetForTest()` / `PluginEditor::
+keyboardOctaveUpIsHitTargetForTest()` accessors it was the only caller of), replacing it with
+a comment recording why the old assertion no longer applies — not a relocated equivalent
+check elsewhere, since no other scenario compiles an instrument AND needs octave-button
+hit-testing, and manufacturing one just to preserve superficial coverage would test a JUCE
+implementation detail (zero bounds) rather than a real product invariant. Verified locally
+(built and run against the working tree's actual current state, which also carries other
+in-flight, uncommitted branch work): the octave-hit-test failure this entry describes is
+gone; a different, unrelated failure remains from that other in-progress work, not from this
+fix — not this defect's concern.
+
+### PF-067 — `anthropic>=0.40.0`'s uncapped upper bound resolved to 1.0.0, which ships `httpx2` instead of `httpx`, breaking every `import httpx` in `llm/providers.py`. *(fixed 2026-08-25, `73f3263`)*
+
+**critical · fixed `73f3263` · S1 Backend · found via CI on `design/ember-console`, reproduced
+on any branch/PR pushed that day — confirmed unrelated to that branch's own content**
+
+`requirements.txt:1` pins `anthropic>=0.40.0` with no upper bound. `pip index versions
+anthropic` (run this session): latest is `1.0.0`; the last pre-1.0 release is `0.125.0`.
+CI's own pip resolution log (`design/ember-console` run `32876117541`, `test` job) shows it
+picking up `anthropic-1.0.0-py3-none-any.whl` and, transitively, `Collecting httpx2<3,>=2.0.0
+(from anthropic>=0.40.0->...)` — a **different package**, not a version bump of `httpx`.
+`llm/providers.py:56` still does `import httpx` directly (plus three more uses:
+`:886,888,982`), so any environment where `pip install -r requirements.txt` resolves
+`anthropic` to `1.0.0+` fails at that import — 14 test modules fail to even collect
+(`ModuleNotFoundError: No module named 'httpx'`), and so does anything that imports
+`llm/providers.py` at runtime, including `llm/generate.py` itself. This is not a
+test-only defect: a fresh install of the real product breaks the same way.
+
+**Confirmed pre-existing, not caused by anything pushed this session.** The last green CI run
+on `main` (`31ba9414`→`9a6b39c`, through 2026-08-20) predates whenever `anthropic` 1.0.0 was
+actually published; nothing in `requirements.txt`'s history changed (`git log` shows one
+commit, the initial import) and `httpx` was never listed there directly — it rode in only as
+`anthropic`'s own transitive dependency, silently, until that dependency itself changed shape
+upstream. Every branch's CI is red on this today, including a rebuild of committed `main`.
+
+**Fixed, same day, in a later session** — reversing the original "record it, don't fix it
+now" call once CI blocking every branch made the cost of waiting concrete. Pinned
+`requirements.txt:1` to `anthropic>=0.40.0,<1.0.0`, the narrowest fix of the three named
+above: restores `httpx` (the transport `providers.py:56,886,888,982` already assumes) without
+touching `providers.py` itself or vendoring anything. Verified against a fresh venv replicating
+CI's exact install sequence (`pip install -r requirements.txt` then `pip install numpy scipy`,
+per `.github/workflows/test.yml:36-45`) — `anthropic` resolves to `0.125.0`, `httpx` to a real
+`httpx` (not `httpx2`) `0.28.1`, `import providers` succeeds, and the full unit suite
+(`pytest tests/ -q -m "not integration"`) passes: 666 passed, 21 skipped, 17 deselected, 1
+xfailed. Revisit if `providers.py` ever needs a `1.0.0+`-only feature — that would mean
+doing the `httpx2` migration this fix deliberately deferred.
+
+### PF-068 — Auto family selection silently broke on the second keystroke: `ComboBox::getSelectedId()` desyncs against `changeItemText()`, so `selectedFamilyId()` read "effect"/"synth" instead of "auto". *(fixed 2026-08-25, same session)*
+
+**high · fixed · S2 Prompting UX · found while adding queue item 3's prompt-writing hint,
+confirmed against a real X11 window, not just the headless test harness**
+
+`PromptPanel::updateAutoFamilyLabel()` calls `familySelector.changeItemText(1, "Auto -> " +
+displayName)` on every keystroke (`promptInput.onTextChange`), to keep the combo box's first
+item showing the live "Auto -> Effect" / "Auto -> Drum Synth" preview. `ComboBox::changeItemText`
+(`/home/losera/JUCE/modules/juce_gui_basics/widgets/juce_ComboBox.cpp:133-139`) rewrites the
+item's *stored* text but never touches the *displayed* label. `ComboBox::getSelectedId()`
+(`:250-256`) does not trust its own `currentId` — it returns `0` unless `getText() ==
+item->text`, i.e. unless the label and the stored text still agree. The very first
+`changeItemText` call after construction (the second keystroke, since the first
+`updateAutoFamilyLabel()` call happens once at construction with an empty prompt) desyncs them
+permanently: the label keeps whatever text `setSelectedId` last wrote, the stored item text keeps
+changing underneath it every keystroke, and `getSelectedId()` returns `0` from then on for the
+rest of that editor's lifetime.
+
+`PromptPanel::selectedFamilyId()` treats any ID that is not literally `1` or `3` as `"effect"`
+(or, on the synth side, falls through to `"synth"`) — there is no "0 means invalid, treat as
+auto" branch. `familyForTest()` (and the equivalent production request-building path) checks
+`selectedFamilyId() != "auto"` first and, if true, uses that value directly, **skipping
+`resolveAuto()` entirely**. Net effect: any user who leaves "Auto" selected and types anything
+has every subsequent keystroke silently routed as if they had explicitly picked Effect (or
+Synth) — Auto's entire purpose, detecting drum/granular/generator language in the prompt,
+stopped working the moment typing began. This is not cosmetic: it changes which family
+`generate.py` is asked to produce.
+
+**Confirmed with a genuine window, not just this project's headless `EditorSessionTest`
+harness** (which never calls `addToDesktop()` — a real, separately-documented limitation,
+`PluginForgeEditor::isTextEditorFocusTarget`'s own comment). Built an isolated repro linking
+real `juce_gui_basics`/`juce_gui_extra` against a `juce::TopLevelWindow` with `addToDesktop()`
+called for real: `getSelectedId()` read `1` immediately after `setSelectedId(1, ...)`, then `0`
+after exactly one `changeItemText(1, ...)` call on the same item — byte-identical to the
+headless harness's own behavior, ruling out "no peer" as the cause.
+
+**Fixed** in `updateAutoFamilyLabel()`: read `familySelector.getSelectedId() == 1` into
+`wasAuto` *before* calling `changeItemText` (so it reflects real state, not the
+about-to-be-corrupted one), then, only if `wasAuto`, call
+`familySelector.setText(newAutoItemText, juce::dontSendNotification)` immediately after.
+`ComboBox::setText` (`:311-333`) searches for an item whose stored text already equals the
+argument — which item 1 now does, since `changeItemText` just set it — and routes through
+`setSelectedId()` internally, which is what actually keeps `currentId` and the label in
+agreement. An explicit (non-Auto) selection is left untouched, since `wasAuto` is false for it.
+
+Verified via `EditorSessionTest` scenario 42 (`host/tests/EditorSessionTest.cpp`), which
+exercises the real async `onTextChange`/`pumpUntil` path end-to-end and would not have passed,
+no matter how long it waited, before this fix — added specifically as the regression test for
+this bug. Full suite: 343 checks, 0 failures. Also reproduced and confirmed fixed against the
+standalone X11 repro above.
 
 ---
 

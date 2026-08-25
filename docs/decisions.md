@@ -256,7 +256,7 @@ traceback can't take the plugin down; it degrades to an error label), trivially 
 |---|---|
 | Prompt injection via shell | Closed by design — argv array, never a shell string |
 | Unbounded hang if generate.py stalls | **Closed 2026-07-19** — 120s `waitForProcessToFinish` cap + `kill()` (PluginEditor.cpp) |
-| Locating `generate.py` from the installed binary | **Closed 2026-07-19** — upward search from the executable (dev layouts) + `PLUGINFORGE_LLM_SCRIPT` env override (installed layouts); old sibling-path guess never matched any real layout |
+| Locating `generate.py` from the installed binary | **Still open — PF-065, partial fix 2026-08-20.** Upward search (dev layouts) + `PLUGINFORGE_LLM_SCRIPT` (installed layouts) was wrongly marked Closed 2026-07-19 — never exercised against a real installed bundle. Confirmed broken in REAPER, 2026-08-19 (`~/.vst3` has no repo above it). 2026-08-20 added a third step, checking the fixed location `install.sh` already documents (`$XDG_DATA_HOME/pluginforge` or `~/.local/share/pluginforge`) — closes the packaged-install case, does NOT close the reported REAPER repro (a dev-loop copy with no XDG runtime present), which still needs the env override. See `docs/BUGS.md` PF-065. |
 | Interpreter discovery (`python3` must be on PATH) | Open — acceptable on the Arch dev target; revisit at distribution time (venv/absolute path) |
 | Per-call interpreter startup (~100ms) | Accepted — invisible behind LLM latency |
 | Ready-state UX (button re-enables before JIT finishes) | Open — tracked as the follow-on in `docs/pair_draft_editor_llm_bridge.md` point E |
@@ -976,7 +976,9 @@ Phase 1a (this decision): the renderer (`ParamGridPanel::applyUiIr`) and the sch
 
 Phase 1b (gated on prompt headroom): the system prompt teaches the LLM to emit a
 `ui_ir` field alongside Faust code. Requires measuring the token cost against the
-existing ~124-token headroom budget.
+existing ~140-token headroom budget *(corrected 2026-08-25 — re-measured via
+`python3 tests/test_prompt_headroom.py`; the 124 figure predated the 2026-07-31
+stdlib trim and was copied forward uncorrected)*.
 
 **Reasons**
 - Sectioned layout is the first step toward visual identity without leaving native widgets
@@ -1160,3 +1162,198 @@ unattended runs against, which is the actual, still-live cost of ADR-021's defer
   beyond bench pilots) becomes an actual project goal — that changes the cost/benefit
   calculus Decision §1 rests on, since there would then be a live consumer with no human
   refine loop available to fall back on.
+
+## ADR-028 — Context-clear handoff protocol: guard and re-inject, do not gate
+
+| | |
+|---|---|
+| **Status** | Accepted 2026-08-21 |
+| **Date** | 2026-08-21 |
+
+**Context**
+Context clears are the one session boundary this project had no instrument for.
+`/orient` covers session start, `/change-report` covers a landed change, STATUS.md
+covers where the project is overall — none of them cover "the next agent has none of
+what I just learned." The loss is a recorded live failure, not a hypothetical:
+`STATUS.md`'s "Waiting on you" #0 records a machine dying mid-session and a later
+agent wrongly concluding the work was lost, and an earlier entry records four branches
+stranded across sessions and never reaching `main`. `.claude/RESUME.md`, the one
+harness-generated artifact that already exists for this moment, carries a session UUID
+and, in practice, "No task list was active; see transcript" — no project state at all.
+
+`~/.config/agent-policy/AGENTS.md` §11 ("Agent handoff") already specifies the ten
+fields a handoff needs and §2 says "do not make me reconstruct the previous session
+from raw logs." Nothing implemented it in any project. This ADR implements it here
+first (CLAUDE.md's own naming rule already commits future architectural work to a
+project-first rollout — see "Follow-up" below).
+
+The natural design — make `/handoff` **mandatory** — runs into a hard limit of the
+platform, not a gap in this project's discipline: no Claude Code hook can force a
+skill to run. Frontmatter controls only whether the model *may* invoke a skill, never
+whether it must. `/clear` does fire `SessionEnd`, but that event cannot block and runs
+on a roughly 1.5-second budget — far too late and far too small a window to author a
+document. A `Stop` hook can genuinely block a turn, but blocking the turn is exactly
+the shape `tests/test_control_wiring.py`'s `TestHooksDoNotOverreach` already argues
+against for every other control here: *"a gate that blocks ordinary work gets switched
+off, which is the same as dead"* — and Claude Code overrides a Stop hook after 8
+consecutive blocks regardless, so a narrow Stop gate would not even be durably
+mandatory if built.
+
+**Decision**
+1. **No blocking gate.** `/handoff` is a skill, invoked the same way `/change-report`
+   already is — by trigger-phrase matching and by CLAUDE.md instruction — with no
+   hook empowered to refuse a turn or a session for skipping it.
+2. **The guarantee moves from "the handoff is written" to "a handoff that exists is
+   never missed."** A `SessionStart` hook (`handoff_injector.py`) re-injects
+   `.claude/HANDOFF.md` as `additionalContext` on every `clear`, `compact`, `resume`,
+   and `startup`, and — following `tools/status_digest.sh`'s established rule that
+   silence is the one forbidden output — prints an explicit `NO HANDOFF ON DISK` line
+   rather than nothing when none exists, plus a staleness banner when the recorded
+   HEAD has moved or the file is over 24h old.
+3. **A narrower, unblockable safety net covers the unplanned case.** A `PreCompact`
+   hook (`handoff_precompact.py`) snapshots branch, HEAD, `git status --porcelain` and
+   `git diff --stat` to `.claude/handoff-state.json` before compaction discards
+   context. It **never writes `HANDOFF.md`** — a shell command has no access to the
+   agent's reasoning, so a machine-generated stub silently overwriting a real,
+   human-authored handoff would be a strict downgrade rather than a safety net.
+4. **One fixed path, overwritten in place.** `.claude/HANDOFF.md` and
+   `.claude/handoff-state.json`, always exactly those names, gitignored, never an
+   accumulating log. Count on disk is 0, 1, or 2, never more, and there is never a
+   window where zero handoffs exist between one being replaced and the next being
+   written, because there is no delete step — only overwrite.
+5. **Both hooks get the same four-part teeth pattern** every other control in
+   `tests/test_control_wiring.py` gets: a shape test (registration), a red case (a
+   missing handoff prints the marker; a stale HEAD is flagged; the PreCompact hook
+   leaves `HANDOFF.md` byte-identical), a green case (neither hook ever blocks, for
+   any source or trigger), and an explicit NOT COVERED paragraph — see
+   `TestHandoffHasTeeth` / `TestHandoffDoesNotOverreach`.
+
+**Reasons**
+- Matches the pattern this project already uses for the identical limitation on
+  `/orient`: `tests/test_control_wiring.py` states outright that "/orient is actually
+  run at session start… is a human habit, not a mechanism," and does not pretend
+  otherwise. This ADR extends the same honest framing to session end rather than
+  inventing a stronger claim it cannot back.
+- Separating prose (`HANDOFF.md`) from machine state (`handoff-state.json`) is what
+  makes the unplanned-exhaustion safety net safe to have at all — a merged file would
+  create a real risk of losing a good handoff to a worse one.
+- No architecture, schema, or build-system change; this is agent-workflow tooling
+  under `.claude/`, the same category `/orient` and `/change-report` already occupy.
+
+**Consequences**
+- A handoff can still simply not get written — this ADR does not close that gap and
+  states so rather than obscuring it. What it closes is the *next* failure mode: a
+  handoff that was written but never reaches the next session.
+- Two new hooks add to the `SessionStart`/`PreCompact` surface `tests/test_control_wiring.py`
+  already knows about (`KNOWN_EVENTS` already included both, unused until now).
+- Does not move `tools/check.sh assumed` — this is workflow infrastructure, not
+  evidence, and does not claim the reserved `*(evidence)*` slot in STATUS.md's "Next
+  three things."
+- **Follow-up, deliberately excluded here:** promoting the skill to
+  `~/.claude/skills/handoff/` so other projects get it too, once it has survived a few
+  real clears in this repo. It needs correct `name:` frontmatter before going global,
+  or it becomes the next `/orient` shadowing incident.
+- Revisit if: Claude Code ships a hook event that can genuinely gate `/clear` itself
+  (not just `SessionEnd`'s current no-block, ~1.5s-budget shape) — that would let a
+  future revision close the gap Consequence 1 names instead of only mitigating it.
+
+## ADR-029 — Component descriptor: let the compiled patch describe its own surface
+
+| | |
+|---|---|
+| **Status** | Accepted 2026-08-25 |
+| **Date** | 2026-08-25 |
+
+**Context**
+A 2026-08-24 audit ("The Discard Problem" / "Compiler as Instrument" session
+briefings) found five places where the compiler or the LLM already produces metadata
+useful for a distinct, professional-looking generated plugin, and the host discards
+it before it reaches the screen:
+
+1. `[style:knob]` is parsed and dropped — `FaustEngine.cpp:102-106` only tests for
+   `menu`/`radio`; `ParamInfo` (`FaustEngine.h:66-79`) has no generic style field to
+   hold anything else.
+2. `hgroup`/`vgroup` orientation is discarded at capture — `openHorizontalBox` and
+   `openVerticalBox` both call the identical `pushGroup(label)`
+   (`FaustEngine.cpp:218-219`), so a group's intended layout axis never survives.
+3. `Kind::Meter` is captured (`FaustEngine.cpp:197,203`) and has no pool slot to
+   render into — already filed as PF-052, unchanged by this proposal.
+4. The window title is the literal string `"PluginForge"`
+   (`PluginEditor.cpp:564`), regardless of what was generated.
+5. Which fixed UI bands a plugin gets is currently one bespoke boolean per band, not
+   a single descriptor: `89268ec` (2026-08-24, landed on this branch before this ADR
+   was drafted) already made the keyboard band conditional on
+   `processor.isInstrumentForTest()` via `PluginEditor.h:352`'s `includeKeyboard`
+   parameter to `verticalChrome()` — but the sample-browser band was a deliberate,
+   separate call to leave unconditional ("Sample browser stays unconditional by
+   design", same commit message). That is a real, already-made decision this ADR
+   does not reopen; it is cited here because the next two bullets generalize the
+   *mechanism* `89268ec` used for the keyboard into something that could decide
+   sample-browser inclusion too, if that decision is ever revisited — which is a
+   separate question from this ADR.
+
+ADR-024 already solved the adjacent problem — renderer-agnostic *section* layout,
+via `UiIr::Layout` (`host/Source/UiIr.h`), populated today by
+`ParamGridPanel::deriveLayoutFromGroups()`, a pure heuristic over `ParamInfo::group`
+with no LLM output and no prompt change (ADR-024's 2026-08-13 note). ADR-022 §3 used
+the same derivation pattern for `derivePalette()` (`ParamGridPanel.cpp:642-658`): hash
+the instrument bit plus sorted group names, modulo `Theme::GeneratedAccent`'s four
+swatches, applied to three `Slider` colour IDs (`ParamGridPanel.cpp:304-306`). Both
+existing systems are deterministic, post-compile, and reuse facts the compiler
+already produced. This ADR proposes extending that same pattern to answer one more
+question: not just how the parameter grid is sectioned or coloured, but **which
+components exist in the window at all**, and what it's titled.
+
+**Decision**
+1. Do not add a new LLM-emitted design artifact. ADR-021's "no PluginSpec" and
+   ADR-019's "no WebView" both stand; nothing here reopens either. Every input this
+   ADR proposes reading already exists post-compile: the voice contract
+   (`FaustEngine::isInstrument()`, `FaustEngine.h:178`), `ParamInfo::group`, and
+   `Kind::Meter` zones.
+2. Add a `style` field to `ParamInfo` (currently only `isMenu : bool`,
+   `FaustEngine.h:79`) so `[style:knob]` and future style hints survive capture
+   instead of being silently absorbed into the `menu`/`radio` check at
+   `FaustEngine.cpp:102-106`.
+3. Capture `hgroup`/`vgroup` orientation before it collapses into a bare group name
+   at `FaustEngine.cpp:218-219` — carry it on the group path so a future layout pass
+   can honor it, without committing yet to what the renderer does with it.
+4. Extend `UiIr::Layout`'s schema (version bump per ADR-024's own versioning design,
+   `UiIr.h:43`) with a component list — which of `{keyboard, sample browser, meter}`
+   are present — computed by the same deterministic pass that already produces
+   `deriveLayoutFromGroups()`, from the voice contract and captured `Kind::Meter`
+   zones. This generalizes `89268ec`'s single keyboard boolean into one descriptor
+   mechanism, without itself deciding to change the sample-browser call `89268ec`
+   already made on the record.
+5. Compute a short plugin title from the same inputs `derivePalette()` already
+   hashes (family + accent), replacing the literal `"PluginForge"` at
+   `PluginEditor.cpp:564`. No new information; a name instead of a colour index.
+
+**Reasons**
+- Every one of these is subtractive or derivative — nothing here asks the model for
+  more output, so none of it re-opens COLLABORATION.md §3's Tier-2 prompt/benchmark
+  obligations. The information already exists; this proposal stops discarding it.
+- Keeps faith with ADR-024's own versioned-schema design instead of adding a second,
+  parallel descriptor mechanism next to `UiIr::Layout`.
+- Point 5 (title) costs one function and zero new captured data.
+
+**Consequences**
+- `verticalChrome()` (`PluginEditor.h:352`) would need to read the descriptor rather
+  than a single hardcoded `includeKeyboard` bool once more than one band is
+  descriptor-driven — a real signature change, not just an additive field.
+- `PF-052` (`Kind::Meter` has no pool slot) becomes a prerequisite for the meter
+  component actually rendering, not just being listed as present — this ADR does not
+  close PF-052 itself.
+- Whether the sample-browser band ever becomes descriptor-driven (reopening
+  `89268ec`'s explicit "unconditional by design" call) is a separate decision this
+  ADR deliberately leaves open rather than answering by implication.
+- Revisit if: the schema version bump proves incompatible with saved state blobs
+  from patches authored under schema 1, or the component list's heuristic produces a
+  visibly wrong result on a real corpus patch (analogous to ADR-024's own suppression
+  threshold, added after `<4 controls` sectioning looked wrong in practice).
+
+**Accepted 2026-08-25, same session, by explicit user decision** — Proposed →
+Accepted, per COLLABORATION.md §2 ("Claude drafts an ADR and proposes it; the human
+decides"). Acceptance is the direction, not the implementation: none of the code
+changes in Decision §2-5 have been written yet. Landing them still goes through the
+ordinary `tools/check.sh` ladder and, for anything touching `host/Source/`, the
+Tier 2 evidence bar — this entry authorizes the direction, not a bypass of either.

@@ -138,7 +138,11 @@ public:
     //
     // Pure function of `params` -- no JUCE Component state, callable from a unit
     // test without constructing a panel.
-    static UiIr::Layout deriveLayoutFromGroups(const FaustEngine::ParamList& params);
+    // isInstrument added for ADR-029 §4 -- deriveComponents() below needs it,
+    // and this is the one call site (PluginEditor.cpp) that already has both
+    // params and processor.isInstrumentForTest() in hand.
+    static UiIr::Layout deriveLayoutFromGroups(const FaustEngine::ParamList& params,
+                                                bool isInstrument);
 
     // Heuristic per-generation accent (ADR-022 §3 / T7): a deterministic pick
     // from Theme::GeneratedAccent::swatches, keyed on the same group names
@@ -153,11 +157,40 @@ public:
     // only that it is stable and always one of the four.
     static juce::Colour derivePalette(const FaustEngine::ParamList& params, bool isInstrument);
 
+    // ADR-029 §4: which fixed UI bands this compile has -- keyboard from the
+    // voice contract (the same bool that already drives PluginEditor's
+    // includeKeyboard, 89268ec), sampleBrowser always true (89268ec's own
+    // "unconditional by design" call, restated here rather than changed),
+    // meter from whether any captured param is FaustEngine::Kind::Meter with
+    // a live zone. Pure function of its arguments, same convention as
+    // derivePalette/deriveLayoutFromGroups above.
+    static UiIr::Components deriveComponents(const FaustEngine::ParamList& params,
+                                              bool isInstrument);
+
+    // ADR-029 §5: a short name from the SAME (params, isInstrument) hash
+    // derivePalette() above already computes — formatted as a title instead of
+    // thrown at a colour index. No new captured data: the accent name (Ember/
+    // Amber/Rust/Coral) is the same vocabulary Theme.h's GeneratedAccent
+    // swatches are already commented with, so a patch's title and its accent
+    // colour always agree.
+    static juce::String deriveTitle(const FaustEngine::ParamList& params, bool isInstrument);
+
     // Test-only: the currently active IR sections (empty if no IR applied).
     const std::vector<UiIr::Section>& activeSectionsForTest() const { return activeSections; }
 
+    // Test-only: the currently active component descriptor (ADR-029 §4), set
+    // by applyUiIr() from whatever Layout it was last given -- default-false
+    // components if applyUiIr() has never run.
+    UiIr::Components activeComponentsForTest() const { return activeComponents; }
+
     // Test-only: the palette currently applied to this compile's controls.
     juce::Colour currentPaletteForTest() const { return currentPalette; }
+
+    // The generated title for the currently-live compile, cached alongside
+    // currentPalette rather than recomputed per paint() call -- PluginEditor
+    // does not retain the ParamList deriveTitle needs, and paint() may run
+    // every frame.
+    juce::String getGeneratedTitle() const { return currentTitle; }
 
     int          controlCountForTest() const { return static_cast<int>(controls.size()); }
     // Bumped once per refreshParamKnobs. A test cannot reliably wait for "the
@@ -176,6 +209,12 @@ public:
     // rather than anything this panel derived. Nothing lays out by it yet --
     // it is the input a sectioned surface (demo Variant C) needs.
     juce::String controlGroupForTest(int index) const;
+    // ADR-029 §2/§3: the raw [style:...] value and the innermost enclosing
+    // group's hgroup/vgroup/tgroup axis, read straight off the retained
+    // ParamInfo the same way controlGroupForTest reads .group. Nothing renders
+    // by either yet — these expose FaustEngine's capture, not a layout decision.
+    juce::String controlStyleForTest(int index) const;
+    juce::String controlOrientationForTest(int index) const;
     // The widget's OWN value, not the APVTS slot's — so a test can catch an
     // attachment that silently stopped tracking its parameter.
     double       controlValueForTest(int index) const;
@@ -297,12 +336,18 @@ private:
     // compiled anything still has a defined colour rather than black.
     juce::Colour currentPalette = Theme::GeneratedAccent::swatches[0];
 
+    // ADR-029 §5: this compile's derived title, computed alongside
+    // currentPalette from the same hash so the two always agree. Defaults to
+    // the swatch-0 name, matching currentPalette's own default above.
+    juce::String currentTitle = "Ember Effect";
+
     // The UI IR layout currently in effect (empty when none). Read by resized()
     // to decide sectioned vs default grid layout. Stored separately from the
     // controls vector so a presentation change doesn't destroy the IR.
     std::vector<UiIr::Section> activeSections;
     juce::String activeArchetype;
     juce::String activeTokens;
+    UiIr::Components activeComponents;   // ADR-029 §4, set by applyUiIr() below
     void layoutSectioned();
 
     // Lookup from IR control label → the actual widget Control pointer.

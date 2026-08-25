@@ -72,9 +72,16 @@ class TestResolution:
         monkeypatch.setenv("PLUGINFORGE_PROVIDER", "groq")
         assert providers.resolve_provider() == "groq"
 
-    def test_falls_back_to_anthropic(self, monkeypatch):
+    def test_falls_back_to_a_free_provider(self, monkeypatch):
         monkeypatch.delenv("PLUGINFORGE_PROVIDER", raising=False)
-        assert providers.resolve_provider() == providers.DEFAULT_PROVIDER == "anthropic"
+        resolved = providers.resolve_provider()
+        assert resolved == providers.DEFAULT_PROVIDER
+        assert providers.PROVIDERS[resolved].free, (
+            "An unconfigured environment (no .env, e.g. a fresh worktree) must "
+            "resolve to a free provider — falling back to a paid one contradicts "
+            "ADR-012's 'free-only by default' and reintroduces the paid-gate error "
+            "an unset PLUGINFORGE_PROVIDER should never be able to trigger."
+        )
 
     def test_unknown_env_value_raises_at_selection(self, monkeypatch):
         monkeypatch.setenv("PLUGINFORGE_PROVIDER", "definitely-not-a-provider")

@@ -2,6 +2,7 @@
 #include "ParamGridLayout.h"
 #include "ParamMap.h"
 #include "Theme.h"
+#include "ForgeLookAndFeel.h"   // resolveThemeFont -- see its header comment
 #include <algorithm>   // find_if, stable_sort, count_if — deriveLayoutFromGroups + applyUiIr
 #include <functional>  // std::hash — derivePalette
 #include <set>         // canonical sorted group names — derivePalette
@@ -154,6 +155,7 @@ void ParamGridPanel::refreshParamKnobs(const FaustEngine::ParamList& params)
     // it) always sees the palette for the patch actually being built, never a
     // stale one from the previous compile.
     currentPalette = derivePalette(params, processor.isInstrumentForTest());
+    currentTitle   = deriveTitle(params, processor.isInstrumentForTest());
 
     // ── Rebuild the widgets ─────────────────────────────────────────────────
     // clear() first so each old attachment detaches (Control destroys attachment
@@ -187,7 +189,14 @@ void ParamGridPanel::refreshParamKnobs(const FaustEngine::ParamList& params)
 
         c.label = std::make_unique<juce::Label>();
         c.label->setJustificationType(juce::Justification::centred);
-        c.label->setFont(Theme::Type::label());
+        // resolveThemeFont anchored on `content`, not `*c.label` -- the label
+        // isn't addAndMakeVisible()'d until the next line, so its own
+        // parentComponent is still null here and would resolve against the
+        // process default instead. `content` has been part of the editor's
+        // fully-wired tree since construction; refreshParamKnobs() only ever
+        // runs after a successful compile, well after that, so anchoring on
+        // it resolves correctly regardless of *c.label's own wiring state.
+        c.label->setFont(resolveThemeFont(content, Theme::Type::label()));
         c.label->setText(juce::String(p.label), juce::dontSendNotification);
         content.addAndMakeVisible(*c.label);
 
@@ -529,7 +538,8 @@ namespace
     }
 }
 
-UiIr::Layout ParamGridPanel::deriveLayoutFromGroups(const FaustEngine::ParamList& params)
+UiIr::Layout ParamGridPanel::deriveLayoutFromGroups(const FaustEngine::ParamList& params,
+                                                     bool isInstrument)
 {
     // One entry per distinct group value, in first-encounter order among the
     // OCCUPIED slots. `params` is ParamPool's per-slot view (see the ⚠️ on
@@ -570,11 +580,20 @@ UiIr::Layout ParamGridPanel::deriveLayoutFromGroups(const FaustEngine::ParamList
 
     // Suppression threshold. A heading over one or two knobs, or a single
     // section wrapping the entire patch, is worse than the flat grid it would
-    // replace -- returning UiIr::empty() (schema 0) hands the params straight
-    // back to applyUiIr's own `ir.schema != 1` branch, which is already the
-    // "fall through to layoutControls()" path.
+    // replace -- an empty `sections` list hands the params straight back to
+    // applyUiIr's "fall through to layoutControls()" path (checked via
+    // ir.sections.empty() since ADR-029 §4, not ir.schema != 1 -- see that
+    // function's own comment). Components are independent of section
+    // suppression -- a 3-knob effect still has a real answer for "does this
+    // have a keyboard" -- so this is schema 2 with components populated and
+    // sections left empty, not UiIr::empty()'s schema 0.
     if (nonEmptyGroups <= 1 || occupiedSlots < 4)
-        return UiIr::empty();
+    {
+        UiIr::Layout layout;
+        layout.schema = 2;
+        layout.components = deriveComponents(params, isInstrument);
+        return layout;
+    }
 
     // Rank, unknown-groups-last, ties broken by first-seen order -- so the
     // catch-all empty-group bucket (no keyword can match "") always sorts
@@ -598,7 +617,8 @@ UiIr::Layout ParamGridPanel::deriveLayoutFromGroups(const FaustEngine::ParamList
         });
 
     UiIr::Layout layout;
-    layout.schema = 1;
+    layout.schema = 2;   // ADR-029 §4: was 1; components below is the addition
+    layout.components = deriveComponents(params, isInstrument);
     for (const auto& g : groups)
     {
         UiIr::Section section;
@@ -618,6 +638,46 @@ UiIr::Layout ParamGridPanel::deriveLayoutFromGroups(const FaustEngine::ParamList
     return layout;
 }
 
+// ADR-029 §4. keyboard mirrors the exact bool PluginEditor's includeKeyboard
+// already gates on (FaustEngine::isInstrument() via
+// processor.isInstrumentForTest(), 89268ec) -- this does not introduce a
+// second, potentially-diverging notion of "is this playable". sampleBrowser
+// is always true, restating 89268ec's explicit decision rather than changing
+// it.
+//
+// meter CANNOT currently be true when called from refreshParamKnobs'
+// call site, and that is not a bug in the loop below -- it is PF-052, still
+// open. `params` here is ParamPool's PER-SLOT view (see the callback comment
+// at PluginEditor.cpp:188 and deriveLayoutFromGroups' own note above), and
+// ParamPool::remap (ParamPool.cpp:69-77) marks every Kind::Meter ineligible
+// for a slot before this function ever sees the list -- "pushToFaust
+// consequently never sees them" is that file's own words for exactly this
+// discard. The RAW FaustEngine::ParamList (before paramPool.remap()) still
+// has them, at PluginProcessor.cpp:558, four calls upstream of here.
+// The loop below is still correct AS A FUNCTION -- it does the right thing
+// with whatever list it is given, verified directly against a hand-built
+// ParamList in EditorSessionTest's scenario 41 -- and needs no further
+// change once PF-052 either widens what reaches refreshParamKnobs or gives
+// ParamGridPanel a second, meter-carrying input. Landing it now, honestly
+// inert against production's real params view, is cheaper than re-deriving
+// this exact loop when PF-052 lands.
+UiIr::Components ParamGridPanel::deriveComponents(const FaustEngine::ParamList& params,
+                                                   bool isInstrument)
+{
+    UiIr::Components c;
+    c.keyboard = isInstrument;
+    c.sampleBrowser = true;
+    for (const auto& p : params)
+    {
+        if (p.zone != nullptr && p.kind == FaustEngine::Kind::Meter)
+        {
+            c.meter = true;
+            break;
+        }
+    }
+    return c;
+}
+
 // Heuristic per-generation accent (ADR-022 §3 / T7). Distinct non-empty group
 // names go in canonically SORTED (not first-seen, unlike deriveLayoutFromGroups
 // above) so the palette cannot flip just because a regeneration reordered which
@@ -631,23 +691,50 @@ UiIr::Layout ParamGridPanel::deriveLayoutFromGroups(const FaustEngine::ParamList
 // derives the same accent -- nothing here can churn UiDesignGallery's
 // reference manifest, which is why the contract's hazard note about pinning a
 // seed does not apply to this implementation.
+namespace
+{
+    // Shared by derivePalette() and deriveTitle() below (ADR-029 §5) so a
+    // patch's title and its accent colour are guaranteed to agree -- both are
+    // formattings of the SAME index, never two separate hashes that could
+    // drift out of correspondence.
+    size_t paletteIndex(const FaustEngine::ParamList& params, bool isInstrument)
+    {
+        std::set<std::string> groupNames;
+        for (const auto& p : params)
+            if (p.zone != nullptr && ! p.group.empty())
+                groupNames.insert(p.group);
+
+        std::string key = isInstrument ? "instrument|" : "effect|";
+        for (const auto& g : groupNames)
+        {
+            key += g;
+            key += '|';
+        }
+
+        return std::hash<std::string>{}(key) % Theme::GeneratedAccent::swatches.size();
+    }
+}
+
 juce::Colour ParamGridPanel::derivePalette(const FaustEngine::ParamList& params,
                                             bool isInstrument)
 {
-    std::set<std::string> groupNames;
-    for (const auto& p : params)
-        if (p.zone != nullptr && ! p.group.empty())
-            groupNames.insert(p.group);
+    return Theme::GeneratedAccent::swatches[paletteIndex(params, isInstrument)];
+}
 
-    std::string key = isInstrument ? "instrument|" : "effect|";
-    for (const auto& g : groupNames)
-    {
-        key += g;
-        key += '|';
-    }
+// ADR-029 §5: a name from the same inputs above, instead of a colour index.
+// The four accent names are the exact vocabulary Theme.h's GeneratedAccent
+// swatches are already commented with (ember/amber/rust/coral) -- not an
+// invented wordlist -- so this costs zero new captured data, per the ADR.
+juce::String ParamGridPanel::deriveTitle(const FaustEngine::ParamList& params,
+                                          bool isInstrument)
+{
+    static constexpr const char* kAccentNames[] = { "Ember", "Amber", "Rust", "Coral" };
+    static_assert(sizeof(kAccentNames) / sizeof(kAccentNames[0])
+                      == Theme::GeneratedAccent::swatches.size(),
+                  "kAccentNames must name every GeneratedAccent swatch, in the same order");
 
-    const auto index = std::hash<std::string>{}(key) % Theme::GeneratedAccent::swatches.size();
-    return Theme::GeneratedAccent::swatches[index];
+    const auto index = paletteIndex(params, isInstrument);
+    return juce::String(kAccentNames[index]) + (isInstrument ? " Instrument" : " Effect");
 }
 
 // ── UI IR rendering (ADR-024 / Phase 1a) ────────────────────────────────────
@@ -664,8 +751,16 @@ void ParamGridPanel::applyUiIr(const UiIr::Layout& ir)
     activeSections.clear();
     activeArchetype = juce::String(ir.archetype);
     activeTokens = juce::String(ir.tokens);
+    activeComponents = ir.components;
 
-    if (ir.schema != 1 || controls.empty())
+    // ADR-029 §4: checks ir.sections directly rather than ir.schema != 1, so a
+    // schema-2 Layout with components but no sections (deriveLayoutFromGroups'
+    // own suppression case, below) falls through to the SAME flat-grid path a
+    // schema-0 "no IR" Layout always has -- schema alone no longer implies
+    // "has sections to apply" now that a Layout can carry components with an
+    // empty sections list. ir.schema < 1 still rejects "no IR"/unrecognised
+    // schemas exactly as the old != 1 check did.
+    if (ir.schema < 1 || ir.sections.empty() || controls.empty())
     {
         layoutControls();
         return;
@@ -795,7 +890,9 @@ void ParamGridPanel::layoutSectioned()
 
 void ParamGridPanel::ContentArea::paint(juce::Graphics& g)
 {
-    g.setFont(Theme::Type::sectionTitle());
+    // Safe unresolved-name-free: paint() only ever runs once this component
+    // is fully wired into the editor's tree.
+    g.setFont(resolveThemeFont(*this, Theme::Type::sectionTitle()));
     for (const auto& h : headings)
     {
         g.setColour(Theme::textSecondary);
@@ -860,6 +957,27 @@ juce::String ParamGridPanel::controlGroupForTest(int index) const
     if (index < 0 || index >= static_cast<int>(controls.size()))
         return {};
     return juce::String(controls[static_cast<size_t>(index)].meta.group);
+}
+
+juce::String ParamGridPanel::controlStyleForTest(int index) const
+{
+    if (index < 0 || index >= static_cast<int>(controls.size()))
+        return {};
+    return juce::String(controls[static_cast<size_t>(index)].meta.style);
+}
+
+juce::String ParamGridPanel::controlOrientationForTest(int index) const
+{
+    if (index < 0 || index >= static_cast<int>(controls.size()))
+        return {};
+    switch (controls[static_cast<size_t>(index)].meta.orientation)
+    {
+        case FaustEngine::GroupOrientation::Horizontal: return "horizontal";
+        case FaustEngine::GroupOrientation::Vertical:   return "vertical";
+        case FaustEngine::GroupOrientation::Tab:        return "tab";
+        case FaustEngine::GroupOrientation::None:       return "none";
+    }
+    return "none";
 }
 
 double ParamGridPanel::controlValueForTest(int index) const

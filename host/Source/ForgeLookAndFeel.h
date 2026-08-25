@@ -1,6 +1,7 @@
 #pragma once
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "Theme.h"
+#include "BinaryData.h"
 
 // ── ForgeLookAndFeel ─────────────────────────────────────────────────────────
 // LookAndFeel_V4 subclass giving generated plugins a styled, non-default look
@@ -88,10 +89,45 @@
 // paint/construction time inside function bodies below -- so the Font-global
 // static-deinit-order trap (Theme.h's own header comment; a real leak this
 // project already hit once) does not apply: nothing here is static-duration.
+//
+// ── Bundled typefaces (Ember Console repaint, Phase 2) ─────────────────────
+// Theme::Type::*() now names four custom faces (Pirata One, Big Shoulders
+// Display SemiBold, Work Sans, JetBrains Mono), embedded via
+// host/CMakeLists.txt's PluginForgeAssets target rather than resolved by
+// name from the host OS -- verified 2026-08-24 via `fc-list` that none of
+// the four are installed on the dev machine, and there is no reason to
+// expect a user's machine to have them either. getTypefaceForFont (virtual
+// at juce_LookAndFeel.h:176) is JUCE's hook for this: dispatch on
+// font.getTypefaceName() and build a Typeface::Ptr from the embedded bytes
+// via Typeface::createSystemTypefaceFor(const void*, size_t)
+// (juce_Typeface.h:73), falling through to LookAndFeel_V4::getTypefaceForFont
+// (itself unoverridden -- resolves to the base LookAndFeel implementation,
+// juce_LookAndFeel.cpp:118) for the platform default and anything else.
+//
+// The five Typeface::Ptr members below are the SAME safe-lifetime shape the
+// comment above already established for Theme::Type::*() Fonts, applied to
+// the thing that was actually missing it: cached HERE, as members of an
+// object that is a by-value member of PluginForgeEditor
+// (PluginEditor.h:398) and therefore destroyed well before static deinit --
+// never a namespace-scope Typeface::Ptr, never a function-local static. Both
+// would reopen the exact bug this file's header already documents
+// (Theme.h:14-27): a cached Typeface outliving ScopedJuceInitialiser_GUI's
+// teardown of JUCE's typeface cache, caught previously by
+// EditorSessionTest's leak check.
 class ForgeLookAndFeel : public juce::LookAndFeel_V4
 {
 public:
     ForgeLookAndFeel()
+        : pirataOne       (juce::Typeface::createSystemTypefaceFor (PluginForgeFonts::PirataOneRegular_ttf,
+                                                                     (size_t) PluginForgeFonts::PirataOneRegular_ttfSize)),
+          bigShouldersSemi(juce::Typeface::createSystemTypefaceFor (PluginForgeFonts::BigShouldersDisplaySemiBold_ttf,
+                                                                     (size_t) PluginForgeFonts::BigShouldersDisplaySemiBold_ttfSize)),
+          workSans        (juce::Typeface::createSystemTypefaceFor (PluginForgeFonts::WorkSansRegular_ttf,
+                                                                     (size_t) PluginForgeFonts::WorkSansRegular_ttfSize)),
+          workSansSemi    (juce::Typeface::createSystemTypefaceFor (PluginForgeFonts::WorkSansSemiBold_ttf,
+                                                                     (size_t) PluginForgeFonts::WorkSansSemiBold_ttfSize)),
+          jetBrainsMono   (juce::Typeface::createSystemTypefaceFor (PluginForgeFonts::JetBrainsMonoRegular_ttf,
+                                                                     (size_t) PluginForgeFonts::JetBrainsMonoRegular_ttfSize))
     {
         // UIColour order is windowBackground, widgetBackground, menuBackground,
         // outline, defaultText, defaultFill, highlightedText, highlightedFill,
@@ -143,7 +179,7 @@ public:
     // (juce_LookAndFeel_V4.cpp:276-279).
     juce::Font getTextButtonFont (juce::TextButton&, int) override
     {
-        return Theme::Type::label();
+        return resolveFont (Theme::Type::label());
     }
 
     // Base implementation (LookAndFeel_V2::createSliderTextBox,
@@ -153,7 +189,85 @@ public:
     juce::Label* createSliderTextBox (juce::Slider& slider) override
     {
         auto* l = juce::LookAndFeel_V2::createSliderTextBox (slider);
-        l->setFont (Theme::Type::caption());
+        l->setFont (resolveFont (Theme::Type::caption()));
         return l;
     }
+
+    // Dispatch by exact typeface name -- Theme::Type::*() constructs every
+    // Font with one of these five names, so no style-flag interpretation
+    // (bold/italic synthesis) is needed here: SemiBold is a real embedded
+    // weight, not a faux-bolded Regular. Anything else (the platform default
+    // sans JUCE requests for its own internals, e.g. AlertWindow, PopupMenu
+    // measurement before this LookAndFeel is attached) falls through to the
+    // base implementation.
+    juce::Typeface::Ptr getTypefaceForFont (const juce::Font& font) override
+    {
+        const auto& name = font.getTypefaceName();
+
+        if (name == "Pirata One")                     return pirataOne;
+        if (name == "Big Shoulders Display SemiBold")  return bigShouldersSemi;
+        if (name == "Work Sans SemiBold")              return workSansSemi;
+        if (name == "Work Sans")                       return workSans;
+        if (name == "JetBrains Mono")                  return jetBrainsMono;
+
+        return LookAndFeel_V4::getTypefaceForFont (font);
+    }
+
+private:
+    juce::Typeface::Ptr pirataOne, bigShouldersSemi, workSans, workSansSemi, jetBrainsMono;
+
+    // A name-based Theme::Type::*() Font is NOT enough to make the embedded
+    // faces actually render -- see the free resolveThemeFont() below for why.
+    // This member version is for the two overrides above, which already run
+    // as virtuals ON this exact instance and so need no Component lookup.
+    // Font(Typeface::Ptr) resets height to FontValues::defaultFontHeight
+    // (juce_Font.cpp:223-230), so the caller's height is restored explicitly
+    // rather than trusted to survive the round-trip.
+    juce::Font resolveFont (const juce::Font& f)
+    {
+        return juce::Font (getTypefaceForFont (f)).withHeight (f.getHeight());
+    }
 };
+
+// ── resolveThemeFont ─────────────────────────────────────────────────────────
+// WHY THIS FUNCTION EXISTS. A name-based Font (every Theme::Type::*() token)
+// is resolved to actual glyphs by Font::getTypefacePtr() at paint/measure
+// time (juce_Font.cpp:268-136 via the SharedFontInternal cache), which calls
+// a single PROCESS-GLOBAL function pointer set by whichever LookAndFeel was
+// constructed first (juce_LookAndFeel.cpp:38-47) but always dispatched onto
+// LookAndFeel::getDefaultLookAndFeel() -- i.e. Desktop::getInstance()'s
+// default LookAndFeel (juce_LookAndFeel.cpp:29-31, 107-109) -- REGARDLESS of
+// what Component::setLookAndFeel() attached to any given component's parent
+// chain. This project deliberately never calls setDefaultLookAndFeel
+// (process-global, unsafe when a plugin shares its process with other
+// instances of itself -- see this file's own header comment on
+// installation), so ForgeLookAndFeel::getTypefaceForFont above is never
+// reached through that path: every Theme::Type::*() Font silently fell back
+// to the platform default until every consumption point started calling
+// this instead.
+//
+// This sidesteps the global cache entirely: Font(Typeface::Ptr) attaches an
+// already-resolved typeface directly to the Font object (juce_Font.cpp:223-
+// 230), so getTypefacePtr() has nothing left to look up at paint time no
+// matter which LookAndFeel is process-default.
+//
+// TIMING. c.getLookAndFeel() walks the Component::parentComponent chain and
+// falls back to the process default the moment it runs out of ancestors
+// (juce_Component.cpp:1832-1839) -- so this only resolves correctly once `c`
+// is actually attached under PluginForgeEditor (whose lnf member is
+// installed via setLookAndFeel(&lnf), not merely constructed). A handful of
+// call sites set a Theme::Type::*() font from inside their OWN constructor,
+// which for CodeEditorPanel/KeyboardPanel/PromptPanel runs during
+// PluginForgeEditor's member-initialiser list -- before that panel is
+// addAndMakeVisible()'d and before parentComponent exists. Those panels
+// re-apply their fonts from a parentHierarchyChanged() override instead,
+// which JUCE calls automatically the moment addChildComponent() sets
+// parentComponent (juce_Component.cpp:1166-1187) -- by which point the walk
+// above finds the real ForgeLookAndFeel. Call sites that already run at
+// paint()/resized() time, or in response to a live event well after
+// construction (e.g. ParamGridPanel::refreshParamKnobs()), need no such
+// override -- the tree is already fully wired by the time they run.
+inline juce::Font resolveThemeFont (const juce::Component& c, const juce::Font& f)
+{
+    return juce::Font (c.getLookAndFeel().getTypefaceForFont (f)).withHeight (f.getHeight());
+}

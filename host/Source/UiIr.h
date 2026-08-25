@@ -38,16 +38,42 @@ struct Section
     std::vector<ControlRef> controls;
 };
 
+// ADR-029 §4: which fixed UI bands this generated plugin has, decided by the
+// same deterministic post-compile pass that already produces
+// ParamGridPanel::deriveLayoutFromGroups() -- from the voice contract and
+// (in principle) captured Kind::Meter zones, not a new LLM output.
+// Generalizes 89268ec's single keyboard-conditional bool into one descriptor
+// rather than a bespoke flag per band. sampleBrowser is currently always true
+// (89268ec's explicit "unconditional by design" call, unchanged by this ADR)
+// -- carried here as a descriptive fact, not a new policy decision.
+//
+// `meter` is real as a FIELD, not yet as a live signal: ParamGridPanel::
+// deriveComponents() computes it correctly from whatever list it is given,
+// but the list that actually reaches it (ParamPool's per-slot view) cannot
+// carry a meter at all -- PF-052, still open, discards them one layer
+// upstream. See deriveComponents()'s own comment for the exact call chain.
+struct Components
+{
+    bool keyboard = false;
+    bool sampleBrowser = false;
+    bool meter = false;
+};
+
 struct Layout
 {
-    int schema = 0;           // 0 = no IR; 1 = this schema
+    int schema = 0;           // 0 = no IR; 1 = sections only; 2 = + components (ADR-029 §4)
     std::string archetype;    // "synth-panel", "channel-strip", "pedal", ""
     std::string tokens;       // palette token set name, e.g. "midnight-brass", ""
     std::vector<Section> sections;
+    Components components;    // meaningful only when schema >= 2; default (all
+                              // false) under schema 0/1, which never actually
+                              // shipped a components block (Phase 1b, the only
+                              // producer schema 1 was designed for, never landed).
 };
 
 // Parse a UI IR from a juce::var (the JSON representation). Returns a Layout
-// with schema == 0 if the input is missing, malformed, or schema > 1.
+// with schema == 0 if the input is missing, malformed, or outside [1, 2]
+// (ADR-029 §4 raised the ceiling from 1 to 2 when components was added).
 Layout parse(const juce::var& v);
 
 // Serialize a Layout to a juce::var suitable for JSON output.
@@ -74,11 +100,25 @@ inline Layout parse(const juce::var& v)
         return out;
 
     out.schema = asInt(obj->getProperty("schema"), 0);
-    if (out.schema != 1)
+    // ADR-029 §4: this version understands schema 1 (sections only) and 2
+    // (+ components) -- anything else (0, or a future schema this build
+    // predates) is "no IR", the same defensive ceiling the original 1-only
+    // check enforced, just moved up by one.
+    if (out.schema < 1 || out.schema > 2)
         return empty();
 
     out.archetype = asString(obj->getProperty("archetype"));
     out.tokens = asString(obj->getProperty("tokens"));
+
+    if (out.schema >= 2)
+    {
+        if (auto* compObj = obj->getProperty("components").getDynamicObject())
+        {
+            out.components.keyboard = static_cast<bool>(compObj->getProperty("keyboard"));
+            out.components.sampleBrowser = static_cast<bool>(compObj->getProperty("sampleBrowser"));
+            out.components.meter = static_cast<bool>(compObj->getProperty("meter"));
+        }
+    }
 
     const auto sectionsVar = obj->getProperty("sections");
     if (! sectionsVar.isArray())
@@ -149,6 +189,17 @@ inline juce::var toVar(const Layout& layout)
         sections.add(juce::var(sec.release()));
     }
     root->setProperty("sections", sections);
+
+    // ADR-029 §4: always written, regardless of layout.schema -- harmless for
+    // a schema-1 producer's output (an old parse() ignores unknown keys) and
+    // is what lets a schema-2 reader recover components from output this
+    // version itself wrote.
+    auto comp = std::make_unique<juce::DynamicObject>();
+    comp->setProperty("keyboard", layout.components.keyboard);
+    comp->setProperty("sampleBrowser", layout.components.sampleBrowser);
+    comp->setProperty("meter", layout.components.meter);
+    root->setProperty("components", juce::var(comp.release()));
+
     return juce::var(root.release());
 }
 

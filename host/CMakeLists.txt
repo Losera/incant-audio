@@ -8,6 +8,24 @@ if(NOT EXISTS "${JUCE_PATH}/CMakeLists.txt")
 endif()
 add_subdirectory(${JUCE_PATH} JUCE)
 
+# Ember Console repaint (Phase 2, "Five Faces of PluginForge" design review):
+# the four bundled OFL typefaces, embedded so the app does not depend on
+# whatever the host machine happens to have installed -- verified 2026-08-24
+# that none of the four are present via `fc-list`. Linked into every target
+# that compiles Source/PluginEditor.cpp (ForgeLookAndFeel::getTypefaceForFont
+# is the consumer); see the PF_CORE_SOURCES comment below for why that is
+# eleven target_link_libraries call sites rather than one.
+juce_add_binary_data(PluginForgeAssets
+    NAMESPACE PluginForgeFonts
+    SOURCES
+        Resources/fonts/PirataOne-Regular.ttf
+        Resources/fonts/BigShouldersDisplay-SemiBold.ttf
+        Resources/fonts/WorkSans-Regular.ttf
+        Resources/fonts/WorkSans-SemiBold.ttf
+        Resources/fonts/JetBrainsMono-Regular.ttf
+)
+set_target_properties(PluginForgeAssets PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
+
 # The shared source set behind every target in this file. Named once so the two
 # plugin targets below cannot drift apart -- they are the SAME plugin compiled
 # with different JUCE plugin traits (effect vs instrument), not two codebases.
@@ -79,6 +97,7 @@ target_link_libraries(PluginForgeHost PRIVATE
     juce::juce_gui_extra
     juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags
+    PluginForgeAssets
     ${LIBFAUST_LIB}
 )
 
@@ -139,6 +158,7 @@ target_link_libraries(PluginForgeSynth PRIVATE
     juce::juce_gui_extra
     juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags
+    PluginForgeAssets
     ${LIBFAUST_LIB}
 )
 
@@ -182,6 +202,7 @@ target_link_libraries(ParamPoolTsanTest PRIVATE
     juce::juce_dsp
     juce::juce_gui_extra
     juce::juce_recommended_config_flags
+    PluginForgeAssets
     ${LIBFAUST_LIB}
 )
 
@@ -229,6 +250,7 @@ target_link_libraries(AuditionThreadingTest PRIVATE
     juce::juce_gui_extra
     juce::juce_audio_formats
     juce::juce_recommended_config_flags
+    PluginForgeAssets
     ${LIBFAUST_LIB}
 )
 
@@ -461,6 +483,7 @@ target_link_libraries(StatePersistenceTest PRIVATE
     juce::juce_dsp
     juce::juce_gui_extra
     juce::juce_recommended_config_flags
+    PluginForgeAssets
     ${LIBFAUST_LIB}
 )
 
@@ -507,6 +530,7 @@ target_link_libraries(ValidationGateTest PRIVATE
     juce::juce_dsp
     juce::juce_gui_extra
     juce::juce_recommended_config_flags
+    PluginForgeAssets
     ${LIBFAUST_LIB}
 )
 
@@ -565,6 +589,62 @@ target_link_libraries(PromptPanelThreadingTest PRIVATE
     juce::juce_dsp
     juce::juce_gui_extra
     juce::juce_recommended_config_flags
+    PluginForgeAssets
+    ${LIBFAUST_LIB}
+)
+
+# PromptPanelPathResolutionTest -- the PF-065 regression harness
+# (host/tests/PromptPanelPathResolutionTest.cpp). Exercises
+# resolveGenerateScript() (PromptPanel.cpp, external linkage exactly for this)
+# directly against scratch directories: env override wins outright, the
+# pre-existing upward walk still finds a dev-tree sibling, and the new
+# XDG_DATA_HOME / ~/.local/share fallback finds an installed-but-unexported
+# runtime -- the exact "generate.py not found" shape confirmed in REAPER.
+#
+# Same source/link set as StatePersistenceTest: PromptPanel.cpp only compiles
+# as part of the same PluginForgeProcessor/editor closure the other harnesses
+# already build. Pure and fast like StatePersistenceTest/ValidationGateTest
+# beside it -- no display, no network, no JIT (resolveGenerateScript never
+# touches FaustEngine) -- so it belongs in the same no-display "pure" group,
+# not beside PromptPanelThreadingTest's xvfb-gated message-loop test.
+juce_add_console_app(PromptPanelPathResolutionTest
+    PRODUCT_NAME "Prompt Panel Path Resolution Test"
+)
+
+target_sources(PromptPanelPathResolutionTest PRIVATE
+    tests/PromptPanelPathResolutionTest.cpp
+    Source/PluginProcessor.cpp
+    Source/PluginEditor.cpp
+    Source/SampleBrowserPanel.cpp
+    Source/SoundfetchClient.cpp
+    Source/PromptPanel.cpp
+    Source/CodeEditorPanel.cpp
+    Source/ParamGridPanel.cpp
+    Source/KeyboardPanel.cpp
+    Source/FaustEngine.cpp
+    Source/ParamPool.cpp
+    Source/OutputGuard.cpp
+)
+
+target_compile_features(PromptPanelPathResolutionTest PRIVATE cxx_std_17)
+
+target_compile_definitions(PromptPanelPathResolutionTest PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_VST3_CAN_REPLACE_VST2=0
+)
+
+# -fno-sanitize=vptr: see the StatePersistenceTest block above -- libfaust.so is
+# built -fno-rtti and does not export typeinfo for llvm_dsp.
+target_compile_options(PromptPanelPathResolutionTest PRIVATE -fsanitize=address,undefined -fno-sanitize=vptr -g -O1)
+target_link_options(PromptPanelPathResolutionTest PRIVATE -fsanitize=address,undefined -fno-sanitize=vptr)
+
+target_link_libraries(PromptPanelPathResolutionTest PRIVATE
+    juce::juce_audio_utils
+    juce::juce_dsp
+    juce::juce_gui_extra
+    juce::juce_recommended_config_flags
+    PluginForgeAssets
     ${LIBFAUST_LIB}
 )
 
@@ -615,6 +695,7 @@ target_link_libraries(OfflineRenderTest PRIVATE
     juce::juce_dsp
     juce::juce_gui_extra
     juce::juce_recommended_config_flags
+    PluginForgeAssets
     ${LIBFAUST_LIB}
 )
 
@@ -659,6 +740,7 @@ target_link_libraries(OfflineSynthRenderTest PRIVATE
     juce::juce_dsp
     juce::juce_gui_extra
     juce::juce_recommended_config_flags
+    PluginForgeAssets
     ${LIBFAUST_LIB}
 )
 
@@ -720,6 +802,7 @@ target_link_libraries(EditorSessionTest PRIVATE
     juce::juce_dsp
     juce::juce_gui_extra
     juce::juce_recommended_config_flags
+    PluginForgeAssets
     ${LIBFAUST_LIB}
 )
 
@@ -830,5 +913,6 @@ target_link_libraries(UiDesignGallery PRIVATE
     juce::juce_dsp
     juce::juce_gui_extra
     juce::juce_recommended_config_flags
+    PluginForgeAssets
     ${LIBFAUST_LIB}
 )

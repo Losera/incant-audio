@@ -1,5 +1,6 @@
 #include "KeyboardPanel.h"
 #include "Theme.h"
+#include "ForgeLookAndFeel.h"   // resolveThemeFont -- see its header comment
 
 KeyboardPanel::KeyboardPanel(PluginForgeProcessor& p)
     : processor(p),
@@ -43,7 +44,6 @@ KeyboardPanel::KeyboardPanel(PluginForgeProcessor& p)
     octaveDownButton.onClick = [this] { shiftOctave(-1); };
     octaveUpButton.onClick   = [this] { shiftOctave(+1); };
     octaveLabel.setJustificationType(juce::Justification::centred);
-    octaveLabel.setFont(Theme::Type::caption());
     octaveLabel.setColour(juce::Label::textColourId, Theme::textSecondary);
     updateOctaveLabel();   // sets the initial "Oct: 4" text and button enablement
 
@@ -62,10 +62,20 @@ KeyboardPanel::KeyboardPanel(PluginForgeProcessor& p)
 
     disabledLabel.setText("Load an instrument to play", juce::dontSendNotification);
     disabledLabel.setJustificationType(juce::Justification::centred);
-    disabledLabel.setFont(Theme::Type::caption());
     disabledLabel.setColour(juce::Label::textColourId, Theme::textSecondary);
     disabledLabel.setInterceptsMouseClicks(false, false);
     addChildComponent(disabledLabel);
+
+    // No resolveThemeFont() call here -- this panel isn't attached under
+    // PluginForgeEditor yet (constructed from its member-initialiser list),
+    // so getLookAndFeel() would walk off the top of the tree and resolve
+    // against the process-default LookAndFeel: guaranteed wrong, and (worse)
+    // that default's fallback substitution for an unrecognised name has been
+    // observed to hand back a Typeface with an empty name in this
+    // environment, which trips juce_Font.cpp:229's jassert on construction.
+    // octaveLabel/disabledLabel keep whatever plain default Label::setFont()
+    // already gives them until parentHierarchyChanged() below runs the real
+    // resolution, once this panel is actually attached.
 
     // NOT setPlayable(false): `playable`'s member initializer already reads
     // false, so that call would be a no-op transition and the widgets would
@@ -83,6 +93,17 @@ void KeyboardPanel::applyPlayableVisuals()
     keyboardComponent.setEnabled(playable);
     keyboardComponent.setAlpha(playable ? 1.0f : 0.35f);
     disabledLabel.setVisible(! playable);
+}
+
+void KeyboardPanel::applyFonts()
+{
+    octaveLabel.setFont(resolveThemeFont(octaveLabel, Theme::Type::caption()));
+    disabledLabel.setFont(resolveThemeFont(disabledLabel, Theme::Type::caption()));
+}
+
+void KeyboardPanel::parentHierarchyChanged()
+{
+    applyFonts();
 }
 
 KeyboardPanel::~KeyboardPanel()

@@ -455,6 +455,27 @@ against a real installed bundle — corrected to open the same session this was 
 fixed here: the fix is a distribution-architecture decision (bundle the script? installer-
 written config?), COLLABORATION.md §2 territory. Full writeup: `docs/BUGS.md` PF-065.
 
+**15. `EditorSessionTest` scenario 20's octave-hit-test assertion was stale against the
+instrument-conditional keyboard band.** *(PF-066, low, fixed 2026-08-25, this session.)*
+`89268ec` made `keyboardPanel` start invisible and laid out only `if (instrument)`
+(`PluginEditor.cpp:648-654`), so `KeyboardPanel::resized()` never ran for a fresh/effect
+editor and the octave buttons it positions stayed at default zero-size bounds. Read as a
+stale test assertion, not a functional regression — nothing found suggested the controls
+were unreachable once an instrument actually compiles. Fixed once it became the one thing
+blocking CI on this branch (the same reasoning that reversed PF-067's original "don't fix
+now" call): removed the stale check and the now-unused test-only accessors it was the only
+caller of. Full writeup: `docs/BUGS.md` PF-066.
+
+**16. `requirements.txt`'s uncapped `anthropic>=0.40.0` resolved to 1.0.0, which ships
+`httpx2` instead of `httpx` — every `import httpx` in `llm/providers.py` failed.** *(PF-067,
+critical, fixed 2026-08-25, `73f3263`.)* Not test-only: `llm/generate.py` itself imports
+`providers.py`, so a fresh install of the real product broke the same way. Confirmed
+pre-existing and universal before the fix — reproduced on CI for any branch pushed that day,
+including a rebuild of committed `main`; the last green `main` run (2026-08-20) predates
+whenever `anthropic` 1.0.0 was published. Fixed once it became the one thing blocking CI on
+every branch: pinned `requirements.txt:1` to `anthropic>=0.40.0,<1.0.0`, restoring `httpx`
+without touching `providers.py` or vendoring anything. Full writeup: `docs/BUGS.md` PF-067.
+
 ---
 
 **2026-08-16, later the same day: Next-three #2 (evidence) run — Mechanism A's second,

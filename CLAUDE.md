@@ -60,7 +60,9 @@ move with it, which is exactly why silent drift matters.
   `Faust version at generation: 2.85.5`. That is **not** a defect: `--check` validates the
   entry *names*, which are version-independent by design (`gen_stdlib_block.py:300-308`), and
   it passes. Regenerating under 2.85.9 would rewrite signatures and spend prompt headroom
-  there are only ~124 tokens of, so it is a deliberate deferral, not an oversight.
+  there are only ~140 tokens of *(corrected 2026-08-25; re-measured via
+  `python3 tests/test_prompt_headroom.py`, which prints `slack=140` — the 124 figure
+  predates the 2026-07-31 stdlib trim)*, so it is a deliberate deferral, not an oversight.
 - **LLVM 22.1.8** — backs the libfaust JIT inside the host plugin.
 - **JUCE 7.0.9 at `$HOME/JUCE` — NOT vendored in this repo** *(corrected 2026-08-11; this
   line had said "vendored at `host/JUCE`", which is a CMake **build** directory produced by
@@ -102,6 +104,18 @@ failing," established 2026-07-25 after three prior controls were found never to 
 this is now that control's second recorded failure, not its first — logged so a third
 silent instance is less likely, not to imply the fix (a corrected global skill,
 `docs/records/doc-purge-2026-08-19.md`) makes a fourth impossible.
+
+**`/orient` covers session start; `/handoff` (ADR-028, 2026-08-21) covers session end.**
+At a landed change, a green `check.sh` level, or a `.claude/RESUME.md` near-limit trigger,
+write `.claude/HANDOFF.md` so the next session doesn't reconstruct this one from raw logs
+(AGENTS.md §11). `SessionStart` re-injects it automatically after `/clear`, compaction, or
+resume, and prints an explicit `NO HANDOFF ON DISK` line rather than silence when none
+exists — the same "silence is the one forbidden output" rule `/orient`'s digest already
+follows. It is untracked (`.gitignore`), overwritten in place, never more than one file. As
+with `/orient` above: nothing forces this to run — no Claude Code mechanism can compel a
+skill — so `PreCompact` separately snapshots machine state (branch, HEAD, diffstat) to
+`.claude/handoff-state.json` as a narrower safety net for the unplanned case, and it never
+touches `HANDOFF.md` itself. See `.claude/skills/handoff/SKILL.md`.
 
 ## The development cycle
 One command, cost-ordered, cumulative. Run the cheapest level that covers what you touched.

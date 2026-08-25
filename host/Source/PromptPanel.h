@@ -92,6 +92,15 @@ public:
 
     void resized() override;
 
+    // Re-applies errorBox's font once this panel is actually attached under
+    // PluginForgeEditor. See ForgeLookAndFeel.h's resolveThemeFont() header
+    // comment: the constructor's own setFont() call runs before that
+    // attachment exists (PluginForgeEditor's member-initialiser list, before
+    // addAndMakeVisible), so it resolves against the wrong LookAndFeel. JUCE
+    // calls this automatically the moment addChildComponent() sets
+    // parentComponent (juce_Component.cpp:1166-1187).
+    void parentHierarchyChanged() override;
+
     // Message-thread only. The shell routes compile-success / output-guard-mute
     // status text through here, since this panel owns the one status line.
     void setStatus(const juce::String& text);
@@ -174,6 +183,12 @@ public:
     juce::String familyForTest() const;
     void setFamilyForTest(const juce::String& family);
 
+    // Deterministic prompt-writing hint (queue item 3): the resolved family's
+    // prompt_brief, cached alongside the tooltip it's also shown as --
+    // ComboBox::getTooltip() is non-const, so this reads the cache rather
+    // than the live widget, updated in lockstep by updateAutoFamilyLabel().
+    juce::String familyHintForTest() const { return currentFamilyHint; }
+
     // Test-only. True if the last successful generation reported that the prior
     // source was dropped due to token-budget overflow (generate.py's
     // prior_source_dropped flag, generate.py:381-386).
@@ -213,6 +228,11 @@ public:
 private:
     void timerCallback() override;
 
+    // Called from parentHierarchyChanged() above, once this panel is
+    // actually attached under PluginForgeEditor -- see that override's
+    // comment for why resolving any earlier would be both wrong and noisy.
+    void applyFonts();
+
     void submitPrompt();
     void startWorking();
     void stopWorking();
@@ -228,6 +248,9 @@ private:
     juce::TextButton  generateButton { "Generate" };
     juce::TextButton  historyButton  { "History" };
     juce::ComboBox    familySelector;
+    // Cached alongside familySelector's tooltip -- see familyHintForTest()'s
+    // own comment for why this exists rather than reading the widget back.
+    juce::String      currentFamilyHint;
     juce::ComboBox    refineSelector;
     juce::Label       statusLabel;
     juce::Label       progressLabel;
