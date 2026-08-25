@@ -468,6 +468,15 @@ once an instrument actually compiles (the commit's own `onFaustCompileSuccess` f
 covers that transition); the gap is a state where the whole band is invisible anyway.
 Full writeup: `docs/BUGS.md` PF-066. Not fixed — out of scope for the session that found it.
 
+**16. `requirements.txt`'s uncapped `anthropic>=0.40.0` now resolves to 1.0.0, which ships
+`httpx2` instead of `httpx` — every `import httpx` in `llm/providers.py` fails.** *(PF-067,
+critical, open, found 2026-08-25.)* Not test-only: `llm/generate.py` itself imports
+`providers.py`, so a fresh install of the real product breaks the same way. Confirmed
+pre-existing and universal — reproduces on CI for any branch pushed today, including a
+rebuild of committed `main`; the last green `main` run (2026-08-20) predates whenever
+`anthropic` 1.0.0 was published. Not fixed here — a dependency-pinning decision, out of
+scope for the UI/UX session that found it. Full writeup: `docs/BUGS.md` PF-067.
+
 ---
 
 **2026-08-16, later the same day: Next-three #2 (evidence) run — Mechanism A's second,
