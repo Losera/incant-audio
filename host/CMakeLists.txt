@@ -740,6 +740,7 @@ target_link_libraries(OfflineSynthRenderTest PRIVATE
     juce::juce_dsp
     juce::juce_gui_extra
     juce::juce_recommended_config_flags
+    PluginForgeAssets
     ${LIBFAUST_LIB}
 )
 
