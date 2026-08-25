@@ -455,6 +455,19 @@ against a real installed bundle — corrected to open the same session this was 
 fixed here: the fix is a distribution-architecture decision (bundle the script? installer-
 written config?), COLLABORATION.md §2 territory. Full writeup: `docs/BUGS.md` PF-065.
 
+**15. `EditorSessionTest` scenario 20's octave-hit-test assertion is stale against the
+instrument-conditional keyboard band.** *(PF-066, low, open, found 2026-08-25.)* `89268ec`
+made `keyboardPanel` start invisible and laid out only `if (instrument)`
+(`PluginEditor.cpp:648-654`), so `KeyboardPanel::resized()` never runs for a fresh/effect
+editor and the octave buttons it positions stay at default zero-size bounds. The scenario's
+hit-test against those zero-size bounds fails — 311 checks, 1 failure — reproduced
+identically on a clean build of committed HEAD, confirmed pre-existing and unrelated to the
+Ember Console typography commit (`cf336ff`) that surfaced it. Read as a stale test
+assertion, not a functional regression: nothing found suggests the controls are unreachable
+once an instrument actually compiles (the commit's own `onFaustCompileSuccess` fix already
+covers that transition); the gap is a state where the whole band is invisible anyway.
+Full writeup: `docs/BUGS.md` PF-066. Not fixed — out of scope for the session that found it.
+
 ---
 
 **2026-08-16, later the same day: Next-three #2 (evidence) run — Mechanism A's second,

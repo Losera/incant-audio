@@ -100,6 +100,7 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-063 | `/orient` warned that green CI was behind HEAD but counted every merged side-branch commit, so its distance disagreed with the first-parent branch history and its own regression test | low | fixed | S4 Testing | `tools/status_digest.sh` `commit_line` | 2026-08-16 | `c9a1c7a` (2026-08-17) |
 | PF-064 | The efficacy harness passed no generation budget, so a daily-quota `Retry-After` could suspend the process for hours before incremental results reached a recoverable checkpoint | medium | fixed | S4 Testing | `bench/run_efficacy_study.py` | 2026-08-17 | `8c0d724` |
 | PF-065 | Generation fails with "generate.py not found" when the plugin runs as an installed VST3 (confirmed in REAPER) — ADR-011 marks this row Closed and it is not | high | open | S1 Backend | `host/Source/PromptPanel.cpp:143-154` | 2026-08-19 | |
+| PF-066 | `EditorSessionTest` scenario 20's octave-hit-test assertion is stale against the instrument-conditional keyboard band: `KeyboardPanel::resized()` never runs for a fresh/non-instrument editor, so the octave buttons it positions stay at default zero-size bounds | low | open | S3 Plugin UX | `host/Source/PluginEditor.cpp:648-654`, `host/tests/EditorSessionTest.cpp:1560-1561` | 2026-08-25 | |
 
 ---
 
@@ -1104,6 +1105,56 @@ the mechanism `PromptPanel.cpp`'s own comment names as supported for this case. 
 residual either means running `install.sh` for real before the interactive-host session (Next
 three #1), or later choosing option (A) above. Not claiming "fixed" while the reported repro is
 unchanged — see ADR-011's own history of this exact mistake, just above.
+
+### PF-066 — `EditorSessionTest` scenario 20's octave-hit-test assertion is stale against the instrument-conditional keyboard band. *(open, found 2026-08-25)*
+
+**low · open · S3 Plugin UX · found while verifying an unrelated change (Ember Console
+typography, `cf336ff`) — reproduced independently on a clean build of committed HEAD with
+none of that change's diff present, so it predates it and is not caused by it**
+
+`89268ec` ("feat: instrument-conditional keyboard band") changed `keyboardPanel` from an
+always-laid-out, dimmed-when-disabled child (`addAndMakeVisible`) to one that starts and
+stays invisible (`addChildComponent`) until `processor.isInstrumentForTest()` is true
+(`PluginEditor.cpp:648-654`): `keyboardPanel.setBounds(keyboardArea)` is called **only**
+inside `if (instrument)`. JUCE calls a component's own `resized()` only when `setBounds()`
+actually runs on it — so for a fresh editor (no patch compiled yet, `isInstrumentForTest()`
+false) or any effect patch, `KeyboardPanel::resized()` never fires at all, and everything it
+positions (`octaveUpButton`, `octaveDownButton`, `octaveLabel`, `disabledLabel`,
+`keyboardComponent` — `KeyboardPanel.cpp:109-127`) stays at JUCE's default `{0,0,0,0}`.
+
+`EditorSessionTest.cpp:1560-1561` (scenario 20, "an effect patch disables the keyboard")
+checks, on a brand-new `Session`, `s.editor.keyboardOctaveUpIsHitTargetForTest()` — which
+resolves to `getComponentAt(octaveUpButton.getBounds().getCentre()) == &octaveUpButton`
+(`KeyboardPanel.h:174-177`). Against a zero-size button this asks whether point `(0,0)`
+inside a zero-area rectangle hit-tests as that rectangle, which JUCE's
+`Rectangle::contains()` treats as false, so `getComponentAt` returns something other than
+`&octaveUpButton` and the check fails. **311 checks, 1 failure**, reproduced identically on
+a clean worktree build of committed HEAD (`915655c`) with zero of this session's font/timing
+changes present — confirmed pre-existing, not introduced by `cf336ff`.
+
+**Read as a test-currency bug, not a functional regression.** The assertion's own docstring
+("the disabled overlay does not block the enabled octave controls") encodes the *pre-89268ec*
+invariant — from back when the keyboard band was always laid out, just dimmed
+(`89268ec`'s own diff removes the comment "Always in the layout... an effect patch's 'you
+can't play this' is communicated by dimming... not by removing the control"). `89268ec`
+deliberately inverted that design (an effect gets 80px less chrome instead of a dimmed
+band), and correctly re-lays-out the band once a real instrument compiles —
+`onFaustCompileSuccess`'s explicit `resized()` call (`PluginEditor.cpp`, same commit) covers
+exactly that transition. Nothing found here suggests the octave controls are unreachable
+once an instrument is actually loaded; the gap is a fresh/effect state whose keyboard band
+is entirely invisible anyway, where "are its internal buttons hit-testable" is moot — the
+test just never got updated to stop asserting it.
+
+**Why this is `docs/BUGS.md`'s first record of it despite `89268ec` landing a day earlier**:
+this project's own recurring finding applies again — "a control counts only once it has been
+seen failing" (`CLAUDE.md`). Nothing indicates `EditorSessionTest` was run between `89268ec`
+landing and this discovery; `tools/check.sh fast` (pytest-only) would not have caught it.
+
+**Not fixed here** — found while verifying an unrelated typography change; the fix is either
+updating scenario 20's assertion to match the new invisible-until-instrument reality, or
+deciding the band should lay out (but stay dimmed) even when invisible so its children have
+real bounds — a small design call, not an emergency, and out of scope for the session that
+found it.
 
 ---
 
