@@ -241,7 +241,6 @@ public:
     bool keyboardEnabledForTest() const           { return keyboardPanel.keyboardEnabledForTest(); }
     float keyboardAlphaForTest() const            { return keyboardPanel.keyboardAlphaForTest(); }
     bool keyboardDisabledLabelVisibleForTest() const { return keyboardPanel.disabledLabelVisibleForTest(); }
-    bool keyboardOctaveUpIsHitTargetForTest()        { return keyboardPanel.octaveUpIsHitTargetForTest(); }
     // How many times focusForPlaying() has been called -- see
     // KeyboardPanel.h's comment on what this proves (the shell-level wiring)
     // versus what it cannot (a headless harness has no peer, so

@@ -100,7 +100,7 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-063 | `/orient` warned that green CI was behind HEAD but counted every merged side-branch commit, so its distance disagreed with the first-parent branch history and its own regression test | low | fixed | S4 Testing | `tools/status_digest.sh` `commit_line` | 2026-08-16 | `c9a1c7a` (2026-08-17) |
 | PF-064 | The efficacy harness passed no generation budget, so a daily-quota `Retry-After` could suspend the process for hours before incremental results reached a recoverable checkpoint | medium | fixed | S4 Testing | `bench/run_efficacy_study.py` | 2026-08-17 | `8c0d724` |
 | PF-065 | Generation fails with "generate.py not found" when the plugin runs as an installed VST3 (confirmed in REAPER) — ADR-011 marks this row Closed and it is not | high | open | S1 Backend | `host/Source/PromptPanel.cpp:143-154` | 2026-08-19 | |
-| PF-066 | `EditorSessionTest` scenario 20's octave-hit-test assertion is stale against the instrument-conditional keyboard band: `KeyboardPanel::resized()` never runs for a fresh/non-instrument editor, so the octave buttons it positions stay at default zero-size bounds | low | open | S3 Plugin UX | `host/Source/PluginEditor.cpp:648-654`, `host/tests/EditorSessionTest.cpp:1560-1561` | 2026-08-25 | |
+| PF-066 | `EditorSessionTest` scenario 20's octave-hit-test assertion is stale against the instrument-conditional keyboard band: `KeyboardPanel::resized()` never runs for a fresh/non-instrument editor, so the octave buttons it positions stay at default zero-size bounds | low | fixed | S3 Plugin UX | `host/Source/PluginEditor.cpp:648-654`, `host/tests/EditorSessionTest.cpp:1560-1561` | 2026-08-25 | this session |
 | PF-067 | `requirements.txt` pins `anthropic>=0.40.0` with no upper bound; `anthropic` 1.0.0 (released after the 2026-08-20 last-green CI run) ships `httpx2` instead of `httpx`, so every `import httpx` in `llm/providers.py` fails — breaks real generation, not just tests, anywhere a fresh `pip install -r requirements.txt` resolves 1.0.0 | critical | fixed | S1 Backend | `requirements.txt:1`, `llm/providers.py:56` | 2026-08-25 | this session |
 
 ---
@@ -1107,11 +1107,11 @@ residual either means running `install.sh` for real before the interactive-host 
 three #1), or later choosing option (A) above. Not claiming "fixed" while the reported repro is
 unchanged — see ADR-011's own history of this exact mistake, just above.
 
-### PF-066 — `EditorSessionTest` scenario 20's octave-hit-test assertion is stale against the instrument-conditional keyboard band. *(open, found 2026-08-25)*
+### PF-066 — `EditorSessionTest` scenario 20's octave-hit-test assertion is stale against the instrument-conditional keyboard band. *(fixed 2026-08-25, this session)*
 
-**low · open · S3 Plugin UX · found while verifying an unrelated change (Ember Console
-typography, `cf336ff`) — reproduced independently on a clean build of committed HEAD with
-none of that change's diff present, so it predates it and is not caused by it**
+**low · fixed, this session · S3 Plugin UX · found while verifying an unrelated change (Ember
+Console typography, `cf336ff`) — reproduced independently on a clean build of committed HEAD
+with none of that change's diff present, so it predates it and is not caused by it**
 
 `89268ec` ("feat: instrument-conditional keyboard band") changed `keyboardPanel` from an
 always-laid-out, dimmed-when-disabled child (`addAndMakeVisible`) to one that starts and
@@ -1151,11 +1151,18 @@ this project's own recurring finding applies again — "a control counts only on
 seen failing" (`CLAUDE.md`). Nothing indicates `EditorSessionTest` was run between `89268ec`
 landing and this discovery; `tools/check.sh fast` (pytest-only) would not have caught it.
 
-**Not fixed here** — found while verifying an unrelated typography change; the fix is either
-updating scenario 20's assertion to match the new invisible-until-instrument reality, or
-deciding the band should lay out (but stay dimmed) even when invisible so its children have
-real bounds — a small design call, not an emergency, and out of scope for the session that
-found it.
+**Fixed, same session, once CI blocking every push on this branch made it worth the small
+detour.** Removed scenario 20's stale `keyboardOctaveUpIsHitTargetForTest()` check (and the
+now-unused `KeyboardPanel::octaveUpIsHitTargetForTest()` / `PluginEditor::
+keyboardOctaveUpIsHitTargetForTest()` accessors it was the only caller of), replacing it with
+a comment recording why the old assertion no longer applies — not a relocated equivalent
+check elsewhere, since no other scenario compiles an instrument AND needs octave-button
+hit-testing, and manufacturing one just to preserve superficial coverage would test a JUCE
+implementation detail (zero bounds) rather than a real product invariant. Verified locally
+(built and run against the working tree's actual current state, which also carries other
+in-flight, uncommitted branch work): the octave-hit-test failure this entry describes is
+gone; a different, unrelated failure remains from that other in-progress work, not from this
+fix — not this defect's concern.
 
 ### PF-067 — `anthropic>=0.40.0`'s uncapped upper bound resolved to 1.0.0, which ships `httpx2` instead of `httpx`, breaking every `import httpx` in `llm/providers.py`. *(fixed 2026-08-25, `73f3263`)*
 

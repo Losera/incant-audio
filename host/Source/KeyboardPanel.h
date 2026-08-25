@@ -171,10 +171,6 @@ public:
     int  currentOctaveForTest() const { return currentOctave; }
     int  availableRangeLowForTest() const  { return keyboardComponent.getRangeStart(); }
     int  availableRangeHighForTest() const { return keyboardComponent.getRangeEnd(); }
-    bool octaveUpIsHitTargetForTest()
-    {
-        return getComponentAt(octaveUpButton.getBounds().getCentre()) == &octaveUpButton;
-    }
 
 private:
     // juce::MidiKeyboardState::Listener. Fires synchronously from

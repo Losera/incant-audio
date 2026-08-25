@@ -455,18 +455,16 @@ against a real installed bundle — corrected to open the same session this was 
 fixed here: the fix is a distribution-architecture decision (bundle the script? installer-
 written config?), COLLABORATION.md §2 territory. Full writeup: `docs/BUGS.md` PF-065.
 
-**15. `EditorSessionTest` scenario 20's octave-hit-test assertion is stale against the
-instrument-conditional keyboard band.** *(PF-066, low, open, found 2026-08-25.)* `89268ec`
-made `keyboardPanel` start invisible and laid out only `if (instrument)`
-(`PluginEditor.cpp:648-654`), so `KeyboardPanel::resized()` never runs for a fresh/effect
-editor and the octave buttons it positions stay at default zero-size bounds. The scenario's
-hit-test against those zero-size bounds fails — 311 checks, 1 failure — reproduced
-identically on a clean build of committed HEAD, confirmed pre-existing and unrelated to the
-Ember Console typography commit (`cf336ff`) that surfaced it. Read as a stale test
-assertion, not a functional regression: nothing found suggests the controls are unreachable
-once an instrument actually compiles (the commit's own `onFaustCompileSuccess` fix already
-covers that transition); the gap is a state where the whole band is invisible anyway.
-Full writeup: `docs/BUGS.md` PF-066. Not fixed — out of scope for the session that found it.
+**15. `EditorSessionTest` scenario 20's octave-hit-test assertion was stale against the
+instrument-conditional keyboard band.** *(PF-066, low, fixed 2026-08-25, this session.)*
+`89268ec` made `keyboardPanel` start invisible and laid out only `if (instrument)`
+(`PluginEditor.cpp:648-654`), so `KeyboardPanel::resized()` never ran for a fresh/effect
+editor and the octave buttons it positions stayed at default zero-size bounds. Read as a
+stale test assertion, not a functional regression — nothing found suggested the controls
+were unreachable once an instrument actually compiles. Fixed once it became the one thing
+blocking CI on this branch (the same reasoning that reversed PF-067's original "don't fix
+now" call): removed the stale check and the now-unused test-only accessors it was the only
+caller of. Full writeup: `docs/BUGS.md` PF-066.
 
 **16. `requirements.txt`'s uncapped `anthropic>=0.40.0` now resolves to 1.0.0, which ships
 `httpx2` instead of `httpx` — every `import httpx` in `llm/providers.py` fails.** *(PF-067,

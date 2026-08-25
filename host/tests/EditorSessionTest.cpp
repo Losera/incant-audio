@@ -1604,8 +1604,22 @@ void scenario20_keyboardDisabledForEffect()
           "fresh editor: the keyboard is visibly dimmed");
     check(s.editor.keyboardDisabledLabelVisibleForTest(),
           "fresh editor: \"Load an instrument to play\" is showing");
-    check(s.editor.keyboardOctaveUpIsHitTargetForTest(),
-          "fresh editor: the disabled overlay does not block the enabled octave controls");
+
+    // PF-066 (docs/BUGS.md, closed here): the "disabled overlay doesn't block
+    // the octave controls" hit-test this used to run right here predates
+    // 89268ec ("instrument-conditional keyboard band") and no longer applies.
+    // Before that commit the band was ALWAYS laid out, just dimmed, so a
+    // real overlap-vs-click-through question existed between disabledLabel
+    // and the octave buttons underneath it. Since 89268ec,
+    // PluginEditor.cpp's resized() only calls keyboardPanel.setBounds() when
+    // isInstrumentForTest() is true, and disabledLabel is only ever visible
+    // when playable is false -- which tracks the same boolean. So whenever
+    // the overlay is showing, the whole band (octave buttons included) has
+    // never been laid out and sits at JUCE's default zero-size bounds: there
+    // is no overlay-vs-click-through case left to guard, because there is
+    // nothing live underneath to click through to. Confirmed by reproducing
+    // the old assertion's failure on a clean build of committed HEAD, with
+    // none of the session's other changes present, before removing it here.
 
     check(loadAndSettle(s, kTinyPatch, 1), "a plain effect (Gain) compiled");
     s.editor.pumpMeterTickForTest();
