@@ -549,7 +549,7 @@ bool PluginForgeEditor::keyPressed(const juce::KeyPress& key)
 void PluginForgeEditor::paint(juce::Graphics& g)
 {
     g.fillAll(Theme::background);
-    g.setColour(juce::Colours::white);
+    g.setColour(Theme::textPrimary);
     g.setFont(Theme::Type::title());
     // Title lives in the top-margin+title band so it reads as a shell header, not
     // as part of either column. Left-aligned (was centred) since 2026-08-12: the

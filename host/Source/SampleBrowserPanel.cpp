@@ -7,7 +7,7 @@ SampleBrowserPanel::SampleBrowserPanel(std::function<void(const juce::File&)> ca
     provider.addItem("Internet Archive", 1);
     provider.addItem("Freesound", 2);
     provider.setSelectedId(1);
-    query.setTextToShowWhenEmpty("Search free sounds...", juce::Colours::grey);
+    query.setTextToShowWhenEmpty("Search free sounds...", Theme::textSecondary);
     query.setReturnKeyStartsNewLine(false);
     results.setTextWhenNothingSelected("Search results");
     results.setEnabled(false);

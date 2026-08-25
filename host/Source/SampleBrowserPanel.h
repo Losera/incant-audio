@@ -2,6 +2,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "SoundfetchClient.h"
+#include "Theme.h"
 
 class SampleBrowserPanel : public juce::Component,
                            public juce::FileDragAndDropTarget

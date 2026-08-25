@@ -156,7 +156,7 @@ PromptPanel::PromptPanel(PluginForgeProcessor& p)
     promptInput.setTextToShowWhenEmpty(
         juce::String(juce::CharPointer_UTF8(
             "Describe your plugin\xe2\x80\xa6  (\xe2\x8c\x98/Ctrl+Enter to generate)")),
-        juce::Colours::grey);
+        Theme::textSecondary);
     promptInput.onSubmit        = [this] { submitPrompt(); };
     promptInput.onRecallHistory = [this]
     {
