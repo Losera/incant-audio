@@ -591,7 +591,13 @@ void PluginForgeEditor::paint(juce::Graphics& g)
     // 2026-08-24, not previously reachable because the band was unconditional.
     if (dividerX > 0)
     {
-        g.setColour(Theme::surfaceSunken);
+        // Theme::outline, not surfaceSunken: this is a hairline meant to be seen
+        // (same convention ParamGridPanel.cpp's section underlines and
+        // KeyboardPanel's key separators already use -- outline/background is a
+        // real 1.74:1, where surfaceSunken/background was 1.03:1, functionally
+        // invisible). This was the one structural divider in the shell drawn
+        // against the wrong token; found during the 2026-08-25 palette pass.
+        g.setColour(Theme::outline);
         const bool instrument = processor.isInstrumentForTest();
         const int bottomChrome = chrome.margin
                                 + (instrument ? (chrome.gapKeyboard + chrome.keyboardH) : 0);

@@ -337,9 +337,14 @@ private:
     juce::Colour currentPalette = Theme::GeneratedAccent::swatches[0];
 
     // ADR-029 §5: this compile's derived title, computed alongside
-    // currentPalette from the same hash so the two always agree. Defaults to
-    // the swatch-0 name, matching currentPalette's own default above.
-    juce::String currentTitle = "Ember Effect";
+    // currentPalette from the same hash so the two always agree once a real
+    // patch has compiled. Before that first compile, deriveTitle() has never
+    // run and this default is shown as-is -- overridden to "PluginForge"
+    // (2026-08-25, at the user's explicit request) rather than the swatch-0
+    // name ("Ember Effect"), so a panel with nothing loaded yet reads as the
+    // product's own name instead of a generated-sounding placeholder.
+    // currentPalette above is untouched: only the displayed text changes here.
+    juce::String currentTitle = "PluginForge";
 
     // The UI IR layout currently in effect (empty when none). Read by resized()
     // to decide sectioned vs default grid layout. Stored separately from the
