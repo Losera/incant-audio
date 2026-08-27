@@ -7,6 +7,7 @@ keywords in the user prompt (e.g. filter, delay, reverb, oscillator, dynamics),
 preventing Groq HTTP 413 "Request too large" token overflows while preserving prompt invariants.
 """
 
+import os
 import re
 from pathlib import Path
 from typing import Dict, List, Set, Optional
@@ -157,7 +158,15 @@ def build_dynamic_prompt(user_prompt: str, base_system_prompt_path: Optional[Pat
     # refine preamble) aren't visible here, so this is a conservative
     # estimate, not the final admission check -- providers.py's own TPM
     # preflight is still the authority.
-    if providers.headroom_tokens(unfiltered + user_prompt) > _MIN_UNFILTERED_HEADROOM:
+    #
+    # PLUGINFORGE_STDLIB_FILTER_ALWAYS is a benchmark-only knob (queue item 6's
+    # A/B: does making the trim unconditional -- not just a low-headroom
+    # rescue -- hold generation quality?), same pattern as
+    # PLUGINFORGE_PROMPT_VARIANT. Not read anywhere outside bench/; if the A/B
+    # says yes, promoting it means deleting the gate below, not keeping this
+    # flag around as a permanent toggle.
+    if (os.environ.get("PLUGINFORGE_STDLIB_FILTER_ALWAYS", "0") == "0"
+            and providers.headroom_tokens(unfiltered + user_prompt) > _MIN_UNFILTERED_HEADROOM):
         return unfiltered
 
     domains = extract_relevant_domains(user_prompt)

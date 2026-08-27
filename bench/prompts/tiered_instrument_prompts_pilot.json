@@ -1,0 +1,67 @@
+{
+  "schema": 1,
+  "description": "Instrument-side pilot for queue item 6's A/B (does making llm/prompt_builder.py's stdlib trim unconditional, not just a low-headroom rescue, hold generation quality?). Deliberately NOT the full 5-tier x 25 matched-set structure bench/prompts/tiered_prompts.json uses for effects -- that corpus is effect-only (its own description says so) and this item's binding constraint (headroom) only differs from today's default on the INSTRUMENT prompt (676 measured tokens of slack vs the effects prompt's 135, already below the 300-token _MIN_UNFILTERED_HEADROOM gate -- confirmed live, 2026-08-25). Scoped pilot: 6 instrument concepts x 2 tiers (L4, L2) = 12 prompts, same tier semantics as tiered_prompts.json's own definitions (L4 = algorithm/topology + at least one numeric range; L2 = functional lay description, no parameter jargon). expected_primitives is the same ANY-OF substring heuristic bench/score_efficacy.py already reads for the effects corpus; the three voice-contract keywords are checked separately by the render oracle's own voice-contract gate, not duplicated here.",
+  "tiers": ["L4", "L2"],
+  "instruments": [
+    {
+      "instrument_id": "bass-01",
+      "category": "bass",
+      "target": "monophonic analog-style bass synth voice",
+      "expected_primitives": ["os.sawtooth", "os.saw", "fi.lowpass", "fi.resonlp", "en.adsr"],
+      "tiers": {
+        "L4": "A monophonic subtractive bass voice: one sawtooth oscillator into a 24dB/octave resonant lowpass filter with cutoff 80-800 Hz and resonance 0-0.95, shaped by an ADSR amplitude envelope (attack 1-50ms, decay 50-400ms, sustain 0-1, release 20-300ms). Standard gate/freq/gain voice contract.",
+        "L2": "a punchy bass sound for a synth that plays one note at a time, with a knob to make it brighter or darker"
+      }
+    },
+    {
+      "instrument_id": "pad-01",
+      "category": "pad",
+      "target": "warm polyphonic-style detuned pad voice",
+      "expected_primitives": ["os.sawtooth", "os.saw", "fi.lowpass", "en.adsr", "*("],
+      "tiers": {
+        "L4": "A warm pad voice built from two detuned sawtooth oscillators (detune amount 0-15 cents, controllable), summed and passed through a lowpass filter (cutoff 200-4000 Hz), with a slow ADSR (attack 200-2000ms, release 500-3000ms) shaping amplitude.",
+        "L2": "a soft, slowly swelling background sound that fades in and out gently, good for holding a chord underneath other things"
+      }
+    },
+    {
+      "instrument_id": "pluck-01",
+      "category": "pluck",
+      "target": "plucked string synth voice",
+      "expected_primitives": ["de.delay", "fi.lowpass", "en.adsr", "*(0.9", "feedback"],
+      "tiers": {
+        "L4": "A Karplus-Strong-style plucked string voice: a short excitation burst feeding a delay line (length set by frequency) with feedback 0.9-0.999 and a damping lowpass in the feedback path (cutoff 500-8000 Hz), so each note decays naturally.",
+        "L2": "a plucky, guitar-like or harp-like note that rings out and fades on its own after you play it"
+      }
+    },
+    {
+      "instrument_id": "epiano-01",
+      "category": "keys",
+      "target": "FM electric piano voice",
+      "expected_primitives": ["os.osc", "os.sine", "en.adsr", "*(", "ratio"],
+      "tiers": {
+        "L4": "A 2-operator FM electric-piano voice: a sine carrier modulated by a sine modulator at a fixed frequency ratio (1-8), with the modulation index decaying over the note's envelope (attack under 10ms, decay 300-2000ms) so the tone brightens on attack and mellows over the sustain.",
+        "L2": "a mellow, bell-like electric piano tone that starts a little brighter and softens as the note rings out"
+      }
+    },
+    {
+      "instrument_id": "bell-01",
+      "category": "bell",
+      "target": "bell / glockenspiel-style synth voice",
+      "expected_primitives": ["os.osc", "os.sine", "en.adsr", "+(", "partial"],
+      "tiers": {
+        "L4": "An additive bell voice: 3-5 sine partials at inharmonic frequency ratios (not simple integer multiples) relative to the fundamental, each with its own short attack and a long, independently-decaying release (1-8 seconds), summed to one output.",
+        "L2": "a bright, metallic bell or chime sound that rings for a long time after you strike a note"
+      }
+    },
+    {
+      "instrument_id": "lead-01",
+      "category": "lead",
+      "target": "acid-style resonant lead synth voice",
+      "expected_primitives": ["os.sawtooth", "os.saw", "fi.resonlp", "en.adsr", "cutoff"],
+      "tiers": {
+        "L4": "A monophonic acid lead: one sawtooth oscillator into a resonant lowpass filter (cutoff 100-6000 Hz, resonance 0.7-0.98) whose cutoff is itself swept by an envelope (attack under 5ms, decay 50-500ms) for the classic filter-snap on each note.",
+        "L2": "a squelchy, nasal lead sound where each note has a little zap or wobble in the tone right as it starts"
+      }
+    }
+  ]
+}
