@@ -1357,3 +1357,219 @@ decides"). Acceptance is the direction, not the implementation: none of the code
 changes in Decision §2-5 have been written yet. Landing them still goes through the
 ordinary `tools/check.sh` ladder and, for anything touching `host/Source/`, the
 Tier 2 evidence bar — this entry authorizes the direction, not a bypass of either.
+
+---
+
+## ADR-030 — Do not adopt LangGraph to orchestrate the generation pipeline
+
+| | |
+|---|---|
+| **Status** | Accepted 2026-08-27 |
+| **Date** | 2026-08-27 |
+
+**Context**
+
+The question raised: should `langgraph` (LangChain's graph-orchestration library, used
+standalone — never full LangChain) model the offline generation pipeline as a state
+machine of typed nodes and conditional edges, with checkpointing?
+
+The pipeline it would orchestrate, read at HEAD:
+
+- **One linear function.** `generate_json()` (`llm/generate.py`) is a single function with
+  one bounded loop: `for attempt in range(1, max_retries + 1)` (`llm/generate.py:568`,
+  `max_retries` defaults to 3). Its state is four scalars — `error_ctx`, `truncated`,
+  `attempt`, `prior_source_dropped` — and it leaves through a handful of explicit
+  `return` points (a rate-limit failure, a budget/timeout failure, a truncation failure,
+  a validated success, an exhausted-retries failure).
+- **All routing decided once, before the loop.** Provider, model, `kind` (which system
+  prompt), `refine_mode`, and whether `prior_source` fits the token budget are all
+  resolved before the first attempt and are explicitly required to stay fixed across
+  every attempt — re-deciding mid-loop "would let a retry silently switch prompts
+  mid-generation and repair the code against rules the first attempt never saw"
+  (`llm/generate.py:279-292`, `:540-560`).
+- **A one-shot process.** `generate.py` runs as an argv subprocess (ADR-011) that lives
+  ~150 s under a 180 s hard kill and exits. There is no server, no session, no resumable
+  state.
+- **One deliberate compression point, not a conversation.** A refine request's prior
+  Faust source is folded into a single user message on purpose — the multi-turn framing
+  was considered and rejected (`llm/generate.py:195-196`, and
+  `docs/sessions/002-refine-loop-and-ui-redesign.md`).
+- **Deliberately shallow error handling.** `error_classes.RETRY_HINT` carries exactly one
+  entry by design (`llm/error_classes.py:130-131`); the taxonomy classifies, it does not
+  branch a topology.
+- **Three runtime dependencies** in root `requirements.txt` (`anthropic`,
+  `python-dotenv`, `pytest`; `httpx` is a fourth in practice — see the aside below).
+
+**Alternative considered**
+
+Adopt `langgraph` standalone: express the pipeline as a typed `StateGraph`, the retry
+cycle as a conditional edge back to the generate node, with LangGraph's checkpointer
+persisting state between steps.
+
+**Decision — do not adopt.**
+
+It is a pipe with one bounded cycle, not a graph. Every headline feature of LangGraph
+maps onto something this project has already refused or does not have:
+
+| LangGraph feature | This pipeline |
+|---|---|
+| Checkpointing / resumable state | One-shot subprocess, ~150 s, nothing to resume |
+| Streaming | ADR-011's named revisit trigger — not adopted |
+| Multi-turn / conversational state | Deliberately folded to one message (`generate.py:195-196`) |
+| Tool-calling agent loop | Not used; generation is a single non-streaming text call (research doc §4.1) |
+| Conditional-edge topology | One `for` loop with a fixed pre-decided route |
+
+A prior partial verdict is already on record:
+`docs/research/plugin-evolution-ui-provider-architecture-2026-08-13.md:336` — "Retain the
+registry instead of adding LangChain or LiteLLM. Faust generation is a narrow
+non-streaming text path…". This ADR generalizes that from the provider layer to the
+orchestration layer.
+
+Adopting it is a COLLABORATION.md §2 double-trigger — **trigger 4** (a new Python
+package) and **trigger 2** (it would define the pipeline's control-flow architecture) —
+with no demonstrated problem (AGENTS.md §12: "Every additional abstraction layer must
+solve a demonstrated problem").
+
+**Consequences**
+
+- The retry loop stays a hand-written `for` loop in `generate_json()`.
+- **Explicit reopen trigger.** Revisit only if the *offline* pipeline grows a genuine
+  multi-node topology — concretely, if **≥2** of the following land:
+  1. a `faust-rs --check` advisor that branches the repair strategy on the returned FRS
+     error code (the `#26` work);
+  2. an offline critic / decompose pass before or between generation attempts;
+  3. provider-failover routing (attempt on provider A, fall back to provider B on a
+     class of failure).
+  Even item 1 alone is ~5 lines inside the existing loop, not a graph. At the ≥2 point,
+  re-evaluate `langgraph` **against a hand-rolled dispatch table** as a fresh ADR — the
+  bar is a topology a `dict` of `{state: handler}` cannot express cleanly, not merely
+  "more than one branch".
+- No migration or rollback implication: nothing is being changed.
+
+**Aside — a real under-declaration this ADR surfaced (fixed separately).** `httpx` is a
+hard, unconditional `import` at `llm/providers.py:56` but appears only in
+`bench/requirements.txt`, not root `requirements.txt`. It is already an effective runtime
+dependency; the manifest just does not say so. Corrected in the same session as this ADR
+(see the change report / handoff), reasoned as ungated under §2 ("correcting an
+under-declaration, not adding a dependency"). PF-067 is the cautionary neighbour — an
+*uncapped* `anthropic>=0.40.0` resolved to 1.0.0 and pulled `httpx2`, breaking every
+`import httpx` — so the added pin carries an upper bound.
+
+**Accepted 2026-08-27, same session, by explicit user decision** ("Accept ADR-030 and
+ADR-031"). Acceptance records the decision not to adopt; it does not foreclose a future
+reconsideration under the reopen trigger above.
+
+---
+
+## ADR-031 — Knowledge tooling: an ID-resolution test and a headless graph emitter, not an Obsidian vault
+
+| | |
+|---|---|
+| **Status** | Accepted 2026-08-27 |
+| **Date** | 2026-08-27 |
+
+**Context**
+
+The question raised: should development adopt a knowledge-graph tool — concretely an
+Obsidian vault over `docs/` — for backlink navigation, a graph view, and Dataview-style
+dashboards over the project's records?
+
+The repository already *is* an ID-addressed, test-enforced knowledge graph:
+
+- **~6 ID namespaces**: `PF-NNN` (defects, `docs/BUGS.md`), `ADR-NNN` (`docs/decisions.md`
+  + `docs/architectural_decisions/`), `docs/sessions/NNN-*`, `D1`–`DN` design-decision
+  series, the `P0`–`P6` phase series, plus hook / skill / agent names.
+- **On the order of a thousand cross-references** as bare IDs and **~700 backtick
+  repo-paths** — the latter already parsed and dead-reference-checked by
+  `tests/test_control_wiring.py:190`'s `_PATH_RE`, against `LIVE_DOC_FILES` (`:299`) and
+  the `.claude/skills|agents|rules` tree. Real markdown hyperlinks number in the dozens:
+  `docs/` is deliberately not a wiki.
+- **The governing rule is `COLLABORATION.md:335-336`**: "Every process document is either
+  (a) mechanically checked against the mechanism it describes, or (b) dated and
+  read-only." Anything that is neither is deleted, not maintained (`COLLABORATION.md:382`,
+  §8 table at `:360`).
+- **The 2026-08-19 purge's root cause was exactly this idea's target**: not markdown
+  volume (the docs:code ratio had *improved*) but staleness, dead cross-references, and a
+  shadowed ritual — diagnosed by a throwaway reference-graph agent
+  (`docs/records/doc-purge-2026-08-19.md`).
+
+**Problem**
+
+Live dead cross-references exist right now:
+
+- `ADR-013` is cited from two continuously-live documents — `COLLABORATION.md:162` and
+  `.claude/skills/change-report/SKILL.md:61` (the same worked-example line, copied) — and
+  **was never written**. (The `docs/architecture_review_2026-07-21.md` table also lists
+  `ADR-013`/`014`/`015` as intended, but that is a dated point-in-time doc and is
+  allowed to name things that were never built, same as git history.)
+- `PF-061` is referenced at `STATUS.md:357`, self-labelled "unfiled tracking", with **no
+  `docs/BUGS.md` registry row**.
+- `ADR-010` and `ADR-014`–`ADR-018` were never written; unlike `ADR-013` they are not
+  currently cited from any live document, so they are latent, not active, defects.
+- The `P`-series and `D`-series have no registry file at all.
+
+Nothing mechanical catches an unresolved `ADR-NNN` or `PF-NNN` today — only unresolved
+backtick *paths*.
+
+**Alternative considered**
+
+Adopt an Obsidian vault over `docs/`: `[[wikilink]]` cross-references, the graph view,
+Dataview dashboards, backlink panes.
+
+**Decision — four parts.**
+
+1. **No knowledge-graph tool as infrastructure.** An Obsidian vault is a third document
+   category under `COLLABORATION.md:382` (neither mechanically-checked nor
+   dated-and-frozen); it is a GUI application invisible to this project's headless
+   tooling and agent workflow; and migrating backtick paths to `[[wikilinks]]` would
+   **silently disable** `test_control_wiring.py`'s dead-reference check — the exact
+   "declared control that never ran" failure this project has hit four times
+   (`CLAUDE.md`, "A control counts only once it has been seen failing"). It also produces
+   documentation, which `CLAUDE.md` states cannot move the project's one metric
+   (`assumed`).
+
+2. **The in-philosophy fix: ID-resolution checks in `tests/test_control_wiring.py`.**
+   Every `ADR-NNN` cited in a `LIVE_DOC_FILES` member (and the extension tree) must
+   resolve to a heading in `docs/decisions.md` or a file in
+   `docs/architectural_decisions/`; every `PF-NNN` cited anywhere in the tracked tree
+   must resolve to a `docs/BUGS.md` registry row. Ships **with red cases**
+   (`CLAUDE.md`). Built in WP3a of the plan this ADR authorizes.
+
+3. **The graph the vault cannot build itself: `tools/kg.py`.** A headless,
+   dependency-free (stdlib only) emitter of the project's ID graph — nodes = documents +
+   `ADR-NNN` + `PF-NNN` + `session NNN`; edges = "document references ID" and "ID defined
+   in document" — as Mermaid (default; renders in a fenced block and in an Obsidian
+   note), DOT, or JSON. It flags **dangling** references and **orphan** documents
+   distinctly, because those two categories are what the 2026-08-19 purge was made of.
+   **Not a CI gate**: it makes no assertions, and wiring a zero-assertion lane into
+   `check.sh` would report it as healthy (`host/CMakeLists.txt`'s `UiDesignGallery`
+   precedent). It is a viewing tool. Built in WP3b, sharing WP3a's scanner.
+
+4. **Obsidian permitted only as a personal, non-authoritative lens.** Constraints (to be
+   added to `COLLABORATION.md §8`): nothing authoritative lives only in the vault; no
+   tool, hook, test, or skill may depend on Obsidian being present; `.obsidian/` and any
+   generated `docs/_graph.md` are gitignored; the backtick-path citation syntax is
+   unchanged. Under those constraints it is a convenience for backlink navigation and the
+   graph view, not architecture.
+
+**Reopen trigger**
+
+If parts 2 + 3 plus vault navigation still leave a real "query the record like a
+database" need (e.g. "every open `PF` in lane S1 touched since date X"), the next step is
+YAML frontmatter across the corpus plus a `tools/kg.py --check` CI gate — never Obsidian
+plugins as the engine. That is a fresh ADR at that point.
+
+**Consequences**
+
+- WP3a adds ~60 lines of test and forces a decision on the `ADR-013` / `PF-061` live
+  dangling refs (fix the prose, write a stub, file the row, or an explicit allowlist with
+  the reason quoted — recorded in the change report).
+- `tools/kg.py` adds a script and no dependency.
+- `COLLABORATION.md §8` gains the four Obsidian constraints above once this ADR is
+  Accepted.
+
+**Accepted 2026-08-27, same session, by explicit user decision** ("Accept ADR-030 and
+ADR-031"). WP3a (`tests/test_control_wiring.py::TestIdReferencesResolve`) and WP3b
+(`tools/kg.py`, `tools/id_graph.py`) landed the same session; the `COLLABORATION.md §8`
+edit in part 4 lands with this acceptance. Acceptance is the direction — a `tools/kg.py
+--check` CI gate and corpus-wide frontmatter remain out of scope (the reopen trigger).

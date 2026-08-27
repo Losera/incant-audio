@@ -58,7 +58,7 @@ WHY        Slot values (0-1) were pushed into Faust zones with real-world ranges
 VERIFIED   MapUI.h:150 — setParamValue does *zone = value, no clamp, no mapping.
            234 tests pass. Swept cutoff in the standalone build; filter now tracks.
 RISK       Linear map only. Frequency and gain are conventionally log-scaled, so
-           10 kHz sits at knob-centre. Log scaling is a slot-range decision -> ADR-013.
+           10 kHz sits at knob-centre. Log scaling is a slot-range decision, still unmade.
 YOUR MOVE  Listen to one filter patch, or defer until log scaling is decided.
 ```
 

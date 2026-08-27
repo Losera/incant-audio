@@ -345,6 +345,149 @@ class TestLiveDocsDoNotReferenceDeletedFiles:
         )
 
 
+# ------------------------------------------------ ID cross-reference resolution
+#
+# ADR-031 (2026-08-27). This repository is an ID-addressed knowledge graph --
+# PF-NNN defects, ADR-NNN decisions, docs/sessions/NNN logs -- with on the order
+# of a thousand bare-ID cross-references and, until this landed, no check that
+# any of them resolve to a definition. The two classes above dead-reference-check
+# backtick *paths*; these widen the same idea to IDs. The scanner is
+# tools/id_graph.py, shared with tools/kg.py so the test and the viewer can never
+# disagree about what a reference is.
+#
+# RED EVIDENCE (CLAUDE.md: "a control counts only once it has been seen
+# failing"). Run against the tree the moment before the fix landed, this found:
+#
+#   ADR-013  cited from two continuously-live documents -- COLLABORATION.md and
+#            .claude/skills/change-report/SKILL.md (the same worked-example line,
+#            copied) -- and never written. Fixed in the same change: the example
+#            no longer names a nonexistent ADR.
+#   PF-061   referenced at STATUS.md, self-labelled "unfiled tracking", with no
+#            docs/BUGS.md registry row. Fixed in the same change: filed as a row.
+#
+# NOT COVERED: ADR-010 and ADR-014..ADR-018 were also never written, but nothing
+# LIVE cites them (only the dated 2026-07-21 architecture review, which is
+# allowed to name things that were never built), so this test does not fail on
+# them. Session-ID references are scanned by id_graph for kg.py's benefit but
+# NOT asserted here: docs/sessions/ is append-only and point-in-time, several
+# early session docs were deliberately deleted in the 2026-08-19 purge, and
+# those references legitimately dangle -- the same reason the ADR check is
+# scoped to live docs rather than the whole tree.
+
+sys.path.insert(0, str(ROOT / "tools"))
+try:
+    import id_graph  # noqa: E402
+except ImportError:  # tools/id_graph.py absent -- see test_id_graph_scanner_is_on_disk
+    id_graph = None
+
+# Contain a missing/broken tools/id_graph.py to the ID tests below instead of
+# erroring the whole module at collection time (which would take every hook-
+# wiring test down with it). The on-disk check in TestIdReferencesResolve is the
+# loud, specific failure; these skips are the fallback so the rest of the file
+# still runs.
+_needs_id_graph = pytest.mark.skipif(
+    id_graph is None,
+    reason="tools/id_graph.py not importable (TestIdReferencesResolve."
+           "test_id_graph_scanner_is_on_disk carries the loud failure)",
+)
+
+EXTENSION_MD = list(_extension_files())
+
+
+class TestIdReferencesResolve:
+    """Every ADR-NNN in a live doc, and every PF-NNN anywhere, must resolve."""
+
+    def test_id_graph_scanner_is_on_disk(self):
+        # The hooks have test_every_referenced_script_is_on_disk; the ID checks
+        # need the same guard. tools/id_graph.py and tools/kg.py must be committed
+        # alongside this file -- if the scanner is lost, fail loudly and
+        # specifically here rather than as a module collection error. ADR-031.
+        missing = [
+            rel for rel in ("tools/id_graph.py", "tools/kg.py")
+            if not (ROOT / rel).exists()
+        ]
+        assert not missing, (
+            f"{', '.join(missing)} missing -- the ID-resolution control depends "
+            "on it. Commit it in the same change as this test."
+        )
+        assert id_graph is not None, (
+            "tools/id_graph.py exists but failed to import; the ID-resolution "
+            "control is dark."
+        )
+
+    @_needs_id_graph
+    def test_scanner_sees_a_plausible_corpus(self):
+        # Guards the guard: an empty scan passes every assertion below vacuously.
+        scanned = id_graph.scan()
+        assert len(scanned) > 30, f"id_graph.scan() found only {len(scanned)} docs"
+        assert len(id_graph.valid_adr_ids()) > 15
+        assert len(id_graph.valid_pf_ids()) > 40
+
+    @_needs_id_graph
+    def test_every_adr_ref_in_live_docs_resolves(self):
+        valid = id_graph.valid_adr_ids()
+        files = [f for f in LIVE_DOC_FILES if f.exists()] + EXTENSION_MD
+        broken = sorted(
+            f"{rel} -> {adr}"
+            for rel, refs in id_graph.scan(files).items()
+            for adr in refs.adr - valid
+        )
+        assert not broken, (
+            "Live document(s) cite an ADR that resolves to no heading in "
+            "docs/decisions.md and no file in docs/architectural_decisions/:\n  "
+            + "\n  ".join(broken)
+            + "\nEither the ADR was never written (fix the prose or write a stub) "
+              "or the reference is a typo. ADR-031."
+        )
+
+    @_needs_id_graph
+    def test_every_pf_ref_in_the_tree_resolves(self):
+        valid = id_graph.valid_pf_ids()
+        broken = sorted(
+            f"{rel} -> {pf}"
+            for rel, refs in id_graph.scan().items()
+            for pf in refs.pf - valid
+        )
+        assert not broken, (
+            "Document(s) cite a PF-NNN with no row in docs/BUGS.md's registry "
+            "table:\n  " + "\n  ".join(broken)
+            + "\nPF IDs are never deleted (docs/BUGS.md's own rule), so even a "
+              "historical doc's reference must resolve. File the row. ADR-031."
+        )
+
+
+@_needs_id_graph
+class TestIdResolutionHasTeeth:
+    """A fabricated ID must be flagged, and a real one must not be."""
+
+    def test_fabricated_ids_in_a_doc_are_flagged(self, tmp_path):
+        doc = tmp_path / "fake.md"
+        doc.write_text(
+            "See ADR-999 for the rationale and PF-99999 for the defect, "
+            "logged in docs/sessions/999.\n"
+        )
+        refs = id_graph.scan_text(doc.read_text())
+        assert "ADR-999" in refs.adr and "ADR-999" not in id_graph.valid_adr_ids()
+        assert "PF-99999" in refs.pf and "PF-99999" not in id_graph.valid_pf_ids()
+        assert "999" in refs.session and "999" not in id_graph.valid_session_ids()
+
+    def test_a_real_reference_is_not_flagged(self):
+        assert "ADR-011" in id_graph.valid_adr_ids()
+        assert "PF-001" in id_graph.valid_pf_ids()
+        refs = id_graph.scan_text("Per ADR-011 and PF-001 this is fine.")
+        assert not (refs.adr - id_graph.valid_adr_ids())
+        assert not (refs.pf - id_graph.valid_pf_ids())
+
+    def test_adr_sources_names_the_real_definition_site(self):
+        # valid_adr_ids() is derived from adr_sources(), so they cannot disagree.
+        assert set(id_graph.adr_sources()) == id_graph.valid_adr_ids()
+        # ADR-011 has both a decisions.md heading and a standalone file; the
+        # graph's defined-in edges must point at the file, not only at
+        # docs/decisions.md.
+        srcs = id_graph.adr_sources()["ADR-011"]
+        assert "docs/architectural_decisions/ADR-011-ipc-argv-subprocess.md" in srcs
+
+
 # --------------------------------------------------------------------------- teeth
 
 CWD = str(ROOT)

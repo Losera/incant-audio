@@ -96,6 +96,7 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-057 | `KeyboardPanel`'s constructor called `setPlayable(false)`, but the member initializer already reads `false` and `setPlayable` early-returns on an unchanged value — the widget-disabling code (dim, disabled label) never ran on construction. A fresh editor's keyboard looked and felt fully playable while every note was silently discarded downstream | high | fixed | S3 Plugin UX | `KeyboardPanel.cpp` ctor / `applyPlayableVisuals` | 2026-08-13 | `410770b` |
 | PF-058 | Auto family resolution could route a prompt naming both generator-family language ("drone", "generative") AND a synth ("a generative synth") to the mute `generator` family — kind instrument, zero MIDI voice contract by design — silently, with nothing telling the user their "synth" request became an unplayable drone | medium | fixed | S2 Prompting UX | `generation_profiles.py` `resolve`; `GenerationProfiles.generated.h` `resolveAuto` | 2026-08-13 | `addfd57` |
 | PF-059 | `generate.py`'s voice-contract gate lowercased UI labels before the synth/drum_synth membership check, so `hslider("Freq", ...)` (or any other-cased spelling) passed generation validation while `FaustEngine::extractVoiceControls`'s exact-case match silently refused to recognise it — a "successful" generation with a dead keyboard | high | fixed | S1 Backend | `generate.py` `_validate_profile_metadata`; `voice_contract.py` | 2026-08-13 | `2b8d4e3` |
+| PF-061 | QWERTY notes: `keyStateChanged` forwarded key-up events while a `juce::TextEditor` held focus (JUCE swallows key-DOWN but not key-UP there) and `MidiKeyboardComponent::keyStateChanged` re-polls every mapped key on every call — so fast-typing rollover could fire a spurious note; separately, QWERTY did not work after an instrument generation without first clicking the on-screen piano | medium | fixed | S3 Plugin UX | `host/Source/KeyboardPanel.cpp` `keyStateChanged` / `focusForPlaying`, `host/Source/PluginEditor.cpp` `onFaustCompileSuccess` | 2026-08-15 | `dcf0af5` (2026-08-15) |
 | PF-062 | `processBlock`'s pre-generation early-return path (`enterAudio()` returns false, no patch loaded yet) left the output buffer untouched on the assumption it held "the host's real input" — true for the Fx target, false for the Synth target, which has no input bus at all. A freshly-loaded, never-generated `PluginForge Synth` echoed back whatever memory the host/JUCE last left in that buffer: `pluginval --strictness-level 5` found literal NaN and subnormal output, 200/450 Audio-processing sub-tests failing | high | fixed | S1 Backend | `PluginProcessor.cpp:251-273` | 2026-08-16 | 2026-08-16, same session |
 | PF-063 | `/orient` warned that green CI was behind HEAD but counted every merged side-branch commit, so its distance disagreed with the first-parent branch history and its own regression test | low | fixed | S4 Testing | `tools/status_digest.sh` `commit_line` | 2026-08-16 | `c9a1c7a` (2026-08-17) |
 | PF-064 | The efficacy harness passed no generation budget, so a daily-quota `Retry-After` could suspend the process for hours before incremental results reached a recoverable checkpoint | medium | fixed | S4 Testing | `bench/run_efficacy_study.py` | 2026-08-17 | `8c0d724` |
@@ -2248,6 +2249,33 @@ were needed; `PromptPanel.cpp`/`PluginProcessor.*` have zero `"provider"`/`"mode
 fields today, so `generate_json()` always falls through to the env-resolved default), but that
 chain was not exercised end-to-end through the host UI. Per `CLAUDE.md`, that listening/UI pass
 is a human judgment, not delegable to a hook or a model.
+
+---
+
+### PF-061 — QWERTY rollover fired spurious notes, and QWERTY was dead until the piano was clicked. *(fixed 2026-08-15, filed 2026-08-27)*
+**fixed `dcf0af5` (2026-08-15) · S3 Plugin UX**
+
+Filed retroactively 2026-08-27 (ADR-031's ID-resolution check): the fix landed on
+`main` in `dcf0af5` and was tracked only in `STATUS.md`'s prose ("PF-061, unfiled
+tracking") and `docs/decisions.md`, with no registry row — exactly the "believe neither"
+drift this file exists to prevent, one layer up (a defect with an ID and no row).
+
+Two distinct problems in the QWERTY→note path, both closed by `dcf0af5`:
+
+1. **Spurious notes from typing rollover.** `keyStateChanged` re-forwarded key state
+   while a `juce::TextEditor` held focus. `juce::TextEditor::keyStateChanged` swallows
+   key-DOWN but not key-UP while focused, and `juce::MidiKeyboardComponent::keyStateChanged`
+   ignores its own argument and re-polls every mapped key on every call — so a key-up
+   from ordinary fast-typing rollover could fire a note for a letter never registered as
+   down. Fixed by suppressing forwarding while any `TextEditor` holds focus.
+2. **QWERTY dead until the piano was clicked.** `KeyboardPanel::focusForPlaying()` is now
+   called from `onFaustCompileSuccess` for a successful instrument generation, so QWERTY
+   works without clicking the on-screen keyboard first.
+
+**Not covered by the fix or this row.** The OS→JUCE keypress hop still has a
+static-contract test, not an end-to-end one (STATUS.md "Broken #1") — an interactive
+in-host QWERTY press is the only thing that closes it, and that is the WP6 listening pass,
+not this filing.
 
 ---
 
