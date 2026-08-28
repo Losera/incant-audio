@@ -1,0 +1,1015 @@
+Preflight passed — provider: ollama | compiler: faust
+Efficacy study: 125 generations (up to 3 attempts each).
+[001/125] trivial-01     L4 → ✓ PASS
+[002/125] trivial-01     L3 → ✓ PASS
+[003/125] trivial-01     L2 → ✓ PASS
+[004/125] trivial-01     L1 → ✗ FAIL
+[005/125] trivial-01     L0 → ✓ PASS
+[006/125] trivial-02     L4 → ✓ PASS (retry, attempt 2)
+[007/125] trivial-02     L3 → ✓ PASS
+[008/125] trivial-02     L2 → ✓ PASS
+[009/125] trivial-02     L1 → ✓ PASS
+[010/125] trivial-02     L0 → ✓ PASS
+[011/125] trivial-03     L4 → ✗ FAIL
+[012/125] trivial-03     L3 → ✓ PASS (retry, attempt 2)
+[013/125] trivial-03     L2 → ✓ PASS (retry, attempt 3)
+[014/125] trivial-03     L1 → ✓ PASS
+[015/125] trivial-03     L0 → ✓ PASS
+[016/125] trivial-04     L4 → ✓ PASS
+[017/125] trivial-04     L3 → ✓ PASS
+[018/125] trivial-04     L2 → ✓ PASS
+[019/125] trivial-04     L1 → ✓ PASS (retry, attempt 2)
+[020/125] trivial-04     L0 → ✓ PASS
+[021/125] trivial-05     L4 → ✓ PASS (retry, attempt 2)
+[022/125] trivial-05     L3 → ✓ PASS
+[023/125] trivial-05     L2 → ✗ FAIL
+[024/125] trivial-05     L1 → ✓ PASS (retry, attempt 3)
+[025/125] trivial-05     L0 → ✗ FAIL
+[026/125] filters-01     L4 → ✓ PASS
+[027/125] filters-01     L3 → ✓ PASS
+[028/125] filters-01     L2 → ✓ PASS
+[029/125] filters-01     L1 → ✗ FAIL
+[030/125] filters-01     L0 → ✓ PASS
+[031/125] filters-02     L4 → ✓ PASS
+[032/125] filters-02     L3 → ✓ PASS
+[033/125] filters-02     L2 → ✓ PASS
+[034/125] filters-02     L1 → ✗ FAIL
+Transport checkpoint written; stopping so --resume can retry without burning the remaining grid.
+
+Per-tier summary (first-try / retry-corrected / n):
+  L4:  4 /  6 / 7
+  L3:  6 /  7 / 7
+  L2:  5 /  6 / 7
+  L1:  2 /  4 / 7
+  L0:  5 /  5 / 6
+
+Operational efficiency (instrumented cells only):
+  compiled / measured: 28 / 34
+  wall / provider / validation seconds: 648.3 / 646.2 / 2.1
+  compiled cells per provider-minute: 2.60
+
+Results saved to: bench/results/efficacy/efficacy_ollama_20260828.json
+Resume: preserving 33 generated records; running 92 pending cells.
+Preflight passed — provider: ollama | compiler: faust
+Efficacy study: 92 generations (up to 3 attempts each).
+[001/092] filters-02     L1 → ✗ FAIL
+Transport checkpoint written; stopping so --resume can retry without burning the remaining grid.
+
+Per-tier summary (first-try / retry-corrected / n):
+  L4:  4 /  6 / 7
+  L3:  6 /  7 / 7
+  L2:  5 /  6 / 7
+  L1:  2 /  4 / 7
+  L0:  5 /  5 / 6
+
+Operational efficiency (instrumented cells only):
+  compiled / measured: 28 / 34
+  wall / provider / validation seconds: 648.3 / 646.2 / 2.1
+  compiled cells per provider-minute: 2.60
+
+Results saved to: bench/results/efficacy/efficacy_ollama_20260828.json
+[loop 1] cells=34/125  00:20:29
+Resume: preserving 33 generated records; running 92 pending cells.
+Preflight passed — provider: ollama | compiler: faust
+Efficacy study: 92 generations (up to 3 attempts each).
+[001/092] filters-02     L1 → ✗ FAIL
+Transport checkpoint written; stopping so --resume can retry without burning the remaining grid.
+
+Per-tier summary (first-try / retry-corrected / n):
+  L4:  4 /  6 / 7
+  L3:  6 /  7 / 7
+  L2:  5 /  6 / 7
+  L1:  2 /  4 / 7
+  L0:  5 /  5 / 6
+
+Operational efficiency (instrumented cells only):
+  compiled / measured: 28 / 34
+  wall / provider / validation seconds: 648.3 / 646.2 / 2.1
+  compiled cells per provider-minute: 2.60
+
+Results saved to: bench/results/efficacy/efficacy_ollama_20260828.json
+[loop] no progress this iter (still 34) — sleeping 30s
+[loop 2] cells=34/125  00:23:19
+Resume: preserving 33 generated records; running 92 pending cells.
+Preflight passed — provider: ollama | compiler: faust
+Efficacy study: 92 generations (up to 3 attempts each).
+[001/092] filters-02     L1 → ✗ FAIL
+Transport checkpoint written; stopping so --resume can retry without burning the remaining grid.
+
+Per-tier summary (first-try / retry-corrected / n):
+  L4:  4 /  6 / 7
+  L3:  6 /  7 / 7
+  L2:  5 /  6 / 7
+  L1:  2 /  4 / 7
+  L0:  5 /  5 / 6
+
+Operational efficiency (instrumented cells only):
+  compiled / measured: 28 / 34
+  wall / provider / validation seconds: 648.3 / 646.2 / 2.1
+  compiled cells per provider-minute: 2.60
+
+Results saved to: bench/results/efficacy/efficacy_ollama_20260828.json
+[loop] no progress this iter (still 34) — sleeping 30s
+[loop 3] cells=34/125  00:26:09
+Resume: preserving 33 generated records; running 92 pending cells.
+Preflight passed — provider: ollama | compiler: faust
+Efficacy study: 92 generations (up to 3 attempts each).
+[001/092] filters-02     L1 → ✗ FAIL
+Transport checkpoint written; stopping so --resume can retry without burning the remaining grid.
+
+Per-tier summary (first-try / retry-corrected / n):
+  L4:  4 /  6 / 7
+  L3:  6 /  7 / 7
+  L2:  5 /  6 / 7
+  L1:  2 /  4 / 7
+  L0:  5 /  5 / 6
+
+Operational efficiency (instrumented cells only):
+  compiled / measured: 28 / 34
+  wall / provider / validation seconds: 648.3 / 646.2 / 2.1
+  compiled cells per provider-minute: 2.60
+
+Results saved to: bench/results/efficacy/efficacy_ollama_20260828.json
+[loop] no progress this iter (still 34) — sleeping 30s
+[loop 4] cells=34/125  00:29:00
+Resume: preserving 33 generated records; running 92 pending cells.
+Preflight passed — provider: ollama | compiler: faust
+Efficacy study: 92 generations (up to 3 attempts each).
+[001/092] filters-02     L1 → ✗ FAIL
+Transport checkpoint written; stopping so --resume can retry without burning the remaining grid.
+
+Per-tier summary (first-try / retry-corrected / n):
+  L4:  4 /  6 / 7
+  L3:  6 /  7 / 7
+  L2:  5 /  6 / 7
+  L1:  2 /  4 / 7
+  L0:  5 /  5 / 6
+
+Operational efficiency (instrumented cells only):
+  compiled / measured: 28 / 34
+  wall / provider / validation seconds: 648.3 / 646.2 / 2.1
+  compiled cells per provider-minute: 2.60
+
+Results saved to: bench/results/efficacy/efficacy_ollama_20260828.json
+[loop] no progress this iter (still 34) — sleeping 30s
+[loop 5] cells=34/125  00:31:50
+Resume: preserving 33 generated records; running 92 pending cells.
+Preflight passed — provider: ollama | compiler: faust
+Efficacy study: 92 generations (up to 3 attempts each).
+[001/092] filters-02     L1 → ✗ FAIL
+Transport checkpoint written; stopping so --resume can retry without burning the remaining grid.
+
+Per-tier summary (first-try / retry-corrected / n):
+  L4:  4 /  6 / 7
+  L3:  6 /  7 / 7
+  L2:  5 /  6 / 7
+  L1:  2 /  4 / 7
+  L0:  5 /  5 / 6
+
+Operational efficiency (instrumented cells only):
+  compiled / measured: 28 / 34
+  wall / provider / validation seconds: 648.3 / 646.2 / 2.1
+  compiled cells per provider-minute: 2.60
+
+Results saved to: bench/results/efficacy/efficacy_ollama_20260828.json
+[loop] no progress this iter (still 34) — sleeping 30s
+[loop 6] cells=34/125  00:34:41
+Resume: preserving 33 generated records; running 92 pending cells.
+Preflight passed — provider: ollama | compiler: faust
+Efficacy study: 92 generations (up to 3 attempts each).
+[001/092] filters-02     L1 → ✗ FAIL
+Transport checkpoint written; stopping so --resume can retry without burning the remaining grid.
+
+Per-tier summary (first-try / retry-corrected / n):
+  L4:  4 /  6 / 7
+  L3:  6 /  7 / 7
+  L2:  5 /  6 / 7
+  L1:  2 /  4 / 7
+  L0:  5 /  5 / 6
+
+Operational efficiency (instrumented cells only):
+  compiled / measured: 28 / 34
+  wall / provider / validation seconds: 648.3 / 646.2 / 2.1
+  compiled cells per provider-minute: 2.60
+
+Results saved to: bench/results/efficacy/efficacy_ollama_20260828.json
+[loop] no progress this iter (still 34) — sleeping 30s
+[loop 7] cells=34/125  00:37:31
+Resume: preserving 33 generated records; running 92 pending cells.
+Preflight passed — provider: ollama | compiler: faust
+Efficacy study: 92 generations (up to 3 attempts each).
+[001/092] filters-02     L1 → ✗ FAIL
+Transport checkpoint written; stopping so --resume can retry without burning the remaining grid.
+
+Per-tier summary (first-try / retry-corrected / n):
+  L4:  4 /  6 / 7
+  L3:  6 /  7 / 7
+  L2:  5 /  6 / 7
+  L1:  2 /  4 / 7
+  L0:  5 /  5 / 6
+
+Operational efficiency (instrumented cells only):
+  compiled / measured: 28 / 34
+  wall / provider / validation seconds: 648.3 / 646.2 / 2.1
+  compiled cells per provider-minute: 2.60
+
+Results saved to: bench/results/efficacy/efficacy_ollama_20260828.json
+[loop] no progress this iter (still 34) — sleeping 30s
+[loop 8] cells=34/125  00:40:21
+Resume: preserving 33 generated records; running 92 pending cells.
+Preflight passed — provider: ollama | compiler: faust
+Efficacy study: 92 generations (up to 3 attempts each).
+[001/092] filters-02     L1 → ✗ FAIL
+Transport checkpoint written; stopping so --resume can retry without burning the remaining grid.
+
+Per-tier summary (first-try / retry-corrected / n):
+  L4:  4 /  6 / 7
+  L3:  6 /  7 / 7
+  L2:  5 /  6 / 7
+  L1:  2 /  4 / 7
+  L0:  5 /  5 / 6
+
+Operational efficiency (instrumented cells only):
+  compiled / measured: 28 / 34
+  wall / provider / validation seconds: 648.3 / 646.2 / 2.1
+  compiled cells per provider-minute: 2.60
+
+Results saved to: bench/results/efficacy/efficacy_ollama_20260828.json
+[loop] no progress this iter (still 34) — sleeping 30s
+[loop 9] cells=34/125  00:43:12
+Resume: preserving 33 generated records; running 92 pending cells.
+Preflight passed — provider: ollama | compiler: faust
+Efficacy study: 92 generations (up to 3 attempts each).
+[001/092] filters-02     L1 → ✗ FAIL
+Transport checkpoint written; stopping so --resume can retry without burning the remaining grid.
+
+Per-tier summary (first-try / retry-corrected / n):
+  L4:  4 /  6 / 7
+  L3:  6 /  7 / 7
+  L2:  5 /  6 / 7
+  L1:  2 /  4 / 7
+  L0:  5 /  5 / 6
+
+Operational efficiency (instrumented cells only):
+  compiled / measured: 28 / 34
+  wall / provider / validation seconds: 648.3 / 646.2 / 2.1
+  compiled cells per provider-minute: 2.60
+
+Results saved to: bench/results/efficacy/efficacy_ollama_20260828.json
+[loop] no progress this iter (still 34) — sleeping 30s
+[loop 10] cells=34/125  00:46:02
+[loop 1] cells=34/125  00:47:04
+Resume: preserving 33 generated records; running 92 pending cells.
+Preflight passed — provider: ollama | compiler: faust
+Efficacy study: 92 generations (up to 3 attempts each).
+[001/092] filters-02     L1 → ✓ PASS
+[002/092] filters-02     L0 → ✓ PASS
+[003/092] filters-03     L4 → ✓ PASS
+Traceback (most recent call last):
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 484, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 471, in main
+    records = run_study(tasks, retries=args.retries, out_file=out_file,
+                        dry_run=args.dry_run, provider=args.provider, model=args.model,
+                        initial_records=initial_records)
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 274, in run_study
+    record = run_effect_tier(cell_generator, effect, tier, prompt, retries,
+                             provider=provider, model=model)
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 229, in run_effect_tier
+    ok, err = validate_faust(code)
+              ~~~~~~~~~~~~~~^^^^^^
+  File "/home/losera/PluginForge/bench/run_benchmark.py", line 241, in validate_faust
+    result = subprocess.run(
+        ["faust", "-lang", "cpp", tmp, "-o", "/dev/null"],
+        capture_output=True, text=True, timeout=30,
+        encoding="utf-8", errors="replace",
+    )
+  File "/usr/lib/python3.14/subprocess.py", line 557, in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 1221, in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 2154, in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 1268, in _check_timeout
+    raise TimeoutExpired(
+    ...<2 lines>...
+            stderr=b''.join(stderr_seq) if stderr_seq else None)
+subprocess.TimeoutExpired: Command '['faust', '-lang', 'cpp', '/tmp/tmpc8_h_vl6.dsp', '-o', '/dev/null']' timed out after 30 seconds
+[loop 2] cells=36/125  00:49:20
+Resume: preserving 36 generated records; running 89 pending cells.
+Preflight passed — provider: ollama | compiler: faust
+Efficacy study: 89 generations (up to 3 attempts each).
+Traceback (most recent call last):
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 484, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 471, in main
+    records = run_study(tasks, retries=args.retries, out_file=out_file,
+                        dry_run=args.dry_run, provider=args.provider, model=args.model,
+                        initial_records=initial_records)
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 274, in run_study
+    record = run_effect_tier(cell_generator, effect, tier, prompt, retries,
+                             provider=provider, model=model)
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 229, in run_effect_tier
+    ok, err = validate_faust(code)
+              ~~~~~~~~~~~~~~^^^^^^
+  File "/home/losera/PluginForge/bench/run_benchmark.py", line 241, in validate_faust
+    result = subprocess.run(
+        ["faust", "-lang", "cpp", tmp, "-o", "/dev/null"],
+        capture_output=True, text=True, timeout=30,
+        encoding="utf-8", errors="replace",
+    )
+  File "/usr/lib/python3.14/subprocess.py", line 557, in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 1221, in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 2154, in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 1268, in _check_timeout
+    raise TimeoutExpired(
+    ...<2 lines>...
+            stderr=b''.join(stderr_seq) if stderr_seq else None)
+subprocess.TimeoutExpired: Command '['faust', '-lang', 'cpp', '/tmp/tmpk7_whwk4.dsp', '-o', '/dev/null']' timed out after 30 seconds
+[loop] no progress this iter (still 36) — sleeping 30s
+[loop 3] cells=36/125  00:50:32
+Resume: preserving 36 generated records; running 89 pending cells.
+Preflight passed — provider: ollama | compiler: faust
+Efficacy study: 89 generations (up to 3 attempts each).
+Traceback (most recent call last):
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 484, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 471, in main
+    records = run_study(tasks, retries=args.retries, out_file=out_file,
+                        dry_run=args.dry_run, provider=args.provider, model=args.model,
+                        initial_records=initial_records)
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 274, in run_study
+    record = run_effect_tier(cell_generator, effect, tier, prompt, retries,
+                             provider=provider, model=model)
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 229, in run_effect_tier
+    ok, err = validate_faust(code)
+              ~~~~~~~~~~~~~~^^^^^^
+  File "/home/losera/PluginForge/bench/run_benchmark.py", line 241, in validate_faust
+    result = subprocess.run(
+        ["faust", "-lang", "cpp", tmp, "-o", "/dev/null"],
+        capture_output=True, text=True, timeout=30,
+        encoding="utf-8", errors="replace",
+    )
+  File "/usr/lib/python3.14/subprocess.py", line 557, in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 1221, in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 2154, in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 1268, in _check_timeout
+    raise TimeoutExpired(
+    ...<2 lines>...
+            stderr=b''.join(stderr_seq) if stderr_seq else None)
+subprocess.TimeoutExpired: Command '['faust', '-lang', 'cpp', '/tmp/tmp9yuhwnbn.dsp', '-o', '/dev/null']' timed out after 30 seconds
+[loop] no progress this iter (still 36) — sleeping 30s
+[loop 4] cells=36/125  00:51:44
+Resume: preserving 36 generated records; running 89 pending cells.
+Preflight passed — provider: ollama | compiler: faust
+Efficacy study: 89 generations (up to 3 attempts each).
+Traceback (most recent call last):
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 484, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 471, in main
+    records = run_study(tasks, retries=args.retries, out_file=out_file,
+                        dry_run=args.dry_run, provider=args.provider, model=args.model,
+                        initial_records=initial_records)
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 274, in run_study
+    record = run_effect_tier(cell_generator, effect, tier, prompt, retries,
+                             provider=provider, model=model)
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 229, in run_effect_tier
+    ok, err = validate_faust(code)
+              ~~~~~~~~~~~~~~^^^^^^
+  File "/home/losera/PluginForge/bench/run_benchmark.py", line 241, in validate_faust
+    result = subprocess.run(
+        ["faust", "-lang", "cpp", tmp, "-o", "/dev/null"],
+        capture_output=True, text=True, timeout=30,
+        encoding="utf-8", errors="replace",
+    )
+  File "/usr/lib/python3.14/subprocess.py", line 557, in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 1221, in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 2154, in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 1268, in _check_timeout
+    raise TimeoutExpired(
+    ...<2 lines>...
+            stderr=b''.join(stderr_seq) if stderr_seq else None)
+subprocess.TimeoutExpired: Command '['faust', '-lang', 'cpp', '/tmp/tmptyqx2mou.dsp', '-o', '/dev/null']' timed out after 30 seconds
+[loop] no progress this iter (still 36) — sleeping 30s
+[loop 5] cells=36/125  00:52:57
+Resume: preserving 36 generated records; running 89 pending cells.
+Preflight passed — provider: ollama | compiler: faust
+Efficacy study: 89 generations (up to 3 attempts each).
+Traceback (most recent call last):
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 484, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 471, in main
+    records = run_study(tasks, retries=args.retries, out_file=out_file,
+                        dry_run=args.dry_run, provider=args.provider, model=args.model,
+                        initial_records=initial_records)
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 274, in run_study
+    record = run_effect_tier(cell_generator, effect, tier, prompt, retries,
+                             provider=provider, model=model)
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 229, in run_effect_tier
+    ok, err = validate_faust(code)
+              ~~~~~~~~~~~~~~^^^^^^
+  File "/home/losera/PluginForge/bench/run_benchmark.py", line 241, in validate_faust
+    result = subprocess.run(
+        ["faust", "-lang", "cpp", tmp, "-o", "/dev/null"],
+        capture_output=True, text=True, timeout=30,
+        encoding="utf-8", errors="replace",
+    )
+  File "/usr/lib/python3.14/subprocess.py", line 557, in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 1221, in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 2154, in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 1268, in _check_timeout
+    raise TimeoutExpired(
+    ...<2 lines>...
+            stderr=b''.join(stderr_seq) if stderr_seq else None)
+subprocess.TimeoutExpired: Command '['faust', '-lang', 'cpp', '/tmp/tmphzibyltv.dsp', '-o', '/dev/null']' timed out after 30 seconds
+[loop] no progress this iter (still 36) — sleeping 30s
+[loop 6] cells=36/125  00:54:09
+Resume: preserving 36 generated records; running 89 pending cells.
+Preflight passed — provider: ollama | compiler: faust
+Efficacy study: 89 generations (up to 3 attempts each).
+Traceback (most recent call last):
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 484, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 471, in main
+    records = run_study(tasks, retries=args.retries, out_file=out_file,
+                        dry_run=args.dry_run, provider=args.provider, model=args.model,
+                        initial_records=initial_records)
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 274, in run_study
+    record = run_effect_tier(cell_generator, effect, tier, prompt, retries,
+                             provider=provider, model=model)
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 229, in run_effect_tier
+    ok, err = validate_faust(code)
+              ~~~~~~~~~~~~~~^^^^^^
+  File "/home/losera/PluginForge/bench/run_benchmark.py", line 241, in validate_faust
+    result = subprocess.run(
+        ["faust", "-lang", "cpp", tmp, "-o", "/dev/null"],
+        capture_output=True, text=True, timeout=30,
+        encoding="utf-8", errors="replace",
+    )
+  File "/usr/lib/python3.14/subprocess.py", line 557, in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 1221, in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 2154, in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 1268, in _check_timeout
+    raise TimeoutExpired(
+    ...<2 lines>...
+            stderr=b''.join(stderr_seq) if stderr_seq else None)
+subprocess.TimeoutExpired: Command '['faust', '-lang', 'cpp', '/tmp/tmppc3m1pzm.dsp', '-o', '/dev/null']' timed out after 30 seconds
+[loop] no progress this iter (still 36) — sleeping 30s
+[loop 7] cells=36/125  00:55:21
+Resume: preserving 36 generated records; running 89 pending cells.
+Preflight passed — provider: ollama | compiler: faust
+Efficacy study: 89 generations (up to 3 attempts each).
+Traceback (most recent call last):
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 484, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 471, in main
+    records = run_study(tasks, retries=args.retries, out_file=out_file,
+                        dry_run=args.dry_run, provider=args.provider, model=args.model,
+                        initial_records=initial_records)
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 274, in run_study
+    record = run_effect_tier(cell_generator, effect, tier, prompt, retries,
+                             provider=provider, model=model)
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 229, in run_effect_tier
+    ok, err = validate_faust(code)
+              ~~~~~~~~~~~~~~^^^^^^
+  File "/home/losera/PluginForge/bench/run_benchmark.py", line 241, in validate_faust
+    result = subprocess.run(
+        ["faust", "-lang", "cpp", tmp, "-o", "/dev/null"],
+        capture_output=True, text=True, timeout=30,
+        encoding="utf-8", errors="replace",
+    )
+  File "/usr/lib/python3.14/subprocess.py", line 557, in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 1221, in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 2154, in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 1268, in _check_timeout
+    raise TimeoutExpired(
+    ...<2 lines>...
+            stderr=b''.join(stderr_seq) if stderr_seq else None)
+subprocess.TimeoutExpired: Command '['faust', '-lang', 'cpp', '/tmp/tmpuvd1ib2q.dsp', '-o', '/dev/null']' timed out after 30 seconds
+[loop] no progress this iter (still 36) — sleeping 30s
+[loop 8] cells=36/125  00:56:33
+Resume: preserving 36 generated records; running 89 pending cells.
+Preflight passed — provider: ollama | compiler: faust
+Efficacy study: 89 generations (up to 3 attempts each).
+Traceback (most recent call last):
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 484, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 471, in main
+    records = run_study(tasks, retries=args.retries, out_file=out_file,
+                        dry_run=args.dry_run, provider=args.provider, model=args.model,
+                        initial_records=initial_records)
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 274, in run_study
+    record = run_effect_tier(cell_generator, effect, tier, prompt, retries,
+                             provider=provider, model=model)
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 229, in run_effect_tier
+    ok, err = validate_faust(code)
+              ~~~~~~~~~~~~~~^^^^^^
+  File "/home/losera/PluginForge/bench/run_benchmark.py", line 241, in validate_faust
+    result = subprocess.run(
+        ["faust", "-lang", "cpp", tmp, "-o", "/dev/null"],
+        capture_output=True, text=True, timeout=30,
+        encoding="utf-8", errors="replace",
+    )
+  File "/usr/lib/python3.14/subprocess.py", line 557, in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 1221, in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 2154, in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 1268, in _check_timeout
+    raise TimeoutExpired(
+    ...<2 lines>...
+            stderr=b''.join(stderr_seq) if stderr_seq else None)
+subprocess.TimeoutExpired: Command '['faust', '-lang', 'cpp', '/tmp/tmppzfgnju4.dsp', '-o', '/dev/null']' timed out after 30 seconds
+[loop] no progress this iter (still 36) — sleeping 30s
+[loop 9] cells=36/125  00:57:46
+Resume: preserving 36 generated records; running 89 pending cells.
+Preflight passed — provider: ollama | compiler: faust
+Efficacy study: 89 generations (up to 3 attempts each).
+Traceback (most recent call last):
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 484, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 471, in main
+    records = run_study(tasks, retries=args.retries, out_file=out_file,
+                        dry_run=args.dry_run, provider=args.provider, model=args.model,
+                        initial_records=initial_records)
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 274, in run_study
+    record = run_effect_tier(cell_generator, effect, tier, prompt, retries,
+                             provider=provider, model=model)
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 229, in run_effect_tier
+    ok, err = validate_faust(code)
+              ~~~~~~~~~~~~~~^^^^^^
+  File "/home/losera/PluginForge/bench/run_benchmark.py", line 241, in validate_faust
+    result = subprocess.run(
+        ["faust", "-lang", "cpp", tmp, "-o", "/dev/null"],
+        capture_output=True, text=True, timeout=30,
+        encoding="utf-8", errors="replace",
+    )
+  File "/usr/lib/python3.14/subprocess.py", line 557, in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 1221, in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 2154, in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 1268, in _check_timeout
+    raise TimeoutExpired(
+    ...<2 lines>...
+            stderr=b''.join(stderr_seq) if stderr_seq else None)
+subprocess.TimeoutExpired: Command '['faust', '-lang', 'cpp', '/tmp/tmpou6_6bw5.dsp', '-o', '/dev/null']' timed out after 30 seconds
+[loop] no progress this iter (still 36) — sleeping 30s
+[loop 10] cells=36/125  00:58:58
+Resume: preserving 36 generated records; running 89 pending cells.
+Preflight passed — provider: ollama | compiler: faust
+Efficacy study: 89 generations (up to 3 attempts each).
+Traceback (most recent call last):
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 484, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 471, in main
+    records = run_study(tasks, retries=args.retries, out_file=out_file,
+                        dry_run=args.dry_run, provider=args.provider, model=args.model,
+                        initial_records=initial_records)
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 274, in run_study
+    record = run_effect_tier(cell_generator, effect, tier, prompt, retries,
+                             provider=provider, model=model)
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 229, in run_effect_tier
+    ok, err = validate_faust(code)
+              ~~~~~~~~~~~~~~^^^^^^
+  File "/home/losera/PluginForge/bench/run_benchmark.py", line 241, in validate_faust
+    result = subprocess.run(
+        ["faust", "-lang", "cpp", tmp, "-o", "/dev/null"],
+        capture_output=True, text=True, timeout=30,
+        encoding="utf-8", errors="replace",
+    )
+  File "/usr/lib/python3.14/subprocess.py", line 557, in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 1221, in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 2154, in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 1268, in _check_timeout
+    raise TimeoutExpired(
+    ...<2 lines>...
+            stderr=b''.join(stderr_seq) if stderr_seq else None)
+subprocess.TimeoutExpired: Command '['faust', '-lang', 'cpp', '/tmp/tmpddu9wzqi.dsp', '-o', '/dev/null']' timed out after 30 seconds
+[loop] no progress this iter (still 36) — sleeping 30s
+[loop 11] cells=36/125  01:00:10
+Resume: preserving 36 generated records; running 89 pending cells.
+Preflight passed — provider: ollama | compiler: faust
+Efficacy study: 89 generations (up to 3 attempts each).
+Traceback (most recent call last):
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 484, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 471, in main
+    records = run_study(tasks, retries=args.retries, out_file=out_file,
+                        dry_run=args.dry_run, provider=args.provider, model=args.model,
+                        initial_records=initial_records)
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 274, in run_study
+    record = run_effect_tier(cell_generator, effect, tier, prompt, retries,
+                             provider=provider, model=model)
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 229, in run_effect_tier
+    ok, err = validate_faust(code)
+              ~~~~~~~~~~~~~~^^^^^^
+  File "/home/losera/PluginForge/bench/run_benchmark.py", line 241, in validate_faust
+    result = subprocess.run(
+        ["faust", "-lang", "cpp", tmp, "-o", "/dev/null"],
+        capture_output=True, text=True, timeout=30,
+        encoding="utf-8", errors="replace",
+    )
+  File "/usr/lib/python3.14/subprocess.py", line 557, in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 1221, in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 2154, in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 1268, in _check_timeout
+    raise TimeoutExpired(
+    ...<2 lines>...
+            stderr=b''.join(stderr_seq) if stderr_seq else None)
+subprocess.TimeoutExpired: Command '['faust', '-lang', 'cpp', '/tmp/tmpr103b692.dsp', '-o', '/dev/null']' timed out after 30 seconds
+[loop] no progress this iter (still 36) — sleeping 30s
+[loop 12] cells=36/125  01:01:23
+Resume: preserving 36 generated records; running 89 pending cells.
+Preflight passed — provider: ollama | compiler: faust
+Efficacy study: 89 generations (up to 3 attempts each).
+Traceback (most recent call last):
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 484, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 471, in main
+    records = run_study(tasks, retries=args.retries, out_file=out_file,
+                        dry_run=args.dry_run, provider=args.provider, model=args.model,
+                        initial_records=initial_records)
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 274, in run_study
+    record = run_effect_tier(cell_generator, effect, tier, prompt, retries,
+                             provider=provider, model=model)
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 229, in run_effect_tier
+    ok, err = validate_faust(code)
+              ~~~~~~~~~~~~~~^^^^^^
+  File "/home/losera/PluginForge/bench/run_benchmark.py", line 241, in validate_faust
+    result = subprocess.run(
+        ["faust", "-lang", "cpp", tmp, "-o", "/dev/null"],
+        capture_output=True, text=True, timeout=30,
+        encoding="utf-8", errors="replace",
+    )
+  File "/usr/lib/python3.14/subprocess.py", line 557, in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 1221, in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 2154, in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 1268, in _check_timeout
+    raise TimeoutExpired(
+    ...<2 lines>...
+            stderr=b''.join(stderr_seq) if stderr_seq else None)
+subprocess.TimeoutExpired: Command '['faust', '-lang', 'cpp', '/tmp/tmp302q9xpw.dsp', '-o', '/dev/null']' timed out after 30 seconds
+[loop] no progress this iter (still 36) — sleeping 30s
+[loop 13] cells=36/125  01:02:35
+Resume: preserving 36 generated records; running 89 pending cells.
+Preflight passed — provider: ollama | compiler: faust
+Efficacy study: 89 generations (up to 3 attempts each).
+Traceback (most recent call last):
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 484, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 471, in main
+    records = run_study(tasks, retries=args.retries, out_file=out_file,
+                        dry_run=args.dry_run, provider=args.provider, model=args.model,
+                        initial_records=initial_records)
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 274, in run_study
+    record = run_effect_tier(cell_generator, effect, tier, prompt, retries,
+                             provider=provider, model=model)
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 229, in run_effect_tier
+    ok, err = validate_faust(code)
+              ~~~~~~~~~~~~~~^^^^^^
+  File "/home/losera/PluginForge/bench/run_benchmark.py", line 241, in validate_faust
+    result = subprocess.run(
+        ["faust", "-lang", "cpp", tmp, "-o", "/dev/null"],
+        capture_output=True, text=True, timeout=30,
+        encoding="utf-8", errors="replace",
+    )
+  File "/usr/lib/python3.14/subprocess.py", line 557, in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 1221, in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 2154, in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 1268, in _check_timeout
+    raise TimeoutExpired(
+    ...<2 lines>...
+            stderr=b''.join(stderr_seq) if stderr_seq else None)
+subprocess.TimeoutExpired: Command '['faust', '-lang', 'cpp', '/tmp/tmpftwvpfta.dsp', '-o', '/dev/null']' timed out after 30 seconds
+[loop] no progress this iter (still 36) — sleeping 30s
+[loop 14] cells=36/125  01:03:47
+Resume: preserving 36 generated records; running 89 pending cells.
+Preflight passed — provider: ollama | compiler: faust
+Efficacy study: 89 generations (up to 3 attempts each).
+Traceback (most recent call last):
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 484, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 471, in main
+    records = run_study(tasks, retries=args.retries, out_file=out_file,
+                        dry_run=args.dry_run, provider=args.provider, model=args.model,
+                        initial_records=initial_records)
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 274, in run_study
+    record = run_effect_tier(cell_generator, effect, tier, prompt, retries,
+                             provider=provider, model=model)
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 229, in run_effect_tier
+    ok, err = validate_faust(code)
+              ~~~~~~~~~~~~~~^^^^^^
+  File "/home/losera/PluginForge/bench/run_benchmark.py", line 241, in validate_faust
+    result = subprocess.run(
+        ["faust", "-lang", "cpp", tmp, "-o", "/dev/null"],
+        capture_output=True, text=True, timeout=30,
+        encoding="utf-8", errors="replace",
+    )
+  File "/usr/lib/python3.14/subprocess.py", line 557, in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 1221, in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 2154, in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 1268, in _check_timeout
+    raise TimeoutExpired(
+    ...<2 lines>...
+            stderr=b''.join(stderr_seq) if stderr_seq else None)
+subprocess.TimeoutExpired: Command '['faust', '-lang', 'cpp', '/tmp/tmplqf400d9.dsp', '-o', '/dev/null']' timed out after 30 seconds
+[loop] no progress this iter (still 36) — sleeping 30s
+[loop 15] cells=36/125  01:04:59
+Resume: preserving 36 generated records; running 89 pending cells.
+Preflight passed — provider: ollama | compiler: faust
+Efficacy study: 89 generations (up to 3 attempts each).
+Traceback (most recent call last):
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 484, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 471, in main
+    records = run_study(tasks, retries=args.retries, out_file=out_file,
+                        dry_run=args.dry_run, provider=args.provider, model=args.model,
+                        initial_records=initial_records)
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 274, in run_study
+    record = run_effect_tier(cell_generator, effect, tier, prompt, retries,
+                             provider=provider, model=model)
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 229, in run_effect_tier
+    ok, err = validate_faust(code)
+              ~~~~~~~~~~~~~~^^^^^^
+  File "/home/losera/PluginForge/bench/run_benchmark.py", line 241, in validate_faust
+    result = subprocess.run(
+        ["faust", "-lang", "cpp", tmp, "-o", "/dev/null"],
+        capture_output=True, text=True, timeout=30,
+        encoding="utf-8", errors="replace",
+    )
+  File "/usr/lib/python3.14/subprocess.py", line 557, in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 1221, in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 2154, in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 1268, in _check_timeout
+    raise TimeoutExpired(
+    ...<2 lines>...
+            stderr=b''.join(stderr_seq) if stderr_seq else None)
+subprocess.TimeoutExpired: Command '['faust', '-lang', 'cpp', '/tmp/tmpoaq8pot2.dsp', '-o', '/dev/null']' timed out after 30 seconds
+[loop] no progress this iter (still 36) — sleeping 30s
+[loop 16] cells=36/125  01:06:11
+Resume: preserving 36 generated records; running 89 pending cells.
+Preflight passed — provider: ollama | compiler: faust
+Efficacy study: 89 generations (up to 3 attempts each).
+Traceback (most recent call last):
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 484, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 471, in main
+    records = run_study(tasks, retries=args.retries, out_file=out_file,
+                        dry_run=args.dry_run, provider=args.provider, model=args.model,
+                        initial_records=initial_records)
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 274, in run_study
+    record = run_effect_tier(cell_generator, effect, tier, prompt, retries,
+                             provider=provider, model=model)
+  File "/home/losera/PluginForge/bench/run_efficacy_study.py", line 229, in run_effect_tier
+    ok, err = validate_faust(code)
+              ~~~~~~~~~~~~~~^^^^^^
+  File "/home/losera/PluginForge/bench/run_benchmark.py", line 241, in validate_faust
+    result = subprocess.run(
+        ["faust", "-lang", "cpp", tmp, "-o", "/dev/null"],
+        capture_output=True, text=True, timeout=30,
+        encoding="utf-8", errors="replace",
+    )
+  File "/usr/lib/python3.14/subprocess.py", line 557, in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 1221, in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 2154, in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 1268, in _check_timeout
+    raise TimeoutExpired(
+    ...<2 lines>...
+            stderr=b''.join(stderr_seq) if stderr_seq else None)
+subprocess.TimeoutExpired: Command '['faust', '-lang', 'cpp', '/tmp/tmp_rj9y9va.dsp', '-o', '/dev/null']' timed out after 30 seconds
+[loop] no progress this iter (still 36) — sleeping 30s
+[loop 17] cells=36/125  01:07:42
+Resume: preserving 36 generated records; running 89 pending cells.
+Preflight passed — provider: ollama | compiler: faust
+Efficacy study: 89 generations (up to 3 attempts each).
+[001/089] filters-03     L3 → ✓ PASS (retry, attempt 2)
+[002/089] filters-03     L2 → ✓ PASS
+[003/089] filters-03     L1 → ✓ PASS (retry, attempt 2)
+[004/089] filters-03     L0 → ✓ PASS
+[005/089] filters-04     L4 → ✓ PASS
+[006/089] filters-04     L3 → ✓ PASS
+[007/089] filters-04     L2 → ✓ PASS
+[008/089] filters-04     L1 → ✓ PASS
+[009/089] filters-04     L0 → ✓ PASS (retry, attempt 2)
+[010/089] filters-05     L4 → ✓ PASS
+[011/089] filters-05     L3 → ✓ PASS
+[012/089] filters-05     L2 → ✗ FAIL
+[013/089] filters-05     L1 → ✓ PASS (retry, attempt 2)
+[014/089] filters-05     L0 → ✓ PASS
+[015/089] time-based-01  L4 → ✓ PASS
+[016/089] time-based-01  L3 → ✓ PASS
+[017/089] time-based-01  L2 → ✓ PASS (retry, attempt 3)
+[018/089] time-based-01  L1 → ✓ PASS
+[019/089] time-based-01  L0 → ✓ PASS
+[020/089] time-based-02  L4 → ✓ PASS
+[021/089] time-based-02  L3 → ✓ PASS
+[022/089] time-based-02  L2 → ✗ FAIL
+[023/089] time-based-02  L1 → ✓ PASS
+[024/089] time-based-02  L0 → ✓ PASS
+[025/089] time-based-03  L4 → ✓ PASS
+[026/089] time-based-03  L3 → ✓ PASS
+[027/089] time-based-03  L2 → ✓ PASS
+[028/089] time-based-03  L1 → ✓ PASS
+[029/089] time-based-03  L0 → ✓ PASS
+[030/089] time-based-04  L4 → ✓ PASS
+[031/089] time-based-04  L3 → ✓ PASS
+[032/089] time-based-04  L2 → ✓ PASS
+[033/089] time-based-04  L1 → ✓ PASS
+[034/089] time-based-04  L0 → ✓ PASS
+[035/089] time-based-05  L4 → ✓ PASS (retry, attempt 2)
+[036/089] time-based-05  L3 → ✓ PASS (retry, attempt 2)
+[037/089] time-based-05  L2 → ✓ PASS (retry, attempt 2)
+[038/089] time-based-05  L1 → ✓ PASS
+[039/089] time-based-05  L0 → ✓ PASS (retry, attempt 2)
+[040/089] dynamics-01    L4 → ✓ PASS (retry, attempt 3)
+[041/089] dynamics-01    L3 → ✓ PASS
+[042/089] dynamics-01    L2 → ✓ PASS
+[043/089] dynamics-01    L1 → ✓ PASS (retry, attempt 2)
+[044/089] dynamics-01    L0 → ✓ PASS (retry, attempt 2)
+[045/089] dynamics-02    L4 → ✓ PASS
+[046/089] dynamics-02    L3 → ✓ PASS
+[047/089] dynamics-02    L2 → ✓ PASS
+[048/089] dynamics-02    L1 → ✓ PASS
+[049/089] dynamics-02    L0 → ✓ PASS
+[050/089] dynamics-03    L4 → ✓ PASS
+[051/089] dynamics-03    L3 → ✓ PASS
+[052/089] dynamics-03    L2 → ✗ FAIL
+[053/089] dynamics-03    L1 → ✗ FAIL
+[054/089] dynamics-03    L0 → ✓ PASS (retry, attempt 2)
+[055/089] dynamics-04    L4 → ✓ PASS
+[056/089] dynamics-04    L3 → ✓ PASS (retry, attempt 2)
+[057/089] dynamics-04    L2 → ✓ PASS
+[058/089] dynamics-04    L1 → ✓ PASS
+[059/089] dynamics-04    L0 → ✗ FAIL
+[060/089] dynamics-05    L4 → ✓ PASS
+[061/089] dynamics-05    L3 → ✗ FAIL
+[062/089] dynamics-05    L2 → ✓ PASS (retry, attempt 3)
+[063/089] dynamics-05    L1 → ✓ PASS
+[064/089] dynamics-05    L0 → ✓ PASS
+[065/089] generative-01  L4 → ✓ PASS
+[066/089] generative-01  L3 → ✓ PASS
+[067/089] generative-01  L2 → ✓ PASS
+[068/089] generative-01  L1 → ✓ PASS
+[069/089] generative-01  L0 → ✓ PASS
+[070/089] generative-02  L4 → ✓ PASS
+[071/089] generative-02  L3 → ✓ PASS (retry, attempt 2)
+[072/089] generative-02  L2 → ✓ PASS
+[073/089] generative-02  L1 → ✓ PASS
+[074/089] generative-02  L0 → ✓ PASS
+[075/089] generative-03  L4 → ✓ PASS
+[076/089] generative-03  L3 → ✓ PASS
+[077/089] generative-03  L2 → ✓ PASS (retry, attempt 2)
+[078/089] generative-03  L1 → ✓ PASS
+[079/089] generative-03  L0 → ✓ PASS (retry, attempt 2)
+[080/089] generative-04  L4 → ✓ PASS
+[081/089] generative-04  L3 → ✓ PASS
+[082/089] generative-04  L2 → ✓ PASS (retry, attempt 2)
+[083/089] generative-04  L1 → ✓ PASS
+[084/089] generative-04  L0 → ✓ PASS
+[085/089] generative-05  L4 → ✗ FAIL
+[086/089] generative-05  L3 → ✗ FAIL
+Transport checkpoint written; stopping so --resume can retry without burning the remaining grid.
+
+Per-tier summary (first-try / retry-corrected / n):
+  L4: 19 / 23 / 25
+  L3: 18 / 23 / 25
+  L2: 14 / 20 / 24
+  L1: 16 / 21 / 24
+  L0: 17 / 22 / 24
+
+Operational efficiency (instrumented cells only):
+  compiled / measured: 109 / 122
+  wall / provider / validation seconds: 4370.1 / 4329.6 / 40.5
+  compiled cells per provider-minute: 1.51
+
+Results saved to: bench/results/efficacy/efficacy_ollama_20260828.json
+[loop 18] cells=122/125  09:11:30
+Resume: preserving 122 generated records; running 3 pending cells.
+Preflight passed — provider: ollama | compiler: faust
+Efficacy study: 3 generations (up to 3 attempts each).
+[001/003] generative-05  L2 → ✓ PASS
+[002/003] generative-05  L1 → ✗ FAIL
+[003/003] generative-05  L0 → ✗ FAIL
+
+Per-tier summary (first-try / retry-corrected / n):
+  L4: 19 / 23 / 25
+  L3: 18 / 23 / 25
+  L2: 15 / 21 / 25
+  L1: 16 / 21 / 25
+  L0: 17 / 22 / 25
+
+Operational efficiency (instrumented cells only):
+  compiled / measured: 110 / 125
+  wall / provider / validation seconds: 4580.9 / 4540.0 / 40.8
+  compiled cells per provider-minute: 1.45
+
+Results saved to: bench/results/efficacy/efficacy_ollama_20260828.json
+[loop 19] cells=125/125  09:15:01
+[loop] COMPLETE at 125 cells
+[loop] final cells=125/125

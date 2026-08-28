@@ -12,9 +12,25 @@ behind HEAD.
 ## Works — and how we know
 
 > **This is a targeted update, not a full COLLABORATION.md §5 rewrite.** The 2026-08-27/28
-> session below landed on `main` (PR #30); the header date, the entry below, Next-three #1,
-> and Waiting-on-you #9 were brought current. The rest of this file still carries its
-> 2026-08-19 "this session" framing — read those entries as history, not as today.
+> entries below and the ADR/kg work landed on `main` (PRs #30, #31); the header date, those
+> entries, Next-three #1, Waiting-on-you #9, and the Assumed claim were brought current. The
+> rest of this file still carries its 2026-08-19 "this session" framing — history, not today.
+
+**2026-08-28: the complete 125-cell efficacy grid ran for the first time.** `ollama`
+`qwen2.5-coder:7b` (CPU), current prompt, PF-041/PF-042-fixed judge —
+`bench/results/efficacy/efficacy_ollama_20260828_judged.json`. **Compile rate is
+tier-independent (84–92% retry-corrected across L4→L0); semantic fidelity declines
+monotonically — judge mean 1.57/2 at L4 down to 0.36/2 at L0.** The pipeline degrades
+gracefully as prompts lose detail. This narrows PF-011 from "generalizes to nothing" to "the
+shipping-model gradient is still unknown" (see Assumed, below). Cost two harness bugs
+(**PF-069** hardcoded budget, **PF-070** a compiler-hang crashes the run) worked around with
+reverted-before-commit local patches; both filed for a real fix. Also measured:
+`routing_arity` is now PF-024's dominant failure class (22/44 error strings), Karplus-Strong
+is 0/5 usable, PF-032's warm-LP still renders silent 1/4 (L4), PF-045's non-decay reproduces
+at L0. And, for GRAME issue #26: `faust-rs 0.8.0` matched FAUST's accept/reject on **51/51**
+programs, located **15/15** of the real compile failures C++ located only 9/15 of, and put a
+stable `FRS-` code on all 15. Landed as a benchmark archive on a branch of its own, no
+prompt or product change.
 
 **2026-08-27/28: two architecture questions answered, an ID-resolution control added, and
 `main` gained a headless knowledge-graph viewer.** Merged as PR #30 (`3a7023a`), CI green.
@@ -569,13 +585,20 @@ after the write-up; nothing from this trial landed or was intended to.
 
 ## Assumed, never checked
 
-**One claim** — the refine-preamble claim moved into Works this session with a live 2/2
-measurement (see the first Works bullet above); the efficacy pilot remains.
+**One claim**, narrowed 2026-08-28 — the "efficacy pilot generalizes to nothing" claim was
+answered for one model; what remains unchecked is the *shipping* model.
 
-- **The efficacy pilot generalizes to nothing.** *(PF-011, advanced but still open.)* The
-  resumable full run has 62/125 generated cells and one retryable transport checkpoint. Groq's
-  200k-token daily limit is now measured and checkpointed rather than slept through; 63 cells
-  remain, after which the corrected PF-041/PF-042 judge must score the complete corpus.
+- **The efficacy tier gradient is unknown on the shipping model.** *(PF-011, was "the pilot
+  generalizes to nothing"; narrowed 2026-08-28.)* The complete 125-cell grid ran once, on
+  `ollama` `qwen2.5-coder:7b` (CPU), against the current prompt with the PF-041/PF-042-fixed
+  judge — `bench/results/efficacy/efficacy_ollama_20260828_judged.json`. **Result:** compile
+  rate is tier-independent (84–92% retry-corrected, L4→L0); semantic fidelity declines
+  monotonically and steeply — judge mean 1.57/2 at L4 (DSP-engineer prompts) down to 0.36/2
+  at L0 (artist references). The pipeline degrades gracefully; it does not cliff-drop or
+  improve as prompts get vaguer. **Still assumed:** whether that gradient holds on `groq`'s
+  `openai/gpt-oss-120b` (PF-012 — the 120B fails less than the 7B on material the prompt
+  covers). A groq 125-cell run is owed; blocked 2026-08-28 by groq's daily token limit. Also
+  n=1 per cell (PF-031's ≥3-run bar unmet), and the judge is a 7B grading a 7B.
 
 ## Next three things
 
