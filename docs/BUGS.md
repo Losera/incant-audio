@@ -104,6 +104,8 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-066 | `EditorSessionTest` scenario 20's octave-hit-test assertion is stale against the instrument-conditional keyboard band: `KeyboardPanel::resized()` never runs for a fresh/non-instrument editor, so the octave buttons it positions stay at default zero-size bounds | low | fixed | S3 Plugin UX | `host/Source/PluginEditor.cpp:648-654`, `host/tests/EditorSessionTest.cpp:1560-1561` | 2026-08-25 | this session |
 | PF-067 | `requirements.txt` pins `anthropic>=0.40.0` with no upper bound; `anthropic` 1.0.0 (released after the 2026-08-20 last-green CI run) ships `httpx2` instead of `httpx`, so every `import httpx` in `llm/providers.py` fails — breaks real generation, not just tests, anywhere a fresh `pip install -r requirements.txt` resolves 1.0.0 | critical | fixed | S1 Backend | `requirements.txt:1`, `llm/providers.py:56` | 2026-08-25 | this session |
 | PF-068 | Auto family selection silently stopped working from the second keystroke onward: `ComboBox::getSelectedId()` returns 0 once the displayed label desyncs from the stored item text, which `updateAutoFamilyLabel()`'s per-keystroke `changeItemText(1, ...)` call always caused — `selectedFamilyId()` then read "effect"/"synth" instead of "auto", skipping `resolveAuto()` entirely | high | fixed | S2 Prompting UX | `PromptPanel.cpp` `updateAutoFamilyLabel`; `/home/losera/JUCE/modules/juce_gui_basics/widgets/juce_ComboBox.cpp:250-256,133-139` | 2026-08-25 | this session |
+| PF-069 | `bench/run_efficacy_study.py`'s `GENERATION_BUDGET_S` is hardcoded at 140.0 with no env override (unlike `llm/generate.py`'s `PLUGINFORGE_GENERATION_BUDGET`). Per-attempt cap is `140/3 ≈ 47s`; a slow provider (7B-on-CPU ollama regularly takes 60–90s) times out every retry, the failure is classified `transport`, and the checkpoint-and-stop logic halts the whole run on the first one — the study cannot complete on any slow provider without a source edit | medium | open | S4 Testing | `bench/run_efficacy_study.py:76`, `:147-151` | 2026-08-28 | — |
+| PF-070 | `bench/run_benchmark.py::validate_faust` runs `faust -lang cpp` with `timeout=30` but never catches `subprocess.TimeoutExpired`. A generated program the C++ compiler does not terminate on within 30s (endless-evaluation-cycle shapes, deep recursion — a 7B model produces these) raises the exception uncaught out of `run_study`, **crashing the entire efficacy run**. A resume then re-hits the same cell and crashes again — an infinite loop. A compiler hang is a validation failure, not an exception | high | open | S4 Testing | `bench/run_benchmark.py:241-249` | 2026-08-28 | — |
 
 ---
 
@@ -261,10 +263,50 @@ few-shot examples compile — `tests/test_prompt_stdlib.py`, `check_prompt_invar
 verified *better*. Same closing condition as PF-009.
 
 ### PF-011 — The efficacy pilot generalizes to nothing.
-**medium · open · S4 Testing · STATUS "Assumed, never checked"**
+**medium · in-progress · S4 Testing · STATUS "Assumed, never checked"**
 N=50, one model, the old prompt, two of five categories. The full 125-prompt run (P9) has never
 produced valid data — the 2026-07-20 attempt was rejected pre-generation for insufficient
 Anthropic credit (0 tokens spent). Re-run on a free provider once billing/quota allows.
+
+**2026-08-28 — the complete 125-cell grid ran, once, on `ollama` (`qwen2.5-coder:7b`, CPU).**
+The current unified prompt on `main`; the judge is the PF-041/PF-042-fixed checklist rubric
+(`bench/score_efficacy.py`, `acceptance_specs.json`), run via ollama
+`qwen2.5-coder:7b-16k`. Archives:
+`bench/results/efficacy/efficacy_ollama_20260828{,_judged}.json` +
+`_chart.png`. It cost two harness bugs to get there (**PF-069**, **PF-070**), worked around
+with reverted-before-commit local patches.
+
+| tier | first-try compile | retry-corrected | LLM judge mean /2 | fully-correct (2/2) |
+|---|---|---|---|---|
+| L4 (DSP engineer)       | 76% | 92% | **1.57** | 65% |
+| L3 (informed producer)  | 75% | 92% | **1.35** | 52% |
+| L2 (casual)             | 60% | 84% | **0.90** | 38% |
+| L1 (vibe/metaphor)      | 64% | 84% | **0.57** | 19% |
+| L0 (artist reference)   | 68% | 88% | **0.36** |  9% |
+
+Overall: 85/125 (68%) first-try, 110/125 (88%) retry-corrected. Judge distribution
+0→45, 1→24, 2→41, errors→15 — the middle score is a real, functioning category now
+(22%, was 2.3% pre-PF-042). Worst *fidelity* categories despite compiling fine:
+**filters 0.57/2, dynamics 0.57/2** (where PF-032 lives); best: time-based 1.50/2.
+
+**What this establishes.** Compile rate is roughly **tier-independent** (84–92% retry-corrected
+across all five tiers, non-monotonic first-try). Semantic fidelity declines **monotonically and
+steeply** — 1.57/2 at L4 to 0.36/2 at L0, against ground truth that is independent of the
+generation prompt (PF-041 closed). The pipeline **degrades gracefully** as prompts lose
+prescriptive detail — it does not cliff-drop and does not improve. That is a concrete answer to
+"generalizes to nothing"; the claim is no longer that there is no signal, it is that the signal
+is characterised — for this model.
+
+**Still open, hence `in-progress` not `fixed`:**
+- **One run, one model, and not the shipping one.** `qwen2.5-coder:7b` is not `groq`'s
+  `openai/gpt-oss-120b` (PF-012: the 120B succeeds where the 7B fails on material the prompt
+  covers). A groq 125-cell run is owed — blocked 2026-08-28 by groq's daily token limit, which
+  a ~33-call probe sweep exhausted.
+- **The judge is a 7B grading a 7B.** Cheap and independent-of-the-generator, but blunt.
+- **No per-cell reproducibility.** PF-031's bar (reproduce both prompt and error class across
+  ≥3 runs) is not met — this is n=1 per cell.
+- `--compare` against the 2026-07-30 groq archive is **not valid** (different model *and*
+  different corpus: 25 informed-producer prompts vs 125 tiered).
 
 ### PF-012 — No cross-model comparison exists.
 **low · open · S4 Testing · STATUS "Assumed, never checked"**
@@ -621,6 +663,42 @@ which is a control behaving exactly as designed under pressure to tune it away.
 it is unproven on the model that ships and groq's `ef.gate_stereo(...,_,_)` is its exact
 target. If a groq run shows no benefit it must be **reverted** — 61 tokens of a 185-token
 budget is not payable by a rule that only might work.
+
+**2026-08-28 — the failure-class distribution, measured over the complete 125-cell grid**
+(`ollama` 7B, current prompt — see PF-011's sub-note). 15 cells failed every attempt; 44
+error strings across all failed attempts. Classified with `bench/classify_failures.py`:
+
+| class | count (of 44 error strings) |
+|---|---|
+| `routing_arity` (sequential/recursive composition width) | **22** |
+| `syntax:*` (IDENT / WIRE / REC / WITH / INT / EXTRA) | 13 |
+| `unbound_variable` | 3 |
+| `duplicate_symbol` | 3 |
+| `hallucinated_symbol` / `recursion_cycle` / `unclassified` | 1 each |
+
+**`routing_arity` is now the dominant class by a wide margin** — Faust's composition algebra
+(`:`, `~`, `<:`, `:>` widths), not symbol invention. The first-attempt error tags per tier
+(`score_efficacy.py`): SEMANTIC dominates L1/L2 (7 each), SYNTAX dominates L0 (4) — vague
+prompts miss *what* to build, reference prompts flail on *how*.
+
+**Karplus-Strong: 0 of 5 tiers produce usable audio.** 4 fail to compile
+(`recursive composition A~B`, `recursion_cycle`); the 1 that compiles (L2) renders **+79.6 dB
+runaway, DC offset 2.35, peak 4541** — a feedback loop with gain ≥ 1. This is the class
+PF-024 has recorded as "unchanged across all archives" since 2026-07-30, now confirmed on a
+full tiered grid.
+
+**faust-rs on these failures** (issue #26 / ADR-030 evidence): all 15 never-compiled cells
+re-checked with `faust-rs 0.8.0 --check --error-format json` against the *same final program*
+C++ rejected. **Accept/reject agreement 15/15.** C++ carried a source location on 9/15;
+faust-rs on **15/15**, plus a stable `FRS-*` code on **15/15** (C++: 0). The 6 `routing_arity`
+failures — C++'s worst case, no location + a Box-expression dump — map 1:1 to `FRS-PROP-0002`
+with a caret and the arities as numbers. Combined with a 36-program hand-built corpus:
+**51/51 accept-reject agreement, zero disagreements.** Tooling:
+`scratchpad/frs_annotate.py` (measurement-only; faust-rs is not a project dependency).
+
+**Caveat, unchanged:** all of this is the 7B on CPU. groq's 120B is barely sampled (a
+2026-08-28 probe sweep got 4 PF-024 syntax classes clean on groq — no reproduction — and the
+`duplicate_symbol` residual once in 3, before the daily token limit stopped it).
 
 ---
 
@@ -1252,6 +1330,69 @@ exercises the real async `onTextChange`/`pumpUntil` path end-to-end and would no
 no matter how long it waited, before this fix — added specifically as the regression test for
 this bug. Full suite: 343 checks, 0 failures. Also reproduced and confirmed fixed against the
 standalone X11 repro above.
+
+---
+
+### PF-069 — `run_efficacy_study.py`'s generation budget is hardcoded, and too small for a slow provider. *(open, found 2026-08-28)*
+**medium · open · S4 Testing · found running the first complete 125-cell efficacy grid on ollama**
+
+`bench/run_efficacy_study.py:76` sets `GENERATION_BUDGET_S = 140.0` as a module constant with
+**no environment override** — unlike `llm/generate.py`, which reads
+`PLUGINFORGE_GENERATION_BUDGET` (`llm/generate.py:145-149`). `make_generation_budget()`
+(`:147-151`) derives the per-attempt cap as `140/3 ≈ 47s`.
+
+A 7B coder model running CPU-only through ollama (this machine — nvidia driver mismatch, no
+GPU) regularly takes 60–90s for one generation against the ~3.6k-token system prompt. Every
+such attempt exceeds the ~47s cap, is raised as `providers.BudgetExhausted`, and
+`_classified_error_context` / the study's own terminal-reason logic files it as
+`transport` (a network failure). The study's checkpoint-and-stop-on-transport behaviour —
+sound for a real daily-quota `Retry-After` — then halts the whole run on the first one.
+
+**Impact.** The first attempt at the complete 125-cell grid stopped dead at cell 34.
+`--resume` re-hits the slow cell and stops again. The grid cannot be completed on any
+provider slower than ~47s/generation without editing the source. Worked around for the
+2026-08-28 run with a local, reverted-before-commit bump to 420.0; the durable fix is an
+env override (`PLUGINFORGE_EFFICACY_BUDGET` or reuse `PLUGINFORGE_GENERATION_BUDGET`), or
+distinguishing "our own per-attempt cap fired" from "the provider is throttling us" so the
+former does not trigger the transport checkpoint.
+
+**Not covered.** Whether the fast providers (groq/gemini) ever hit this — they generate in
+1–15s, far under the cap, so the bug is invisible there. It only bites CPU-local inference.
+
+---
+
+### PF-070 — a C++ compiler hang crashes the entire efficacy run (uncaught `TimeoutExpired`). *(open, found 2026-08-28)*
+**high · open · S4 Testing · found the same run, one cell after PF-069 was worked around**
+
+`bench/run_benchmark.py::validate_faust` (`:241-249`, shared by both benchmark harnesses)
+runs `faust -lang cpp … -o /dev/null` with `timeout=30` and **does not catch**
+`subprocess.TimeoutExpired`:
+
+```python
+result = subprocess.run(
+    ["faust", "-lang", "cpp", tmp, "-o", "/dev/null"],
+    capture_output=True, text=True, timeout=30, ...)
+return result.returncode == 0, result.stderr.strip()[:500]
+# no `except subprocess.TimeoutExpired:` -- it propagates
+```
+
+A 7B model can emit valid-looking Faust the **C++ compiler itself does not terminate on**
+within 30s — endless-evaluation-cycle shapes, deeply nested recursion. When that happens the
+`TimeoutExpired` unwinds out of `run_effect_tier` → `run_study` → `main` and **crashes the
+whole efficacy run** with a traceback (`bench/results/efficacy/run_ollama_20260828.log`
+records two such crashes). `--resume` then re-generates the same cell, the compiler hangs
+again, and the run crashes again — an infinite loop the PF-069 resume-wrapper cannot escape.
+
+**A program the compiler cannot finish in 30s is a failed compile**, full stop — it should
+be recorded as `compile_failed` with a timeout reason, exactly as `validate_faust`'s sibling
+in `llm/generate.py` must already handle for the live retry loop to be safe. Worked around
+2026-08-28 with a local `except subprocess.TimeoutExpired: return False, "…timed out…"`,
+reverted before commit.
+
+**Not covered.** Whether `llm/generate.py`'s own `validate_faust` has the same hole — the
+retry loop has a wall-clock budget that would bound it, but a bare uncaught `TimeoutExpired`
+there would still surface as an untyped `RuntimeError` rather than a clean `invalid_faust`.
+Worth checking as part of the real fix.
 
 ---
 
@@ -2064,6 +2205,22 @@ dB for a function that documents a dB parameter. A prompt edit owes a benchmark 
 two patches; the claim that *unit contracts* are a general failure class is a hypothesis this
 supports and does not establish. The efficacy grid (PF-011) is what would size it.
 
+**2026-08-28 — re-measured on the complete 125-cell grid** (`ollama` 7B, current prompt —
+PF-011's sub-note). The prompt already carries the fix text (`system_prompt.txt:19-22`,
+`:23-25`). Render-oracle over the two PF-032 shapes across all 5 tiers each:
+
+- **`filters-01` (warm analog low-pass, the `moog_vcf`/Hz-normalisation shape):** 4/5 tiers
+  compile; **1/4 renders identically silent (rms 0.0e+00), at L4.** The bug still reproduces
+  on the 7B, on the *most* detailed prompt tier. L3/L2/L0 render fine.
+- **`dynamics-03` (noise gate, the double-`ba.db2linear` shape):** 3/5 compile; **0/3 render
+  silent** this run (rms 0.01–0.10). The gate half was **not reproduced** — but n=1 per tier
+  and the 7B may simply not have written the double-conversion this time.
+
+So: the Hz half of PF-032 still bites (1 clear silent render); the dB half is unreproduced
+on this single grid. Neither is closed. `filters`/`dynamics` were also the two worst
+*fidelity* categories overall (judge 0.57/2 each — PF-011 sub-note), which is consistent
+with "compiles, sounds wrong" being their signature.
+
 ---
 
 ### PF-045 — `en.*` envelope times are in seconds, and the model converts to samples.
@@ -2103,6 +2260,28 @@ strong version of the claim — that unit contracts are *the* dominant semantic 
 is what PF-011's efficacy grid would size, and it remains unsized. No prompt edit was made:
 that owes a benchmark statement per `.claude/rules/tier2-evidence.md`, and the last two
 prompt rules aimed at this model measurably did nothing (`c50855b`, `a451350`).
+
+**2026-08-28 — re-measured on the 125-cell grid** (`ollama` 7B, current prompt). The fix
+text is present in `instrument_prompt.txt:68-69` ("All envelope times are in SECONDS … Do
+NOT multiply by ma.SR"). Render-oracle over `generative-02` ("a sawtooth synth with an ADSR
+envelope") across all 5 tiers:
+
+- **L4 / L3 / L2:** compile, but **oracle-blind** — zero-input synths raise
+  `UnsupportedPatch` (exactly the gap this entry's "Not covered" already names, and the
+  `phase3-pf045` plan's WP1 works around with a static source scan).
+- **L1:** compiles and renders fine.
+- **L0:** compiles, and the burst probe reports **"output never decays — loop gain at or
+  above unity 1.75s after the input stopped"** (`never_decays` gate). A non-decaying
+  envelope — the PF-045 shape, or the `en.ar`/`en.adsr`-misuse shape (`instrument_prompt.txt:63-65`).
+  Not distinguished here; needs the generated source read.
+
+So the failure **reproduces once** (L0) among the 2 oracle-visible cells, and the oracle is
+blind to 3 of 5. The dedicated static-scan probe run the `phase3-pf045` plan specifies is
+still owed — the groq probes for it all hit the daily token limit unrun.
+
+Also, separately: `generative-02/L4-L3` failed a first attempt with `undefined symbol : freq`
+(the model referenced `freq` without declaring it) — a `hallucinated_symbol` / missing-decl
+error in the instrument voice contract, adjacent to but distinct from the unit bug.
 
 ---
 
