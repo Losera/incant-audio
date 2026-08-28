@@ -106,6 +106,7 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-068 | Auto family selection silently stopped working from the second keystroke onward: `ComboBox::getSelectedId()` returns 0 once the displayed label desyncs from the stored item text, which `updateAutoFamilyLabel()`'s per-keystroke `changeItemText(1, ...)` call always caused — `selectedFamilyId()` then read "effect"/"synth" instead of "auto", skipping `resolveAuto()` entirely | high | fixed | S2 Prompting UX | `PromptPanel.cpp` `updateAutoFamilyLabel`; `/home/losera/JUCE/modules/juce_gui_basics/widgets/juce_ComboBox.cpp:250-256,133-139` | 2026-08-25 | this session |
 | PF-069 | `bench/run_efficacy_study.py`'s `GENERATION_BUDGET_S` is hardcoded at 140.0 with no env override (unlike `llm/generate.py`'s `PLUGINFORGE_GENERATION_BUDGET`). Per-attempt cap is `140/3 ≈ 47s`; a slow provider (7B-on-CPU ollama regularly takes 60–90s) times out every retry, the failure is classified `transport`, and the checkpoint-and-stop logic halts the whole run on the first one — the study cannot complete on any slow provider without a source edit | medium | open | S4 Testing | `bench/run_efficacy_study.py:76`, `:147-151` | 2026-08-28 | — |
 | PF-070 | `bench/run_benchmark.py::validate_faust` runs `faust -lang cpp` with `timeout=30` but never catches `subprocess.TimeoutExpired`. A generated program the C++ compiler does not terminate on within 30s (endless-evaluation-cycle shapes, deep recursion — a 7B model produces these) raises the exception uncaught out of `run_study`, **crashing the entire efficacy run**. A resume then re-hits the same cell and crashes again — an infinite loop. A compiler hang is a validation failure, not an exception | high | open | S4 Testing | `bench/run_benchmark.py:241-249` | 2026-08-28 | — |
+| PF-071 | The XDG-installed Python runtime (`~/.local/share/pluginforge/llm/`, the PF-065 fix's step-3 resolution target) is a **stale, unconfigured trap**: it is a 2026-08-15 copy where `providers.py` still has `DEFAULT_PROVIDER = "anthropic"` (predates the groq default) and there is no `.env` beside it. When a DAW launched from a desktop launcher loads the plugin (no `PLUGINFORGE_LLM_SCRIPT`, `~/.vst3` bundle so the upward walk misses the repo), resolution lands here → unset provider resolves to the **paid** provider → `PaidProviderError` surfaces as an "anthropic provider error". PF-065's "partial fix" traded an honest "generate.py not found" for a silent-wrong 6-week-old runtime | high | open | S1 Backend | `host/Source/PromptPanel.cpp:110-144` (`resolveGenerateScript` step 3), `~/.local/share/pluginforge/llm/providers.py:58` | 2026-08-28 | — |
 
 ---
 
@@ -1393,6 +1394,60 @@ reverted before commit.
 retry loop has a wall-clock budget that would bound it, but a bare uncaught `TimeoutExpired`
 there would still surface as an untyped `RuntimeError` rather than a clean `invalid_faust`.
 Worth checking as part of the real fix.
+
+---
+
+### PF-071 — the XDG-installed runtime is a stale, unconfigured trap. *(open, found 2026-08-28)*
+**high · open · S1 Backend · reproduced in REAPER and Carla while starting session 017 WP6**
+
+`resolveGenerateScript()` (`host/Source/PromptPanel.cpp:110-144`) resolves `generate.py` in
+three steps: (1) `$PLUGINFORGE_LLM_SCRIPT`, (2) a ≤10-level upward walk from the loaded
+`.so` looking for a sibling `llm/generate.py`, (3) `$XDG_DATA_HOME/pluginforge/llm/generate.py`
+else `~/.local/share/pluginforge/llm/generate.py`. Step 3 is PF-065's "option C" fix.
+
+**On this machine step 3 resolves to a trap.** `~/.local/share/pluginforge/llm/` is a copy
+from **2026-08-15** (`ls` shows every file `Aug 15 19:43`). In it:
+
+- `providers.py:58` &mdash; `DEFAULT_PROVIDER = "anthropic"`. The repo flipped this to
+  `"groq"` afterward; the installed copy never caught up.
+- `generate.py:33` &mdash; `load_dotenv(Path(__file__).parent.parent / ".env")` resolves to
+  `~/.local/share/pluginforge/.env`, **which does not exist** (only `.env.example` is
+  installed).
+
+So when a DAW is launched from a desktop launcher (no `PLUGINFORGE_LLM_SCRIPT` in its
+environment) and the plugin is the `~/.vst3` bundle (`COPY_PLUGIN_AFTER_BUILD`, no repo
+above it): steps 1&nbsp;&amp;&nbsp;2 miss, step 3 hits the stale copy, no `.env` loads,
+`PLUGINFORGE_PROVIDER` is unset, `resolve_provider()` returns `anthropic`,
+`assert_free("anthropic")` raises `PaidProviderError`, and the UI shows an **"anthropic
+provider error."** Reproduced 2026-08-28 in **both REAPER and Carla**, identically.
+
+**PF-065's partial fix made the failure worse, not better.** Before step 3 existed, this
+case produced an honest empty-path *"generate.py not found."* Now it silently runs a
+six-week-old runtime that defaults to the paid provider &mdash; a silent-wrong outcome in
+place of a loud-missing one, which is the failure ordering this project's own conventions
+put last.
+
+**Same root shape hits Soundfetch.** `SoundfetchClient.cpp` finds its interpreter via
+`SOUNDFETCH_BIN` / `PLUGINFORGE_SOUNDFETCH_PYTHON` / `PLUGINFORGE_PYTHON` / `python3 -m
+soundfetch` &mdash; none set in a launcher-started DAW &mdash; so "Soundfetch cannot fetch
+anything" is the same "plugin is a guest in an environment with none of its config"
+problem, layered on top of PF-056 (the Freesound key is 403'd).
+
+**Immediate mitigation** (`docs/sessions/017-phase2-interactive-host.md` &sect;0.0): `rm -rf ~/.local/share/pluginforge`
+to delete the trap, and launch the host from a shell that sourced `.env` and exported
+`PLUGINFORGE_LLM_SCRIPT` + `PLUGINFORGE_SOUNDFETCH_PYTHON`.
+
+**Durable fix** &mdash; the plugin must carry its own configuration rather than inherit it
+from the host process. Designed in `docs/research/plugin-evolution-ui-provider-architecture-2026-08-13.md`
+&sect;4 / &sect;10.2; scoped as a narrow v1 in the ADR drafted alongside this filing
+(provider/model request fields + an in-plugin picker + a plugin-read config file; keys stay
+in `.env` for v1). The install-layout half &mdash; `install.sh` writing a fresh runtime +
+`.env` and the plugin preferring a version-matched install over a stale one &mdash; is
+PF-065's residual and belongs with its real fix.
+
+**Not covered.** Whether a real `install.sh` run (as opposed to this hand-copied 2026-08-15
+tree) produces a correctly-configured runtime today &mdash; `install.sh` has never been run
+end-to-end on this machine (PF-065's own "What this does NOT fix" note).
 
 ---
 
