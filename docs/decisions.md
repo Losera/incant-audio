@@ -1573,3 +1573,118 @@ ADR-031"). WP3a (`tests/test_control_wiring.py::TestIdReferencesResolve`) and WP
 (`tools/kg.py`, `tools/id_graph.py`) landed the same session; the `COLLABORATION.md §8`
 edit in part 4 lands with this acceptance. Acceptance is the direction — a `tools/kg.py
 --check` CI gate and corpus-wide frontmatter remain out of scope (the reopen trigger).
+
+---
+
+## ADR-032 — In-plugin provider/model selection and a plugin-read config file (narrow v1)
+
+| | |
+|---|---|
+| **Status** | Proposed |
+| **Date** | 2026-08-28 |
+
+**Context**
+
+The plugin owns none of its configuration. Which LLM provider and model to use, where
+`llm/generate.py` lives, which interpreter runs Soundfetch, and every API key — all of it
+is read from the environment the DAW process happened to inherit. `PromptPanel.cpp` and
+`PluginProcessor.*` contain **zero** `"provider"` / `"model"` request-JSON fields
+(`docs/research/plugin-evolution-ui-provider-architecture-2026-08-13.md` §10.2, checked
+directly); the user cannot pick a provider or model from the plugin at all.
+
+A DAW started from a desktop launcher inherits none of the `PLUGINFORGE_*` variables and no
+`.env`. This is not hypothetical:
+
+- **PF-071** — resolution falls through to a stale 2026-08-15 XDG-installed runtime that
+  defaults to the *paid* provider and has no `.env`, so a launcher-started REAPER/Carla
+  shows an "anthropic provider error" (reproduced 2026-08-28 in both).
+- **PF-065** — the installed VST3 can't find `generate.py` at all without an exported
+  `PLUGINFORGE_LLM_SCRIPT`.
+- **Soundfetch** — "cannot fetch anything" because the interpreter env vars aren't set
+  (on top of PF-056's 403 key).
+
+The full design (research doc §4: `ProviderProfile` schema, native OpenAI, custom
+OpenAI-compatible endpoints, model-discovery UI, connection testing, and an
+OS-credential-vault bridge) is large, and §4.4 explicitly declines to choose the
+credential-bridge mechanism — "The bridge is an ADR-level implementation decision." That
+open question should not block fixing the observed failures.
+
+**Alternatives considered**
+
+1. **The full §4 v1** (OpenAI native + custom endpoints + `ProviderProfile` + OS-vault
+   bridge). Rejected *for v1*: it is scheduled as Phase 3, gated behind the module-project
+   and UI work (Phases 1–2), and step 3 of it is the unsettled §4.4 credential bridge. Too
+   much surface, and none of it is what PF-065/PF-071 need.
+2. **Do nothing — keep env-only config.** Rejected: PF-065 and PF-071 prove it is broken in
+   a real host, and "export three variables before launching your DAW" is not a product.
+3. **LangChain / LiteLLM to abstract providers.** Rejected — ADR-030, and research §4.1:
+   the registry already covers five providers; a framework hides the token/limit/finish-
+   reason differences this project needs to see.
+4. **Auto-failover between providers when one errors.** Rejected (research §4.3): it can
+   disclose a private prompt and generated source to a second vendor and incur unexpected
+   cost. A provider error stays a provider error.
+
+**Decision — the narrow v1 from research doc §10.2, and only that**
+
+1. **Add `provider` and `model` to the request-JSON contract.** `generate_json()` already
+   accepts both (`llm/generate.py:507`); this is a C++-side and `INTERFACE.md` change — the
+   `--request-file` schema gains two optional string fields. This is the cross-component
+   contract change ADR-032 exists to gate (COLLABORATION.md §2 trigger 3).
+2. **An in-plugin picker for the five already-integrated providers** — Gemini, Groq,
+   OpenRouter, Ollama, gated Anthropic. No new adapter code: `_make_anthropic`,
+   `_make_gemini`, `_make_openai_compat` (`llm/providers.py`) already cover all five. The
+   model field is a free-text entry plus whatever curated list is cheap to ship; no
+   discovery API call in v1.
+3. **A plugin-read config file**, `$XDG_CONFIG_HOME/pluginforge/config.json` (else
+   `~/.config/pluginforge/config.json`), versioned, holding: `active_provider`,
+   `active_model`, `generate_script_path`, `soundfetch_interpreter_path`. The plugin reads
+   it at construction and (a) passes provider/model as request-JSON fields, (b) adds it as
+   a resolution source in `resolveGenerateScript()` **before** the XDG step, (c) passes the
+   interpreter path to `SoundfetchClient`. The **JUCE UI writes this file**; it is not
+   `.env` and carries no secret — §4.4's prohibition is on writing `.env` and on storing
+   *credentials* outside a real vault, not on a non-secret preferences file.
+4. **Credentials stay exactly where they are** — `.env` / environment, read by the Python
+   side. v1 does not add an in-plugin key field and does not touch credential storage.
+5. **Active provider/model is an application preference** (§4.3): applied to the next
+   request only, captured as an immutable snapshot per generation, never patch or DAW-session
+   state. One config file shared across DAW instances.
+
+**Explicitly deferred to v2** (a later ADR, likely with `/architecture-planning` for the
+credential bridge): in-plugin API-key entry; the OS-credential-vault bridge (§4.4's open
+question); native OpenAI (Responses API) and generic custom OpenAI-compatible endpoints;
+the `ProviderProfile` persistence schema; connection-test and model-discovery UI; the
+Soundfetch "Sound Sources" settings area (§5.2). v2 is where "type your key into the
+plugin" lands.
+
+**Consequences**
+
+- `INTERFACE.md` gains two optional request fields — a wire-contract edit, done when the
+  code lands, Tier 2.
+- A new `config.json` format: small, versioned, non-secret, `~/.config/pluginforge/`.
+  Migration is trivial — absent file → today's env-only behaviour unchanged.
+- `PromptPanel` gains a provider/model control and a config read; `resolveGenerateScript()`
+  gains a config-file source ahead of the XDG step (which also blunts PF-071 — a config
+  path beats a stale install).
+- **Rollback:** delete `config.json`; the plugin falls back to environment resolution
+  exactly as today. No persisted state format changes, no schema version bump on patches.
+- **Does not fix** PF-065's install-layout half (a real `install.sh` writing a fresh,
+  version-matched runtime + `.env`, and the plugin preferring it over a stale one). That
+  stays with PF-065.
+
+**Adversarial critique**
+
+- *"A fourth resolution source for `generate.py` is more complexity on the exact path PF-065
+  already made fragile."* True — but a user-controlled config file is the one source a user
+  can actually fix when it's wrong, unlike an upward directory walk or a silent XDG
+  fallback. And it lets the plugin surface *which* path it used.
+- *"Writing a config file from the JUCE UI is the thin end of writing `.env` from the UI,
+  which §4.4 forbids."* The line §4.4 draws is secrets, not preferences — a provider name
+  and a file path are not credentials. The moment v1 is tempted to add a key field, that is
+  the v2 ADR, not a config.json field.
+- *"Shipping a free-text model field with no validation invites `gpt-5-turbo-9000`
+  typos."* Accepted for v1 — a bad model id fails fast with a provider error, which is
+  recoverable; the curated list covers the common case. Discovery is v2.
+
+**Status: Proposed.** Drafting an ADR is ungated (COLLABORATION.md §2); acceptance is the
+human's. On Accept, this authorises the v1 scope above and the `INTERFACE.md` contract
+change; it does not authorise any v2 item.
