@@ -1,4 +1,4 @@
-# PluginForge — Status  (2026-08-19)
+# PluginForge — Status  (2026-08-28)
 
 Rewritten each session per COLLABORATION.md §5. Single writer, no merge conflicts.
 Narrative history lives in git.
@@ -10,6 +10,42 @@ behind HEAD.
 ---
 
 ## Works — and how we know
+
+> **This is a targeted update, not a full COLLABORATION.md §5 rewrite.** The 2026-08-27/28
+> session below landed on `main` (PR #30); the header date, the entry below, Next-three #1,
+> and Waiting-on-you #9 were brought current. The rest of this file still carries its
+> 2026-08-19 "this session" framing — read those entries as history, not as today.
+
+**2026-08-27/28: two architecture questions answered, an ID-resolution control added, and
+`main` gained a headless knowledge-graph viewer.** Merged as PR #30 (`3a7023a`), CI green.
+
+- **ADR-030 (Accepted)** — do *not* adopt LangGraph to orchestrate generation.
+  `generate_json()` is one linear function with a single bounded retry loop and route-once
+  semantics (`llm/generate.py:568,279-292,195-196`); every LangGraph headline feature maps
+  onto something the project has refused or lacks. Reopen only if the offline pipeline
+  grows ≥2 real conditional nodes.
+- **ADR-031 (Accepted)** — the repo is already an ID-addressed, test-enforced knowledge
+  graph; do *not* add an Obsidian vault as infrastructure. Instead: `ADR-NNN`/`PF-NNN`
+  reference-resolution checks in `tests/test_control_wiring.py`
+  (`TestIdReferencesResolve` / `TestIdResolutionHasTeeth`), shipped with red cases; a
+  dependency-free graph emitter `tools/kg.py` (Mermaid/DOT/JSON, `--focus`, flags dangling
+  refs + orphans, **not** a CI gate); and `COLLABORATION.md §8` gains the Obsidian-as-
+  personal-lens constraints. The new check found and this change fixed two live dangling
+  refs: a never-written ADR cited from `COLLABORATION.md` + `change-report/SKILL.md`'s
+  worked example (reworded so it names no phantom decision), and **PF-061**
+  (`STATUS.md` "unfiled tracking", no registry row → filed in `docs/BUGS.md`; the fix
+  itself landed in `dcf0af5`).
+- **A code-review round** (`/code-review` on PR #30) then fixed a session-ref overclaim in
+  the ADR-031 §8 text and `id_graph.py` docstring, added `_HISTORICAL_MENTION_RE` (the
+  ID-level counterpart of the sibling path checks' `_EXEMPT_RE`), and narrowed
+  `kg.py --focus` to scope dangling/orphan styling. Landed as `3f5e094` before merge.
+- **`requirements.txt`** — `httpx>=0.27.0,<1.0.0` added explicitly. It was imported
+  unconditionally at `llm/providers.py:56` but only declared in `bench/requirements.txt`;
+  PF-067's fix (`anthropic<1.0.0`) already restored `httpx` transitively, this makes the
+  manifest say what the code assumes.
+- **`docs/sessions/017-phase2-interactive-host.md`** — the copy-paste operator run-script +
+  results table for the first interactive Carla session (both plugin targets). Writing
+  only; running it is human-required (see Next-three #1).
 
 **2026-08-19: a documentation purge and a shadowed `/orient` fixed — and a real production
 defect found while tracing it.** Three-agent audit (reference-graph, REAPER-bug root cause,
@@ -548,9 +584,11 @@ measurement (see the first Works bullet above); the efficacy pilot remains.
    scan SUCCESS, both plugins, after PF-062's real audio-thread bug was found and fixed) and
    the four MIDI-fidelity gaps are triaged. What's left is the one thing neither scanner does
    — an actual interactive session: load the plugin in Carla's Rack/Patchbay GUI, play a note,
-   confirm it sounds right and doesn't glitch. Blocked on a JACK server (`pipewire-jack` is not
-   installed, no jackd running) — installing one is a dependency decision for you, not made
-   this session.
+   confirm it sounds right and doesn't glitch. **Now unblocked** (2026-08-27/28): `pipewire-jack`
+   is installed and serving JACK (`jack_lsp` enumerates real ports), `vmpk` + `carla` +
+   `pluginval` all present, and `docs/sessions/017-phase2-interactive-host.md` is the
+   copy-paste operator run-script for it (Phases 0–4, both plugin targets). This is a
+   human-driven listening session — the assistant watches the `tee` log and files findings.
 2. *(evidence)* **~~Mechanism B pilot~~ — DONE 2026-08-16.** `docs/sessions/016-mechanism-b-pilot.md`:
    the five-diff/one-canary trial session 005 §2 specified. The canary was caught — file:line
    citation, contract clause quoted verbatim, reproducible trigger — so the pilot does not hit
@@ -646,9 +684,15 @@ clock).
 8. **New 2026-08-13: a replacement Freesound API key.** Broken #12 / PF-056 — the
    configured key is sent and rejected (HTTP 403). Code can't fix a revoked/expired
    credential; get a new one from freesound.org when convenient.
-9. **New 2026-08-16: install a JACK server (or `pipewire-jack`) to finish Next-three #1.**
-   Carla is installed and its headless scanner already validates both plugins, but
-   `carla-single`/the full Carla GUI need JACK to actually run and load a plugin
-   interactively — this machine has neither `pipewire-jack` nor a running jackd. Your call
-   on which (`pipewire-jack` is likely the lower-friction path since PipeWire is already the
-   running audio server) — a new system dependency, not installed this session.
+9. **RESOLVED (installed by a prior session, re-verified 2026-08-27/28).** `pipewire-jack`
+   `1:1.6.8` is installed and serving JACK (`jack_lsp` enumerates real ports, `pw-top` lists
+   clients); `jack2` and `cmajor` were removed. `vmpk 0.9.2` and `jack-example-tools 4` are
+   present, so the Phase 2 run-script's Phase 0 needs no `pacman` install — it verifies
+   rather than installs. Next-three #1 is now a scheduling question, not a dependency one.
+10. **New 2026-08-27/28: three Phase 3 backlog plans are drafted, session-local, awaiting a
+    fresh session.** `~/.claude/plans/phase3-pf032-silent-noise-gate.md`,
+    `phase3-pf045-envelope-time-units.md`, `phase3-pf024-invalid-generation-families.md` —
+    work-package format, from `bench/PLUGIN_PRODUCT_DEVELOPMENT_ARCHITECTURE.md §Phase 3`
+    items 1–3. Each leads with a re-measurement WP: the prompt *already contains* the fix
+    text for all three (`system_prompt.txt:19-25`, `instrument_prompt.txt:68-69`,
+    `system_prompt.txt:31-70`), and the open question is whether the shipping model obeys it.
