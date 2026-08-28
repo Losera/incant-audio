@@ -159,7 +159,7 @@ WHY        Slot values (0-1) were pushed into Faust zones with real-world ranges
 VERIFIED   MapUI.h:150 — setParamValue does *zone = value, no clamp, no mapping.
            234 tests pass. Swept cutoff in the standalone build; filter now tracks.
 RISK       Linear map only. Frequency and gain are conventionally log-scaled, so
-           10 kHz sits at knob-centre. Log scaling is a slot-range decision -> ADR-013.
+           10 kHz sits at knob-centre. Log scaling is a slot-range decision, still unmade.
 YOUR MOVE  Listen to one filter patch, or defer until log scaling is decided.
 ```
 
@@ -383,6 +383,30 @@ that is neither should be deleted rather than maintained.
 
 CLAUDE.md's per-file status narrative migrated to `STATUS.md` on 2026-07-25 for exactly
 this reason, and the narrative itself was deleted rather than kept in a stale state.
+
+### Obsidian is a personal lens, never authoritative
+
+*Added 2026-08-27 — ADR-031.* The repo is already an ID-addressed, test-enforced
+knowledge graph. `tests/test_control_wiring.py` dead-reference-checks backtick repo-paths
+and — since ADR-031 — every `ADR-NNN` cited in a live doc and every `PF-NNN` cited
+anywhere. (Session numbers are collected and shown by `tools/kg.py` but not asserted:
+`docs/sessions/` is append-only and early docs were deliberately purged, so those
+references legitimately dangle.) The whole graph is viewable with `tools/kg.py`. An
+Obsidian vault over `docs/` is permitted **only** as a per-person reading aid, under four
+constraints:
+
+- **Nothing authoritative lives only in the vault.** Every fact stays in its `docs/` /
+  `STATUS.md` / ADR home; the vault adds navigation, not content.
+- **No tool, hook, test, or skill may depend on Obsidian being present.** It is invisible
+  to the headless tooling and CI by design.
+- **The backtick-path and bare-ID citation syntax is unchanged.** Converting references
+  to `[[wikilinks]]` would silently disable the dead-reference checks — the "declared
+  control that never ran" failure this project has hit repeatedly.
+- **`.obsidian/` and any generated `docs/_graph.md` are gitignored** — working state, not
+  repo content.
+
+Revisiting this (a `tools/kg.py --check` CI gate, corpus-wide YAML frontmatter) is a new
+ADR, not an Obsidian-plugin decision — see ADR-031's reopen trigger.
 
 ---
 

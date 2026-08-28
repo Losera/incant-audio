@@ -208,6 +208,10 @@ llm/providers.py              five providers, three adapters, free-only rule
 llm/prompts/system_prompt.txt the one prompt (stdlib block is generated)
 bench/render_oracle.py        renders compiled Faust offline and measures it
 tools/check.sh                the gate ladder — start here
+tools/kg.py                   view the repo's ID graph (PF-/ADR-/session refs);
+                              `python tools/kg.py > docs/_graph.md` opens in Obsidian
+                              (ADR-031, viewing tool — not a gate; checks live in
+                              tests/test_control_wiring.py)
 examples/*.dsp                reference Faust patches
 ```
 

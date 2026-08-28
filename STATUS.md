@@ -354,8 +354,8 @@ and fixed, none of them the OS→JUCE hop above:
   declaring `hslider("Freq", ...)` passed generation and was silently rejected by the
   host. New `voice_contract.py` reads the same canonical JSON the C++ header is
   generated from.
-- **PF-061 (unfiled tracking; the fix itself was always sound), fixed and now COMMITTED
-  (2026-08-15 integration session, `dcf0af5`).** `keyStateChanged` now suppresses
+- **PF-061 (now filed in `docs/BUGS.md`, 2026-08-27; the fix itself was always sound),
+  fixed and COMMITTED (2026-08-15 integration session, `dcf0af5`).** `keyStateChanged` now suppresses
   forwarding while any `juce::TextEditor` holds focus (JUCE's `TextEditor::
   keyStateChanged` swallows key-DOWN but not key-UP while focused, and
   `MidiKeyboardComponent::keyStateChanged` ignores its own parameter and re-polls
