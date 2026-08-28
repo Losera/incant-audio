@@ -22,9 +22,17 @@ reference is.
 Dependency-free by design: stdlib `re` / `pathlib` / `subprocess` only. No
 `networkx`, no graphviz binding — `tools/kg.py` emits DOT as text.
 
-NOT COVERED: `D`-series (design decisions) and `P`-series (phases) have no
-registry file, so they are collected as reference targets but never validated.
-Session references are validated against the files actually in `docs/sessions/`.
+NOT COVERED: only `ADR-NNN` and `PF-NNN` references are ASSERTED to resolve (by
+`tests/test_control_wiring.py`). Session numbers, `D`-series (design decisions)
+and `P`-series (phases) are collected as reference targets and shown by
+`tools/kg.py`, but nothing fails on an unresolved one: `docs/sessions/` is
+append-only and several early session docs were deliberately deleted in the
+2026-08-19 purge, so those references legitimately dangle. `valid_session_ids()`
+exists for the viewer's dangling/orphan summary, not for a gate.
+
+A line that names an ID only to say it is NOT real ("ADR-035 was never written",
+"the deleted PF-071") is skipped during the scan — see `_HISTORICAL_MENTION_RE`,
+the ID-level counterpart of the `_EXEMPT_RE` the sibling backtick-path checks use.
 """
 from __future__ import annotations
 
@@ -55,6 +63,21 @@ _PF_ROW_RE = re.compile(r"^\|\s*PF-(\d{3,})\s*\|", re.M)
 
 # Directories never walked for markdown (build output, sibling worktrees, vcs).
 _SKIP_DIR_PARTS = {"build", "worktrees", ".git", "node_modules", "JUCE"}
+
+# A line that names an ID only to record that it does NOT resolve -- "ADR-035 was
+# never written", "the deleted PF-071", "(hypothetical PF-999)" -- is not a live
+# citation and must not fail resolution. This is the ID-level counterpart of
+# tests/test_control_wiring.py::_EXEMPT_RE (which does the same job for backtick
+# paths); the two word lists are kept deliberately similar. Applied per line in
+# scan()/scan_text(), so one exempted mention on a line does not suppress a real
+# citation on the next.
+_HISTORICAL_MENTION_RE = re.compile(
+    r"\b(?:never (?:written|filed|created|assigned|existed)|"
+    r"was never|were never|not (?:yet )?(?:written|filed|created)|"
+    r"un(?:written|filed)|non-?existent|does not exist|did not exist|"
+    r"deleted|retired|superseded|removed|hypothetical|placeholder)\b",
+    re.I,
+)
 
 # Untracked (not-yet-committed) markdown is scanned only under these top-level
 # trees -- the ones this project manages as documentation. A new session doc,
@@ -164,6 +187,24 @@ def valid_session_ids() -> set[str]:
     return ids
 
 
+def scan_text(text: str) -> DocRefs:
+    """Reference scan of a single in-memory string, line by line. A line matching
+    `_HISTORICAL_MENTION_RE` is skipped whole -- one "ADR-035 was never written"
+    does not suppress a real `ADR-020` citation on the next line."""
+    refs = DocRefs()
+    for line in text.splitlines():
+        if _HISTORICAL_MENTION_RE.search(line):
+            continue
+        refs.adr |= {f"ADR-{n}" for n in ADR_REF_RE.findall(line)}
+        refs.pf |= {f"PF-{n}" for n in PF_REF_RE.findall(line)}
+        refs.session |= set(SESSION_REF_RE.findall(line))
+        refs.paths |= {
+            r for r in PATH_REF_RE.findall(line)
+            if not any(ch in r for ch in "*{")
+        }
+    return refs
+
+
 def scan(files: list[Path] | None = None) -> dict[str, DocRefs]:
     """Map every document's relative path to the IDs and paths it references."""
     if files is None:
@@ -172,32 +213,8 @@ def scan(files: list[Path] | None = None) -> dict[str, DocRefs]:
     for f in files:
         if not f.exists():
             continue
-        text = f.read_text()
-        rel = f.relative_to(ROOT).as_posix()
-        refs = DocRefs(
-            adr={f"ADR-{n}" for n in ADR_REF_RE.findall(text)},
-            pf={f"PF-{n}" for n in PF_REF_RE.findall(text)},
-            session=set(SESSION_REF_RE.findall(text)),
-            paths={
-                r for r in PATH_REF_RE.findall(text)
-                if not any(ch in r for ch in "*{")
-            },
-        )
-        result[rel] = refs
+        result[f.relative_to(ROOT).as_posix()] = scan_text(f.read_text())
     return result
-
-
-def scan_text(text: str) -> DocRefs:
-    """Reference scan of a single in-memory string (used by the red-case test)."""
-    return DocRefs(
-        adr={f"ADR-{n}" for n in ADR_REF_RE.findall(text)},
-        pf={f"PF-{n}" for n in PF_REF_RE.findall(text)},
-        session=set(SESSION_REF_RE.findall(text)),
-        paths={
-            r for r in PATH_REF_RE.findall(text)
-            if not any(ch in r for ch in "*{")
-        },
-    )
 
 
 if __name__ == "__main__":  # pragma: no cover - quick manual sanity check

@@ -137,7 +137,9 @@ def build_graph() -> dict:
 
 
 def _focus(graph: dict, node: str) -> dict:
-    """Restrict the graph to `node` and its immediate neighbours."""
+    """Restrict every field of the graph to `node` and its immediate neighbours,
+    so `--focus X` produces the same scope in every emitter -- dangling/orphan
+    styling included, not just the edge list."""
     keep = {node}
     for src, dst, _ in graph["edges"]:
         if src == node:
@@ -150,6 +152,18 @@ def _focus(graph: dict, node: str) -> dict:
     g["adr"] = [a for a in graph["adr"] if a in keep]
     g["pf"] = [p for p in graph["pf"] if p in keep]
     g["sessions"] = [s for s in graph["sessions"] if f"session-{s}" in keep]
+    g["dangling"] = {
+        "adr": [a for a in graph["dangling"]["adr"] if a in keep],
+        "pf": [p for p in graph["dangling"]["pf"] if p in keep],
+        "session": [s for s in graph["dangling"]["session"]
+                    if f"session-{s}" in keep],
+    }
+    g["orphans"] = [d for d in graph["orphans"] if d in keep]
+    g["pointintime_unlinked"] = [d for d in graph["pointintime_unlinked"] if d in keep]
+    g["valid"] = {
+        "adr": [a for a in graph["valid"]["adr"] if a in keep],
+        "pf": [p for p in graph["valid"]["pf"] if p in keep],
+    }
     return g
 
 
@@ -211,17 +225,21 @@ def emit_mermaid(graph: dict) -> str:
 
 def emit_dot(graph: dict) -> str:
     lines = ["digraph knowledge {", "  rankdir=LR;", '  node [shape=box];']
+    present: set[str] = set()
+    for src, dst, kind in graph["edges"]:
+        style = {"cites": "solid", "defined-in": "bold", "links": "dashed"}[kind]
+        lines.append(f'  "{src}" -> "{dst}" [style={style}];')
+        present.update((src, dst))
     dangling_nodes = set(
         graph["dangling"]["adr"] + graph["dangling"]["pf"]
         + [f"session-{s}" for s in graph["dangling"]["session"]]
     )
-    orphan_set = set(graph["orphans"])
-    for src, dst, kind in graph["edges"]:
-        style = {"cites": "solid", "defined-in": "bold", "links": "dashed"}[kind]
-        lines.append(f'  "{src}" -> "{dst}" [style={style}];')
-    for n in dangling_nodes:
+    # Only style nodes that actually appear in this graph's edges -- under
+    # --focus a global dangling ADR is not part of the neighbourhood and must
+    # not be drawn as a floating node (mirrors emit_mermaid's `in seen` guard).
+    for n in sorted(dangling_nodes & present):
         lines.append(f'  "{n}" [color=red, penwidth=2];')
-    for n in orphan_set:
+    for n in sorted(set(graph["orphans"]) & present):
         lines.append(f'  "{n}" [fillcolor="#ffee88", style=filled];')
     lines.append("}")
     return "\n".join(lines)
@@ -246,8 +264,8 @@ def main(argv: list[str] | None = None) -> int:
     d = graph["dangling"]
     summary = (
         f"dangling ADR refs : {d['adr'] or 'none'}"
-        + ("  (none are cited from a LIVE doc — they sit in the dated 2026-07-21 "
-           "review and in ADR-031's own prose; the test scopes to live docs)"
+        + ("  (not cited from any LIVE doc — these sit in the dated 2026-07-21 "
+           "architecture review; the ADR resolution test scopes to live docs)"
            if d['adr'] else "") + "\n"
         f"dangling PF refs  : {d['pf'] or 'none'}\n"
         f"dangling sessions : {d['session'] or 'none'}"

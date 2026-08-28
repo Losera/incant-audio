@@ -387,10 +387,13 @@ this reason, and the narrative itself was deleted rather than kept in a stale st
 ### Obsidian is a personal lens, never authoritative
 
 *Added 2026-08-27 — ADR-031.* The repo is already an ID-addressed, test-enforced
-knowledge graph: `PF-NNN`, `ADR-NNN`, and session-number cross-references, dead-checked
-by `tests/test_control_wiring.py` (paths *and*, since ADR-031, IDs), and viewable with
-`tools/kg.py`. An Obsidian vault over `docs/` is permitted **only** as a per-person
-reading aid, under four constraints:
+knowledge graph. `tests/test_control_wiring.py` dead-reference-checks backtick repo-paths
+and — since ADR-031 — every `ADR-NNN` cited in a live doc and every `PF-NNN` cited
+anywhere. (Session numbers are collected and shown by `tools/kg.py` but not asserted:
+`docs/sessions/` is append-only and early docs were deliberately purged, so those
+references legitimately dangle.) The whole graph is viewable with `tools/kg.py`. An
+Obsidian vault over `docs/` is permitted **only** as a per-person reading aid, under four
+constraints:
 
 - **Nothing authoritative lives only in the vault.** Every fact stays in its `docs/` /
   `STATUS.md` / ADR home; the vault adds navigation, not content.

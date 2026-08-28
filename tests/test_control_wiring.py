@@ -471,6 +471,17 @@ class TestIdResolutionHasTeeth:
         assert "PF-99999" in refs.pf and "PF-99999" not in id_graph.valid_pf_ids()
         assert "999" in refs.session and "999" not in id_graph.valid_session_ids()
 
+    def test_historical_mention_is_exempt_but_only_on_its_own_line(self):
+        """The escape hatch (_HISTORICAL_MENTION_RE) must let a live doc say
+        'ADR-035 was never written' without reddening the gate -- and must NOT
+        swallow a real citation sitting on the next line."""
+        refs = id_graph.scan_text(
+            "ADR-035 was never written, so we inline the rationale here.\n"
+            "The actual contract is ADR-011's stdout JSON schema.\n"
+        )
+        assert "ADR-035" not in refs.adr, "historical-mention line was not exempted"
+        assert "ADR-011" in refs.adr, "exemption leaked onto the following line"
+
     def test_a_real_reference_is_not_flagged(self):
         assert "ADR-011" in id_graph.valid_adr_ids()
         assert "PF-001" in id_graph.valid_pf_ids()
@@ -479,12 +490,13 @@ class TestIdResolutionHasTeeth:
         assert not (refs.pf - id_graph.valid_pf_ids())
 
     def test_adr_sources_names_the_real_definition_site(self):
-        # valid_adr_ids() is derived from adr_sources(), so they cannot disagree.
-        assert set(id_graph.adr_sources()) == id_graph.valid_adr_ids()
         # ADR-011 has both a decisions.md heading and a standalone file; the
-        # graph's defined-in edges must point at the file, not only at
-        # docs/decisions.md.
+        # graph's defined-in edges must point at the file too, not only at
+        # docs/decisions.md. (No `set(adr_sources()) == valid_adr_ids()` check
+        # here -- valid_adr_ids() literally returns set(adr_sources()), so it
+        # could never fail.)
         srcs = id_graph.adr_sources()["ADR-011"]
+        assert srcs[0] == "docs/decisions.md", "decisions.md heading comes first"
         assert "docs/architectural_decisions/ADR-011-ipc-argv-subprocess.md" in srcs
 
 
