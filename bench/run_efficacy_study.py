@@ -38,6 +38,7 @@ stdout stays clean.
 """
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -73,7 +74,13 @@ DEFAULT_OUT_DIR = BENCH_DIR / "results" / "efficacy"
 # requests used to pass budget=None, so a provider's daily-quota Retry-After
 # could suspend the whole study for hours and prevent the incremental writer
 # from reaching a recoverable checkpoint.
-GENERATION_BUDGET_S = 140.0
+#
+# PF-069: was a hardcoded 140.0 with no override, so a slow local provider
+# (CPU-only ollama, 60-90s/generation) exceeded the ~47s per-attempt cap on
+# every attempt and halted the whole grid. Reuses PLUGINFORGE_GENERATION_BUDGET
+# (llm/generate.py's own var, same semantic quantity) rather than a second
+# name, so the harness cannot drift from the product path it mirrors.
+_DEFAULT_GENERATION_BUDGET_S = 140.0
 FAUST_VALIDATE_TIMEOUT_S = 15.0
 
 # Replicates llm/generate.py's generate_faust() error_context pattern exactly
@@ -144,11 +151,18 @@ def build_user_message(prompt: str, error_context: str = "") -> str:
     return content
 
 
+def generation_budget_s() -> float:
+    try:
+        return float(os.environ.get("PLUGINFORGE_GENERATION_BUDGET",
+                                    _DEFAULT_GENERATION_BUDGET_S))
+    except ValueError:
+        return _DEFAULT_GENERATION_BUDGET_S
+
+
 def make_generation_budget() -> providers.Budget:
-    per_attempt = max(10.0, (GENERATION_BUDGET_S / 3.0)
-                      - FAUST_VALIDATE_TIMEOUT_S / 3.0)
-    return providers.Budget(total=GENERATION_BUDGET_S,
-                            per_attempt_cap=per_attempt)
+    total = generation_budget_s()
+    per_attempt = max(10.0, (total / 3.0) - FAUST_VALIDATE_TIMEOUT_S / 3.0)
+    return providers.Budget(total=total, per_attempt_cap=per_attempt)
 
 
 def make_generator(provider: str = "claude", model: str | None = None,
