@@ -1580,7 +1580,7 @@ edit in part 4 lands with this acceptance. Acceptance is the direction — a `to
 
 | | |
 |---|---|
-| **Status** | Proposed |
+| **Status** | Accepted 2026-08-29 |
 | **Date** | 2026-08-28 |
 
 **Context**
@@ -1685,6 +1685,13 @@ plugin" lands.
   typos."* Accepted for v1 — a bad model id fails fast with a provider error, which is
   recoverable; the curated list covers the common case. Discovery is v2.
 
-**Status: Proposed.** Drafting an ADR is ungated (COLLABORATION.md §2); acceptance is the
-human's. On Accept, this authorises the v1 scope above and the `INTERFACE.md` contract
-change; it does not authorise any v2 item.
+**Status: Accepted 2026-08-29.** Drafting an ADR is ungated (COLLABORATION.md §2);
+acceptance is the human's, given 2026-08-29 after an `/architecture-planning` walk. This
+authorises the v1 scope above and the `INTERFACE.md` contract change; it does **not**
+authorise any v2 item. Verified while walking the decision: `generate_json()` already
+reads `request.get("provider", …)` / `request.get("model")` (`llm/generate.py:507-510`)
+and the three provider adapters at `llm/providers.py:743-745` already cover all five
+providers — so the v1 "no Python change, C++/`INTERFACE.md` only" claim holds. Implementation
+is separate, unstarted, and Tier 2 (`INTERFACE.md` wire contract + `PromptPanel` C++).
+PF-065's install-layout half is out of scope and stays open with PF-065; PF-071's
+stale-runtime mechanism is what decision item 3's config-file-before-XDG ordering addresses.
