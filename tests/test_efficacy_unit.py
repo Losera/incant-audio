@@ -8,6 +8,7 @@ bench/ on sys.path to import the two modules under test.
 """
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -220,6 +221,28 @@ class TestRunEffectTier:
         assert record["estimated_output_tokens"] == 0
         assert record["token_estimate_method"] == "groq_char_calibration_v1"
 
+    def test_budget_exhausted_records_timeout_terminal_reason(self):
+        generator = MagicMock(side_effect=efs.providers.BudgetExhausted(
+            "generation budget exhausted"))
+
+        record = efs.run_effect_tier(
+            generator, self.EFFECT, self.TIER, self.PROMPT, retries=2)
+
+        assert record["terminal_reason"] == "timeout"
+        generator.assert_called_once()
+
+    def test_compiler_hang_is_recorded_not_raised(self):
+        """PF-070: a faust hang must not crash the cell — it is compile_failed,
+        same as llm/generate.py's own validate_faust already handles."""
+        generator = MagicMock(return_value=VALID_FAUST)
+        with patch.object(efs.run_benchmark.subprocess, "run",
+                          side_effect=subprocess.TimeoutExpired("faust", 30)):
+            record = efs.run_effect_tier(
+                generator, self.EFFECT, self.TIER, self.PROMPT, retries=0)
+
+        assert record["terminal_reason"] == "compile_failed"
+        assert any("did not finish" in e for e in record["errors"])
+
 
 # ---------------------------------------------------------------------------
 # Record schema completeness
@@ -243,6 +266,20 @@ class TestRecordSchema:
         assert record["effect_id"] == "filters-01"
         assert record["category"] == "filters"
         assert record["tier"] == "L4"
+
+
+# ---------------------------------------------------------------------------
+# Generation budget env override (PF-069)
+# ---------------------------------------------------------------------------
+
+class TestGenerationBudgetEnvOverride:
+    def test_env_override_changes_the_total(self, monkeypatch):
+        monkeypatch.setenv("PLUGINFORGE_GENERATION_BUDGET", "300")
+        assert efs.make_generation_budget().total == 300.0
+
+    def test_malformed_budget_env_falls_back_to_the_default(self, monkeypatch):
+        monkeypatch.setenv("PLUGINFORGE_GENERATION_BUDGET", "not-a-number")
+        assert efs.generation_budget_s() == efs._DEFAULT_GENERATION_BUDGET_S
 
 
 # ---------------------------------------------------------------------------
@@ -332,7 +369,7 @@ class TestIncrementalWrite:
         assert len(records) == 2
         assert len(budgets) == 2
         assert budgets[0] is not budgets[1]
-        assert all(b.total == efs.GENERATION_BUDGET_S for b in budgets)
+        assert all(b.total == efs.generation_budget_s() for b in budgets)
 
     def test_24_hour_retry_after_checkpoints_without_sleeping_or_next_cell(self, tmp_path):
         out_file = tmp_path / "results.json"

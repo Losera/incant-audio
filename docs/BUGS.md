@@ -104,8 +104,8 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-066 | `EditorSessionTest` scenario 20's octave-hit-test assertion is stale against the instrument-conditional keyboard band: `KeyboardPanel::resized()` never runs for a fresh/non-instrument editor, so the octave buttons it positions stay at default zero-size bounds | low | fixed | S3 Plugin UX | `host/Source/PluginEditor.cpp:648-654`, `host/tests/EditorSessionTest.cpp:1560-1561` | 2026-08-25 | this session |
 | PF-067 | `requirements.txt` pins `anthropic>=0.40.0` with no upper bound; `anthropic` 1.0.0 (released after the 2026-08-20 last-green CI run) ships `httpx2` instead of `httpx`, so every `import httpx` in `llm/providers.py` fails — breaks real generation, not just tests, anywhere a fresh `pip install -r requirements.txt` resolves 1.0.0 | critical | fixed | S1 Backend | `requirements.txt:1`, `llm/providers.py:56` | 2026-08-25 | this session |
 | PF-068 | Auto family selection silently stopped working from the second keystroke onward: `ComboBox::getSelectedId()` returns 0 once the displayed label desyncs from the stored item text, which `updateAutoFamilyLabel()`'s per-keystroke `changeItemText(1, ...)` call always caused — `selectedFamilyId()` then read "effect"/"synth" instead of "auto", skipping `resolveAuto()` entirely | high | fixed | S2 Prompting UX | `PromptPanel.cpp` `updateAutoFamilyLabel`; `/home/losera/JUCE/modules/juce_gui_basics/widgets/juce_ComboBox.cpp:250-256,133-139` | 2026-08-25 | this session |
-| PF-069 | `bench/run_efficacy_study.py`'s `GENERATION_BUDGET_S` is hardcoded at 140.0 with no env override (unlike `llm/generate.py`'s `PLUGINFORGE_GENERATION_BUDGET`). Per-attempt cap is `140/3 ≈ 47s`; a slow provider (7B-on-CPU ollama regularly takes 60–90s) times out every retry, the failure is classified `transport`, and the checkpoint-and-stop logic halts the whole run on the first one — the study cannot complete on any slow provider without a source edit | medium | open | S4 Testing | `bench/run_efficacy_study.py:76`, `:147-151` | 2026-08-28 | — |
-| PF-070 | `bench/run_benchmark.py::validate_faust` runs `faust -lang cpp` with `timeout=30` but never catches `subprocess.TimeoutExpired`. A generated program the C++ compiler does not terminate on within 30s (endless-evaluation-cycle shapes, deep recursion — a 7B model produces these) raises the exception uncaught out of `run_study`, **crashing the entire efficacy run**. A resume then re-hits the same cell and crashes again — an infinite loop. A compiler hang is a validation failure, not an exception | high | open | S4 Testing | `bench/run_benchmark.py:241-249` | 2026-08-28 | — |
+| PF-069 | `bench/run_efficacy_study.py`'s `GENERATION_BUDGET_S` is hardcoded at 140.0 with no env override (unlike `llm/generate.py`'s `PLUGINFORGE_GENERATION_BUDGET`). Per-attempt cap is `140/3 ≈ 47s`; a slow provider (7B-on-CPU ollama regularly takes 60–90s) times out every retry, the failure is classified `transport`, and the checkpoint-and-stop logic halts the whole run on the first one — the study cannot complete on any slow provider without a source edit | medium | fixed | S4 Testing | `bench/run_efficacy_study.py:76`, `:147-151` | 2026-08-29 | this session |
+| PF-070 | `bench/run_benchmark.py::validate_faust` runs `faust -lang cpp` with `timeout=30` but never catches `subprocess.TimeoutExpired`. A generated program the C++ compiler does not terminate on within 30s (endless-evaluation-cycle shapes, deep recursion — a 7B model produces these) raises the exception uncaught out of `run_study`, **crashing the entire efficacy run**. A resume then re-hits the same cell and crashes again — an infinite loop. A compiler hang is a validation failure, not an exception | high | fixed | S4 Testing | `bench/run_benchmark.py:241-249` | 2026-08-29 | this session |
 | PF-071 | The XDG-installed Python runtime (`~/.local/share/pluginforge/llm/`, the PF-065 fix's step-3 resolution target) is a **stale, unconfigured trap**: it is a 2026-08-15 copy where `providers.py` still has `DEFAULT_PROVIDER = "anthropic"` (predates the groq default) and there is no `.env` beside it. When a DAW launched from a desktop launcher loads the plugin (no `PLUGINFORGE_LLM_SCRIPT`, `~/.vst3` bundle so the upward walk misses the repo), resolution lands here → unset provider resolves to the **paid** provider → `PaidProviderError` surfaces as an "anthropic provider error". PF-065's "partial fix" traded an honest "generate.py not found" for a silent-wrong 6-week-old runtime | high | open | S1 Backend | `host/Source/PromptPanel.cpp:110-144` (`resolveGenerateScript` step 3), `~/.local/share/pluginforge/llm/providers.py:58` | 2026-08-28 | — |
 
 ---
@@ -1334,69 +1334,6 @@ standalone X11 repro above.
 
 ---
 
-### PF-069 — `run_efficacy_study.py`'s generation budget is hardcoded, and too small for a slow provider. *(open, found 2026-08-28)*
-**medium · open · S4 Testing · found running the first complete 125-cell efficacy grid on ollama**
-
-`bench/run_efficacy_study.py:76` sets `GENERATION_BUDGET_S = 140.0` as a module constant with
-**no environment override** — unlike `llm/generate.py`, which reads
-`PLUGINFORGE_GENERATION_BUDGET` (`llm/generate.py:145-149`). `make_generation_budget()`
-(`:147-151`) derives the per-attempt cap as `140/3 ≈ 47s`.
-
-A 7B coder model running CPU-only through ollama (this machine — nvidia driver mismatch, no
-GPU) regularly takes 60–90s for one generation against the ~3.6k-token system prompt. Every
-such attempt exceeds the ~47s cap, is raised as `providers.BudgetExhausted`, and
-`_classified_error_context` / the study's own terminal-reason logic files it as
-`transport` (a network failure). The study's checkpoint-and-stop-on-transport behaviour —
-sound for a real daily-quota `Retry-After` — then halts the whole run on the first one.
-
-**Impact.** The first attempt at the complete 125-cell grid stopped dead at cell 34.
-`--resume` re-hits the slow cell and stops again. The grid cannot be completed on any
-provider slower than ~47s/generation without editing the source. Worked around for the
-2026-08-28 run with a local, reverted-before-commit bump to 420.0; the durable fix is an
-env override (`PLUGINFORGE_EFFICACY_BUDGET` or reuse `PLUGINFORGE_GENERATION_BUDGET`), or
-distinguishing "our own per-attempt cap fired" from "the provider is throttling us" so the
-former does not trigger the transport checkpoint.
-
-**Not covered.** Whether the fast providers (groq/gemini) ever hit this — they generate in
-1–15s, far under the cap, so the bug is invisible there. It only bites CPU-local inference.
-
----
-
-### PF-070 — a C++ compiler hang crashes the entire efficacy run (uncaught `TimeoutExpired`). *(open, found 2026-08-28)*
-**high · open · S4 Testing · found the same run, one cell after PF-069 was worked around**
-
-`bench/run_benchmark.py::validate_faust` (`:241-249`, shared by both benchmark harnesses)
-runs `faust -lang cpp … -o /dev/null` with `timeout=30` and **does not catch**
-`subprocess.TimeoutExpired`:
-
-```python
-result = subprocess.run(
-    ["faust", "-lang", "cpp", tmp, "-o", "/dev/null"],
-    capture_output=True, text=True, timeout=30, ...)
-return result.returncode == 0, result.stderr.strip()[:500]
-# no `except subprocess.TimeoutExpired:` -- it propagates
-```
-
-A 7B model can emit valid-looking Faust the **C++ compiler itself does not terminate on**
-within 30s — endless-evaluation-cycle shapes, deeply nested recursion. When that happens the
-`TimeoutExpired` unwinds out of `run_effect_tier` → `run_study` → `main` and **crashes the
-whole efficacy run** with a traceback (`bench/results/efficacy/run_ollama_20260828.log`
-records two such crashes). `--resume` then re-generates the same cell, the compiler hangs
-again, and the run crashes again — an infinite loop the PF-069 resume-wrapper cannot escape.
-
-**A program the compiler cannot finish in 30s is a failed compile**, full stop — it should
-be recorded as `compile_failed` with a timeout reason, exactly as `validate_faust`'s sibling
-in `llm/generate.py` must already handle for the live retry loop to be safe. Worked around
-2026-08-28 with a local `except subprocess.TimeoutExpired: return False, "…timed out…"`,
-reverted before commit.
-
-**Not covered.** Whether `llm/generate.py`'s own `validate_faust` has the same hole — the
-retry loop has a wall-clock budget that would bound it, but a bare uncaught `TimeoutExpired`
-there would still surface as an untyped `RuntimeError` rather than a clean `invalid_faust`.
-Worth checking as part of the real fix.
-
----
-
 ### PF-071 — the XDG-installed runtime is a stale, unconfigured trap. *(open, found 2026-08-28)*
 **high · open · S1 Backend · reproduced in REAPER and Carla while starting session 017 WP6**
 
@@ -1452,6 +1389,52 @@ end-to-end on this machine (PF-065's own "What this does NOT fix" note).
 ---
 
 ## Closed — archive
+
+### PF-070 — a C++ compiler hang crashes the entire efficacy run (uncaught `TimeoutExpired`). *(fixed `73b538a`, 2026-08-29)*
+**high · fixed · S4 Testing · found running the first complete 125-cell efficacy grid on ollama, one cell after PF-069 was worked around**
+
+`bench/run_benchmark.py::validate_faust` (shared by both benchmark harnesses) ran
+`faust -lang cpp … -o /dev/null` with `timeout=30` and did not catch
+`subprocess.TimeoutExpired`, so a compiler hang (endless-evaluation-cycle shapes, deep
+recursion — a 7B model produces these) crashed the whole efficacy run with a traceback, and
+because the in-progress cell's record was never written, `--resume` deterministically
+re-generated and re-hung on the same cell at temperature=0 — an infinite loop only a code
+fix could break. Fixed by adding `except subprocess.TimeoutExpired: return False, "…did not
+finish…"`, mirroring `llm/generate.py::validate_faust`'s already-correct handling exactly —
+**confirmed while fixing this: `llm/generate.py`'s own validator does NOT share this hole**
+(its "Not covered" question above is answered: no). `run_effect_tier`'s existing fallback
+logic needed no change — it already turns a `(False, err)` return into
+`terminal_reason = "compile_failed"`, which was already outside the halt-condition set, so
+the grid correctly continues past a hung cell instead of stopping.
+**How we know:** new regression test
+`tests/test_efficacy_unit.py::TestRunEffectTier::test_compiler_hang_is_recorded_not_raised`
+mocks `subprocess.run` to raise `TimeoutExpired`, confirmed to fail (uncaught exception,
+matching the real crash) against the pre-fix code, and to pass against the fix.
+
+### PF-069 — `run_efficacy_study.py`'s generation budget is hardcoded, and too small for a slow provider. *(fixed `73b538a`, 2026-08-29)*
+**medium · fixed · S4 Testing · found running the first complete 125-cell efficacy grid on ollama**
+
+`bench/run_efficacy_study.py`'s `GENERATION_BUDGET_S` was a hardcoded `140.0` module
+constant with no environment override, unlike `llm/generate.py`'s
+`PLUGINFORGE_GENERATION_BUDGET`. A 7B coder model running CPU-only through ollama regularly
+took 60–90s per generation, exceeding the ~47s per-attempt cap derived from it; every such
+attempt raised `providers.BudgetExhausted`, and the study's checkpoint-and-stop logic
+(sound for a real daily-quota `Retry-After`) halted the entire 125-cell grid on the first
+slow cell — the grid could not complete on any slow provider without a source edit.
+Fixed by adding `generation_budget_s()`, which reads `PLUGINFORGE_GENERATION_BUDGET`
+(falling back to the same `140.0` default on an unset or malformed value) — reusing the
+product path's own env var rather than adding a second name, so the harness cannot drift
+from the product path it is designed to mirror. `run_study`'s halt-on-timeout behavior is
+deliberately left unchanged: it remains a real safety net against a genuinely hung/dead
+provider, which this bug's stated impact never asked to remove.
+**How we know:** new tests
+`tests/test_efficacy_unit.py::TestGenerationBudgetEnvOverride` (env override changes the
+budget total; a malformed value falls back to the default) confirmed to fail against the
+pre-fix code (`AttributeError`/wrong value) and pass against the fix; the existing
+`test_default_generator_gets_a_fresh_budget_per_cell` updated to read the new
+`generation_budget_s()` accessor instead of the removed module constant.
+**Not covered.** Whether the fast providers (groq/gemini) ever hit this — they generate in
+1–15s, far under the cap, so this was never their bug.
 
 ### PF-005 — Editor exposes only 8 of 64 parameters. *(fixed `2e129cd`, 2026-07-23)*
 **medium · was arch-review §2.5 (P2), STATUS Broken #1 (top-ranked live defect until closed)**

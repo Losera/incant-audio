@@ -244,6 +244,12 @@ def validate_faust(code: str) -> tuple[bool, str]:
             encoding="utf-8", errors="replace",
         )
         return result.returncode == 0, result.stderr.strip()[:500]
+    except subprocess.TimeoutExpired:
+        # A patch the compiler cannot finish is an invalid patch, not a
+        # crash. Mirrors llm/generate.py::validate_faust (PF-070).
+        return False, ("faust compiler did not finish within 30s — "
+                       "the generated patch is likely pathological "
+                       "(unbounded delay, runaway recursion).")
     finally:
         os.unlink(tmp)
 
