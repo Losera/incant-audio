@@ -1,8 +1,10 @@
-paired programs: 202
 
+========================================================================
+qwen2.5-coder:3b   arm A vs arm B (faust-rs full)   —   202 paired programs
+========================================================================
 REPAIRED WITHIN 2 CORRECTIVE ATTEMPTS
   arm A (C++ stderr) : 151/202  (75%)
-  arm B (faust-rs)   : 88/202  (44%)
+  arm B (faust-rs full): 88/202  (44%)
   discordant pairs   : B-only 21, A-only 84
   McNemar exact p    : 0.0000
 
@@ -25,6 +27,36 @@ SECOND-ERROR IDENTITY  (of repairs that FAILED, was attempt 1's error the same c
   arm A: 51 failed — same class 21, new class 18
   arm B: 114 failed — same class 85, new class 25
 
+>>> NO — C++ stderr repaired 63 MORE than arm B (faust-rs full) (McNemar p=0.000).
+
+
 ========================================================================
-NO — C++ stderr repaired 63 MORE (McNemar p=0.000). Richer feedback hurt on this corpus.
+qwen2.5-coder:3b   arm A vs arm C (faust-rs core)   —   202 paired programs
 ========================================================================
+REPAIRED WITHIN 2 CORRECTIVE ATTEMPTS
+  arm A (C++ stderr) : 151/202  (75%)
+  arm C (faust-rs core): 86/202  (43%)
+  discordant pairs   : C-only 20, A-only 85
+  McNemar exact p    : 0.0000
+
+ATTEMPTS TO GREEN  (never-green scored as 3)
+  arm A mean : 1.75
+  arm C mean : 2.22
+  Wilcoxon signed-rank p : 0.0000  (stat=2039.0)
+  both green: C fewer attempts 13, A fewer 9, tied 44
+
+BY FIRST-ERROR CLASS  (n | A green | C green | C-only | A-only)
+  routing_arity         81 |  57 |  23 |  7 | 41
+  syntax                61 |  51 |  25 |  3 | 29
+  hallucinated_symbol   25 |  20 |  10 |  1 | 11
+  unclassified          17 |  10 |  14 |  5 |  1
+  duplicate_symbol      15 |  10 |  12 |  4 |  2
+  delay_range            2 |   2 |   1 |  0 |  1
+  recursion_cycle        1 |   1 |   1 |  0 |  0
+
+SECOND-ERROR IDENTITY  (of repairs that FAILED, was attempt 1's error the same class as the start?)
+  arm A: 51 failed — same class 21, new class 18
+  arm C: 116 failed — same class 84, new class 27
+
+>>> NO — C++ stderr repaired 65 MORE than arm C (faust-rs core) (McNemar p=0.000).
+
