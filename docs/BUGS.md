@@ -107,6 +107,10 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-069 | `bench/run_efficacy_study.py`'s `GENERATION_BUDGET_S` is hardcoded at 140.0 with no env override (unlike `llm/generate.py`'s `PLUGINFORGE_GENERATION_BUDGET`). Per-attempt cap is `140/3 ≈ 47s`; a slow provider (7B-on-CPU ollama regularly takes 60–90s) times out every retry, the failure is classified `transport`, and the checkpoint-and-stop logic halts the whole run on the first one — the study cannot complete on any slow provider without a source edit | medium | fixed | S4 Testing | `bench/run_efficacy_study.py:76`, `:147-151` | 2026-08-29 | this session |
 | PF-070 | `bench/run_benchmark.py::validate_faust` runs `faust -lang cpp` with `timeout=30` but never catches `subprocess.TimeoutExpired`. A generated program the C++ compiler does not terminate on within 30s (endless-evaluation-cycle shapes, deep recursion — a 7B model produces these) raises the exception uncaught out of `run_study`, **crashing the entire efficacy run**. A resume then re-hits the same cell and crashes again — an infinite loop. A compiler hang is a validation failure, not an exception | high | fixed | S4 Testing | `bench/run_benchmark.py:241-249` | 2026-08-29 | this session |
 | PF-071 | The XDG-installed Python runtime (`~/.local/share/pluginforge/llm/`, the PF-065 fix's step-3 resolution target) is a **stale, unconfigured trap**: it is a 2026-08-15 copy where `providers.py` still has `DEFAULT_PROVIDER = "anthropic"` (predates the groq default) and there is no `.env` beside it. When a DAW launched from a desktop launcher loads the plugin (no `PLUGINFORGE_LLM_SCRIPT`, `~/.vst3` bundle so the upward walk misses the repo), resolution lands here → unset provider resolves to the **paid** provider → `PaidProviderError` surfaces as an "anthropic provider error". PF-065's "partial fix" traded an honest "generate.py not found" for a silent-wrong 6-week-old runtime | high | open | S1 Backend | `host/Source/PromptPanel.cpp:110-144` (`resolveGenerateScript` step 3), `~/.local/share/pluginforge/llm/providers.py:58` | 2026-08-28 | — |
+| PF-072 | Refine ("Add" / "Redo") mode produced a **degenerate single dry/wet knob** patch where the same prompt in "New" mode produced a full patch with all the expected controls. Observed once in-host (session 017 WP6), `groq` / `gpt-oss-120b`, prompt "a warm analog reverb with chorus" as a refine over a working reverb. The refine *mechanism* verified correct on `gemini` afterward (surgical Add kept all 6 prior controls + added the 2 chorus controls), so this is generation quality / model variance, not a routing bug — but a 1-knob result is a broken user experience regardless of cause | medium | open | S2 Prompting UX | `llm/generate.py` refine path; `llm/prompts/system_prompt.txt` | 2026-08-28 | — |
+| PF-073 | Audible discontinuity when a 2nd generation swaps the live DSP in a host — the operator reported "there didn't seem to be a very smooth transition between the generates." Not characterised (click vs. gap vs. dropout length; no `setParamValue` flood seen). The swap protocol (`audioBusy` drain guard + compile-callback-before-`ready`) is a load-bearing invariant; a brief gap during recompile is expected, an audible click is not. Needs a captured repro to tell which | low | open | S1 Backend | `host/Source/FaustEngine.cpp` swap path, `docs/fixplan_pushtofaust_swap.md` | 2026-08-28 | — |
+| PF-074 | A generated **instrument patch produced NaN/Inf during normal play**, forcing a regeneration to recover. `OutputGuard` is designed to catch non-finite output and **latch-mute even for instruments** (`OutputGuard.h:89`, "NonFinite always latches regardless of policy"), so either it caught it (silence, regen cleared the latch) or it did not (a real hole). The operator saw "NaN/inf" — where (REAPER meter? the plugin?) and whether audio went silent or stayed broken was not captured. `OfflineSynthRenderTest` (184 checks, 0 failures) shows the synth audio path + OutputGuard are healthy on the tested fixtures, so this is a specific generated patch under a specific runtime condition. Needs the triggering patch + action captured | medium | open | S1 Backend | `host/Source/OutputGuard.{h,cpp}`, `host/Source/FaustEngine.cpp` | 2026-08-28 | — |
+| PF-075 | Instrument polyphony: `FaustEngine` is **strictly monophonic** (one `currentNote`, one gate, last-note priority, no per-voice cloning — `FaustEngine.cpp:547-562`), but the operator playing a chord in-host heard "more than 3 voices, up to 5". Most likely overlapping **release tails + reverb** from a mono voice (each note gated off when the next arrives, but its envelope/reverb keeps ringing) — which would confirm the mono model and be nice musical behaviour. The disambiguating test — hold a sustained 5-note chord: do all 5 sustain, or do 4 decay leaving 1 — has not been run | low | open | S3 Plugin UX | `host/Source/FaustEngine.cpp:547-562` | 2026-08-28 | — |
 
 ---
 
@@ -1385,6 +1389,60 @@ PF-065's residual and belongs with its real fix.
 **Not covered.** Whether a real `install.sh` run (as opposed to this hand-copied 2026-08-15
 tree) produces a correctly-configured runtime today &mdash; `install.sh` has never been run
 end-to-end on this machine (PF-065's own "What this does NOT fix" note).
+
+---
+
+### PF-072 / PF-073 / PF-074 / PF-075 — findings from the session 017 WP6 interactive REAPER session. *(all open, found 2026-08-28)*
+
+The first fully interactive host session (`docs/sessions/017-phase2-interactive-host.md`,
+run in REAPER 2026-08-28). It **closed STATUS.md Broken #1 and #2** — a human pressed real
+QWERTY keys in a host and heard notes, and both plugin targets ran and were played/heard.
+Four things came out of it that are not those wins:
+
+**PF-072 — refine produced a 1-knob patch.** Generating "a warm analog reverb" fresh gave a
+full patch; asking to add chorus via refine ("a warm analog reverb with chorus" over the
+working reverb) gave a patch with **only a dry/wet knob**. The same prompt in "New" mode
+gave a full patch. Investigated offline: `groq` was out of daily tokens by then so the exact
+repro is blocked, but on `gemini` the refine mechanism is correct — surgical Add kept all 6
+prior controls and added the 2 chorus ones (8 total), contextual Redo regenerated with 7.
+So the 1-knob result is `gpt-oss-120b` generation variance (its output is
+documented-noisy — PF-024/PF-031), not a broken refine path. Still: a refine that silently
+drops every control is a bad experience. **Next:** re-run on groq when TPD resets; if it
+recurs, it is a prompt/refine-preamble problem for that model, not a mechanism one.
+
+**PF-073 — rough DSP swap.** "There didn't seem to be a very smooth transition between the
+generates." Not characterised. The swap protocol (`FaustEngine`'s `audioBusy` drain guard,
+compile-callback-before-`ready`) makes a brief silent gap during recompile expected; an
+audible click or a multi-block dropout would be a defect. No `setParamValue not found`
+flood was seen in the `tee` log (which only catches JUCE-level stderr, not the generate.py
+subprocess). **Next:** a captured A/B recording of the swap moment.
+
+**PF-074 — NaN during play.** A generated instrument patch produced NaN/Inf while being
+played, requiring regeneration. `OutputGuard` is built to catch this and latch-mute even
+for instruments (`OutputGuard.h:89`). `OfflineSynthRenderTest` passes 184/0 including its
+NaN and sample-rate-change checks, so the audio path and guard are healthy on the tested
+fixtures — this was a specific generated patch under a specific runtime condition (a note,
+a parameter value, a sustained state). What was not captured: whether audio went *silent*
+(guard worked, regen cleared the latch) or *stayed broken* (guard hole). **Next:** if it
+recurs, note the exact patch source and the action immediately before, and whether MIDI
+panic / stop-start / editor reopen recovers it short of regenerating.
+
+**PF-075 — chord sounded like 5 voices from a mono engine.** `FaustEngine::noteOn/noteOff`
+is strictly monophonic — one `currentNote`, one gate, last-note priority
+(`FaustEngine.cpp:547-562`); there is no per-voice DSP cloning anywhere. The operator heard
+"more than 3 voices, up to 5" playing a chord. Almost certainly **overlapping release tails
++ reverb**: each note is gated off when the next arrives, but its amplitude envelope and any
+reverb tail keep sounding, so five fast notes stack into five decaying tails. That would
+*confirm* the mono model and is musically pleasant. **Next (with a MIDI controller):** hold a
+sustained 5-note chord — if all five sustain indefinitely it is real polyphony and a genuine
+doc/engine contradiction; if four decay and one stays, it is tails and the entry closes as
+"not a bug, worth documenting as a feature."
+
+**Also observed, filed nowhere because they are pre-existing and known:** keyboard latency
+under sustained load (the ~10.7 ms block quantization plus JIT compile — Broken #2b's block-
+jitter gap), and the Synth producing no sound on a *dedicated* REAPER track (REAPER track
+arm/monitor config, not a plugin bug — `OfflineSynthRenderTest` is green and the Synth
+*did* play when on the sample track).
 
 ---
 
