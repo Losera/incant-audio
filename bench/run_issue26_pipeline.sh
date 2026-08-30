@@ -11,6 +11,13 @@
 set -u
 cd "$(dirname "$0")/.."
 
+# Roomy per-generation budget. The default 140 s (per-attempt cap ~42 s) is
+# fine on a full-clock GPU (~3.5 s/gen) but trips as BudgetExhausted the moment
+# the machine drops to battery / power-save and generations stretch to ~30 s.
+# The budget is a ceiling, not a target — a (program, arm) repair only ever runs
+# ~2 generations — so a large value has no cost and just makes the run robust.
+export PLUGINFORGE_GENERATION_BUDGET="${PLUGINFORGE_GENERATION_BUDGET:-900}"
+
 DATE="${ISSUE26_DATE:-$(date +%Y%m%d)}"
 CORPUS="bench/corpora/repair_corpus_${DATE}.json"
 AB="bench/results/repair_ab/repair_ab_${DATE}.json"
