@@ -172,12 +172,16 @@ def run(corpus_path: Path, out_file: Path, limit: int | None,
         tasks = tasks[:4]
     print(f"{len(tasks)} (program, arm) repairs pending", file=sys.stderr)
 
-    generate = providers.make_generator(
-        "ollama", system_prompt=SYSTEM_PROMPT, model=REPAIR_MODEL,
-        temperature=0.0, max_tokens=providers.MAX_OUTPUT_TOKENS,
-        budget=make_generation_budget())
-
     for i, (entry, arm) in enumerate(tasks, 1):
+        # A FRESH generator (hence a fresh Budget) per (program, arm): one arm's
+        # corrective loop is one "product generation", and its budget must not be
+        # shared with the next — reusing one Budget expires every repair after the
+        # first ~140s of cumulative wall time. Same rule as
+        # run_efficacy_study.run_study's per-cell generator.
+        generate = providers.make_generator(
+            "ollama", system_prompt=SYSTEM_PROMPT, model=REPAIR_MODEL,
+            temperature=0.0, max_tokens=providers.MAX_OUTPUT_TOKENS,
+            budget=make_generation_budget())
         rec = repair_loop(entry, arm, generate)
         records.append(rec)
         write(out_file, records)
