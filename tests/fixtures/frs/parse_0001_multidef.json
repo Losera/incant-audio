@@ -1,0 +1,178 @@
+{
+  "compiler": {
+    "name": "faust-rs",
+    "target": "x86_64-linux",
+    "version": "0.8.0"
+  },
+  "diagnostics": [
+    {
+      "category": "user_code",
+      "code": "FRS-PARSE-0001",
+      "debug": null,
+      "detail_code": "duplicate-definition",
+      "facts": {
+        "declaration_sites": {
+          "type": "string_list",
+          "value": [
+            "/tmp/claude-1000/-home-losera-PluginForge/3e50c350-5d82-4f84-948c-badfe3206708/scratchpad/c.dsp:14:1",
+            "/tmp/claude-1000/-home-losera-PluginForge/3e50c350-5d82-4f84-948c-badfe3206708/scratchpad/c.dsp:16:41"
+          ]
+        },
+        "declarations": {
+          "type": "string_list",
+          "value": [
+            "feedbackLinecons(BOXIDENT(sym(\"x\")), nil) = BOXSEQ(BOXPAR(BOXSEQ(BOXPAR(BOXAPPL(BOXIDENT(sym(\"delayLine\")), cons(BOXIDENT(sym(\"x\")), nil)), BOXIDENT(sym(\"feedback\"))), BOXMUL()), BOXIDENT(sym(\"damping\"))), BOXMUL());",
+            "feedbackLine = BOXSEQ(BOXIDENT(sym(\"feedbackLine\")), BOXIDENT(sym(\"delayLine\")));"
+          ]
+        },
+        "symbol": {
+          "type": "string",
+          "value": "feedbackLine"
+        }
+      },
+      "fixes": [],
+      "help": [
+        "keep one `feedbackLine = ...;` clause, or give the clauses distinct patterns"
+      ],
+      "labels": [
+        {
+          "compatibility_span": {
+            "col": 41,
+            "end_col": 53,
+            "end_line": 16,
+            "file": "/tmp/claude-1000/-home-losera-PluginForge/3e50c350-5d82-4f84-948c-badfe3206708/scratchpad/c.dsp",
+            "line": 16
+          },
+          "message": "conflicting declaration",
+          "range": {
+            "end": 563,
+            "source_id": 0,
+            "start": 551
+          },
+          "role": "primary_cause",
+          "style": "primary"
+        },
+        {
+          "compatibility_span": {
+            "col": 1,
+            "end_col": 13,
+            "end_line": 14,
+            "file": "/tmp/claude-1000/-home-losera-PluginForge/3e50c350-5d82-4f84-948c-badfe3206708/scratchpad/c.dsp",
+            "line": 14
+          },
+          "message": "previous declaration",
+          "range": {
+            "end": 469,
+            "source_id": 0,
+            "start": 457
+          },
+          "role": "conflicts_with",
+          "style": "secondary"
+        }
+      ],
+      "message": "multiple definitions of symbol 'feedbackLine'",
+      "notes": [
+        "declaration: feedbackLinecons(BOXIDENT(sym(\"x\")), nil) = BOXSEQ(BOXPAR(BOXSEQ(BOXPAR(BOXAPPL(BOXIDENT(sym(\"delayLine\")), cons(BOXIDENT(sym(\"x\")), nil)), BOXIDENT(sym(\"feedback\"))), BOXMUL()), BOXIDENT(sym(\"damping\"))), BOXMUL());",
+        "declaration: feedbackLine = BOXSEQ(BOXIDENT(sym(\"feedbackLine\")), BOXIDENT(sym(\"delayLine\")));"
+      ],
+      "related": [],
+      "severity": "error",
+      "stage": "parser",
+      "traces": []
+    },
+    {
+      "category": "user_code",
+      "code": "FRS-PARSE-0001",
+      "debug": null,
+      "detail_code": "unexpected-token",
+      "facts": {
+        "unexpected_token": {
+          "type": "string",
+          "value": "with"
+        }
+      },
+      "fixes": [],
+      "help": [],
+      "labels": [
+        {
+          "compatibility_span": {
+            "col": 1,
+            "end_col": 5,
+            "end_line": 17,
+            "file": "/tmp/claude-1000/-home-losera-PluginForge/3e50c350-5d82-4f84-948c-badfe3206708/scratchpad/c.dsp",
+            "line": 17
+          },
+          "message": "unexpected token",
+          "range": {
+            "end": 573,
+            "source_id": 0,
+            "start": 569
+          },
+          "role": "primary_cause",
+          "style": "primary"
+        }
+      ],
+      "message": "Parsing error at line 17 column 1. Repair sequences found:\n   1: Delete with, Delete {",
+      "notes": [],
+      "related": [],
+      "severity": "error",
+      "stage": "parser",
+      "traces": []
+    },
+    {
+      "category": "user_code",
+      "code": "FRS-PARSE-0001",
+      "debug": null,
+      "detail_code": "unexpected-token",
+      "facts": {
+        "unexpected_token": {
+          "type": "string",
+          "value": "}"
+        }
+      },
+      "fixes": [],
+      "help": [],
+      "labels": [
+        {
+          "compatibility_span": {
+            "col": 1,
+            "end_col": 2,
+            "end_line": 19,
+            "file": "/tmp/claude-1000/-home-losera-PluginForge/3e50c350-5d82-4f84-948c-badfe3206708/scratchpad/c.dsp",
+            "line": 19
+          },
+          "message": "unexpected token",
+          "range": {
+            "end": 620,
+            "source_id": 0,
+            "start": 619
+          },
+          "role": "primary_cause",
+          "style": "primary"
+        }
+      ],
+      "message": "Parsing error at line 19 column 1. Repair sequences found:\n   1: Delete };",
+      "notes": [],
+      "related": [],
+      "severity": "error",
+      "stage": "parser",
+      "traces": []
+    }
+  ],
+  "request": {
+    "backend": null,
+    "mode": null,
+    "normalized_options": []
+  },
+  "schema_version": 2,
+  "sources": [
+    {
+      "content_hash": "290d6981df87da4181ab4feb3edd6501b15703612a369591cc83d646764cc721",
+      "id": 0,
+      "kind": "file",
+      "name": "/tmp/claude-1000/-home-losera-PluginForge/3e50c350-5d82-4f84-948c-badfe3206708/scratchpad/c.dsp",
+      "text": null
+    }
+  ],
+  "status": "failed"
+}
