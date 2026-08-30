@@ -96,6 +96,19 @@ def test_render_on_success_result_is_harmless():
     assert "no actionable diagnostic" in frs_check.render(_load("success"))
 
 
+def test_render_minimal_keeps_code_and_location_drops_notes_and_help():
+    out = frs_check.render_minimal(_load("prop_0002"))
+    assert "[FRS-PROP-0002]" in out and "at line 13" in out
+    assert "note:" not in out and "help:" not in out
+    assert out.rstrip().endswith("re-emit the complete program.")
+
+
+def test_render_minimal_splices_caret_when_source_given():
+    src = "\n".join(f"l{n}" for n in range(1, 13)) + "\nprocess = a : b;\n"
+    out = frs_check.render_minimal(_load("prop_0002"), src)
+    assert "13 | process = a : b;" in out and "^" in out
+
+
 # ── check() degradation ──────────────────────────────────────────────────────
 
 def test_check_returns_none_when_no_binary(monkeypatch):

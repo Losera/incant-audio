@@ -25,11 +25,27 @@ CORRECTIVE_ATTEMPTS = 2
 FAIL_SCORE = CORRECTIVE_ATTEMPTS + 1     # censored value for "never green"
 
 
-def load_pairs(path: Path) -> list[tuple[dict, dict]]:
+ARM_LABEL = {"A": "C++ stderr", "B": "faust-rs full", "C": "faust-rs core"}
+
+
+def load_records(path: Path) -> list[dict]:
+    return json.loads(path.read_text())
+
+
+def combos(records: list[dict]) -> list[tuple[str, str]]:
+    """(repair_model, treatment_arm) pairs present in the file, arm != A."""
+    seen = {(r["repair_model"], r["arm"]) for r in records}
+    models = sorted({m for m, _ in seen})
+    return [(m, a) for m in models for a in ("B", "C") if (m, a) in seen and (m, "A") in seen]
+
+
+def load_pairs(records: list[dict], model: str, treatment: str) -> list[tuple[dict, dict]]:
     by_sha: dict[str, dict[str, dict]] = defaultdict(dict)
-    for r in json.loads(path.read_text()):
-        by_sha[r["code_sha"]][r["arm"]] = r
-    return [(v["A"], v["B"]) for v in by_sha.values() if "A" in v and "B" in v]
+    for r in records:
+        if r["repair_model"] == model:
+            by_sha[r["code_sha"]][r["arm"]] = r
+    return [(v["A"], v[treatment])
+            for v in by_sha.values() if "A" in v and treatment in v]
 
 
 def score(rec: dict) -> int:
@@ -55,7 +71,8 @@ def wilcoxon(a_scores: list[int], b_scores: list[int]) -> tuple[float, float]:
     return float(res.statistic), float(res.pvalue)
 
 
-def report(pairs: list[tuple[dict, dict]]) -> dict:
+def report(pairs: list[tuple[dict, dict]], model: str, treatment: str) -> dict:
+    tl = f"arm {treatment} ({ARM_LABEL[treatment]})"
     n = len(pairs)
     a_green = sum(1 for a, _ in pairs if a["repaired"])
     b_green = sum(1 for _, b in pairs if b["repaired"])
@@ -71,22 +88,22 @@ def report(pairs: list[tuple[dict, dict]]) -> dict:
     faster_b = sum(1 for a, b in both if b["attempts_to_green"] < a["attempts_to_green"])
     faster_a = sum(1 for a, b in both if a["attempts_to_green"] < b["attempts_to_green"])
 
-    print(f"paired programs: {n}\n")
+    print(f"\n{'='*72}\n{model}   arm A vs {tl}   —   {n} paired programs\n{'='*72}")
     print("REPAIRED WITHIN 2 CORRECTIVE ATTEMPTS")
     print(f"  arm A (C++ stderr) : {a_green}/{n}  ({a_green/n:.0%})")
-    print(f"  arm B (faust-rs)   : {b_green}/{n}  ({b_green/n:.0%})")
-    print(f"  discordant pairs   : B-only {b_only}, A-only {a_only}")
+    print(f"  {tl:20s}: {b_green}/{n}  ({b_green/n:.0%})")
+    print(f"  discordant pairs   : {treatment}-only {b_only}, A-only {a_only}")
     print(f"  McNemar exact p    : {mc_p:.4f}")
     print()
     print("ATTEMPTS TO GREEN  (never-green scored as %d)" % FAIL_SCORE)
     print(f"  arm A mean : {sum(a_scores)/n:.2f}")
-    print(f"  arm B mean : {sum(b_scores)/n:.2f}")
+    print(f"  arm {treatment} mean : {sum(b_scores)/n:.2f}")
     print(f"  Wilcoxon signed-rank p : {w_p:.4f}  (stat={w_stat:.1f})")
-    print(f"  both green: B fewer attempts {faster_b}, A fewer {faster_a}, "
+    print(f"  both green: {treatment} fewer attempts {faster_b}, A fewer {faster_a}, "
           f"tied {len(both) - faster_a - faster_b}")
     print()
 
-    print("BY FIRST-ERROR CLASS  (n | A green | B green | B-only | A-only)")
+    print(f"BY FIRST-ERROR CLASS  (n | A green | {treatment} green | {treatment}-only | A-only)")
     cls = Counter(a["first_error_class"] for a, _ in pairs)
     per_class = {}
     for c, total in cls.most_common():
@@ -102,36 +119,40 @@ def report(pairs: list[tuple[dict, dict]]) -> dict:
 
     print("SECOND-ERROR IDENTITY  (of repairs that FAILED, was attempt 1's error"
           " the same class as the start?)")
-    for arm_idx, arm in ((0, "A"), (1, "B")):
+    for arm_idx, arm in ((0, "A"), (1, treatment)):
         failed = [p[arm_idx] for p in pairs if not p[arm_idx]["repaired"]]
         same = sum(1 for r in failed if r.get("second_error_same_as_first") is True)
         new = sum(1 for r in failed if r.get("second_error_same_as_first") is False)
         print(f"  arm {arm}: {len(failed)} failed — same class {same}, new class {new}")
-    print()
 
-    return {
+    s = {
+        "model": model, "treatment": treatment, "treatment_label": ARM_LABEL[treatment],
         "n": n, "a_green": a_green, "b_green": b_green,
         "b_only": b_only, "a_only": a_only, "mcnemar_p": mc_p,
         "a_mean_attempts": sum(a_scores) / n, "b_mean_attempts": sum(b_scores) / n,
         "wilcoxon_p": w_p, "per_class": per_class,
     }
+    s["verdict"] = verdict(s)
+    print(f"\n>>> {s['verdict']}\n")
+    return s
 
 
 def verdict(s: dict) -> str:
     n, mc_p, w_p = s["n"], s["mcnemar_p"], s["wilcoxon_p"]
+    t = f"arm {s['treatment']} ({s['treatment_label']})"
     delta = s["b_green"] - s["a_green"]
     if mc_p < 0.05 and delta > 0:
-        return (f"YES — faust-rs feedback repaired {delta} more of {n} programs "
-                f"(McNemar p={mc_p:.3f}); attempts p={w_p:.3f}.")
+        return (f"YES — {t} repaired {delta} more of {n} programs "
+                f"(McNemar p={mc_p:.3f}); attempts Wilcoxon p={w_p:.3f}.")
     if mc_p < 0.05 and delta < 0:
-        return (f"NO — C++ stderr repaired {-delta} MORE (McNemar p={mc_p:.3f}). "
-                f"Richer feedback hurt on this corpus.")
-    return (f"NO MEASURABLE DIFFERENCE at n={n} "
+        return (f"NO — C++ stderr repaired {-delta} MORE than {t} "
+                f"(McNemar p={mc_p:.3f}).")
+    return (f"NO MEASURABLE DIFFERENCE at n={n} between arm A and {t} "
             f"(repaired {s['a_green']} vs {s['b_green']}, McNemar p={mc_p:.3f}, "
             f"attempts Wilcoxon p={w_p:.3f}).")
 
 
-def make_chart(pairs, s: dict, chart_file: Path) -> None:
+def make_chart(s: dict, chart_file: Path) -> None:
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -143,27 +164,24 @@ def make_chart(pairs, s: dict, chart_file: Path) -> None:
     classes = ["ALL"] + list(s["per_class"].keys())
     a_pct, b_pct = [], []
     for c in classes:
-        if c == "ALL":
-            a_pct.append(s["a_green"] / s["n"] * 100)
-            b_pct.append(s["b_green"] / s["n"] * 100)
-        else:
-            d = s["per_class"][c]
-            a_pct.append(d["a_green"] / d["n"] * 100)
-            b_pct.append(d["b_green"] / d["n"] * 100)
+        d = s if c == "ALL" else s["per_class"][c]
+        base = s["n"] if c == "ALL" else d["n"]
+        a_pct.append(d["a_green"] / base * 100)
+        b_pct.append(d["b_green"] / base * 100)
 
     x = range(len(classes))
     width = 0.38
     fig, ax = plt.subplots(figsize=(max(8, len(classes) * 1.3), 6))
     ba = ax.bar([i - width / 2 for i in x], a_pct, width, label="arm A — C++ stderr",
                 color="#4e9af1", zorder=3)
-    bb = ax.bar([i + width / 2 for i in x], b_pct, width, label="arm B — faust-rs",
+    bb = ax.bar([i + width / 2 for i in x], b_pct, width,
+                label=f"arm {s['treatment']} — {s['treatment_label']}",
                 color="#f4a261", zorder=3)
     ax.set_xticks(list(x))
     ax.set_xticklabels(classes, rotation=30, ha="right")
     ax.set_ylim(0, 115)
     ax.set_ylabel("Repaired within 2 corrective attempts (%)")
-    ax.set_title(f"issue #26 — repair-loop A/B  (n={s['n']} paired failing programs, "
-                 f"repair model qwen2.5-coder:3b, temp=0)")
+    ax.set_title(f"issue #26 repair-loop A/B — {s['model']}, temp=0  (n={s['n']})")
     ax.legend()
     ax.grid(axis="y", linestyle="--", alpha=0.5, zorder=0)
     for bars, pcts in [(ba, a_pct), (bb, b_pct)]:
@@ -178,24 +196,28 @@ def make_chart(pairs, s: dict, chart_file: Path) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("result", type=Path)
-    ap.add_argument("--chart", type=Path)
     ap.add_argument("--json-out", type=Path)
     args = ap.parse_args()
 
-    pairs = load_pairs(args.result)
-    if not pairs:
-        print("no complete (A,B) pairs in the result file", file=sys.stderr)
+    records = load_records(args.result)
+    todo = combos(records)
+    if not todo:
+        print("no (model, treatment-arm) combo with a matching arm A in the file",
+              file=sys.stderr)
         return 1
-    s = report(pairs)
-    line = verdict(s)
-    print("=" * 72)
-    print(line)
-    print("=" * 72)
 
-    chart = args.chart or args.result.with_name(args.result.stem + "_chart.png")
-    make_chart(pairs, s, chart)
+    all_summaries = []
+    for model, treatment in todo:
+        pairs = load_pairs(records, model, treatment)
+        if not pairs:
+            continue
+        s = report(pairs, model, treatment)
+        all_summaries.append(s)
+        slug = f"{model.replace(':', '_').replace('.', '')}_{treatment}"
+        make_chart(s, args.result.with_name(f"{args.result.stem}_{slug}_chart.png"))
+
     if args.json_out:
-        args.json_out.write_text(json.dumps({**s, "verdict": line}, indent=2))
+        args.json_out.write_text(json.dumps(all_summaries, indent=2))
     return 0
 
 

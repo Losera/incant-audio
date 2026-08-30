@@ -56,14 +56,20 @@ import error_classes  # noqa: E402
 import frs_check  # noqa: E402
 
 DEFAULT_OUT_DIR = BENCH_DIR / "results" / "repair_ab"
-REPAIR_MODEL = "qwen2.5-coder:3b"
+DEFAULT_REPAIR_MODEL = "qwen2.5-coder:3b"
 CORRECTIVE_ATTEMPTS = 2          # product loop is 3 total = 1 initial + 2 corrective
 
 # arm A: byte-for-byte the product / efficacy-harness wording (llm/generate.py:300).
 ARM_A_TEMPLATE = "\n\nYour previous output had this compiler error — fix it:\n{feedback}"
-# arm B: frs_check.render() already ends with "Fix this and re-emit the complete
-# program.", so it only needs a lead-in.
-ARM_B_TEMPLATE = "\n\n{feedback}"
+# arms B and C: frs_check.render*() already end with "Fix this and re-emit the
+# complete program.", so they only need a lead-in.
+ARM_FRS_TEMPLATE = "\n\n{feedback}"
+
+# The three feedback regimes.
+#   A  raw C++ `faust` stderr (status quo)
+#   B  frs_check.render()          — faust-rs full: code, arities, caret, notes, help
+#   C  frs_check.render_minimal()  — faust-rs core: code, one-line message, caret only
+ARMS = ("A", "B", "C")
 
 
 def load_corpus(path: Path) -> list[dict]:
@@ -85,12 +91,13 @@ def feedback_for(arm: str, code: str, cpp_stderr: str) -> tuple[str, str | None]
     res = frs_check.check(code)
     if res is None or res.ok:
         # faust-rs unavailable or (shouldn't happen) accepts it — fall back to
-        # C++ stderr so arm B is never emptier than arm A.
+        # C++ stderr so a faust-rs arm is never emptier than arm A.
         return cpp_stderr, None
-    return frs_check.render(res, code), (res.codes[0] if res.codes else None)
+    renderer = frs_check.render_minimal if arm == "C" else frs_check.render
+    return renderer(res, code), (res.codes[0] if res.codes else None)
 
 
-def repair_loop(entry: dict, arm: str, generate) -> dict:
+def repair_loop(entry: dict, arm: str, generate, repair_model: str) -> dict:
     """One arm's corrective loop from `entry`'s failing program."""
     prompt = entry["prompt"]
     code = entry["code"]
@@ -103,7 +110,7 @@ def repair_loop(entry: dict, arm: str, generate) -> dict:
 
     for n in range(1, CORRECTIVE_ATTEMPTS + 1):
         feedback_text, frs_code = feedback_for(arm, code, cpp_stderr)
-        template = ARM_A_TEMPLATE if arm == "A" else ARM_B_TEMPLATE
+        template = ARM_A_TEMPLATE if arm == "A" else ARM_FRS_TEMPLATE
         user_message = prompt + template.format(feedback=feedback_text)
 
         started = time.monotonic()
@@ -140,7 +147,7 @@ def repair_loop(entry: dict, arm: str, generate) -> dict:
         "code_sha": entry["code_sha"],
         "first_error_class": first_class,
         "arm": arm,
-        "repair_model": REPAIR_MODEL,
+        "repair_model": repair_model,
         "repaired": repaired,
         "attempts_to_green": attempts_to_green,
         "attempts_used": len(attempt_log),
@@ -151,25 +158,55 @@ def repair_loop(entry: dict, arm: str, generate) -> dict:
     }
 
 
-def run(corpus_path: Path, out_file: Path, limit: int | None,
-        resume: bool, dry_run: bool) -> None:
+def stratified_sample(entries: list[dict], n: int) -> list[dict]:
+    """First `n` programs, but keeping the first-error-class proportions of the
+    full corpus (deterministic — take round-robin within class, class order by
+    frequency). Small classes keep at least one."""
+    from collections import Counter, defaultdict
+    if n >= len(entries):
+        return entries
+    by_class: dict[str, list[dict]] = defaultdict(list)
+    for e in entries:
+        by_class[error_classes.classify_error(e["cpp_stderr"])].append(e)
+    order = [c for c, _ in Counter(
+        error_classes.classify_error(e["cpp_stderr"]) for e in entries).most_common()]
+    out: list[dict] = []
+    idx = 0
+    while len(out) < n:
+        progressed = False
+        for c in order:
+            if idx < len(by_class[c]):
+                out.append(by_class[c][idx]); progressed = True
+                if len(out) == n:
+                    break
+        idx += 1
+        if not progressed:
+            break
+    return out
+
+
+def run(corpus_path: Path, out_file: Path, limit: int | None, sample: int | None,
+        arms: tuple[str, ...], repair_model: str, resume: bool, dry_run: bool) -> None:
     entries = load_corpus(corpus_path)
-    if limit:
+    if sample:
+        entries = stratified_sample(entries, sample)
+    elif limit:
         entries = entries[:limit]
-    print(f"corpus: {len(entries)} distinct failing programs", file=sys.stderr)
+    print(f"corpus: {len(entries)} distinct failing programs | arms {arms} | "
+          f"repair model {repair_model}", file=sys.stderr)
 
     records: list[dict] = []
-    done: set[tuple[str, str]] = set()
+    done: set[tuple[str, str, str]] = set()
     if resume and out_file.exists():
         records = json.loads(out_file.read_text())
-        done = {(r["code_sha"], r["arm"]) for r in records}
-        print(f"resume: {len(records)} records, {len(done)} (program,arm) pairs done",
+        done = {(r["code_sha"], r["arm"], r["repair_model"]) for r in records}
+        print(f"resume: {len(records)} records, {len(done)} (program,arm,model) done",
               file=sys.stderr)
 
-    tasks = [(e, arm) for e in entries for arm in ("A", "B")
-             if (e["code_sha"], arm) not in done]
+    tasks = [(e, arm) for e in entries for arm in arms
+             if (e["code_sha"], arm, repair_model) not in done]
     if dry_run:
-        tasks = tasks[:4]
+        tasks = tasks[:len(arms) * 2]
     print(f"{len(tasks)} (program, arm) repairs pending", file=sys.stderr)
 
     for i, (entry, arm) in enumerate(tasks, 1):
@@ -179,17 +216,17 @@ def run(corpus_path: Path, out_file: Path, limit: int | None,
         # first ~140s of cumulative wall time. Same rule as
         # run_efficacy_study.run_study's per-cell generator.
         generate = providers.make_generator(
-            "ollama", system_prompt=SYSTEM_PROMPT, model=REPAIR_MODEL,
+            "ollama", system_prompt=SYSTEM_PROMPT, model=repair_model,
             temperature=0.0, max_tokens=providers.MAX_OUTPUT_TOKENS,
             budget=make_generation_budget())
-        rec = repair_loop(entry, arm, generate)
+        rec = repair_loop(entry, arm, generate, repair_model)
         records.append(rec)
         write(out_file, records)
         g = "GREEN@%d" % rec["attempts_to_green"] if rec["repaired"] else "no-fix"
         print(f"[{i:04d}/{len(tasks)}] {rec['prompt_id']:22s} arm {arm} "
               f"{rec['first_error_class']:18s} → {g}", file=sys.stderr)
 
-    summarise(records)
+    summarise(records, repair_model)
 
 
 def write(out_file: Path, records: list[dict]) -> None:
@@ -197,47 +234,28 @@ def write(out_file: Path, records: list[dict]) -> None:
     out_file.write_text(json.dumps(records, indent=2))
 
 
-def summarise(records: list[dict]) -> None:
+def summarise(records: list[dict], repair_model: str) -> None:
+    """Quick stderr readout — each faust-rs arm vs arm A, for this model.
+    The real stats (McNemar/Wilcoxon/per-class) are bench/score_repair_ab.py."""
     from collections import defaultdict
+    recs = [r for r in records if r["repair_model"] == repair_model]
     by_sha: dict[str, dict[str, dict]] = defaultdict(dict)
-    for r in records:
+    for r in recs:
         by_sha[r["code_sha"]][r["arm"]] = r
-    paired = [(v["A"], v["B"]) for v in by_sha.values() if "A" in v and "B" in v]
-    if not paired:
-        print("\nno complete pairs yet", file=sys.stderr)
+    arms_present = sorted({r["arm"] for r in recs})
+    print(f"\n── {repair_model}: arms {arms_present} ──", file=sys.stderr)
+    if "A" not in arms_present:
         return
-
-    a_green = sum(1 for a, _ in paired if a["repaired"])
-    b_green = sum(1 for _, b in paired if b["repaired"])
-    a_att = [a["attempts_to_green"] for a, _ in paired if a["repaired"]]
-    b_att = [b["attempts_to_green"] for _, b in paired if b["repaired"]]
-    # McNemar discordant cells
-    b_only = sum(1 for a, b in paired if b["repaired"] and not a["repaired"])
-    a_only = sum(1 for a, b in paired if a["repaired"] and not b["repaired"])
-    faster_b = sum(1 for a, b in paired if a["repaired"] and b["repaired"]
-                   and b["attempts_to_green"] < a["attempts_to_green"])
-    faster_a = sum(1 for a, b in paired if a["repaired"] and b["repaired"]
-                   and a["attempts_to_green"] < b["attempts_to_green"])
-
-    print(f"\n── paired A/B ({len(paired)} complete pairs) ──", file=sys.stderr)
-    print(f"repaired within {CORRECTIVE_ATTEMPTS}:  arm A {a_green}/{len(paired)}   "
-          f"arm B {b_green}/{len(paired)}", file=sys.stderr)
-    print(f"  discordant: B-only {b_only}, A-only {a_only}  "
-          f"(McNemar on these)", file=sys.stderr)
-    print(f"mean attempts_to_green (repaired only):  "
-          f"A {sum(a_att)/len(a_att):.2f} (n={len(a_att)})   "
-          f"B {sum(b_att)/len(b_att):.2f} (n={len(b_att)})" if a_att and b_att else
-          "mean attempts_to_green: insufficient data", file=sys.stderr)
-    print(f"  both green, B fewer attempts: {faster_b}; A fewer: {faster_a}", file=sys.stderr)
-
-    from collections import Counter
-    cls = Counter(a["first_error_class"] for a, _ in paired)
-    print("\nby first-error class  (pairs | B-only fixes | A-only fixes):", file=sys.stderr)
-    for c, total in cls.most_common():
-        sub = [(a, b) for a, b in paired if a["first_error_class"] == c]
-        bo = sum(1 for a, b in sub if b["repaired"] and not a["repaired"])
-        ao = sum(1 for a, b in sub if a["repaired"] and not b["repaired"])
-        print(f"  {c:20s} {total:3d} | {bo:2d} | {ao:2d}", file=sys.stderr)
+    for arm in [a for a in arms_present if a != "A"]:
+        paired = [(v["A"], v[arm]) for v in by_sha.values() if "A" in v and arm in v]
+        if not paired:
+            continue
+        a_g = sum(1 for a, _ in paired if a["repaired"])
+        x_g = sum(1 for _, x in paired if x["repaired"])
+        x_only = sum(1 for a, x in paired if x["repaired"] and not a["repaired"])
+        a_only = sum(1 for a, x in paired if a["repaired"] and not x["repaired"])
+        print(f"  A vs {arm}  (n={len(paired)}):  repaired  A {a_g}  {arm} {x_g}   "
+              f"| discordant  {arm}-only {x_only}, A-only {a_only}", file=sys.stderr)
 
 
 def main() -> int:
@@ -246,13 +264,22 @@ def main() -> int:
     ap.add_argument("--corpus", type=Path, required=True)
     ap.add_argument("--out", type=Path,
                     default=DEFAULT_OUT_DIR / f"repair_ab_{datetime.now():%Y%m%d}.json")
+    ap.add_argument("--arms", default="A,B",
+                    help="comma list from A,B,C (default A,B)")
+    ap.add_argument("--repair-model", default=DEFAULT_REPAIR_MODEL)
     ap.add_argument("--limit", type=int, help="first N distinct programs only")
+    ap.add_argument("--sample", type=int,
+                    help="N distinct programs, class-proportional (for the slow 7B run)")
     ap.add_argument("--resume", action="store_true")
-    ap.add_argument("--dry-run", action="store_true", help="4 repairs only")
+    ap.add_argument("--dry-run", action="store_true", help="a few repairs only")
     args = ap.parse_args()
 
-    if frs_check.faust_rs_bin() is None:
-        print("[!] faust-rs not found — arm B would collapse to arm A. "
+    arms = tuple(a.strip().upper() for a in args.arms.split(","))
+    if any(a not in ARMS for a in arms):
+        print(f"[!] --arms must be from {ARMS}", file=sys.stderr)
+        return 2
+    if {"B", "C"} & set(arms) and frs_check.faust_rs_bin() is None:
+        print("[!] faust-rs not found — arms B/C would collapse to arm A. "
               "Set PLUGINFORGE_FAUST_RS_BIN or put faust-rs on PATH.", file=sys.stderr)
         return 2
     try:
@@ -261,7 +288,8 @@ def main() -> int:
         print(f"[!] {exc}", file=sys.stderr)
         return 2
     try:
-        run(args.corpus, args.out, args.limit, args.resume, args.dry_run)
+        run(args.corpus, args.out, args.limit, args.sample, arms,
+            args.repair_model, args.resume, args.dry_run)
     finally:
         release_lock()
     print(f"\nwrote {args.out}", file=sys.stderr)

@@ -245,6 +245,27 @@ def render(result: FrsResult, source: str | None = None, *, max_notes: int = 4) 
     return "\n".join(lines)
 
 
+def render_minimal(result: FrsResult, source: str | None = None) -> str:
+    """A/B arm C: faust-rs's STRUCTURED CORE only — stable code, the one-line
+    message (arities included), source line:col, and a caret. No notes, no
+    `help`, no "did you mean". Tests whether it is faust-rs's content or its
+    human-programmer verbosity that hurt a small model in arm B.
+    """
+    diag = result.primary
+    if diag is None:
+        return "faust-rs reported no actionable diagnostic."
+    lines = [f"The Faust compiler rejected your program. "
+             f"[{diag.code}] {_clean_message(diag.message)}"]
+    loc = diag.primary_line
+    if loc:
+        col = diag.primary_col
+        lines.append(f"  at line {loc}" + (f", column {col}" if col else ""))
+        if source:
+            lines.extend(_source_caret(source, loc, col))
+    lines.append("Fix this and re-emit the complete program.")
+    return "\n".join(lines)
+
+
 if __name__ == "__main__":
     import sys
     if len(sys.argv) < 2:
