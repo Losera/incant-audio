@@ -16,6 +16,23 @@ behind HEAD.
 > entries, Next-three #1, Waiting-on-you #9, and the Assumed claim were brought current. The
 > rest of this file still carries its 2026-08-19 "this session" framing — history, not today.
 
+**2026-08-28: the first fully interactive host session — and it closed Broken #1 and #2.**
+Session 017 WP6, run in **REAPER** (chosen over Carla mid-session: nothing in the session
+is Carla-specific, the operator is fluent in REAPER, and PF-065 was found there). Evidence:
+`PluginForge Host` (Fx) inserted on a track with a looping test signal audibly
+filtered/reverbed it; "New"-mode and refine-mode generation both ran while hosted;
+`PluginForge Synth` generated instrument patches and — **with the plugin editor focused,
+real QWERTY letter keys produced audible notes** ("expanded to the entirety of my
+keyboard"). That is the OS→JUCE keypress hop, which has *only ever had a static-contract
+test*, verified end-to-end by a human at a real keyboard — the exact "different
+verification strategy" STATUS.md's own Broken #1 said it needed. Both plugins ran in one
+project without destabilising each other. Environment blockers hit and worked around:
+PF-071 (the stale XDG runtime → "anthropic provider error" — `rm -rf
+~/.local/share/pluginforge` + launch from a configured shell), PF-065 re-confirmed in
+REAPER. Four findings filed (PF-072 refine 1-knob, PF-073 rough swap, PF-074 NaN-in-play,
+PF-075 chord-sounds-poly-from-a-mono-engine), all open, all needing a captured repro. Run
+log: `docs/sessions/017-phase2-interactive-host.md`.
+
 **2026-08-28: the complete 125-cell efficacy grid ran for the first time.** `ollama`
 `qwen2.5-coder:7b` (CPU), current prompt, PF-041/PF-042-fixed judge —
 `bench/results/efficacy/efficacy_ollama_20260828_judged.json`. **Compile rate is
@@ -366,8 +383,17 @@ stereo/mono arity fix, ADR-020's latch/report split) is unchanged and carried th
 
 Registry with IDs, severity and discovery dates: `docs/BUGS.md`.
 
-**1. The keyboard's QWERTY/computer-keyboard path has a static-contract test, not an
-end-to-end one.** *(unfiled, medium — narrowed this session, not fully closed.)* The
+**1. ~~The keyboard's QWERTY/computer-keyboard path has a static-contract test, not an
+end-to-end one.~~** *(CLOSED 2026-08-28, session 017 WP6 — in REAPER, with a generated
+instrument patch and the plugin editor focused, the operator pressed QWERTY letter keys
+and heard notes: "expanded to the entirety of my keyboard pretty much," mild latency. The
+OS→JUCE dispatch hop is demonstrated end-to-end. The verification strategy the entry below
+called for — "a compositor-level input tool on this machine or a different verification
+strategy entirely" — was a human at a real keyboard. New findings it exposed: keyboard
+latency under load (record-only), the held-chord polyphony question, both below.)*
+
+Historical context, kept:
+The
 shell-level routing gap — `PluginEditor` never asked `KeyboardPanel` about key state at
 all, regardless of focus — is now closed: `PluginEditor::keyStateChanged` forwards
 unconditionally to `KeyboardPanel::routeKeyStateChanged`, and scenario 28 proves the shell
@@ -419,21 +445,34 @@ and fixed, none of them the OS→JUCE hop above:
   reconfirmed green post-merge as part of the full 40-scenario/311-check suite (see the
   2026-08-15 integration entry in Works, above).
 
-None of PF-057/058/059 is the OS→JUCE dispatch hop — that remains exactly as
-unverified as the paragraph above states. What changed is that a generated synth now
-reaches a state where that hop is the ONLY remaining unverified link, instead of being
-masked behind three shell-level bugs that made the keyboard non-functional before a
-physical key was ever involved.
+None of PF-057/058/059 is the OS→JUCE dispatch hop — and **as of 2026-08-28 that hop is
+verified** (the struck heading above): a human pressed real keys in REAPER and heard
+notes. This entry is closed; the paragraphs above are kept as the record of how it got
+there.
 
-**2. It has never been in an interactive DAW/host GUI.** *(Narrowed 2026-08-16 — was "never
-been in a DAW" outright, which was already half-false; see the Works entry above.)*
-`COPY_PLUGIN_AFTER_BUILD` is now `TRUE`; `pluginval` (`SUCCESS`, both plugins, multiple seeds)
-and Carla's independent `carla-discovery-native` scanner (both plugins instantiate correctly)
-are real evidence the plugin format contract holds. What remains: no interactive host session
-— Carla is installed but `carla-single`/full Carla need a JACK server this machine doesn't have
-running (no `pipewire-jack`, no jackd), so nothing has visually loaded and played a note yet.
-Four concrete gaps behind "must take MIDI in any real session," triaged 2026-08-16 against the
-code (all real, all pre-existing, none fixed): monophonic by design (`FaustEngine.cpp:519-524`,
+**2. ~~It has never been in an interactive DAW/host GUI.~~ CLOSED 2026-08-28, session 017
+WP6.** REAPER, both plugin targets, human driving and listening. `PluginForge Host` (Fx)
+processed a real looping audio signal and audibly filtered/reverbed it; "New"-mode and
+refine-mode generation both worked while hosted; `PluginForge Synth` generated instrument
+patches and played audible notes via QWERTY. Both plugins ran in one project without one
+destabilising the other. Full run notes in
+`docs/sessions/017-phase2-interactive-host.md`; the findings that came out — PF-072
+(refine produced a 1-knob patch where New produced a full one), PF-073 (audible
+discontinuity on the 2nd-generation DSP swap), PF-074 (a generated instrument patch went
+NaN during play, needed regeneration) — are filed. The four MIDI-fidelity gaps below are
+unchanged; all pre-existing, none a WP6 regression.
+
+*(History, kept. Narrowed 2026-08-16 — was "never been in a DAW" outright, which was already
+half-false; see the Works entry above. The last blocker in this paragraph — "no JACK server
+running" — was cleared before session 017: `pipewire-jack` is installed and serving JACK
+(Waiting on you #9), and WP6 then ran the interactive session in REAPER.)* Format-contract
+evidence that predated the live session and still stands: `COPY_PLUGIN_AFTER_BUILD` is `TRUE`;
+`pluginval` returns `SUCCESS` for both plugins across multiple seeds; Carla's independent
+`carla-discovery-native` scanner instantiates both correctly.
+
+Four concrete MIDI-fidelity gaps, triaged 2026-08-16 against the
+code (all real, all pre-existing, none fixed), and **none of them a WP6 regression**:
+monophonic by design (`FaustEngine.cpp:519-524`,
 last-note-priority, deliberate — not a bug), block-granularity MIDI (~10.7 ms jitter,
 `PluginProcessor.cpp:279-283`, already documented in-code), a hardcoded 2.0 s tail length
 (`PluginProcessor.h:85`, ignores what a given generated patch actually needs), no MIDI CC
@@ -602,16 +641,15 @@ answered for one model; what remains unchecked is the *shipping* model.
 
 ## Next three things
 
-1. **Get it into an interactive DAW/host session.** Broken #2, narrowed 2026-08-16: format-level
-   validation now exists (`pluginval` SUCCESS, Carla's independent `carla-discovery-native`
-   scan SUCCESS, both plugins, after PF-062's real audio-thread bug was found and fixed) and
-   the four MIDI-fidelity gaps are triaged. What's left is the one thing neither scanner does
-   — an actual interactive session: load the plugin in Carla's Rack/Patchbay GUI, play a note,
-   confirm it sounds right and doesn't glitch. **Now unblocked** (2026-08-27/28): `pipewire-jack`
-   is installed and serving JACK (`jack_lsp` enumerates real ports), `vmpk` + `carla` +
-   `pluginval` all present, and `docs/sessions/017-phase2-interactive-host.md` is the
-   copy-paste operator run-script for it (Phases 0–4, both plugin targets). This is a
-   human-driven listening session — the assistant watches the `tee` log and files findings.
+1. **~~Get it into an interactive DAW/host session.~~ DONE 2026-08-28** — session 017 WP6 in
+   REAPER. Closed Broken #1 (QWERTY→note end-to-end) and #2 (interactive host). See the Works
+   entry above and `docs/sessions/017-phase2-interactive-host.md`. Four findings filed
+   (PF-072–075). **Proposed replacement for this slot** (your call): **post the issue #26
+   reply** — the faust-rs evaluation now has real-corpus numbers (51/51 accept-reject
+   agreement, faust-rs located 15/15 of the compile failures C++ located 9/15 of), and a
+   maintainer (Stéphane Letz) has been waiting since 2026-08-20. Draft ready. Or swap for the
+   groq 125-cell efficacy run when its daily token limit resets, or ADR-032 acceptance +
+   provider-config v1.
 2. *(evidence)* **~~Mechanism B pilot~~ — DONE 2026-08-16.** `docs/sessions/016-mechanism-b-pilot.md`:
    the five-diff/one-canary trial session 005 §2 specified. The canary was caught — file:line
    citation, contract clause quoted verbatim, reproducible trigger — so the pilot does not hit
