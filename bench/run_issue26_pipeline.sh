@@ -19,6 +19,17 @@ REPORT="bench/results/repair_ab/repair_ab_${DATE}_report.txt"
 
 say() { echo "[pipeline $(date -Is)] $*"; }
 
+# ollama's default VRAM estimate on this 4 GB laptop GPU under-commits and runs
+# qwen2.5-coder:3b (1.9 GB) almost entirely on CPU (~10 s/gen). Forcing a full
+# GPU load once takes it to ~3.5 s/gen; the continuous harness then keeps it
+# resident. Harmless if it is already loaded or if there is no GPU.
+warm_gpu() {
+    curl -s http://localhost:11434/api/generate \
+        -d '{"model":"qwen2.5-coder:3b","prompt":"ok","stream":false,"keep_alive":"2h","options":{"num_gpu":99}}' \
+        >/dev/null 2>&1 || true
+}
+
+warm_gpu
 say "stage 1 — corpus build"
 python3 bench/build_repair_corpus.py --out "$CORPUS" --resume || {
     say "corpus build exited $? — a partial corpus may still be usable, continuing"; }
@@ -37,6 +48,7 @@ if [ "$DISTINCT" -lt 20 ]; then
     exit 1
 fi
 
+warm_gpu
 say "stage 2 — paired A/B (arm A = C++ stderr, arm B = faust-rs)"
 python3 bench/run_repair_ab.py --corpus "$CORPUS" --out "$AB" --resume || {
     say "A/B exited $? — stopping"; exit 1; }

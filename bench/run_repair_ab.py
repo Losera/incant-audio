@@ -17,10 +17,13 @@ DESIGN
                              FRS code, concrete arities, source line:col + caret,
                              and the `help` remedy, with the box-expr noise dropped
 
-    The repair model is fixed (qwen2.5-coder:7b, temperature=0 — deterministic,
-    matches the 2026-08-28 baseline) regardless of which model first produced the
-    program, so the only variable is the feedback text. Pairing removes the
-    sampling variance two independent grid runs would carry.
+    The repair model is fixed (qwen2.5-coder:3b, temperature=0 — verified
+    deterministic) regardless of which model first produced the program, so the
+    only variable is the feedback text. A small local model is deliberate: it is
+    where compiler-feedback quality should matter most, and it is what the #26
+    question ("can the LLM better understand what the corrected DSP has to be")
+    is really about. Pairing removes the sampling variance two independent grid
+    runs would carry.
 
 PRIMARY METRIC
     attempts_to_green — corrective attempts to the first compiling program
@@ -53,7 +56,7 @@ import error_classes  # noqa: E402
 import frs_check  # noqa: E402
 
 DEFAULT_OUT_DIR = BENCH_DIR / "results" / "repair_ab"
-REPAIR_MODEL = "qwen2.5-coder:7b"
+REPAIR_MODEL = "qwen2.5-coder:3b"
 CORRECTIVE_ATTEMPTS = 2          # product loop is 3 total = 1 initial + 2 corrective
 
 # arm A: byte-for-byte the product / efficacy-harness wording (llm/generate.py:300).

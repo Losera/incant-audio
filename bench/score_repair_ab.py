@@ -163,7 +163,7 @@ def make_chart(pairs, s: dict, chart_file: Path) -> None:
     ax.set_ylim(0, 115)
     ax.set_ylabel("Repaired within 2 corrective attempts (%)")
     ax.set_title(f"issue #26 — repair-loop A/B  (n={s['n']} paired failing programs, "
-                 f"qwen2.5-coder:7b, temp=0)")
+                 f"repair model qwen2.5-coder:3b, temp=0)")
     ax.legend()
     ax.grid(axis="y", linestyle="--", alpha=0.5, zorder=0)
     for bars, pcts in [(ba, a_pct), (bb, b_pct)]:

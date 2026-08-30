@@ -60,15 +60,19 @@ EFFICACY_ARCHIVE = BENCH_DIR / "results" / "efficacy" / "efficacy_ollama_2026082
 LADDER_CORPUS = BENCH_DIR / "ladder_corpus.json"
 DEFAULT_OUT_DIR = BENCH_DIR / "corpora"
 
-# model@temp. 7b at temp0 reproduces the published baseline config; the two
-# extra models and the temp-0.8 pass widen the distinct-failure count without
-# touching the repair step (which stays temp=0 in the A/B).
+# model@temp. The repair step (bench/run_repair_ab.py) runs on qwen2.5-coder:3b
+# — a small local model is where compiler-feedback quality should matter most,
+# and it fits this box's 4 GB VRAM so it runs ~5-10x faster than the half-evicted
+# 7b. The corpus mixes 3b (temps 0/0.4/0.8) with one 7b pass for failure-mode
+# diversity; how a program was first generated does not bias the paired A/B.
 DEFAULT_CONFIGS = [
-    "qwen2.5-coder:7b@0.0",
-    "qwen2.5-coder:7b-16k@0.0",
-    "qwen3-coder@0.0",
-    "qwen2.5-coder:7b@0.8",
+    "qwen2.5-coder:3b@0.0",
+    "qwen2.5-coder:3b@0.4",
+    "qwen2.5-coder:3b@0.8",
 ]
+# (a qwen2.5-coder:7b@0.0 pass seeded the first ~50 corpus entries before the
+#  switch to a 3b-primary design; those records stay for failure-mode diversity,
+#  but no new 7b generations run — the split-VRAM 7b is ~8x slower here.)
 
 
 # ── prompt sources ───────────────────────────────────────────────────────────
