@@ -4,8 +4,27 @@
 of this file had drifted on every citation (see PF-065, `docs/BUGS.md`, discovered while tracing
 the REAPER "generate.py not found" defect).*
 
-`PromptPanel.cpp` shells out to `llm/generate.py`, parses one JSON line
-back. No shared header, no schema file — this file IS the schema.
+`PromptPanel.cpp` shells out to `llm/generate.py` and parses one JSON line
+back. No shared header or schema file exists; this file documents the wire
+contract. The request has two actions:
+
+- `"action":"recommend"` asks for a bounded, editable design before Faust is
+  generated. It carries `prompt`, resolved `kind`, resolved `family`, and
+  optional `provider`/`model`. Success returns those resolved provider details
+  plus a `recommendation`: `schema:1`, title/summary, kind/family, 1-5 ordered
+  modules, 1-12 controls, and deterministic constraints. Unknown planner fields
+  are discarded by Python validation.
+- `"action":"generate"` is the Faust operation. Accepting a recommendation
+  sends its edited object as `design_plan` with the exact returned provider and
+  model. Python validates it again and folds a bounded brief into generation.
+  Requests without `action` remain legacy generate requests.
+
+An explicit kind that clearly conflicts with the prompt returns
+`reason:"target_mismatch"` and `recommended_kind`; the host redirects instead
+of offering direct generation. Invalid planner output returns
+`reason:"invalid_recommendation"`. Other planner failures may be retried or
+bypassed. Recommendations are transient editor state: prompt, family, or mode
+changes make them stale, and processor/project state never stores them.
 
 **Located**: env override `PLUGINFORGE_LLM_SCRIPT`, else walk parent dirs
 from the binary for `llm/generate.py` (:136-157); not found =>
@@ -17,8 +36,8 @@ and `EditorSessionTest.cpp` scenarios 16/24/26) has no effect on a
 installed VST3** (`~/.vst3/…`) — see PF-065.
 **Invoked**: `juce::ChildProcess::start(argv, ...)` — no shell, no
 injection — `argv = [pythonExe, scriptPath, "--prompt", text]`, or
-`--request-file <tmpfile>` (:520-576) whenever the request carries
-structured fields: `prior_source`, `kind`, or `refine_mode`
+`--request-file <tmpfile>` whenever the request carries structured fields:
+`action`, `design_plan`, `provider`, `model`, `prior_source`, `kind`, or `refine_mode`
 (`"surgical"` | `"context"` | absent — absent for a "New"/Fresh
 generation, which sends no prior source to refine in the first place).
 **Read**: `readAllProcessOutput()` merges stdout+stderr (:646); the LAST

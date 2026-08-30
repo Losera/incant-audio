@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import providers  # noqa: E402
 import router  # noqa: E402
 import generation_profiles  # noqa: E402
+import recommendation  # noqa: E402
 import error_classes  # noqa: E402
 import voice_contract  # noqa: E402
 
@@ -504,6 +505,7 @@ def generate_json(request: dict) -> dict:
     meaning, and both sides move in this commit.
     """
     prompt = request["prompt"]
+    requested_kind = request.get("kind")
     provider = request.get("provider", DEFAULT_PROVIDER)
     # None → providers.resolve_model() picks the selected provider's default, so a
     # request naming a provider but no model can't inherit another provider's model.
@@ -514,13 +516,23 @@ def generate_json(request: dict) -> dict:
     # Routed ONCE, before the loop, from the user's text. Every retry then reuses
     # the same kind — see generate_faust's note on why re-routing per attempt
     # would repair code against rules the first attempt never saw.
-    kind, system_prompt = select_prompt(prompt, request.get("kind"))
+    kind, system_prompt = select_prompt(prompt, requested_kind)
     try:
         profile, family_source = generation_profiles.resolve(
             prompt, kind, request.get("family")
         )
     except ValueError as exc:
         return _failure(0, "error", str(exc))
+    if requested_kind:
+        mismatch = router.detect_target_mismatch(prompt, requested_kind)
+        if mismatch:
+            response = _failure(
+                0, "target_mismatch",
+                "This prompt asks for an instrument, so use Incant Audio Synth."
+                if mismatch == "instrument" else
+                "This prompt asks for an effect, so use Incant Audio Host.")
+            response["recommended_kind"] = mismatch
+            return response
 
     # Dynamic stdlib token headroom optimization (PLUGINFORGE_DYNAMIC_STDLIB=1 default)
     if os.environ.get("PLUGINFORGE_DYNAMIC_STDLIB", "1") != "0":
@@ -563,6 +575,14 @@ def generate_json(request: dict) -> dict:
                 return _prior_source_refused_response()
             prior_source, prior_source_dropped = None, True
 
+    generation_prompt = prompt
+    if request.get("design_plan") is not None:
+        try:
+            generation_prompt = recommendation.format_design_brief(
+                request["design_plan"]) + prompt
+        except recommendation.InvalidRecommendation as exc:
+            return _failure(0, "invalid_recommendation", str(exc))
+
     error_ctx = ""
     truncated = False
     attempt = 0
@@ -576,7 +596,7 @@ def generate_json(request: dict) -> dict:
         # empty (first attempt) or unclassified.
         repair_context = _classified_error_context(error_ctx) if error_ctx else ""
         try:
-            code = generate_faust(prompt, repair_context, provider, model, budget,
+            code = generate_faust(generation_prompt, repair_context, provider, model, budget,
                                   truncated=truncated, kind=kind,
                                   prior_source=prior_source,
                                   refine_mode=refine_mode,
@@ -628,6 +648,40 @@ def generate_json(request: dict) -> dict:
                             f"Last compiler error:\n{error_ctx}")
 
     return _failure(max_retries, "invalid_faust", error_ctx)
+
+
+def process_json_request(request: dict) -> dict:
+    """Dispatch the additive recommendation action; absent action stays generation."""
+    action = request.get("action", "generate")
+    if action == "generate":
+        return generate_json(request)
+    if action != "recommend":
+        return _failure(0, "error", f"unknown action: {action}")
+
+    prompt = request.get("prompt", "")
+    kind, _ = select_prompt(prompt, request.get("kind"))
+    mismatch = router.detect_target_mismatch(prompt, kind)
+    if mismatch:
+        response = _failure(
+            0, "target_mismatch",
+            "This prompt asks for an instrument, so use Incant Audio Synth."
+            if mismatch == "instrument" else
+            "This prompt asks for an effect, so use Incant Audio Host.")
+        response.update({"action": "recommend", "recommended_kind": mismatch})
+        return response
+    try:
+        profile, _ = generation_profiles.resolve(prompt, kind, request.get("family"))
+        prepared = dict(request, kind=kind, family=profile.id)
+        return recommendation.recommend_plugin(
+            prepared, request.get("budget") or generation_budget())
+    except recommendation.InvalidRecommendation as exc:
+        response = _failure(1, "invalid_recommendation", str(exc))
+        response["action"] = "recommend"
+        return response
+    except ValueError as exc:
+        response = _failure(0, "error", str(exc))
+        response["action"] = "recommend"
+        return response
 
 
 def _failure(attempts: int, reason: str, error: str,
@@ -779,15 +833,18 @@ def _run_subprocess_mode(build_request):
     request = None
     try:
         request = build_request()
-        response = generate_json(request)
-        log_user_prompt(request, response)          # PF-014
+        response = process_json_request(request)
+        # PF-014 is a generation corpus, not an interaction-event log. A normal
+        # recommendation flow invokes this subprocess twice for one generation.
+        if request.get("action", "generate") == "generate":
+            log_user_prompt(request, response)
         print(json.dumps(response))
     except Exception as exc:  # noqa: BLE001 - convert to ADR-011 JSON, never a stdout traceback
         traceback.print_exc(file=sys.stderr)
         response = _exception_response(exc)
         # A prompt that blew up is the most interesting kind to have recorded. Only
         # skipped when build_request() itself failed, i.e. there is no prompt to log.
-        if request is not None:
+        if request is not None and request.get("action", "generate") == "generate":
             log_user_prompt(request, response)
         print(json.dumps(response))
 
