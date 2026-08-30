@@ -3129,6 +3129,104 @@ void scenario42_promptWritingHint()
                        "elsewhere -- got '") + s.editor.familyHintForTest() + "'");
 }
 
+// 43 - The explicit recommendation pass reaches the native review surface and
+// remains transient. This uses the real subprocess bridge but no model/network.
+void scenario43_recommendationReview(const juce::File& tmp)
+{
+    scenario("43. recommendation is reviewed before generation",
+             "a typed planner response opens the transient card; editing the prompt marks it stale");
+    FakeGenerator::install(FakeGenerator::writeRecommendationThenSuccess(
+        tmp, "recommend43.sh", kTinyPatch));
+    Session s;
+    const auto initialHeight = s.editor.getHeight();
+    s.editor.requestRecommendationForTest("a warm resonant low-pass filter");
+    const bool ready = pumpUntil([&] { return s.editor.recommendationVisibleForTest(); });
+    check(ready, "the recommendation response opens the review panel");
+    if (! ready) return;
+    check(s.editor.statusTextForTest().contains("Recommendation ready"),
+          "the status identifies the review phase, not DSP generation");
+    check(s.editor.recommendationTitleForTest() == "Warm Low-pass",
+          "the planner title reaches the review card");
+    check(s.editor.recommendationModuleCountForTest() == 1,
+          "the editable module list is populated");
+    check(s.editor.recommendationControlCountForTest() == 1,
+          "the editable control list is populated");
+    check(s.editor.getHeight() > initialHeight,
+          "the editor allocates a full-width band while the review is visible");
+    check(s.processor.currentSourceForTest().isEmpty(),
+          "recommendation alone does not generate or install Faust");
+
+    // The host validator must reject the same required-field defect Python
+    // rejects, before starting a second subprocess.
+    s.editor.setRecommendationModulePurposeForTest(0, "");
+    s.editor.clickRecommendationGenerateForTest();
+    const bool locallyRejected = pumpUntil([&] {
+        return s.editor.recommendationValidationErrorForTest().contains("purpose");
+    }, 1000);
+    check(locallyRejected,
+          "an empty required purpose is rejected locally before generation");
+    check(s.processor.currentSourceForTest().isEmpty(),
+          "a locally-invalid plan still cannot install Faust");
+
+    s.editor.setRecommendationModulePurposeForTest(0, "Shape the incoming spectrum");
+    s.editor.clickRecommendationGenerateForTest();
+    const bool live = pumpUntil([&] { return s.editor.statusTextForTest().contains("DSP live"); });
+    check(live, "Generate from Plan crosses the subprocess bridge and installs Faust");
+    const auto requestText = FakeGenerator::capturedRequestJson(tmp, "recommend43.sh");
+    const auto request = juce::JSON::parse(requestText);
+    check(request.isObject(), "the accepted generation wrote a structured request");
+    check(request.getProperty("action", {}).toString() == "generate",
+          "the accepted request switches from recommend to generate");
+    check(request.getProperty("provider", {}).toString() == "anthropic"
+              && request.getProperty("model", {}).toString() == "test-model",
+          "the accepted request pins the recommendation provider and model");
+    const auto design = request.getProperty("design_plan", {});
+    check(design.isObject() && design.getProperty("modules", {}).isArray()
+              && design.getProperty("controls", {}).isArray(),
+          "the edited module/control plan reaches the generation request");
+
+    s.editor.setPromptTextForTest("a different filter request");
+    const bool stale = pumpUntil([&] { return s.editor.recommendationStaleForTest(); }, 1000);
+    check(stale,
+          "changing the prompt invalidates the transient recommendation");
+}
+
+void scenario44_recommendationFailureActions(const juce::File& tmp)
+{
+    scenario("44. recommendation failure actions stay explicit",
+             "ordinary planner failures can retry or bypass; wrong-target failures cannot bypass");
+    FakeGenerator::install(FakeGenerator::writeRecommendationFailureThenSuccess(
+        tmp, "recommend44.sh", "error", kTinyPatch));
+    Session retryable;
+    retryable.editor.requestRecommendationForTest("a warm filter");
+    check(pumpUntil([&] { return retryable.editor.recommendationVisibleForTest(); }),
+          "a planner failure opens the failure card");
+    check(retryable.editor.recommendationDirectVisibleForTest(),
+          "an ordinary planner failure offers direct generation");
+
+    auto captured = tmp.getChildFile("recommend44.sh_request.json");
+    captured.deleteFile();
+    retryable.editor.clickRecommendationRetryForTest();
+    check(pumpUntil([&] { return captured.existsAsFile(); }),
+          "Retry submits another request through the persistent subprocess seam");
+    auto retried = juce::JSON::parse(captured.loadFileAsString());
+    check(retried.getProperty("action", {}).toString() == "recommend",
+          "Retry preserves the recommendation action");
+
+    retryable.editor.clickRecommendationDirectForTest();
+    check(pumpUntil([&] { return retryable.editor.statusTextForTest().contains("DSP live"); }),
+          "Generate Directly bypasses the failed planner and installs Faust");
+
+    FakeGenerator::install(FakeGenerator::writeRecommendationFailureThenSuccess(
+        tmp, "recommend44_mismatch.sh", "target_mismatch", kTinyPatch));
+    Session mismatch;
+    mismatch.editor.requestRecommendationForTest("a playable saw synth");
+    check(pumpUntil([&] { return mismatch.editor.recommendationVisibleForTest(); }),
+          "a target mismatch opens the redirect card");
+    check(! mismatch.editor.recommendationDirectVisibleForTest(),
+          "a wrong-target prompt cannot bypass into direct generation");
+}
+
 } // namespace
 
 int main()
@@ -3136,7 +3234,7 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInit;
 
     std::printf("EditorSessionTest -- a simulated human session against the real editor\n");
-    std::printf("  42 scenarios, no network, no quota, snapshots to artifacts/images/\n");
+    std::printf("  44 scenarios, no network, no quota, snapshots to artifacts/images/\n");
 
     auto tmp = juce::File::getSpecialLocation(juce::File::tempDirectory)
                    .getChildFile("pluginforge_editor_session");
@@ -3185,6 +3283,8 @@ int main()
     scenario40_heuristicAccentIsDeterministicAndValid();
     scenario41_componentDescriptor();
     scenario42_promptWritingHint();
+    scenario43_recommendationReview(tmp);
+    scenario44_recommendationFailureActions(tmp);
 
     tmp.deleteRecursively();
 

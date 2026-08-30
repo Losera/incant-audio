@@ -101,6 +101,44 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
     // has been reserved in resized() and updateWindowSizeForParams() since the
     // Task-0 split — the plumbing was finished long before the panel was.
     addChildComponent(codeEditorPanel);
+    addChildComponent(recommendationPanel);
+
+    promptPanel.onRecommendationReady = [safeThis = juce::Component::SafePointer<PluginForgeEditor>(this)]
+        (const juce::var& plan, const juce::String& provider, const juce::String& model)
+    {
+        if (safeThis != nullptr)
+            safeThis->recommendationPanel.setRecommendation(plan, provider, model);
+    };
+    promptPanel.onRecommendationFailure = [safeThis = juce::Component::SafePointer<PluginForgeEditor>(this)]
+        (const juce::String& message, bool allowBypass, bool targetMismatch)
+    {
+        if (safeThis != nullptr)
+            safeThis->recommendationPanel.setFailure(message, allowBypass, targetMismatch);
+    };
+    promptPanel.onRecommendationInvalidated = [safeThis = juce::Component::SafePointer<PluginForgeEditor>(this)]
+    {
+        if (safeThis != nullptr) safeThis->recommendationPanel.markStale();
+    };
+    recommendationPanel.onGenerate = [safeThis = juce::Component::SafePointer<PluginForgeEditor>(this)]
+        (const juce::var& plan, const juce::String& provider, const juce::String& model)
+    {
+        if (safeThis != nullptr)
+            safeThis->promptPanel.generateFromRecommendation(plan, provider, model);
+    };
+    recommendationPanel.onRetry = [safeThis = juce::Component::SafePointer<PluginForgeEditor>(this)]
+    {
+        if (safeThis != nullptr) safeThis->promptPanel.retryRecommendation();
+    };
+    recommendationPanel.onGenerateDirect = [safeThis = juce::Component::SafePointer<PluginForgeEditor>(this)]
+    {
+        if (safeThis != nullptr) safeThis->promptPanel.generateDirect();
+    };
+    recommendationPanel.onVisibilityChanged = [safeThis = juce::Component::SafePointer<PluginForgeEditor>(this)](bool)
+    {
+        if (safeThis == nullptr) return;
+        safeThis->updateWindowSizeForParams();
+        safeThis->resized();
+    };
 
     addAndMakeVisible(codeToggle);
     codeToggle.onClick = [this] { setCodeViewVisible(! codeEditorPanel.isVisible()); };
@@ -333,12 +371,15 @@ void PluginForgeEditor::updateWindowSizeForParams()
     const int gridH  = juce::jmin(wanted, capH);
     const int splitH = juce::jmax(gridH, rightColumnHeight(chrome));
     const int codeH  = codeEditorPanel.isVisible() ? (chrome.gapCode + chrome.codeH) : 0;
+    const int recommendationH = recommendationPanel.isVisible()
+                                  ? (chrome.gapRecommendation + chrome.recommendationH) : 0;
     // Same voice-contract boolean as resized()'s keyboard band and
     // KeyboardPanel::setPlayable() -- an effect patch's window does not
     // reserve gapKeyboard+keyboardH for a band it will not lay out.
     const bool instrument = processor.isInstrumentForTest();
     const int winH   = juce::jmax(kMinWindowH,
-                                   verticalChrome(chrome, instrument) + splitH + codeH);
+                                   verticalChrome(chrome, instrument) + splitH + codeH
+                                       + recommendationH);
     setSize(getWidth(), winH);   // synchronously triggers resized() below
 }
 
@@ -687,6 +728,12 @@ void PluginForgeEditor::resized()
     {
         codeEditorPanel.setBounds(area.removeFromBottom(c.codeH));
         area.removeFromBottom(c.gapCode);
+    }
+
+    if (recommendationPanel.isVisible())
+    {
+        recommendationPanel.setBounds(area.removeFromBottom(c.recommendationH));
+        area.removeFromBottom(c.gapRecommendation);
     }
 
     // Split what remains into left (grid) and right (prompt) columns.

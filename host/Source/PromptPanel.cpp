@@ -187,6 +187,7 @@ PromptPanel::PromptPanel(PluginForgeProcessor& p)
         updateAutoFamilyLabel();
         historyBrowseIndex = -1;
         promptInput.setBrowsingHistory(false);
+        if (onRecommendationInvalidated) onRecommendationInvalidated();
     };
 
     // Seed from the processor -- the persisted source of truth since C6, same
@@ -221,7 +222,11 @@ PromptPanel::PromptPanel(PluginForgeProcessor& p)
     }
     familySelector.setSelectedId(1, juce::dontSendNotification);
     familySelector.setTooltip("Generation family. Auto resolves deterministically from the prompt.");
-    familySelector.onChange = [this] { updateAutoFamilyLabel(); };
+    familySelector.onChange = [this]
+    {
+        updateAutoFamilyLabel();
+        if (onRecommendationInvalidated) onRecommendationInvalidated();
+    };
     addAndMakeVisible(familySelector);
     if (processor.currentFamilySource() == "explicit")
         setFamilyForTest(processor.currentFamily());
@@ -248,6 +253,12 @@ PromptPanel::PromptPanel(PluginForgeProcessor& p)
         "Add: surgical change to the current patch - preserves structure, changes only the delta.\n"
         "Redo: regenerate with the current patch as context - may restructure freely.");
     addAndMakeVisible(refineSelector);
+    refineSelector.onChange = [this]
+    {
+        updateActionButton();
+        if (onRecommendationInvalidated) onRecommendationInvalidated();
+    };
+    updateActionButton();
 
     addAndMakeVisible(statusLabel);
     statusLabel.setText("Ready.", juce::dontSendNotification);
@@ -339,6 +350,30 @@ void PromptPanel::shutdownWorker()
 // ── Submit / worker thread ──────────────────────────────────────────────────
 void PromptPanel::submitPrompt()
 {
+    if (refineSelector.getSelectedId() == 1)
+        queueRequest("recommend");
+    else
+        queueRequest("generate");
+}
+
+void PromptPanel::generateFromRecommendation(const juce::var& plan,
+                                             const juce::String& provider,
+                                             const juce::String& model)
+{
+    queueRequest("generate", plan, provider, model);
+}
+
+void PromptPanel::retryRecommendation() { queueRequest("recommend"); }
+void PromptPanel::generateDirect() { queueRequest("generate"); }
+
+void PromptPanel::updateActionButton()
+{
+    generateButton.setButtonText(refineSelector.getSelectedId() == 1 ? "Recommend" : "Generate");
+}
+
+void PromptPanel::queueRequest(const juce::String& action, const juce::var& designPlan,
+                               const juce::String& provider, const juce::String& model)
+{
     auto text = promptInput.getText().trim();
     if (text.isEmpty())
         return;
@@ -361,7 +396,8 @@ void PromptPanel::submitPrompt()
     // Prevent double-submit. Re-enabled once the subprocess returns.
     generateButton.setEnabled(false);
     startWorking();
-    statusLabel.setText("Generating...", juce::dontSendNotification);
+    statusLabel.setText(action == "recommend" ? "Planning..." : "Generating...",
+                        juce::dontSendNotification);
 
     if (! generateScript.existsAsFile())
     {
@@ -396,6 +432,11 @@ void PromptPanel::submitPrompt()
         }
         pendingKind = PF_IS_SYNTH != 0 ? "instrument" : "effect";
         pendingFamily = selectedFamilyId();
+        pendingRefineMode = refineSel == 2 ? "surgical" : (refineSel == 3 ? "context" : "");
+        pendingAction = action;
+        pendingDesignPlan = designPlan;
+        pendingProvider = provider;
+        pendingModel = model;
         // Stamp and job published under ONE lock — see the SUBTLE note on
         // `generation` in the header for why re-reading the atomic at pickup was
         // a race that made a run discard itself.
@@ -418,7 +459,15 @@ void PromptPanel::submitPrompt()
 void PromptPanel::submitPromptForTest(const juce::String& text)
 {
     promptInput.setText(text, juce::dontSendNotification);
-    submitPrompt();
+    // Preserve the established test seam's meaning: drive the generation path.
+    // The new recommendation action has its own explicit seam below.
+    queueRequest("generate");
+}
+
+void PromptPanel::requestRecommendationForTest(const juce::String& text)
+{
+    promptInput.setText(text, juce::dontSendNotification);
+    queueRequest("recommend");
 }
 
 juce::String PromptPanel::selectedFamilyId() const
@@ -513,6 +562,8 @@ void PromptPanel::workerLoop()
         juce::String priorSource;
         juce::String kind;
         juce::String family;
+        juce::String refineMode, action, provider, model;
+        juce::var designPlan;
         {
             std::unique_lock<std::mutex> lock(jobMutex);
             jobCv.wait(lock, [this] { return hasJob || stopping; });
@@ -524,10 +575,16 @@ void PromptPanel::workerLoop()
             priorSource  = pendingPriorSource;
             kind         = pendingKind;
             family       = pendingFamily;
+            refineMode   = pendingRefineMode;
+            action       = pendingAction;
+            designPlan   = pendingDesignPlan;
+            provider     = pendingProvider;
+            model        = pendingModel;
             hasJob       = false;
         }
 
-        runGeneration(prompt, myGeneration, mode, priorSource, kind, family);
+        runGeneration(prompt, myGeneration, mode, priorSource, kind, family,
+                      refineMode, action, designPlan, provider, model);
     }
 }
 
@@ -535,7 +592,12 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
                                 PluginForgeProcessor::LoadMode mode,
                                 const juce::String& priorSource,
                                 const juce::String& kind,
-                                const juce::String& family)
+                                const juce::String& family,
+                                const juce::String& refineMode,
+                                const juce::String& action,
+                                const juce::var& designPlan,
+                                const juce::String& provider,
+                                const juce::String& model)
 {
     // Superseded, or shutting down: nothing this run produces is wanted any more.
     // Checked before touching the processor and again before publishing.
@@ -624,24 +686,22 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
         // request; this wires it to the UI. The old --prompt path (argv fallback)
         // cannot carry structured fields, so it is now reserved for the trivial
         // case: no kind override AND no prior source AND no refine_mode override.
-        const int refineSel = refineSelector.getSelectedId();
-        const juce::String refineModeStr = [&] {
-            switch (refineSel) {
-                case 2: return juce::String("surgical"); // Add
-                case 3: return juce::String("context");  // Redo
-                default: return juce::String();
-            }
-        }();
-        const bool needsRequestFile = priorSource.isNotEmpty() || kind.isNotEmpty() || refineModeStr.isNotEmpty();
+        const bool needsRequestFile = action == "recommend" || designPlan.isObject()
+                                   || priorSource.isNotEmpty() || kind.isNotEmpty()
+                                   || refineMode.isNotEmpty();
         if (needsRequestFile)
         {
             requestFile.emplace(".json");
             auto* obj = new juce::DynamicObject();
             obj->setProperty("prompt", promptText);
+            obj->setProperty("action", action);
             obj->setProperty("prior_source", priorSource);
             obj->setProperty("kind", kind);
             obj->setProperty("family", family);
-            obj->setProperty("refine_mode", refineModeStr);
+            obj->setProperty("refine_mode", refineMode);
+            if (designPlan.isObject()) obj->setProperty("design_plan", designPlan);
+            if (provider.isNotEmpty()) obj->setProperty("provider", provider);
+            if (model.isNotEmpty()) obj->setProperty("model", model);
             // Forced "\n": juce_File.h:781-784's replaceWithText defaults
             // lineEndings to "\r\n", a trap host/tests/FakeGenerator.h already
             // paid for once (PromptPanelThreadingTest). generate.py's json.loads
@@ -818,6 +878,45 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
         // `! success` branch below, not the success path above.
         const bool priorSourceRefused = parsed.getProperty("prior_source_refused", false);
 
+        if (action == "recommend")
+        {
+            auto recommendation = parsed.getProperty("recommendation", {});
+            auto resolvedProvider = parsed.getProperty("provider", {}).toString();
+            auto resolvedModel = parsed.getProperty("model", {}).toString();
+            const bool targetMismatch = reason == "target_mismatch";
+            juce::MessageManager::callAsync(
+                [safeThis, success, recommendation, resolvedProvider, resolvedModel,
+                 errorMsg, targetMismatch]
+                {
+                    if (safeThis == nullptr) return;
+                    safeThis->stopWorking();
+                    safeThis->generateButton.setEnabled(true);
+                    if (success && recommendation.isObject())
+                    {
+                        safeThis->statusLabel.setText("Recommendation ready - review below.",
+                                                      juce::dontSendNotification);
+                        if (safeThis->onRecommendationReady)
+                            safeThis->onRecommendationReady(recommendation, resolvedProvider,
+                                                            resolvedModel);
+                    }
+                    else
+                    {
+                        const auto message = errorMsg.isNotEmpty()
+                                                 ? errorMsg
+                                                 : juce::String("Recommendation failed with no error text.");
+                        safeThis->setError(message);
+                        safeThis->statusLabel.setText(targetMismatch
+                                                          ? "Wrong Incant Audio target."
+                                                          : "Recommendation failed.",
+                                                      juce::dontSendNotification);
+                        if (safeThis->onRecommendationFailure)
+                            safeThis->onRecommendationFailure(message, ! targetMismatch,
+                                                              targetMismatch);
+                    }
+                });
+            return;
+        }
+
         if (! success || faustCode.isEmpty())
         {
             juce::MessageManager::callAsync([safeThis, errorMsg, reason, exitCode, priorSourceRefused, retryAfterSeconds]
@@ -853,6 +952,8 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
                         : statusForReason(reason, retryAfterSeconds),
                     juce::dontSendNotification);
                 safeThis->generateButton.setEnabled(true);
+                if (reason == "target_mismatch" && safeThis->onRecommendationFailure)
+                    safeThis->onRecommendationFailure(fullErr, false, true);
             });
             return;
         }
