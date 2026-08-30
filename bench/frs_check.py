@@ -31,6 +31,7 @@ never-compiled cells in bench/results/efficacy/efficacy_ollama_20260828.json):
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -38,6 +39,12 @@ import subprocess
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
+
+
+def sha(text: str) -> str:
+    """Short content hash — the identity key for a Faust program across the
+    corpus and A/B harnesses."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 # Notes carrying compiler-internal box dumps — as noisy for an LLM as the C++
 # box-expression dump this whole exercise is trying to get away from. Dropped by
