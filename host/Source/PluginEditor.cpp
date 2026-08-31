@@ -641,8 +641,9 @@ void PluginForgeEditor::resized()
     // one fires, update the height baselines in the same commit as the band change
     // — do not relax it. (Lives here, not at class scope: `Chrome{}` needs default
     // member initializers the enclosing class has not finished declaring yet.)
-    static_assert(rightColumnHeight(Chrome{}) == 242,
-                  "Right column: promptH(220) + gapMeter(8) + meterH(14) = 242.");
+    static_assert(rightColumnHeight(Chrome{}) == 276,
+                  "Right column: promptH(254) + gapMeter(8) + meterH(14) = 276. "
+                  "promptH went 220 -> 254 when ADR-032 v1 added the provider/model row.");
     static_assert(verticalChrome(Chrome{}) == 216,
                   "Vertical chrome: margin(16) + titleH(32) + gapSamples(8) "
                   "+ samplesH(64) + gapKeyboard(8) + keyboardH(72) + margin(16) = 216.");
