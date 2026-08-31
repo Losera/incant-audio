@@ -53,6 +53,7 @@
 
 #include "../Source/PluginEditor.h"
 #include "../Source/PluginProcessor.h"
+#include "../Source/PluginConfig.h"
 #include "FakeGenerator.h"
 
 #include <chrono>
@@ -3129,6 +3130,110 @@ void scenario42_promptWritingHint()
                        "elsewhere -- got '") + s.editor.familyHintForTest() + "'");
 }
 
+// 43 — ADR-032 v1: the config file's provider/model reach the LLM request, and
+// are OMITTED entirely when no config exists.
+//
+// generate_json() already reads request.get("provider", DEFAULT_PROVIDER) /
+// request.get("model") (llm/generate.py:507-510) — nothing in the host ever
+// sent either. PromptPanel now reads ~/.config/pluginforge/config.json once at
+// construction and snapshots active_provider / active_model with each job. The
+// "omitted when absent" half is load-bearing: an explicit "" would make
+// request.get("provider", DEFAULT_PROVIDER) return "" (the key exists), so the
+// launcher-started-DAW fallback to DEFAULT_PROVIDER would silently break.
+void scenario43_configProviderModelReachesRequest(const juce::File& tmp)
+{
+    scenario("43. config.json's provider/model reach the request (and are omitted when absent)",
+             "ADR-032 v1 — in-plugin provider/model selection via a plugin-read "
+             "config file, wired to generate.py's existing provider/model fields");
+
+    const char* kOldXdgConfig = ::getenv("XDG_CONFIG_HOME");
+    const juce::String oldXdgConfig = kOldXdgConfig != nullptr ? juce::String(kOldXdgConfig) : juce::String();
+
+    // ── With a config file: both fields ride the request ─────────────────────
+    {
+        auto cfgHome = tmp.getChildFile("cfg43_present");
+        cfgHome.deleteRecursively();
+        ::setenv("XDG_CONFIG_HOME", cfgHome.getFullPathName().toRawUTF8(), 1);
+
+        PluginConfig cfg;
+        cfg.activeProvider = "groq";
+        cfg.activeModel    = "llama-3.3-70b-versatile";
+        check(cfg.writeTo(PluginConfig::configFile()),
+              "PluginConfig::writeTo created ~/.config/pluginforge/config.json");
+
+        FakeGenerator::install(
+            FakeGenerator::writeSuccessCapturing(tmp, "gen43", kTinyPatch));
+
+        Session s;   // reads the config in PromptPanel's constructor
+        s.editor.submitPromptForTest("a patch whose request must name the provider");
+        const bool live = pumpUntil([&] {
+            return s.editor.statusTextForTest().contains("DSP live");
+        });
+        check(live, "the provider-carrying generation reached DSP live");
+
+        const auto parsed = juce::JSON::parse(FakeGenerator::capturedRequestJson(tmp, "gen43"));
+        check(parsed.getProperty("provider", "").toString() == "groq",
+              "the request JSON carries active_provider from config.json");
+        check(parsed.getProperty("model", "").toString() == "llama-3.3-70b-versatile",
+              "the request JSON carries active_model from config.json");
+    }
+
+    // ── With no config file: neither key is present ──────────────────────────
+    {
+        auto cfgHome = tmp.getChildFile("cfg43_absent");
+        cfgHome.deleteRecursively();
+        cfgHome.createDirectory();   // exists, but no pluginforge/config.json inside
+        ::setenv("XDG_CONFIG_HOME", cfgHome.getFullPathName().toRawUTF8(), 1);
+
+        FakeGenerator::install(
+            FakeGenerator::writeSuccessCapturing(tmp, "gen43b", kTinyPatch));
+
+        Session s;
+        s.editor.submitPromptForTest("a patch with no configured provider");
+        const bool live = pumpUntil([&] {
+            return s.editor.statusTextForTest().contains("DSP live");
+        });
+        check(live, "generation still succeeds with no config file");
+
+        const auto req = FakeGenerator::capturedRequestJson(tmp, "gen43b");
+        check(req.isNotEmpty(), "a request.json was written (kind alone forces --request-file)");
+        const auto parsed = juce::JSON::parse(req);
+        check(parsed.isObject() && ! parsed.hasProperty("provider"),
+              "no config => the request omits 'provider' entirely, so DEFAULT_PROVIDER applies");
+        check(parsed.isObject() && ! parsed.hasProperty("model"),
+              "no config => the request omits 'model' entirely");
+    }
+
+    // ── Malformed config file: degrades to environment-only, does not error ──
+    {
+        auto cfgHome = tmp.getChildFile("cfg43_malformed");
+        cfgHome.deleteRecursively();
+        auto cfgFile = cfgHome.getChildFile("pluginforge/config.json");
+        cfgFile.getParentDirectory().createDirectory();
+        cfgFile.replaceWithText("this is not json {{{", false, false, "\n");
+        ::setenv("XDG_CONFIG_HOME", cfgHome.getFullPathName().toRawUTF8(), 1);
+
+        FakeGenerator::install(
+            FakeGenerator::writeSuccessCapturing(tmp, "gen43c", kTinyPatch));
+
+        Session s;
+        s.editor.submitPromptForTest("a patch with a broken config file");
+        const bool live = pumpUntil([&] {
+            return s.editor.statusTextForTest().contains("DSP live");
+        });
+        check(live, "a malformed config.json does not break generation");
+
+        const auto parsed = juce::JSON::parse(FakeGenerator::capturedRequestJson(tmp, "gen43c"));
+        check(parsed.isObject() && ! parsed.hasProperty("provider"),
+              "malformed config => treated as absent, request omits 'provider'");
+    }
+
+    if (oldXdgConfig.isNotEmpty())
+        ::setenv("XDG_CONFIG_HOME", oldXdgConfig.toRawUTF8(), 1);
+    else
+        ::unsetenv("XDG_CONFIG_HOME");
+}
+
 } // namespace
 
 int main()
@@ -3136,12 +3241,20 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInit;
 
     std::printf("EditorSessionTest -- a simulated human session against the real editor\n");
-    std::printf("  42 scenarios, no network, no quota, snapshots to artifacts/images/\n");
+    std::printf("  43 scenarios, no network, no quota, snapshots to artifacts/images/\n");
 
     auto tmp = juce::File::getSpecialLocation(juce::File::tempDirectory)
                    .getChildFile("pluginforge_editor_session");
     tmp.deleteRecursively();
     tmp.createDirectory();
+
+    // Isolate from the developer's real ~/.config/pluginforge/config.json:
+    // PromptPanel now reads it once at construction (ADR-032 v1). Every Session
+    // here builds a PromptPanel, so point XDG_CONFIG_HOME at an empty scratch
+    // dir; scenario 43 overrides it per-case and restores this baseline.
+    auto isolatedConfigHome = tmp.getChildFile("xdg_config_home_baseline");
+    isolatedConfigHome.createDirectory();
+    ::setenv("XDG_CONFIG_HOME", isolatedConfigHome.getFullPathName().toRawUTF8(), 1);
 
     scenario01_happyPath(tmp);
     scenario02_widgetKinds();
@@ -3185,6 +3298,7 @@ int main()
     scenario40_heuristicAccentIsDeterministicAndValid();
     scenario41_componentDescriptor();
     scenario42_promptWritingHint();
+    scenario43_configProviderModelReachesRequest(tmp);
 
     tmp.deleteRecursively();
 

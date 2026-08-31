@@ -271,6 +271,13 @@ private:
     // if generate.py could not be located.
     juce::File generateScript;
 
+    // ADR-032 v1: read once from ~/.config/pluginforge/config.json at
+    // construction. Message-thread only; snapshotted into pendingProvider/
+    // pendingModel at each submit. Empty == not configured, and the request
+    // JSON then omits the field so generate.py's DEFAULT_PROVIDER applies.
+    juce::String activeProvider;
+    juce::String activeModel;
+
     // Session-local prompt history, most-recent-first, de-duplicated. Durable
     // history restored from the persisted blob waits on the S1 source/prompt
     // getter (FLEET req #14) — this is the in-session half only.
@@ -322,7 +329,9 @@ private:
                        PluginForgeProcessor::LoadMode mode,
                        const juce::String& priorSource,
                        const juce::String& kind,
-                       const juce::String& family);
+                       const juce::String& family,
+                       const juce::String& provider,
+                       const juce::String& model);
     void shutdownWorker();
 
     std::thread             worker;
@@ -350,6 +359,11 @@ private:
     // pendingPriorSource: read on message thread, published with the job.
     juce::String            pendingKind;              // guarded by jobMutex
     juce::String            pendingFamily;            // guarded by jobMutex
+    // ADR-032 v1: provider/model AS OF SUBMIT, snapshotted from activeProvider/
+    // activeModel on the message thread and published with the job — same
+    // thread/mutex reasoning as pendingKind. Empty == not configured.
+    juce::String            pendingProvider;          // guarded by jobMutex
+    juce::String            pendingModel;             // guarded by jobMutex
     bool                    hasJob   = false;
     bool                    stopping = false;   // guarded by jobMutex
 

@@ -1,4 +1,5 @@
 #include "SoundfetchClient.h"
+#include "PluginConfig.h"   // ADR-032 v1: soundfetch_interpreter_path
 
 SoundfetchClient::SoundfetchClient(juce::File root) : cacheRoot(std::move(root))
 {
@@ -24,13 +25,19 @@ juce::StringArray SoundfetchClient::commandPrefix() const
     // llm/generate.py (ADR-011, PromptPanel.cpp:462-467): a soundfetch-specific
     // override for an installed/venv layout the system python3 can't import
     // soundfetch from, falling back to the shared PLUGINFORGE_PYTHON override,
-    // then the bare "python3" PATH lookup. `<python> -m soundfetch` rather than
-    // a `soundfetch` binary name removes the PATH-visibility requirement that
-    // made every query fail on this machine (soundfetch only ever installed
-    // inside venvs, never on PATH).
+    // then (ADR-032 v1) config.json's soundfetch_interpreter_path for a
+    // launcher-started DAW that inherits no PLUGINFORGE_* at all, then the bare
+    // "python3" PATH lookup. `<python> -m soundfetch` rather than a `soundfetch`
+    // binary name removes the PATH-visibility requirement that made every query
+    // fail on this machine (soundfetch only ever installed inside venvs, never
+    // on PATH).
     auto pythonExe = juce::SystemStats::getEnvironmentVariable(
         "PLUGINFORGE_SOUNDFETCH_PYTHON",
-        juce::SystemStats::getEnvironmentVariable("PLUGINFORGE_PYTHON", "python3"));
+        juce::SystemStats::getEnvironmentVariable("PLUGINFORGE_PYTHON", {}));
+    if (pythonExe.isEmpty())
+        pythonExe = PluginConfig::load().soundfetchInterpreterPath;
+    if (pythonExe.isEmpty())
+        pythonExe = "python3";
     return { pythonExe, "-m", "soundfetch" };
 }
 

@@ -1,6 +1,7 @@
 #include "PromptPanel.h"
 #include "Theme.h"
 #include "ForgeLookAndFeel.h"   // resolveThemeFont -- see its header comment
+#include "PluginConfig.h"       // ADR-032 v1: provider/model + generate.py path
 #include <thread>
 #include <cmath>
 #include <optional>
@@ -81,7 +82,7 @@ static juce::String statusForReason(const juce::String& reason, double retryAfte
 // this actual repo (whose real llm/generate.py would otherwise mask a test
 // aimed at steps 2/3, since the test binary is built inside this tree).
 //
-// Three steps, in order:
+// Four steps, in order:
 //   1. PLUGINFORGE_LLM_SCRIPT env override — always wins when set.
 //   2. Walk upward from the loaded binary looking for a sibling llm/generate.py.
 //      Verified against the real layouts (2026-07-19): dev Standalone binary
@@ -91,7 +92,12 @@ static juce::String statusForReason(const juce::String& reason, double retryAfte
 //      dev-tree or in-tree build; an *installed* bundle (e.g. ~/.vst3, or a
 //      dev build copied there by CMake's COPY_PLUGIN_AFTER_BUILD) has no repo
 //      above it, so every step of this walk misses.
-//   3. Check the location `install.sh` actually writes to (docs/distribution.md):
+//   3. The path in ~/.config/pluginforge/config.json's generate_script_path,
+//      when set (ADR-032 v1). This sits BEFORE the XDG step deliberately: it is
+//      the one source a user can point at a known-good runtime by hand, so it
+//      must beat a stale XDG install (PF-071 — a launcher-started DAW falling
+//      through to an outdated ~/.local/share/pluginforge runtime).
+//   4. The location `install.sh` writes to (docs/distribution.md):
 //      $XDG_DATA_HOME/pluginforge/llm/generate.py, else
 //      ~/.local/share/pluginforge/llm/generate.py. Added for PF-065: the
 //      packaged install already places the runtime at this fixed, documented
@@ -107,11 +113,14 @@ static juce::String statusForReason(const juce::String& reason, double retryAfte
 // no XDG-installed runtime, so it still requires exporting
 // PLUGINFORGE_LLM_SCRIPT before launching the DAW — the same "supported
 // mechanism" this function's step 1 already names. See docs/BUGS.md PF-065.
-juce::File resolveGenerateScript(
-    const juce::File& binaryDir = juce::File::getSpecialLocation(
-        juce::File::currentExecutableFile).getParentDirectory(),
-    const juce::File& homeDir = juce::File::getSpecialLocation(
-        juce::File::userHomeDirectory))
+//
+// External linkage (no `static`) and the config passed explicitly so
+// PromptPanelPathResolutionTest can inject scratch directories AND a scratch
+// config without touching the real ~/.config. The PromptPanel constructor
+// passes PluginConfig::load().
+juce::File resolveGenerateScript(const juce::File& binaryDir,
+                                 const juce::File& homeDir,
+                                 const PluginConfig& config)
 {
     auto envScript = juce::SystemStats::getEnvironmentVariable(
         "PLUGINFORGE_LLM_SCRIPT", "");
@@ -125,6 +134,17 @@ juce::File resolveGenerateScript(
         if (candidate.existsAsFile())
             return candidate;
         dir = dir.getParentDirectory();
+    }
+
+    // config.json's generate_script_path — before XDG, so it beats a stale
+    // install (PF-071). A configured path that does not exist is not silently
+    // skipped-and-forgotten: it still falls through to step 4, but the value
+    // the user set is the one submitPrompt() will name if nothing resolves.
+    if (config.generateScriptPath.isNotEmpty())
+    {
+        juce::File configured(config.generateScriptPath);
+        if (configured.existsAsFile())
+            return configured;
     }
 
     auto xdgDataHome = juce::SystemStats::getEnvironmentVariable("XDG_DATA_HOME", "");
@@ -195,9 +215,20 @@ PromptPanel::PromptPanel(PluginForgeProcessor& p)
     // typically runs before the editor (and this panel) is even constructed.
     promptHistory = processor.promptHistorySnapshot();
 
+    // ADR-032 v1: one config read at construction. Feeds both generate.py
+    // resolution (step 3) and the provider/model published with each job.
+    // A prompt or family change never re-reads it — active provider/model is
+    // an application preference captured per generation, not patch state.
+    const PluginConfig config = PluginConfig::load();
+    activeProvider = config.activeProvider;
+    activeModel    = config.activeModel;
+
     // Resolution order — see resolveGenerateScript() above the constructor for
-    // the third step (PF-065) and its rationale.
-    generateScript = resolveGenerateScript();
+    // the config-file step (PF-071) and the XDG step (PF-065).
+    generateScript = resolveGenerateScript(
+        juce::File::getSpecialLocation(juce::File::currentExecutableFile).getParentDirectory(),
+        juce::File::getSpecialLocation(juce::File::userHomeDirectory),
+        config);
 
     addAndMakeVisible(generateButton);
     generateButton.onClick = [this] { submitPrompt(); };
@@ -396,6 +427,11 @@ void PromptPanel::submitPrompt()
         }
         pendingKind = PF_IS_SYNTH != 0 ? "instrument" : "effect";
         pendingFamily = selectedFamilyId();
+        // ADR-032 v1: snapshot the config's provider/model with the job. Empty
+        // == "not configured", and runGeneration omits the key entirely so the
+        // Python side's request.get("provider", DEFAULT_PROVIDER) still applies.
+        pendingProvider = activeProvider;
+        pendingModel    = activeModel;
         // Stamp and job published under ONE lock — see the SUBTLE note on
         // `generation` in the header for why re-reading the atomic at pickup was
         // a race that made a run discard itself.
@@ -513,6 +549,8 @@ void PromptPanel::workerLoop()
         juce::String priorSource;
         juce::String kind;
         juce::String family;
+        juce::String provider;
+        juce::String model;
         {
             std::unique_lock<std::mutex> lock(jobMutex);
             jobCv.wait(lock, [this] { return hasJob || stopping; });
@@ -524,10 +562,13 @@ void PromptPanel::workerLoop()
             priorSource  = pendingPriorSource;
             kind         = pendingKind;
             family       = pendingFamily;
+            provider     = pendingProvider;
+            model        = pendingModel;
             hasJob       = false;
         }
 
-        runGeneration(prompt, myGeneration, mode, priorSource, kind, family);
+        runGeneration(prompt, myGeneration, mode, priorSource, kind, family,
+                      provider, model);
     }
 }
 
@@ -535,7 +576,9 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
                                 PluginForgeProcessor::LoadMode mode,
                                 const juce::String& priorSource,
                                 const juce::String& kind,
-                                const juce::String& family)
+                                const juce::String& family,
+                                const juce::String& provider,
+                                const juce::String& model)
 {
     // Superseded, or shutting down: nothing this run produces is wanted any more.
     // Checked before touching the processor and again before publishing.
@@ -632,7 +675,9 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
                 default: return juce::String();
             }
         }();
-        const bool needsRequestFile = priorSource.isNotEmpty() || kind.isNotEmpty() || refineModeStr.isNotEmpty();
+        const bool needsRequestFile = priorSource.isNotEmpty() || kind.isNotEmpty()
+                                   || refineModeStr.isNotEmpty()
+                                   || provider.isNotEmpty() || model.isNotEmpty();
         if (needsRequestFile)
         {
             requestFile.emplace(".json");
@@ -642,6 +687,12 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
             obj->setProperty("kind", kind);
             obj->setProperty("family", family);
             obj->setProperty("refine_mode", refineModeStr);
+            // ADR-032 v1: provider/model as OPTIONAL request fields. Omitted
+            // entirely when not configured — an explicit "" would defeat
+            // generate.py's request.get("provider", DEFAULT_PROVIDER) fallback
+            // (the key would exist, so the default never applies).
+            if (provider.isNotEmpty()) obj->setProperty("provider", provider);
+            if (model.isNotEmpty())    obj->setProperty("model", model);
             // Forced "\n": juce_File.h:781-784's replaceWithText defaults
             // lineEndings to "\r\n", a trap host/tests/FakeGenerator.h already
             // paid for once (PromptPanelThreadingTest). generate.py's json.loads

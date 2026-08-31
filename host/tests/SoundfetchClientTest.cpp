@@ -190,6 +190,50 @@ void testDefaultCommandUsesPythonModule()
     ::unsetenv("PLUGINFORGE_PYTHON");
 }
 
+// ── ADR-032 v1: config.json's soundfetch_interpreter_path fills the slot when
+// neither env override is set -- the launcher-started-DAW case that inherits no
+// PLUGINFORGE_* at all. An env override still wins over it.
+void testConfigInterpreterFallback(const juce::File& tmp)
+{
+    ::unsetenv("SOUNDFETCH_BIN");
+    ::unsetenv("PLUGINFORGE_SOUNDFETCH_PYTHON");
+    ::unsetenv("PLUGINFORGE_PYTHON");
+
+    auto cfgHome = tmp.getChildFile("sf_cfg_home");
+    cfgHome.deleteRecursively();
+    ::setenv("XDG_CONFIG_HOME", cfgHome.getFullPathName().toRawUTF8(), 1);
+
+    // No config file yet -> unchanged "python3" default.
+    {
+        SoundfetchClient client(tmp.getChildFile("cache_cfg_none"));
+        auto argv = client.commandPrefixForTest();
+        expectTrue(argv.size() == 3 && argv[0] == "python3",
+                  "no config file: interpreter still defaults to python3");
+    }
+
+    // config file with soundfetch_interpreter_path -> that path is used.
+    {
+        auto cfgFile = cfgHome.getChildFile("pluginforge/config.json");
+        cfgFile.getParentDirectory().createDirectory();
+        cfgFile.replaceWithText(
+            "{ \"schema\": 1, \"soundfetch_interpreter_path\": \"/opt/incant/bin/python\" }\n",
+            false, false, "\n");
+
+        SoundfetchClient client(tmp.getChildFile("cache_cfg_set"));
+        auto argv = client.commandPrefixForTest();
+        expectTrue(argv.size() == 3 && argv[0] == "/opt/incant/bin/python",
+                  "config.json's soundfetch_interpreter_path is used when no env override is set");
+
+        // An env override still beats the config file.
+        ::setenv("PLUGINFORGE_SOUNDFETCH_PYTHON", "/opt/venv/bin/python", 1);
+        auto overridden = client.commandPrefixForTest();
+        expectTrue(overridden.size() == 3 && overridden[0] == "/opt/venv/bin/python",
+                  "PLUGINFORGE_SOUNDFETCH_PYTHON still overrides config.json");
+        ::unsetenv("PLUGINFORGE_SOUNDFETCH_PYTHON");
+    }
+    // XDG_CONFIG_HOME left pointed at this scratch dir; main() clears it.
+}
+
 // A present interpreter with no soundfetch module is the default installation
 // failure, and differs from execvp's missing-executable exit 255 signature.
 void testMissingModuleReportsUnavailable(const juce::File& tmp)
@@ -245,6 +289,13 @@ int main()
     tmp.deleteFile();
     tmp.createDirectory();
 
+    // Isolate from the developer's real ~/.config/pluginforge/config.json:
+    // commandPrefix() now consults it (ADR-032 v1) when no env override is set,
+    // so every case that asserts the "python3" default needs a config-free HOME.
+    auto isolatedConfigHome = tmp.getChildFile("xdg_config_home_empty");
+    isolatedConfigHome.createDirectory();
+    ::setenv("XDG_CONFIG_HOME", isolatedConfigHome.getFullPathName().toRawUTF8(), 1);
+
     testCleanJsonParses(tmp);
     testStderrNoiseIgnored(tmp);
     testMissingInterpreterReportsUnavailable(tmp);
@@ -252,8 +303,10 @@ int main()
     testDefaultCommandUsesPythonModule();
     testMissingModuleReportsUnavailable(tmp);
     testSearchAndDownloadArguments(tmp);
+    testConfigInterpreterFallback(tmp);
 
     ::unsetenv("SOUNDFETCH_BIN");
+    ::unsetenv("XDG_CONFIG_HOME");
     tmp.deleteRecursively();
 
     std::cerr << checks << " checks, " << failures << " failures\n";
