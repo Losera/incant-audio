@@ -1695,3 +1695,109 @@ providers — so the v1 "no Python change, C++/`INTERFACE.md` only" claim holds.
 is separate, unstarted, and Tier 2 (`INTERFACE.md` wire contract + `PromptPanel` C++).
 PF-065's install-layout half is out of scope and stays open with PF-065; PF-071's
 stale-runtime mechanism is what decision item 3's config-file-before-XDG ordering addresses.
+
+---
+
+## ADR-033 — Pre-generation design-plan review ("recommend" action)
+
+| | |
+|---|---|
+| **Status** | Accepted with conditions — 2026-08-31 |
+| **Date** | 2026-08-31 |
+| **Relates to** | ADR-011 (stdout JSON schema), ADR-032 (in-plugin provider/model; backend landed PR #42) |
+
+**Context**
+
+The Codex branch `feat/recommendation-mvp` (PR #39, +1,379 / −27, no ADR) adds a
+**pre-generation design-plan review workflow**: before Faust is generated, a `recommend`
+LLM call returns a bounded, editable plan — title, summary, 1–5 ordered modules, 1–12
+controls, deterministic product constraints. The user edits it in a native
+`RecommendationPanel`, accepts, and the edited object flows into generation as `design_plan`
+(folded into the prompt by `recommendation.format_design_brief()`). The feature is
+well-built: `llm/recommendation.py` does typed validation (per-field length caps,
+duplicate-name folding, module-reference integrity); `constraints_for()` injects
+MONO_VOICE / CUSTOM_METERS_UNAVAILABLE / LIVE_INPUT_NOT_SAMPLE_PLAYER deterministically
+rather than trusting the planner; 44 Python tests + 2 C++ `EditorSessionTest` scenarios; the
+panel is editor-local and transient (a prompt/family/mode change marks it stale; project
+state never stores it).
+
+Three things need a decision, not a merge:
+
+1. **The review step is mandatory on the Fresh path, not opt-in.** `refineSelector` defaults
+   to "New"; `submitPrompt()` routes it to `queueRequest("recommend")` and the Generate
+   button relabels to "Recommend". Every fresh UI generation becomes two LLM round-trips
+   (`generate.py`: "A normal recommendation flow invokes this subprocess twice for one
+   generation"). Free-tier provider quota is already the binding constraint on the PF-011
+   efficacy run.
+2. **It changes the legacy `generate` path.** `router.detect_target_mismatch()` runs inside
+   `generate_json()` for any request carrying an explicit `kind` (verified: the call is in
+   *both* `generate_json()` and `process_json_request()`). The host sends `kind` on `main`;
+   so does `bench/check_refine_preamble_live.py`. A prompt whose vocabulary out-scores its
+   selected target now returns `reason:"target_mismatch"` and does not generate — a hard
+   behavior change, unmeasured against the corpus.
+3. **It edits the ADR-011 wire contract** (three consumers — host C++, Python, bench): a
+   top-level `action` dispatch (`generate` | `recommend`), a `design_plan` request field, a
+   `recommendation` response object, two new `reason` codes (`target_mismatch`,
+   `invalid_recommendation`). This is COLLABORATION.md §2 trigger 3.
+
+Since PR #42 landed, the branch conflicts with `main` on `INTERFACE.md`,
+`PromptPanel.{cpp,h}`, and `host/tests/EditorSessionTest.cpp` — including a **direct
+scenario-number collision on 43** (main's is config-provider-model; the branch's is
+recommendation-review).
+
+**Decision**
+
+**Accept the recommendation workflow. Four conditions before the branch merges, and it is
+sequenced *after* the ADR-032 picker follow-up** (both touch `PromptPanel`'s provider/model
+wiring, the request-JSON build, and the same tight control-area layout — picker-first means
+one clean rebase, not two).
+
+1. **Review is opt-in.** Default "New" calls `generate` directly (single round-trip,
+   Generate button unchanged). Add an explicit opt-in — a fourth `refineSelector` item
+   ("Plan"), so the existing invalidation wiring and `updateActionButton()` apply unchanged.
+   `submitPrompt()` routes only that selection to `queueRequest("recommend")`. Add an
+   `EditorSessionTest` scenario asserting the default path is one `generate` call, no panel.
+2. **`detect_target_mismatch` is scoped to the `recommend` action.** Remove the call from
+   `generate_json()`; keep it only in `process_json_request()`'s `recommend` branch. A
+   mismatch guard on plain `generate` is a separate Tier-2 change with its own corpus
+   re-run, not a rider. Add a Python test that the legacy path no longer calls it.
+3. **Rebase onto the landed ADR-032 contract; one combined `INTERFACE.md` section;
+   renumber the branch's scenarios (43 is taken).** Provider/model precedence, one
+   `INTERFACE.md` sentence: **the config-file `active_provider`/`active_model` is the
+   default; a `recommend` response's resolved `provider`/`model`, echoed back on the
+   following `generate`, pins that generation and overrides the config default; absent an
+   echoed pin, the config default applies.**
+4. **COLLABORATION.md §3–§5 hygiene:** non-empty commit bodies; the branch's own
+   `INTERFACE.md` + `STATUS.md` updates; `EditorSessionTest` scenarios built and green under
+   `tools/check.sh full`.
+
+Scope boundary: `recommendation` schema stays `schema:1`, bounded (≤5 modules, ≤12 controls,
+`_LIMITS` caps). No planner-authored constraint codes — `constraints_for()` stays
+deterministic and host-authoritative. The panel stays editor-local and transient.
+
+**Reasons**
+
+- The branch is tested and rots against `main`; a decision now is cheaper than a cold
+  re-review after the release.
+- Doubling the default-path LLM call count against the quota that blocks the one metric is a
+  direction call the human must make — hence opt-in (condition 1).
+- `detect_target_mismatch` on the legacy path is a silent behavior change to a path this
+  feature is not otherwise about; it deserves its own evidence (condition 2).
+- The workflow *is* Phase-5, which `docs/phases/README.md` says runs parallel *into* the
+  release, not before it — hence sequenced behind the release-relevant picker work.
+
+**Consequences**
+
+- `INTERFACE.md` gains `action` / `design_plan` / `recommendation` / two `reason` codes on
+  top of ADR-032's `provider`/`model` — one combined contract section.
+- Default-path cost unchanged (condition 1); the opt-in path is two calls by explicit user
+  choice, first capped at `max_tokens=1200`.
+- `PF-014` prompt log records only `generate` actions (branch already does this).
+- CLAUDE.md file-map / prompt-files section gains `llm/recommendation.py` and
+  `llm/prompts/recommendation_prompt.md` when the code lands (Tier 1, at land time).
+- Rollback: `action` is optional, defaults to `generate`; removing the opt-in control + the
+  panel returns to today's behavior, no schema break, no state migration.
+- New source files — `host/CMakeLists.txt` adds them to the target; no new dependency.
+- **Unverified until the implementation lands:** whether the planner's output quality on the
+  shipping free-tier model is worth the round-trip — a reading/listening judgment, not a
+  test.
