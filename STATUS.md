@@ -60,10 +60,11 @@ One line per capability, each naming its evidence. "Builds clean" is not a capab
 checks + `tools/kg.py` instead) — both Accepted 2026-08-27, merged PR #30. **ADR-032**
 (in-plugin provider/model + a non-secret plugin-read `config.json`, narrow v1) — Accepted
 2026-08-29, PR #37; **backend implemented 2026-08-31, PR #42**; picker + resolved-path
-surface still to do. A **recommendation-workflow ADR** (pre-generation "recommend" review,
-the Codex `feat/recommendation-mvp` / PR #39) is **drafted, unnumbered, awaiting
-accept/reject** (see "Waiting on you"); the draft recommends accept-with-four-changes. It
-is not written into `docs/decisions.md` until accepted.
+surface still to do. **ADR-033** (pre-generation "recommend" review workflow, the Codex
+`feat/recommendation-mvp` / PR #39) — **Accepted with conditions 2026-08-31**: review must
+become opt-in, `detect_target_mismatch` scoped off the legacy path, a stated
+provider-precedence rule, §3–§5 hygiene; and sequenced *after* the ADR-032 picker follow-up.
+The branch does not merge until those four conditions are met.
 
 **Landed 2026-08-30/31:** PR #40 (`docs/phases/` living per-phase rollup), PR #41 (faust-rs
 issue-#26 repair-loop A/B harness + **PF-076**), PR #42 (ADR-032 v1 backend, above).
@@ -192,14 +193,12 @@ clock — no host transport in Standalone).
 
 ## Waiting on you
 
-1. **The recommendation-workflow ADR — accept / accept-with-changes / reject.** The
-   pre-generation "recommend" review workflow (Codex `feat/recommendation-mvp`, PR #39).
-   Drafted this cycle (unnumbered until accepted); the draft
-   recommends **accept with four changes** — review becomes opt-in (not the mandatory Fresh
-   path, which currently doubles the LLM call count), `detect_target_mismatch` scoped off
-   the legacy `generate` path, a stated provider-precedence rule, and a rebase onto PR #42
-   (which now conflicts on `INTERFACE.md`, `PromptPanel.{cpp,h}`, and `EditorSessionTest.cpp`
-   — both branches added a "scenario 43"). PR #39 blocks on this call.
+1. **Merge or shelve the Codex branch once ADR-033's four conditions are met.** ADR-033 is
+   Accepted with conditions (2026-08-31); the implementation work (opt-in review,
+   `detect_target_mismatch` scoping, rebase onto the ADR-032 contract, §3–§5 hygiene) is
+   sequenced after the picker follow-up. PR #39 stays open until then; it currently
+   conflicts with `main` on `INTERFACE.md`, `PromptPanel.{cpp,h}`, and `EditorSessionTest.cpp`
+   (both branches added a "scenario 43").
 2. **Verify PF-071 in a real launcher-started DAW.** Launch REAPER or Carla *from the
    desktop launcher* (not a terminal), no `PLUGINFORGE_*` exported, no `.env`, with a
    hand-written `~/.config/pluginforge/config.json` (`generate_script_path` + `active_provider`),
