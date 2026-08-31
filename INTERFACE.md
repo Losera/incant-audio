@@ -7,20 +7,37 @@ the REAPER "generate.py not found" defect).*
 `PromptPanel.cpp` shells out to `llm/generate.py`, parses one JSON line
 back. No shared header, no schema file — this file IS the schema.
 
-**Located**: env override `PLUGINFORGE_LLM_SCRIPT`, else walk parent dirs
-from the binary for `llm/generate.py` (:136-157); not found =>
-`generateScript` invalid, submit surfaces "generate.py not found".
-Resolved ONCE in `PromptPanel`'s constructor — reinstalling a different
-script mid-session (a test-fixture trap; see `FakeGenerator.h`'s comments
-and `EditorSessionTest.cpp` scenarios 16/24/26) has no effect on a
-`PromptPanel` that already exists. **This resolver does not reach an
-installed VST3** (`~/.vst3/…`) — see PF-065.
+**Located**: four steps, in order (`resolveGenerateScript()`, just above
+`PromptPanel`'s constructor): (1) env override `PLUGINFORGE_LLM_SCRIPT`;
+(2) walk parent dirs from the binary for `llm/generate.py`; (3) **ADR-032 v1**
+— the `generate_script_path` in `~/.config/pluginforge/config.json` when set
+and the file exists, placed *before* the XDG step so a user-set path beats a
+stale install (PF-071); (4) `$XDG_DATA_HOME/pluginforge/llm/generate.py`
+(else `~/.local/share/...`), the location `install.sh` writes to. Not found
+by any step => `generateScript` invalid, submit surfaces "generate.py not
+found". Resolved ONCE in `PromptPanel`'s constructor — reinstalling a
+different script mid-session (a test-fixture trap; see `FakeGenerator.h`'s
+comments and `EditorSessionTest.cpp` scenarios 16/24/26) has no effect on a
+`PromptPanel` that already exists. Step 2 alone **does not reach an installed
+VST3** (`~/.vst3/…`); step 3 is the config-file answer to that — see PF-065.
 **Invoked**: `juce::ChildProcess::start(argv, ...)` — no shell, no
 injection — `argv = [pythonExe, scriptPath, "--prompt", text]`, or
 `--request-file <tmpfile>` (:520-576) whenever the request carries
-structured fields: `prior_source`, `kind`, or `refine_mode`
+structured fields: `prior_source`, `kind`, `refine_mode`
 (`"surgical"` | `"context"` | absent — absent for a "New"/Fresh
-generation, which sends no prior source to refine in the first place).
+generation, which sends no prior source to refine in the first place), or
+`provider` / `model`.
+
+**`provider` / `model` (optional, ADR-032 v1).** Two optional string fields
+on the `--request-file` payload. Read from `active_provider` /
+`active_model` in `~/.config/pluginforge/config.json` once at construction,
+snapshotted with each job. **Omitted entirely when not configured** — an
+explicit `""` would defeat `generate.py`'s
+`request.get("provider", DEFAULT_PROVIDER)` fallback (the key would exist),
+which is exactly the launcher-started-DAW case they exist to fix.
+`generate_json()` already consumes both (`llm/generate.py:507-510`); the
+Python side is unchanged. Credentials are **not** here — they stay in
+`.env` / the environment, read by the Python side (ADR-032 §4).
 **Read**: `readAllProcessOutput()` merges stdout+stderr (:646); the LAST
 line starting with `{` is taken as JSON (:650-658, generate.py's own
 "exactly one JSON line" promise, generate.py:590) — `getProperty` with
