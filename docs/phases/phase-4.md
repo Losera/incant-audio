@@ -1,6 +1,6 @@
 # Phase 4 — Installable & supportable builds
 
-**Status:** Release-critical, blocked · **Last reviewed:** 2026-08-30 (main `55eda8c`)
+**Status:** Release-critical, blocked · **Last reviewed:** 2026-08-31 (main `3512f8e`)
 
 Part of the six-phase plan — see [`README.md`](README.md). Defers to `STATUS.md` and
 `docs/BUGS.md`.
@@ -13,8 +13,12 @@ when the plugin runs as an installed VST3 from a launcher-started DAW.
 ## Where it stands
 
 Packaging exists; release proof does not. The blocking defects are in runtime discovery of
-`llm/generate.py` and the installed Python runtime's configuration. ADR-032 (accepted) is
-the fix path for the config half.
+`llm/generate.py` and the installed Python runtime's configuration. ADR-032 v1 is the fix
+path for the config half: the **backend landed 2026-08-31 (PR #42)** — a plugin-read
+`~/.config/pluginforge/config.json`, `generate_script_path` resolved before the XDG step,
+`provider`/`model` in the request JSON. The **in-plugin picker + resolved-path surface**
+(ADR-032 items 2 & 7) is in flight (PR #43). Neither PF-065 nor PF-071 is closed until a
+human runs the repro in a launcher-started DAW.
 
 ## Evidence on record
 
@@ -29,24 +33,21 @@ the fix path for the config half.
 
 ## Open work
 
-- **PF-065** — generation fails as an installed VST3 ("generate.py not found"),
-  re-confirmed in REAPER 2026-08-28: the env override is not inherited, the parent-dir
-  walk starts at the `.so` under `~/.vst3`, and the XDG fallback misses
-  (`host/Source/PromptPanel.cpp`).
-- **PF-071** — the partial fix traded that for a stale 2026-08-15 runtime at
-  `~/.local/share/pluginforge/llm/` that defaults to the paid provider with no `.env`.
-  Reproduced in REAPER and Carla (`docs/BUGS.md`).
-- **ADR-032 v1** implementation: `provider`/`model` in the request JSON (`INTERFACE.md`,
-  Tier 2), an in-plugin picker for the five providers, a
-  `~/.config/pluginforge/config.json` read before the XDG step. Closes the config half
-  only (`STATUS.md`, "Next three").
-- A real `install.sh` that writes a version-matched runtime — closes the install-layout
-  half (stays with PF-065).
+- **PF-065 / PF-071 — verify in a real launcher-started DAW.** The resolution logic is
+  tested (`PromptPanelPathResolutionTest`, `EditorSessionTest` scenarios 43/44), but no one
+  has yet launched REAPER or Carla *from the desktop launcher* — no `PLUGINFORGE_*`, no
+  `.env` — with a `~/.config/pluginforge/config.json` and confirmed generation succeeds.
+  Only that closes the two defects. A human interaction pass; see `STATUS.md` "Waiting on
+  you".
+- **PF-065's install-layout half** — a real `install.sh` that writes a version-matched
+  runtime + `.env` and has the plugin prefer it over a stale one. Out of scope for ADR-032;
+  stays with PF-065.
 - Clean-checkout Release smoke; supported-platform matrix; toolchain-range pins; a staged
   release artifact with licenses / hashes / provenance; a defined release-acceptance gate
   (`PLUGIN_HEALTH_PLAN.md` P1.1–P1.5).
-- The Codex `feat/recommendation-mvp` branch has independently started the ADR-032
-  wire-contract piece — reconcile before either lands.
+- The Codex `feat/recommendation-mvp` branch edits the same `INTERFACE.md` wire contract —
+  reconciliation is **ADR-033** (accepted with conditions 2026-08-31); the branch merges
+  after the picker (PR #43) and a rebase.
 
 ## Done when
 
@@ -56,6 +57,5 @@ choice is documented and versioned.
 
 ## Next action
 
-Implement ADR-032 v1 (`STATUS.md` "Next three" item 2) — it makes the plugin usable from a
-launcher-started DAW and is the smallest unblocking change. Reconcile the wire contract
-with the Codex branch first.
+Land the picker (PR #43), then a human runs the PF-071 launcher-DAW repro. In parallel: a
+real `install.sh` for PF-065's install-layout half.
