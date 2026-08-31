@@ -1,0 +1,273 @@
+{
+  "compiler": {
+    "name": "faust-rs",
+    "target": "x86_64-linux",
+    "version": "0.8.0"
+  },
+  "diagnostics": [
+    {
+      "category": "user_code",
+      "code": "FRS-EVAL-0002",
+      "debug": null,
+      "detail_code": "undefined-binding",
+      "facts": {
+        "binding_trace_path": {
+          "type": "string_list",
+          "value": [
+            "process"
+          ]
+        },
+        "owner_definition": {
+          "type": "string",
+          "value": "process"
+        },
+        "scope_local": {
+          "type": "string_list",
+          "value": [
+            "aa",
+            "an",
+            "ba",
+            "co",
+            "db",
+            "de",
+            "dm",
+            "dx",
+            "ef",
+            "en",
+            "fd",
+            "fi",
+            "ho",
+            "hy",
+            "it",
+            "la",
+            "ma",
+            "mi",
+            "mo",
+            "no",
+            "os",
+            "pf",
+            "pl",
+            "pm",
+            "process",
+            "qu",
+            "re",
+            "rm",
+            "ro",
+            "sf",
+            "si",
+            "so",
+            "sp",
+            "sy",
+            "ve",
+            "vl",
+            "wa",
+            "wd"
+          ]
+        },
+        "scope_top_level": {
+          "type": "string_list",
+          "value": [
+            "aa",
+            "an",
+            "ba",
+            "co",
+            "db",
+            "de",
+            "dm",
+            "dx",
+            "ef",
+            "en",
+            "fd",
+            "fi",
+            "ho",
+            "hy",
+            "it",
+            "la",
+            "ma",
+            "mi",
+            "mo",
+            "no",
+            "os",
+            "pf",
+            "pl",
+            "pm",
+            "process",
+            "qu",
+            "re",
+            "rm",
+            "ro",
+            "sf",
+            "si",
+            "so",
+            "sp",
+            "sy",
+            "ve",
+            "vl",
+            "wa",
+            "wd"
+          ]
+        },
+        "scope_visible": {
+          "type": "string_list",
+          "value": [
+            "aa",
+            "an",
+            "ba",
+            "co",
+            "db",
+            "de",
+            "dm",
+            "dx",
+            "ef",
+            "en",
+            "fd",
+            "fi",
+            "ho",
+            "hy",
+            "it",
+            "la",
+            "ma",
+            "mi",
+            "mo",
+            "no",
+            "os",
+            "pf",
+            "pl",
+            "pm",
+            "process",
+            "qu",
+            "re",
+            "rm",
+            "ro",
+            "sf",
+            "si",
+            "so",
+            "sp",
+            "sy",
+            "ve",
+            "vl",
+            "wa",
+            "wd"
+          ]
+        },
+        "suggested_symbols": {
+          "type": "string_list",
+          "value": [
+            "fd",
+            "it",
+            "wd"
+          ]
+        },
+        "suggestion_distance": {
+          "type": "unsigned",
+          "value": 1
+        },
+        "symbol": {
+          "type": "string",
+          "value": "id"
+        }
+      },
+      "fixes": [],
+      "help": [
+        "define the symbol in scope or fix the identifier name",
+        "template: id = ...; // define before use",
+        "for top-level aliases: define target before first use"
+      ],
+      "labels": [
+        {
+          "compatibility_span": {
+            "col": 18,
+            "end_col": 20,
+            "end_line": 2,
+            "file": "/tmp/claude-1000/-home-losera-PluginForge/3e50c350-5d82-4f84-948c-badfe3206708/scratchpad/eval.dsp",
+            "line": 2
+          },
+          "message": "failing use",
+          "range": {
+            "end": 43,
+            "source_id": 0,
+            "start": 41
+          },
+          "role": "use_site",
+          "style": "primary"
+        },
+        {
+          "compatibility_span": {
+            "col": 1,
+            "end_col": 8,
+            "end_line": 2,
+            "file": "/tmp/claude-1000/-home-losera-PluginForge/3e50c350-5d82-4f84-948c-badfe3206708/scratchpad/eval.dsp",
+            "line": 2
+          },
+          "message": "enclosing definition",
+          "range": {
+            "end": 31,
+            "source_id": 0,
+            "start": 24
+          },
+          "role": "definition_site",
+          "style": "secondary"
+        },
+        {
+          "compatibility_span": {
+            "col": 1,
+            "end_col": 8,
+            "end_line": 2,
+            "file": "/tmp/claude-1000/-home-losera-PluginForge/3e50c350-5d82-4f84-948c-badfe3206708/scratchpad/eval.dsp",
+            "line": 2
+          },
+          "message": "call site",
+          "range": {
+            "end": 31,
+            "source_id": 0,
+            "start": 24
+          },
+          "role": "call_site",
+          "style": "secondary"
+        }
+      ],
+      "message": "undefined symbol `id`",
+      "notes": [
+        "cause: unresolved identifier in current lexical scope",
+        "rule: referenced identifier must be present in visible lexical scope",
+        "computed: `id` is not present in current visible scope",
+        "did you mean: fd, it, wd?",
+        "scope.local=aa, an, ba, co, db, de, dm, dx, ef, en, fd, fi, ho, hy, it, la, ma, mi, mo, no, os, pf, pl, pm, process, qu, re, rm, ro, sf, si, so, sp, sy, ve, vl, wa, wd",
+        "scope.visible=aa, an, ba, co, db, de, dm, dx, ef, en, fd, fi, ho, hy, it, la, ma, mi, mo, no, os, pf, pl, pm, process, qu, re, rm, ro, sf, si, so, sp, sy, ve, vl, wa, wd",
+        "scope.top_level=aa, an, ba, co, db, de, dm, dx, ef, en, fd, fi, ho, hy, it, la, ma, mi, mo, no, os, pf, pl, pm, process, qu, re, rm, ro, sf, si, so, sp, sy, ve, vl, wa, wd",
+        "node_id=9",
+        "box_expr=BOXIDENT(sym(\"id\"))",
+        "expr=id",
+        "error originates from definition 'process'",
+        "binding_trace=process"
+      ],
+      "related": [],
+      "severity": "error",
+      "stage": "eval",
+      "traces": []
+    }
+  ],
+  "request": {
+    "backend": null,
+    "mode": null,
+    "normalized_options": []
+  },
+  "schema_version": 2,
+  "sources": [
+    {
+      "content_hash": "e636400e1d730cc24a5bafc9af1c2898539bc535cf64ee03b7ce6abba2844426",
+      "id": 0,
+      "kind": "file",
+      "name": "/tmp/claude-1000/-home-losera-PluginForge/3e50c350-5d82-4f84-948c-badfe3206708/scratchpad/eval.dsp",
+      "text": null
+    },
+    {
+      "content_hash": "2bc746c5d87c9100e5512f9fa36155c5e3a568500020381f9aed4ec9032d21d6",
+      "id": 1,
+      "kind": "imported_file",
+      "name": "/usr/share/faust/stdfaust.lib",
+      "text": null
+    }
+  ],
+  "status": "failed"
+}

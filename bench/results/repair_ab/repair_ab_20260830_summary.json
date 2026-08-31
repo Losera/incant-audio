@@ -1,0 +1,134 @@
+[
+  {
+    "model": "qwen2.5-coder:3b",
+    "treatment": "B",
+    "treatment_label": "faust-rs full",
+    "n": 202,
+    "a_green": 151,
+    "b_green": 88,
+    "b_only": 21,
+    "a_only": 84,
+    "mcnemar_p": 4.157046960834439e-10,
+    "a_mean_attempts": 1.7524752475247525,
+    "b_mean_attempts": 2.227722772277228,
+    "wilcoxon_p": 1.3364930894596416e-06,
+    "per_class": {
+      "routing_arity": {
+        "n": 81,
+        "a_green": 57,
+        "b_green": 26,
+        "b_only": 7,
+        "a_only": 38
+      },
+      "syntax": {
+        "n": 61,
+        "a_green": 51,
+        "b_green": 27,
+        "b_only": 3,
+        "a_only": 27
+      },
+      "hallucinated_symbol": {
+        "n": 25,
+        "a_green": 20,
+        "b_green": 8,
+        "b_only": 1,
+        "a_only": 13
+      },
+      "unclassified": {
+        "n": 17,
+        "a_green": 10,
+        "b_green": 14,
+        "b_only": 6,
+        "a_only": 2
+      },
+      "duplicate_symbol": {
+        "n": 15,
+        "a_green": 10,
+        "b_green": 10,
+        "b_only": 4,
+        "a_only": 4
+      },
+      "delay_range": {
+        "n": 2,
+        "a_green": 2,
+        "b_green": 2,
+        "b_only": 0,
+        "a_only": 0
+      },
+      "recursion_cycle": {
+        "n": 1,
+        "a_green": 1,
+        "b_green": 1,
+        "b_only": 0,
+        "a_only": 0
+      }
+    },
+    "verdict": "NO \u2014 C++ stderr repaired 63 MORE than arm B (faust-rs full) (McNemar p=0.000)."
+  },
+  {
+    "model": "qwen2.5-coder:3b",
+    "treatment": "C",
+    "treatment_label": "faust-rs core",
+    "n": 202,
+    "a_green": 151,
+    "b_green": 86,
+    "b_only": 20,
+    "a_only": 85,
+    "mcnemar_p": 1.0083009487496135e-10,
+    "a_mean_attempts": 1.7524752475247525,
+    "b_mean_attempts": 2.222772277227723,
+    "wilcoxon_p": 4.908822033590179e-07,
+    "per_class": {
+      "routing_arity": {
+        "n": 81,
+        "a_green": 57,
+        "b_green": 23,
+        "b_only": 7,
+        "a_only": 41
+      },
+      "syntax": {
+        "n": 61,
+        "a_green": 51,
+        "b_green": 25,
+        "b_only": 3,
+        "a_only": 29
+      },
+      "hallucinated_symbol": {
+        "n": 25,
+        "a_green": 20,
+        "b_green": 10,
+        "b_only": 1,
+        "a_only": 11
+      },
+      "unclassified": {
+        "n": 17,
+        "a_green": 10,
+        "b_green": 14,
+        "b_only": 5,
+        "a_only": 1
+      },
+      "duplicate_symbol": {
+        "n": 15,
+        "a_green": 10,
+        "b_green": 12,
+        "b_only": 4,
+        "a_only": 2
+      },
+      "delay_range": {
+        "n": 2,
+        "a_green": 2,
+        "b_green": 1,
+        "b_only": 0,
+        "a_only": 1
+      },
+      "recursion_cycle": {
+        "n": 1,
+        "a_green": 1,
+        "b_green": 1,
+        "b_only": 0,
+        "a_only": 0
+      }
+    },
+    "verdict": "NO \u2014 C++ stderr repaired 65 MORE than arm C (faust-rs core) (McNemar p=0.000)."
+  }
+]

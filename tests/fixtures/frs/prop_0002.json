@@ -1,0 +1,83 @@
+{
+  "compiler": {
+    "name": "faust-rs",
+    "target": "x86_64-linux",
+    "version": "0.8.0"
+  },
+  "diagnostics": [
+    {
+      "category": "user_code",
+      "code": "FRS-PROP-0002",
+      "debug": null,
+      "detail_code": null,
+      "facts": {},
+      "fixes": [],
+      "help": [
+        "for `A : B`, enforce outputs(A) == inputs(B)",
+        "fix: adjust A or B channel count to same bus width",
+        "template: process = A : B; // outputs(A) == inputs(B)"
+      ],
+      "labels": [
+        {
+          "compatibility_span": {
+            "col": 1,
+            "end_col": 8,
+            "end_line": 13,
+            "file": "/tmp/claude-1000/-home-losera-PluginForge/3e50c350-5d82-4f84-948c-badfe3206708/scratchpad/prop.dsp",
+            "line": 13
+          },
+          "message": "related source",
+          "range": {
+            "end": 385,
+            "source_id": 0,
+            "start": 378
+          },
+          "role": "primary_cause",
+          "style": "primary"
+        }
+      ],
+      "message": "sequential composition mismatch at node 17763: left outputs (2) != right inputs (1)",
+      "notes": [
+        "cause: sequential composition bus widths do not match",
+        "rule: seq(A, B) requires outputs(A) == inputs(B)",
+        "computed: 2 == 1 -> false",
+        "suggested target: make outputs(A) and inputs(B) equal (common target: 2)",
+        "sequential composition requires left outputs (2) == right inputs (1)",
+        "node_id=17763",
+        "box_expr=BOXSEQ(BOXPAR(BOXSEQ(BOXSEQ(BOXWIRE(), BOXSEQ(BOXREC(BOXSYMBOLIC(BOXSLOT(int(6)), BOXSYMBOLIC(BOXSLOT(int(7)), BOXSEQ(BOXPAR(BOXSLOT(int(7)), BOXSLOT(int(6))), BOXSUB()))), BOXSPLI...",
+        "expr=((((_ : ((BOXSYMBOLIC(BOXSLOT(int(6)), BOXSYMBOLIC(BOXSLOT(int(7)), BOXSEQ(BOXPAR(BOXSLOT(int(7)), BOXSLOT(int(6))), BOXSUB()))) ~ (_ <: (((_ * ((2 * (1 - ((1 / ((3141.592653589793...",
+        "A (seq left) = (((_ : ((BOXSYMBOLIC(BOXSLOT(int(6)), BOXSYMBOLIC(BOXSLOT(int(7)), BOXSEQ(BOXPAR(BOXSLOT(int(7)), BOXSLOT(int(6))), BOXSUB()))) ~ (_ <: (((_ * ((2 * (1 - ((1 / ((3141.592653589793 ...",
+        "B (seq right) = ((_ : ((BOXSYMBOLIC(BOXSLOT(int(6)), BOXSYMBOLIC(BOXSLOT(int(7)), BOXSEQ(BOXPAR(BOXSLOT(int(7)), BOXSLOT(int(6))), BOXSUB()))) ~ (_ <: (((_ * ((2 * (1 - ((1 / ((3141.592653589793 /...",
+        "A arity: inputs=2 outputs=2",
+        "B arity: inputs=1 outputs=1"
+      ],
+      "related": [],
+      "severity": "error",
+      "stage": "propagate",
+      "traces": []
+    }
+  ],
+  "request": {
+    "backend": null,
+    "mode": null,
+    "normalized_options": []
+  },
+  "schema_version": 2,
+  "sources": [
+    {
+      "content_hash": "d6fcdbe621796d4f7f89db2f824cd9b74909912cadb15b292968500cb4a6da10",
+      "id": 0,
+      "kind": "file",
+      "name": "/tmp/claude-1000/-home-losera-PluginForge/3e50c350-5d82-4f84-948c-badfe3206708/scratchpad/prop.dsp",
+      "text": null
+    },
+    {
+      "content_hash": "2bc746c5d87c9100e5512f9fa36155c5e3a568500020381f9aed4ec9032d21d6",
+      "id": 1,
+      "kind": "imported_file",
+      "name": "/usr/share/faust/stdfaust.lib",
+      "text": null
+    }
+  ],
+  "status": "failed"
+}

@@ -111,6 +111,7 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-073 | Audible discontinuity when a 2nd generation swaps the live DSP in a host — the operator reported "there didn't seem to be a very smooth transition between the generates." Not characterised (click vs. gap vs. dropout length; no `setParamValue` flood seen). The swap protocol (`audioBusy` drain guard + compile-callback-before-`ready`) is a load-bearing invariant; a brief gap during recompile is expected, an audible click is not. Needs a captured repro to tell which | low | open | S1 Backend | `host/Source/FaustEngine.cpp` swap path, `docs/fixplan_pushtofaust_swap.md` | 2026-08-28 | — |
 | PF-074 | A generated **instrument patch produced NaN/Inf during normal play**, forcing a regeneration to recover. `OutputGuard` is designed to catch non-finite output and **latch-mute even for instruments** (`OutputGuard.h:89`, "NonFinite always latches regardless of policy"), so either it caught it (silence, regen cleared the latch) or it did not (a real hole). The operator saw "NaN/inf" — where (REAPER meter? the plugin?) and whether audio went silent or stayed broken was not captured. `OfflineSynthRenderTest` (184 checks, 0 failures) shows the synth audio path + OutputGuard are healthy on the tested fixtures, so this is a specific generated patch under a specific runtime condition. Needs the triggering patch + action captured | medium | open | S1 Backend | `host/Source/OutputGuard.{h,cpp}`, `host/Source/FaustEngine.cpp` | 2026-08-28 | — |
 | PF-075 | Instrument polyphony: `FaustEngine` is **strictly monophonic** (one `currentNote`, one gate, last-note priority, no per-voice cloning — `FaustEngine.cpp:547-562`), but the operator playing a chord in-host heard "more than 3 voices, up to 5". Most likely overlapping **release tails + reverb** from a mono voice (each note gated off when the next arrives, but its envelope/reverb keeps ringing) — which would confirm the mono model and be nice musical behaviour. The disambiguating test — hold a sustained 5-note chord: do all 5 sustain, or do 4 decay leaving 1 — has not been run | low | open | S3 Plugin UX | `host/Source/FaustEngine.cpp:547-562` | 2026-08-28 | — |
+| PF-076 | **faust-rs diagnostics fed to the repair loop *reduce* its success rate** (issue #26). A/B over 202 C++-rejected Faust programs, repaired from the identical start with raw C++ stderr vs `faust-rs --check` rendered: repaired-within-2 dropped from 75% to 44% (`qwen2.5-coder:3b`, n=202) and 72% to 50% (`7b` Q3, n=120), McNemar p<1e-3 both, arm A also fewer attempts. Trimming faust-rs to code+message+caret (arm C) changed nothing. Mechanism: precise localisation makes a weak model edit at the caret and re-break it (same-class-again ~75–80% vs ~45%); vague stderr provokes a broader rewrite that compiles. Not a defect in faust-rs (diagnostics are a human win — stable code + location 15/15 vs C++ 0/15 + 8/15); a finding about how to use it. Untested: frontier model, FRS code as a *branch* signal, resending the failing source | — (evidence) | closed | S4 Testing | `bench/run_repair_ab.py`, `bench/results/repair_ab/repair_ab_20260830{,_7b}.json` | 2026-08-30 | 2026-08-30 |
 
 ---
 
@@ -694,16 +695,26 @@ full tiered grid.
 
 **faust-rs on these failures** (issue #26 / ADR-030 evidence): all 15 never-compiled cells
 re-checked with `faust-rs 0.8.0 --check --error-format json` against the *same final program*
-C++ rejected. **Accept/reject agreement 15/15.** C++ carried a source location on 9/15;
-faust-rs on **15/15**, plus a stable `FRS-*` code on **15/15** (C++: 0). The 6 `routing_arity`
-failures — C++'s worst case, no location + a Box-expression dump — map 1:1 to `FRS-PROP-0002`
-with a caret and the arities as numbers. Combined with a 36-program hand-built corpus:
-**51/51 accept-reject agreement, zero disagreements.** Tooling:
-`scratchpad/frs_annotate.py` (measurement-only; faust-rs is not a project dependency).
+C++ rejected. **Accept/reject agreement 15/15.** C++ carried a source location on 8/15
+*(re-derived 2026-08-30 as 8, recorded as 9 on 2026-08-28 — a stderr-scoring-heuristic
+difference plus Faust 2.85.5→2.85.9; not material)*; faust-rs on **15/15**, plus a stable
+`FRS-*` code on **15/15** (C++: 0). The 6 `routing_arity` failures — C++'s worst case, no
+location + a Box-expression dump — map 1:1 to `FRS-PROP-0002` with a caret and the arities as
+numbers. Reproducible from a clean checkout via `bench/frs_rederive_issue26.py`
+(replaces the uncommitted-and-lost `scratchpad/frs_annotate.py`; measurement-only, faust-rs
+is not a project dependency). The 36-program hand-built corpus behind the "51/51" figure was
+in the same lost scratchpad and is **not** recoverable — 15/51 re-derives.
 
-**Caveat, unchanged:** all of this is the 7B on CPU. groq's 120B is barely sampled (a
-2026-08-28 probe sweep got 4 PF-024 syntax classes clean on groq — no reproduction — and the
-`duplicate_symbol` residual once in 3, before the daily token limit stopped it).
+**Loop-level result (PF-076, 2026-08-30):** feeding those diagnostics *back to the model* in
+place of C++ stderr made the repair loop **worse** — 75%→44% repaired-within-2 on
+`qwen2.5-coder:3b` (n=202), 72%→50% on `7b` Q3 (n=120), McNemar p<1e-3. So the diagnostic
+quality is a human win but not, as-is, an automated-repair win. See PF-076 and
+`bench/results/repair_ab/`.
+
+**Caveat, unchanged:** the diagnostic-quality half is the 7B on CPU. groq's 120B is barely
+sampled (a 2026-08-28 probe sweep got 4 PF-024 syntax classes clean on groq — no
+reproduction — and the `duplicate_symbol` residual once in 3, before the daily token limit
+stopped it).
 
 ---
 
