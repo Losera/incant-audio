@@ -3234,6 +3234,83 @@ void scenario43_configProviderModelReachesRequest(const juce::File& tmp)
         ::unsetenv("XDG_CONFIG_HOME");
 }
 
+// 44 — ADR-032 v1 items 2 & 7: the in-plugin provider/model picker seeds from
+// config.json, writes it back on change, and the written value reaches the next
+// request. Also: the resolved-runtime source is surfaced (item 7).
+void scenario44_providerPicker(const juce::File& tmp)
+{
+    scenario("44. the provider/model picker reads and writes config.json",
+             "ADR-032 v1 item 2 -- an in-plugin picker so the user does not hand-edit "
+             "config.json; item 7 -- the status line names which runtime resolved");
+
+    const char* kOldXdgConfig = ::getenv("XDG_CONFIG_HOME");
+    const juce::String oldXdgConfig = kOldXdgConfig != nullptr ? juce::String(kOldXdgConfig) : juce::String();
+
+    auto cfgHome = tmp.getChildFile("cfg44");
+    cfgHome.deleteRecursively();
+    ::setenv("XDG_CONFIG_HOME", cfgHome.getFullPathName().toRawUTF8(), 1);
+
+    // Seed a config with a generate_script_path (so writeConfigFromPickers must
+    // preserve it) and an initial provider.
+    const auto cfgFile = cfgHome.getChildFile("pluginforge/config.json");
+    {
+        PluginConfig seed;
+        seed.activeProvider = "gemini";
+        seed.generateScriptPath = "/opt/incant/llm/generate.py";
+        check(seed.writeTo(cfgFile), "seed config.json written");
+    }
+
+    FakeGenerator::install(FakeGenerator::writeSuccessCapturing(tmp, "gen44", kTinyPatch));
+
+    Session s;
+    check(s.editor.pickerProviderForTest() == "gemini",
+          "the picker seeds active_provider from config.json");
+
+    // Change the picker -> config.json is rewritten, generate_script_path preserved.
+    s.editor.setPickerProviderForTest("groq");
+    s.editor.setPickerModelForTest("openai/gpt-oss-120b");
+    const auto rewritten = juce::JSON::parse(cfgFile.loadFileAsString());
+    check(rewritten.getProperty("active_provider", "").toString() == "groq",
+          "changing the picker writes active_provider back to config.json");
+    check(rewritten.getProperty("active_model", "").toString() == "openai/gpt-oss-120b",
+          "the model field is written too");
+    check(rewritten.getProperty("generate_script_path", "").toString() == "/opt/incant/llm/generate.py",
+          "the picker preserves generate_script_path it did not touch (load-modify-write)");
+
+    // The picked provider rides the next request.
+    s.editor.submitPromptForTest("a patch after the picker changed");
+    check(pumpUntil([&] { return s.editor.statusTextForTest().contains("DSP live"); }),
+          "generation after a picker change reaches DSP live");
+    const auto req = juce::JSON::parse(FakeGenerator::capturedRequestJson(tmp, "gen44"));
+    check(req.getProperty("provider", "").toString() == "groq",
+          "the request carries the picker's provider, not config.json's seed value");
+    check(req.getProperty("model", "").toString() == "openai/gpt-oss-120b",
+          "the request carries the picker's model");
+
+    // Anthropic is offered but the gate stays on the Python side: the request
+    // still names it, and the downstream PaidProviderError is not this layer's job.
+    s.editor.setPickerProviderForTest("anthropic");
+    check(s.editor.pickerProviderForTest() == "anthropic", "the picker accepts anthropic");
+    s.editor.submitPromptForTest("a patch naming the paid provider");
+    check(pumpUntil([&] { return s.editor.statusTextForTest().contains("DSP live"); }),
+          "the anthropic-named generation completes (the fake does not gate)");
+    const auto paidReq = juce::JSON::parse(FakeGenerator::capturedRequestJson(tmp, "gen44"));
+    check(paidReq.getProperty("provider", "").toString() == "anthropic",
+          "the picker offers anthropic and the request carries it; the paid gate is downstream");
+
+    // Item 7: which runtime resolved. FakeGenerator sets PLUGINFORGE_LLM_SCRIPT,
+    // so this Session resolved via the env override.
+    check(s.editor.runtimeSourceForTest() == "env",
+          "the resolved-runtime source is recorded (env here - FakeGenerator sets the override)");
+
+    snapshot(s.editor, "44_provider_picker");
+
+    if (oldXdgConfig.isNotEmpty())
+        ::setenv("XDG_CONFIG_HOME", oldXdgConfig.toRawUTF8(), 1);
+    else
+        ::unsetenv("XDG_CONFIG_HOME");
+}
+
 } // namespace
 
 int main()
@@ -3241,7 +3318,7 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInit;
 
     std::printf("EditorSessionTest -- a simulated human session against the real editor\n");
-    std::printf("  43 scenarios, no network, no quota, snapshots to artifacts/images/\n");
+    std::printf("  44 scenarios, no network, no quota, snapshots to artifacts/images/\n");
 
     auto tmp = juce::File::getSpecialLocation(juce::File::tempDirectory)
                    .getChildFile("pluginforge_editor_session");
@@ -3299,6 +3376,7 @@ int main()
     scenario41_componentDescriptor();
     scenario42_promptWritingHint();
     scenario43_configProviderModelReachesRequest(tmp);
+    scenario44_providerPicker(tmp);
 
     tmp.deleteRecursively();
 

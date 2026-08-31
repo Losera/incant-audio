@@ -46,8 +46,10 @@
 // call it without pulling in the rest of PromptPanel's construction. The config
 // is passed explicitly (ADR-032 v1) so a case can inject a scratch config
 // without reading the developer's real ~/.config/pluginforge/config.json.
+// `resolvedVia` (ADR-032 item 7): receives "env" | "repo" | "config" | "xdg" | "".
 juce::File resolveGenerateScript(const juce::File& binaryDir, const juce::File& homeDir,
-                                 const PluginConfig& config);
+                                 const PluginConfig& config,
+                                 juce::String* resolvedVia = nullptr);
 
 namespace
 {
@@ -222,6 +224,52 @@ int main()
         auto resolved = resolveGenerateScript(binDir, emptyHomeDir, cfg);
         check(resolved == devScript,
               "the binary-relative dev-tree walk still takes priority over a configured path");
+    }
+
+    // ── 9. ADR-032 item 7: resolvedVia names which step won ──────────────────
+    {
+        clearEnv();
+        juce::String via;
+
+        auto envScript = scratch.getChildFile("case9_env.py");
+        envScript.replaceWithText("# env\n");
+        ::setenv("PLUGINFORGE_LLM_SCRIPT", envScript.getFullPathName().toRawUTF8(), 1);
+        resolveGenerateScript(emptyBinaryDir, emptyHomeDir, kNoConfig, &via);
+        check(via == "env", "resolvedVia == 'env' for the PLUGINFORGE_LLM_SCRIPT override");
+
+        clearEnv();
+        auto repoRoot = scratch.getChildFile("case9_repo");
+        auto binDir = repoRoot.getChildFile("host/build/x");
+        binDir.createDirectory();
+        auto devScript = repoRoot.getChildFile("llm/generate.py");
+        devScript.getParentDirectory().createDirectory();
+        devScript.replaceWithText("# dev\n");
+        resolveGenerateScript(binDir, emptyHomeDir, kNoConfig, &via);
+        check(via == "repo", "resolvedVia == 'repo' for the upward walk");
+
+        clearEnv();
+        auto configured = scratch.getChildFile("case9_cfg/llm/generate.py");
+        configured.getParentDirectory().createDirectory();
+        configured.replaceWithText("# cfg\n");
+        PluginConfig cfg;
+        cfg.generateScriptPath = configured.getFullPathName();
+        resolveGenerateScript(emptyBinaryDir, emptyHomeDir, cfg, &via);
+        check(via == "config", "resolvedVia == 'config' for config.json's generate_script_path");
+
+        clearEnv();
+        auto xdgHome = scratch.getChildFile("case9_xdg");
+        auto install = xdgHome.getChildFile("pluginforge/llm/generate.py");
+        install.getParentDirectory().createDirectory();
+        install.replaceWithText("# xdg\n");
+        ::setenv("XDG_DATA_HOME", xdgHome.getFullPathName().toRawUTF8(), 1);
+        resolveGenerateScript(emptyBinaryDir, emptyHomeDir, kNoConfig, &via);
+        check(via == "xdg", "resolvedVia == 'xdg' for the XDG install");
+
+        clearEnv();
+        auto b = scratch.getChildFile("case9_none_bin"); b.createDirectory();
+        auto h = scratch.getChildFile("case9_none_home"); h.createDirectory();
+        resolveGenerateScript(b, h, kNoConfig, &via);
+        check(via.isEmpty(), "resolvedVia == '' when nothing resolves");
     }
 
     scratch.deleteRecursively();

@@ -31,13 +31,19 @@ generation, which sends no prior source to refine in the first place), or
 **`provider` / `model` (optional, ADR-032 v1).** Two optional string fields
 on the `--request-file` payload. Read from `active_provider` /
 `active_model` in `~/.config/pluginforge/config.json` once at construction,
-snapshotted with each job. **Omitted entirely when not configured** — an
-explicit `""` would defeat `generate.py`'s
-`request.get("provider", DEFAULT_PROVIDER)` fallback (the key would exist),
-which is exactly the launcher-started-DAW case they exist to fix.
-`generate_json()` already consumes both (`llm/generate.py:507-510`); the
-Python side is unchanged. Credentials are **not** here — they stay in
-`.env` / the environment, read by the Python side (ADR-032 §4).
+snapshotted with each job. The in-plugin picker (`PromptPanel`'s
+`providerSelector` + `modelField`, one of `auto`/`gemini`/`groq`/`openrouter`/
+`ollama`/`anthropic`) writes those two keys back via `PluginConfig::writeTo()`
+on change, load-modify-write so it does not drop `generate_script_path`.
+**Omitted entirely when not configured** ("auto" / blank) — an explicit `""`
+would defeat `generate.py`'s `request.get("provider", DEFAULT_PROVIDER)`
+fallback (the key would exist), which is exactly the launcher-started-DAW
+case they exist to fix. `generate_json()` already consumes both
+(`llm/generate.py:507-510`); the Python side is unchanged, and the paid
+`anthropic` gate stays there (`PaidProviderError` unless
+`PLUGINFORGE_ALLOW_PAID=1`) — the picker does not re-implement it.
+Credentials are **not** here — they stay in `.env` / the environment, read by
+the Python side (ADR-032 §4).
 **Read**: `readAllProcessOutput()` merges stdout+stderr (:646); the LAST
 line starting with `{` is taken as JSON (:650-658, generate.py's own
 "exactly one JSON line" promise, generate.py:590) — `getProperty` with
