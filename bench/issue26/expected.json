@@ -1,0 +1,49 @@
+{
+  "_comment": "Frozen expectations for bench/issue26/verify.py. Integer counts are exact; p-value keys are upper bounds. Regenerate ONLY if the committed corpus / result JSONs are deliberately replaced, and say why in the commit.",
+  "corpus": {
+    "file": "bench/corpora/repair_corpus_20260830.json",
+    "total_records": 513,
+    "failing_records": 207,
+    "distinct_failing_programs": 202,
+    "by_first_error_class": {
+      "routing_arity": 81,
+      "syntax": 61,
+      "hallucinated_symbol": 25,
+      "unclassified": 17,
+      "duplicate_symbol": 15,
+      "delay_range": 2,
+      "recursion_cycle": 1
+    }
+  },
+  "cells": [
+    {
+      "result_file": "bench/results/repair_ab/repair_ab_20260830.json",
+      "model": "qwen2.5-coder:3b", "treatment": "B",
+      "n": 202, "a_green": 151, "b_green": 88, "b_only": 21, "a_only": 84,
+      "mcnemar_p_max": 0.001, "wilcoxon_p_max": 0.001,
+      "a_mean_attempts": 1.7524752475247525, "b_mean_attempts": 2.227722772277228
+    },
+    {
+      "result_file": "bench/results/repair_ab/repair_ab_20260830.json",
+      "model": "qwen2.5-coder:3b", "treatment": "C",
+      "n": 202, "a_green": 151, "b_green": 86, "b_only": 20, "a_only": 85,
+      "mcnemar_p_max": 0.001, "wilcoxon_p_max": 0.001,
+      "a_mean_attempts": 1.7524752475247525, "b_mean_attempts": 2.222772277227723
+    },
+    {
+      "result_file": "bench/results/repair_ab/repair_ab_20260830_7b.json",
+      "model": "qwen2.5-coder:7b-instruct-q3_K_S", "treatment": "B",
+      "n": 120, "a_green": 87, "b_green": 60, "b_only": 9, "a_only": 36,
+      "mcnemar_p_max": 0.001, "wilcoxon_p_max": 0.001,
+      "a_mean_attempts": 1.7083333333333333, "b_mean_attempts": 2.091666666666667
+    },
+    {
+      "result_file": "bench/results/repair_ab/repair_ab_20260830_7b.json",
+      "model": "qwen2.5-coder:7b-instruct-q3_K_S", "treatment": "C",
+      "n": 120, "a_green": 87, "b_green": 57, "b_only": 13, "a_only": 43,
+      "mcnemar_p_max": 0.001, "wilcoxon_p_max": 0.001,
+      "a_mean_attempts": 1.7083333333333333, "b_mean_attempts": 2.1166666666666667
+    }
+  ],
+  "headline": "faust-rs feedback fed verbatim into the repair loop LOWERS repaired-within-2: 3B 151/202 (A) -> 88 (B) / 86 (C); 7B-Q3 87/120 (A) -> 60 (B) / 57 (C). McNemar p < 1e-3 every cell. arm A also fewer attempts-to-green."
+}
