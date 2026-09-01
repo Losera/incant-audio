@@ -180,6 +180,33 @@ public:
     // actually offers.
     bool refineModeAvailableForTest() const { return refineSelector.isItemEnabled(2); }
 
+    // Test-only (ADR-032 items 2 & 7). The provider picker's current value ("" for
+    // the "auto" item) and the free-text model; setting either fires the same
+    // callback a real change does, so a test exercises writeConfigFromPickers().
+    juce::String providerForTest() const { return activeProvider; }
+    void setProviderForTest(const juce::String& id)
+    {
+        // sendNotificationSync: ComboBox::setSelectedId dispatches onChange
+        // ASYNC by default, so a test that read back without pumping would see
+        // the old value. A real dropdown pick calls the listener synchronously.
+        for (int i = 1; i <= providerSelector.getNumItems(); ++i)
+            if (providerSelector.getItemText(i - 1).equalsIgnoreCase(id)
+                || (id.isEmpty() && providerSelector.getItemId(i - 1) == 1))
+            {
+                providerSelector.setSelectedId(providerSelector.getItemId(i - 1),
+                                               juce::sendNotificationSync);
+                return;
+            }
+    }
+    juce::String modelForTest() const { return activeModel; }
+    void setModelForTest(const juce::String& m)
+    {
+        modelField.setText(m, juce::sendNotification);
+        if (modelField.onFocusLost) modelField.onFocusLost();
+    }
+    // Which resolveGenerateScript() step produced the runtime path.
+    juce::String generateScriptSourceForTest() const { return generateScriptSource; }
+
     // Test-only. True when the LAST generation attempt (successful or not — a
     // refusal is itself a failure response, generate.py's prior_source_refused)
     // was refused because the prior source overflowed the token budget in
@@ -269,6 +296,16 @@ private:
     // own comment for why this exists rather than reading the widget back.
     juce::String      currentFamilyHint;
     juce::ComboBox    refineSelector;
+
+    // ── ADR-032 v1 items 2 & 7: provider/model picker ───────────────────────
+    // providerSelector item 1 == "Provider: auto" (config's active_provider is
+    // "", so generate.py's DEFAULT_PROVIDER applies); items 2..6 are the five
+    // already-integrated providers, in llm/providers.py registry order. modelField
+    // is free text (no discovery API in v1). Both seed from PluginConfig::load()
+    // and write it back on change via writeConfigFromPickers().
+    juce::ComboBox    providerSelector;
+    juce::TextEditor  modelField;
+
     juce::Label       statusLabel;
     juce::Label       progressLabel;
     juce::TextEditor  errorBox;
@@ -287,6 +324,27 @@ private:
     // Resolved once in the constructor; invalid juce::File (existsAsFile()==false)
     // if generate.py could not be located.
     juce::File generateScript;
+
+    // ADR-032 v1: read once from ~/.config/pluginforge/config.json at
+    // construction, then kept in sync by the picker (writeConfigFromPickers()).
+    // Message-thread only; snapshotted into pendingProvider/pendingModel at each
+    // submit. Empty == not configured, and the request JSON then omits the field
+    // so generate.py's DEFAULT_PROVIDER applies.
+    juce::String activeProvider;
+    juce::String activeModel;
+
+    // ADR-032 item 7: which resolveGenerateScript() step produced generateScript
+    // ("env" | "repo" | "config" | "xdg" | ""). Shown to the user so they can
+    // tell which runtime the plugin is talking to.
+    juce::String generateScriptSource;
+
+    // Load config.json, overwrite active_provider/active_model from the pickers,
+    // write it back (preserving the other fields), and keep activeProvider/
+    // activeModel in sync for the next submit. Called from the picker callbacks.
+    void writeConfigFromPickers();
+
+    // "runtime: <source> — <path>" for the status-line tooltip (ADR-032 item 7).
+    juce::String runtimeTooltip() const;
 
     // Session-local prompt history, most-recent-first, de-duplicated. Durable
     // history restored from the persisted blob waits on the S1 source/prompt
@@ -375,6 +433,11 @@ private:
     juce::String            pendingRefineMode;        // guarded by jobMutex
     juce::String            pendingAction { "generate" }; // guarded by jobMutex
     juce::var               pendingDesignPlan;        // guarded by jobMutex
+    // provider/model AS OF SUBMIT, published with the job (same thread/mutex
+    // reasoning as pendingKind). Precedence (ADR-033): an echoed pin from a
+    // `recommend` response overrides the config default; absent a pin, the
+    // config's active_provider/active_model (ADR-032 v1) applies; empty ==
+    // "not configured" and the request omits the field.
     juce::String            pendingProvider;          // guarded by jobMutex
     juce::String            pendingModel;             // guarded by jobMutex
     bool                    hasJob   = false;

@@ -203,6 +203,12 @@ public:
     void         setFamilyForTest(const juce::String& family) { promptPanel.setFamilyForTest(family); }
     juce::String familyHintForTest() const { return promptPanel.familyHintForTest(); }
     bool         priorSourceDroppedForTest() const { return promptPanel.priorSourceDroppedForTest(); }
+    // ADR-032 v1 items 2 & 7: the provider/model picker and the resolved-runtime tag.
+    juce::String pickerProviderForTest() const { return promptPanel.providerForTest(); }
+    void         setPickerProviderForTest(const juce::String& id) { promptPanel.setProviderForTest(id); }
+    juce::String pickerModelForTest() const { return promptPanel.modelForTest(); }
+    void         setPickerModelForTest(const juce::String& m) { promptPanel.setModelForTest(m); }
+    juce::String runtimeSourceForTest() const { return promptPanel.generateScriptSourceForTest(); }
     // Dev-cockpit state export — OFF by default. Nothing is written anywhere
     // until a caller (the Standalone app or the /cockpit skill) opts in via
     // setCockpitStatePath(path), which sets the path AND arms the 30Hz timer
@@ -330,8 +336,11 @@ private:
         // PromptPanel's own button row (generateButton/historyButton/
         // familySelector [renamed from kindSelector]/refineSelector) -- at
         // the 900px default, refineSelector was dropping to 0px.
-        int promptH     = 220;  // PromptPanel: multi-line prompt + buttons +
-                                // progress + status + a scrollable error region
+        int promptH     = 254;  // PromptPanel: multi-line prompt + THREE control
+                                // rows (actions / family+refine / provider+model,
+                                // the last added by ADR-032 v1) + progress +
+                                // status + a scrollable error region. 220 -> 254
+                                // (+buttonH+gap) when the picker row landed.
         int gapMeter    = 8;
         int meterH      = 14;
 

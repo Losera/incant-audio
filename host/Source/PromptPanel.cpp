@@ -1,6 +1,7 @@
 #include "PromptPanel.h"
 #include "Theme.h"
 #include "ForgeLookAndFeel.h"   // resolveThemeFont -- see its header comment
+#include "PluginConfig.h"       // ADR-032 v1: provider/model + generate.py path
 #include <thread>
 #include <cmath>
 #include <optional>
@@ -81,7 +82,7 @@ static juce::String statusForReason(const juce::String& reason, double retryAfte
 // this actual repo (whose real llm/generate.py would otherwise mask a test
 // aimed at steps 2/3, since the test binary is built inside this tree).
 //
-// Three steps, in order:
+// Four steps, in order:
 //   1. PLUGINFORGE_LLM_SCRIPT env override — always wins when set.
 //   2. Walk upward from the loaded binary looking for a sibling llm/generate.py.
 //      Verified against the real layouts (2026-07-19): dev Standalone binary
@@ -91,7 +92,12 @@ static juce::String statusForReason(const juce::String& reason, double retryAfte
 //      dev-tree or in-tree build; an *installed* bundle (e.g. ~/.vst3, or a
 //      dev build copied there by CMake's COPY_PLUGIN_AFTER_BUILD) has no repo
 //      above it, so every step of this walk misses.
-//   3. Check the location `install.sh` actually writes to (docs/distribution.md):
+//   3. The path in ~/.config/pluginforge/config.json's generate_script_path,
+//      when set (ADR-032 v1). This sits BEFORE the XDG step deliberately: it is
+//      the one source a user can point at a known-good runtime by hand, so it
+//      must beat a stale XDG install (PF-071 — a launcher-started DAW falling
+//      through to an outdated ~/.local/share/pluginforge runtime).
+//   4. The location `install.sh` writes to (docs/distribution.md):
 //      $XDG_DATA_HOME/pluginforge/llm/generate.py, else
 //      ~/.local/share/pluginforge/llm/generate.py. Added for PF-065: the
 //      packaged install already places the runtime at this fixed, documented
@@ -107,24 +113,57 @@ static juce::String statusForReason(const juce::String& reason, double retryAfte
 // no XDG-installed runtime, so it still requires exporting
 // PLUGINFORGE_LLM_SCRIPT before launching the DAW — the same "supported
 // mechanism" this function's step 1 already names. See docs/BUGS.md PF-065.
-juce::File resolveGenerateScript(
-    const juce::File& binaryDir = juce::File::getSpecialLocation(
-        juce::File::currentExecutableFile).getParentDirectory(),
-    const juce::File& homeDir = juce::File::getSpecialLocation(
-        juce::File::userHomeDirectory))
+//
+// External linkage (no `static`) and the config passed explicitly so
+// PromptPanelPathResolutionTest can inject scratch directories AND a scratch
+// config without touching the real ~/.config. The PromptPanel constructor
+// passes PluginConfig::load().
+//
+// `resolvedVia` (ADR-032 item 7): when non-null, receives a short tag naming
+// which of the four steps actually resolved — "env" | "repo" | "config" | "xdg",
+// or "" when nothing resolved. PromptPanel surfaces it so a user can see which
+// runtime the plugin is talking to (the fourth resolution source PF-065 added
+// is only defensible if the plugin can say which one it used — the ADR's own
+// adversarial critique).
+juce::File resolveGenerateScript(const juce::File& binaryDir,
+                                 const juce::File& homeDir,
+                                 const PluginConfig& config,
+                                 juce::String* resolvedVia)
 {
+    const auto note = [resolvedVia](const char* tag) { if (resolvedVia != nullptr) *resolvedVia = tag; };
+
     auto envScript = juce::SystemStats::getEnvironmentVariable(
         "PLUGINFORGE_LLM_SCRIPT", "");
     if (envScript.isNotEmpty())
+    {
+        note("env");
         return juce::File(envScript);
+    }
 
     auto dir = binaryDir;
     for (int depth = 0; depth < 10; ++depth)
     {
         auto candidate = dir.getChildFile("llm").getChildFile("generate.py");
         if (candidate.existsAsFile())
+        {
+            note("repo");
             return candidate;
+        }
         dir = dir.getParentDirectory();
+    }
+
+    // config.json's generate_script_path — before XDG, so it beats a stale
+    // install (PF-071). A configured path that does not exist is not silently
+    // skipped-and-forgotten: it still falls through to step 4, but the value
+    // the user set is the one submitPrompt() will name if nothing resolves.
+    if (config.generateScriptPath.isNotEmpty())
+    {
+        juce::File configured(config.generateScriptPath);
+        if (configured.existsAsFile())
+        {
+            note("config");
+            return configured;
+        }
     }
 
     auto xdgDataHome = juce::SystemStats::getEnvironmentVariable("XDG_DATA_HOME", "");
@@ -135,10 +174,14 @@ juce::File resolveGenerateScript(
                                    .getChildFile("llm")
                                    .getChildFile("generate.py");
     if (installedCandidate.existsAsFile())
+    {
+        note("xdg");
         return installedCandidate;
+    }
 
     // Not found by any step: return an invalid juce::File. submitPrompt()
     // surfaces "generate.py not found" with the (empty) path in the UI.
+    note("");
     return {};
 }
 
@@ -196,9 +239,22 @@ PromptPanel::PromptPanel(PluginForgeProcessor& p)
     // typically runs before the editor (and this panel) is even constructed.
     promptHistory = processor.promptHistorySnapshot();
 
+    // ADR-032 v1: one config read at construction. Feeds both generate.py
+    // resolution (step 3) and the provider/model published with each job.
+    // A prompt or family change never re-reads it — active provider/model is
+    // an application preference captured per generation, not patch state.
+    const PluginConfig config = PluginConfig::load();
+    activeProvider = config.activeProvider;
+    activeModel    = config.activeModel;
+
     // Resolution order — see resolveGenerateScript() above the constructor for
-    // the third step (PF-065) and its rationale.
-    generateScript = resolveGenerateScript();
+    // the config-file step (PF-071) and the XDG step (PF-065). generateScriptSource
+    // records which step won, for the status-line tooltip (ADR-032 item 7).
+    generateScript = resolveGenerateScript(
+        juce::File::getSpecialLocation(juce::File::currentExecutableFile).getParentDirectory(),
+        juce::File::getSpecialLocation(juce::File::userHomeDirectory),
+        config,
+        &generateScriptSource);
 
     addAndMakeVisible(generateButton);
     generateButton.onClick = [this] { submitPrompt(); };
@@ -240,6 +296,9 @@ PromptPanel::PromptPanel(PluginForgeProcessor& p)
     refineSelector.addItem("New", 1);
     refineSelector.addItem("Add", 2);
     refineSelector.addItem("Redo", 3);
+    // "Plan" (ADR-033): opt-in pre-generation design review. The ONLY mode that
+    // routes to the `recommend` action; New/Add/Redo all generate directly.
+    refineSelector.addItem("Plan", 4);
     refineSelector.setSelectedId(1, juce::dontSendNotification); // default = New
     // Seeded from the processor's source of record, NOT hardcoded false: a DAW
     // restores state (PluginProcessor::setStateInformation) before createEditor
@@ -251,7 +310,8 @@ PromptPanel::PromptPanel(PluginForgeProcessor& p)
     refineSelector.setTooltip(
         "New: fresh plugin - knobs reset to the new patch's own defaults.\n"
         "Add: surgical change to the current patch - preserves structure, changes only the delta.\n"
-        "Redo: regenerate with the current patch as context - may restructure freely.");
+        "Redo: regenerate with the current patch as context - may restructure freely.\n"
+        "Plan: review an editable design (modules, controls) before generating - two LLM calls.");
     addAndMakeVisible(refineSelector);
     refineSelector.onChange = [this]
     {
@@ -260,9 +320,50 @@ PromptPanel::PromptPanel(PluginForgeProcessor& p)
     };
     updateActionButton();
 
+    // ── Provider / model picker (ADR-032 v1 item 2) ────────────────────────────
+    // Item 1 = "auto": config's active_provider stays "" and the request omits
+    // the field, so generate.py's DEFAULT_PROVIDER (env / registry) decides.
+    // Items 2..6 are the five already-integrated providers, IN llm/providers.py
+    // REGISTRY ORDER. There is no generated providers header (unlike
+    // GenerationProfiles.generated.h); adding a sixth adapter in providers.py
+    // means adding it here too. Anthropic is offered but stays gated on the
+    // Python side (PaidProviderError unless PLUGINFORGE_ALLOW_PAID=1) — the
+    // picker does not re-implement that gate.
+    providerSelector.addItem("auto", 1);
+    providerSelector.addItem("gemini", 2);
+    providerSelector.addItem("groq", 3);
+    providerSelector.addItem("openrouter", 4);
+    providerSelector.addItem("ollama", 5);
+    providerSelector.addItem("anthropic", 6);
+    providerSelector.setTooltip(
+        "LLM provider for the next generation. 'auto' uses whatever the runtime's "
+        "environment selects (default: groq). Written to ~/.config/pluginforge/config.json.");
+    {
+        int startId = 1;
+        for (int i = 0; i < providerSelector.getNumItems(); ++i)
+            if (providerSelector.getItemText(i).equalsIgnoreCase(activeProvider))
+                startId = providerSelector.getItemId(i);
+        providerSelector.setSelectedId(startId, juce::dontSendNotification);
+    }
+    providerSelector.onChange = [this] { writeConfigFromPickers(); };
+    addAndMakeVisible(providerSelector);
+
+    modelField.setMultiLine(false);
+    modelField.setTextToShowWhenEmpty("model (blank = provider default)", Theme::textSecondary);
+    modelField.setText(activeModel, juce::dontSendNotification);
+    modelField.setTooltip(
+        "Optional model id for the selected provider. Blank uses the provider's "
+        "default. Free text, no validation: a bad id fails fast with a provider error.");
+    // Commit on Enter or focus-loss, not on every keystroke.
+    modelField.onReturnKey  = [this] { writeConfigFromPickers(); };
+    modelField.onFocusLost  = [this] { writeConfigFromPickers(); };
+    addAndMakeVisible(modelField);
+
     addAndMakeVisible(statusLabel);
     statusLabel.setText("Ready.", juce::dontSendNotification);
     statusLabel.setJustificationType(juce::Justification::centredLeft);
+    // ADR-032 item 7: which runtime the plugin resolved, visible on hover.
+    statusLabel.setTooltip(runtimeTooltip());
 
     // Progress line: hidden until a run starts. Its alpha is pulsed by
     // timerCallback while a subprocess is in flight.
@@ -296,6 +397,44 @@ PromptPanel::PromptPanel(PluginForgeProcessor& p)
 void PromptPanel::applyFonts()
 {
     errorBox.setFont(resolveThemeFont(errorBox, Theme::Type::mono()));
+}
+
+// ── ADR-032 v1 items 2 & 7 ──────────────────────────────────────────────────
+void PromptPanel::writeConfigFromPickers()
+{
+    // "auto" (item id 1) means "not configured" -> empty string, so the request
+    // omits `provider` and generate.py's DEFAULT_PROVIDER applies.
+    const juce::String provider = providerSelector.getSelectedId() == 1
+        ? juce::String()
+        : providerSelector.getText().trim();
+    const juce::String model = modelField.getText().trim();
+
+    if (provider == activeProvider && model == activeModel)
+        return;   // nothing changed (focus-loss fires even on no edit)
+
+    activeProvider = provider;
+    activeModel    = model;
+
+    // Load-modify-write: writeTo() only emits non-empty fields, so constructing a
+    // fresh PluginConfig here would silently drop an existing generate_script_path
+    // / soundfetch_interpreter_path. Preserve them.
+    PluginConfig cfg = PluginConfig::load();
+    cfg.activeProvider = activeProvider;
+    cfg.activeModel    = activeModel;
+    cfg.writeTo();   // best-effort; a failed preferences write is not fatal
+}
+
+juce::String PromptPanel::runtimeTooltip() const
+{
+    const juce::String where =
+        generateScriptSource == "env"    ? "PLUGINFORGE_LLM_SCRIPT" :
+        generateScriptSource == "repo"   ? "repo tree (dev build)" :
+        generateScriptSource == "config" ? "~/.config/pluginforge/config.json" :
+        generateScriptSource == "xdg"    ? "XDG install (~/.local/share/pluginforge)" :
+                                           "not found";
+    if (! generateScript.existsAsFile())
+        return "generation runtime: " + where;
+    return "generation runtime: " + where + "\n" + generateScript.getFullPathName();
 }
 
 void PromptPanel::parentHierarchyChanged()
@@ -350,7 +489,9 @@ void PromptPanel::shutdownWorker()
 // ── Submit / worker thread ──────────────────────────────────────────────────
 void PromptPanel::submitPrompt()
 {
-    if (refineSelector.getSelectedId() == 1)
+    // ADR-033: "Plan" (id 4) is the only mode that opts into the recommend
+    // review round-trip. New/Add/Redo generate directly, one call.
+    if (refineSelector.getSelectedId() == 4)
         queueRequest("recommend");
     else
         queueRequest("generate");
@@ -368,7 +509,7 @@ void PromptPanel::generateDirect() { queueRequest("generate"); }
 
 void PromptPanel::updateActionButton()
 {
-    generateButton.setButtonText(refineSelector.getSelectedId() == 1 ? "Recommend" : "Generate");
+    generateButton.setButtonText(refineSelector.getSelectedId() == 4 ? "Plan" : "Generate");
 }
 
 void PromptPanel::queueRequest(const juce::String& action, const juce::var& designPlan,
@@ -402,7 +543,11 @@ void PromptPanel::queueRequest(const juce::String& action, const juce::var& desi
     if (! generateScript.existsAsFile())
     {
         stopWorking();
-        setError("generate.py not found at " + generateScript.getFullPathName());
+        setError("generate.py not found. Tried, in order: PLUGINFORGE_LLM_SCRIPT, "
+                 "the repo tree above the plugin binary, "
+                 "~/.config/pluginforge/config.json (generate_script_path), and "
+                 "~/.local/share/pluginforge/llm/generate.py. Set generate_script_path "
+                 "in config.json to point at a working runtime.");
         statusLabel.setText("Error: generate.py not found.", juce::dontSendNotification);
         generateButton.setEnabled(true);
         return;
@@ -423,20 +568,25 @@ void PromptPanel::queueRequest(const juce::String& action, const juce::var& desi
         // selection made mid-run retroactively changed a generation the user had
         // already started.
         const int refineSel = refineSelector.getSelectedId();
-        if (refineSel == 1) { // New
-            pendingMode = PluginForgeProcessor::LoadMode::Fresh;
-            pendingPriorSource = juce::String();
-        } else { // Add (surgical) or Redo (context)
+        if (refineSel == 2 || refineSel == 3) { // Add (surgical) or Redo (context)
             pendingMode = PluginForgeProcessor::LoadMode::Iterate;
             pendingPriorSource = processor.currentSource().trim();
+        } else { // New (1) or Plan (4) — fresh, no prior source
+            pendingMode = PluginForgeProcessor::LoadMode::Fresh;
+            pendingPriorSource = juce::String();
         }
         pendingKind = PF_IS_SYNTH != 0 ? "instrument" : "effect";
         pendingFamily = selectedFamilyId();
         pendingRefineMode = refineSel == 2 ? "surgical" : (refineSel == 3 ? "context" : "");
         pendingAction = action;
         pendingDesignPlan = designPlan;
-        pendingProvider = provider;
-        pendingModel = model;
+        // Provider/model precedence (ADR-033): an echoed pin from a `recommend`
+        // response (`provider`/`model` args, non-empty) overrides the config
+        // default; absent a pin, the config's active_provider/active_model
+        // (ADR-032 v1) applies. Empty == not configured -> the request omits the
+        // key so generate.py's DEFAULT_PROVIDER decides.
+        pendingProvider = provider.isNotEmpty() ? provider : activeProvider;
+        pendingModel    = model.isNotEmpty()    ? model    : activeModel;
         // Stamp and job published under ONE lock — see the SUBTLE note on
         // `generation` in the header for why re-reading the atomic at pickup was
         // a race that made a run discard itself.
@@ -686,9 +836,12 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
         // request; this wires it to the UI. The old --prompt path (argv fallback)
         // cannot carry structured fields, so it is now reserved for the trivial
         // case: no kind override AND no prior source AND no refine_mode override.
+        // refineMode is the job snapshot (submitPrompt), not a worker-thread read
+        // of refineSelector — reading the ComboBox here would be a data race.
         const bool needsRequestFile = action == "recommend" || designPlan.isObject()
                                    || priorSource.isNotEmpty() || kind.isNotEmpty()
-                                   || refineMode.isNotEmpty();
+                                   || refineMode.isNotEmpty()
+                                   || provider.isNotEmpty() || model.isNotEmpty();
         if (needsRequestFile)
         {
             requestFile.emplace(".json");
@@ -700,8 +853,14 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
             obj->setProperty("family", family);
             obj->setProperty("refine_mode", refineMode);
             if (designPlan.isObject()) obj->setProperty("design_plan", designPlan);
+            // ADR-032 v1 / ADR-033: provider/model are OPTIONAL. Omitted when
+            // empty — an explicit "" would defeat generate.py's
+            // request.get("provider", DEFAULT_PROVIDER) fallback (the key would
+            // exist, so the default never applies). The value here already
+            // reflects ADR-033 precedence (echoed pin > config default), set in
+            // submitPrompt().
             if (provider.isNotEmpty()) obj->setProperty("provider", provider);
-            if (model.isNotEmpty()) obj->setProperty("model", model);
+            if (model.isNotEmpty())    obj->setProperty("model", model);
             // Forced "\n": juce_File.h:781-784's replaceWithText defaults
             // lineEndings to "\r\n", a trap host/tests/FakeGenerator.h already
             // paid for once (PromptPanelThreadingTest). generate.py's json.loads
@@ -1165,15 +1324,20 @@ void PromptPanel::resized()
     auto progressR = area.removeFromBottom(progressH);
     area.removeFromBottom(gap);
 
-    // Two rows since 2026-08-12, was one. generateButton(110) + historyButton(90)
-    // + kindSelector(90) + refineSelector used to share a single buttonH row, which
-    // fit the old 50/50 split's ~432px right column but not 65/35's ~232-302px one
-    // (session 010 §3) -- refineSelector was dropping to 0px at the 900px default.
-    // Splitting into actions (bottom) + generation options (above) fits comfortably
-    // at both the default width and kMinWindowW; see PluginEditor.h's Chrome::promptH.
+    // Three control rows, bottom-up: actions (generateButton/historyButton),
+    // generation options (familySelector/refineSelector), and — since ADR-032 v1
+    // — the provider/model picker. Was one row until 2026-08-12 (split when 65/35
+    // narrowed the right column and refineSelector dropped to 0px, session 010 §3);
+    // the picker row is the third. Chrome::promptH funds all three.
     auto actionRow = area.removeFromBottom(buttonH);   // generateButton, historyButton
     area.removeFromBottom(gap);
     auto genRow = area.removeFromBottom(buttonH);       // familySelector, refineSelector
+    area.removeFromBottom(gap);
+    // Third control row (ADR-032 item 2): providerSelector + modelField. The
+    // Chrome::promptH budget grew by (buttonH + gap) to fund it; in a shallow
+    // band it collapses the same way genRow's widgets do — the picker is a
+    // set-once preference, not needed to generate.
+    auto optRow = area.removeFromBottom(buttonH);
     area.removeFromBottom(gap);
 
     // Remaining top area splits between the prompt (min 60px per Prompt B, growing
@@ -1201,6 +1365,12 @@ void PromptPanel::resized()
     // Takes whatever is left rather than a fixed width, so the selector simply
     // disappears in a band too narrow for it instead of overlapping familySelector.
     refineSelector.setBounds(genRow);
+
+    // Provider picker: fixed-ish, same width as familySelector; model field takes
+    // the rest (same collapse-gracefully contract as refineSelector above).
+    providerSelector.setBounds(optRow.removeFromLeft(150));
+    optRow.removeFromLeft(gap);
+    modelField.setBounds(optRow);
 
     progressLabel.setBounds(progressR);
     statusLabel.setBounds(statusR);

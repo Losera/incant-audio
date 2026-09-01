@@ -1,4 +1,4 @@
-# PluginForge — Status  (2026-08-29)
+# PluginForge — Status  (2026-08-31)
 
 Rewritten each session per COLLABORATION.md §5. Single writer, no merge conflicts.
 Narrative history lives in git and in `docs/sessions/`.
@@ -7,9 +7,10 @@ Narrative history lives in git and in `docs/sessions/`.
 repo state, **the CI line**, this file's open sections, and a staleness banner if it falls
 behind HEAD. `/brief` is the heavier cold-re-entry read.
 
-This is a full §5 rewrite (2026-08-29) — the 759-line "targeted update" that preceded it was
-compressed to the current picture. The blow-by-blow of every closed defect and past session
-is in `git log` and `docs/sessions/NNN-*.md`; it is not re-narrated here.
+The 759-line "targeted update" that preceded the 2026-08-29 rewrite was compressed to the
+current picture; this file is kept current by §5 update, not re-narrated from scratch each
+time. The blow-by-blow of every closed defect and past session is in `git log` and
+`docs/sessions/NNN-*.md`.
 
 ---
 
@@ -41,16 +42,39 @@ One line per capability, each naming its evidence. "Builds clean" is not a capab
 - **Spectral judge produces a per-prompt verdict** (report-only, not gated). PF-041/PF-042
   closed 2026-08-06.
 
+- **ADR-032 v1 backend: the plugin reads its own config file.** Landed 2026-08-31, PR #42.
+  New `host/Source/PluginConfig.h` (header-only) reads `~/.config/pluginforge/config.json`
+  (`$XDG_CONFIG_HOME`-aware); `resolveGenerateScript()` consults its `generate_script_path`
+  **between** the parent-dir walk and the XDG step (the PF-071 ordering fix); `PromptPanel`
+  puts `provider`/`model` in the request JSON when configured, omitting the keys entirely
+  otherwise so `generate.py`'s `DEFAULT_PROVIDER` fallback still applies; `SoundfetchClient`
+  honours `soundfetch_interpreter_path`. **No Python change** — `generate_json()` already
+  read both fields (`llm/generate.py:507-510`). `INTERFACE.md` documents the 4-step chain.
+  Verified: `check.sh full` all green; `EditorSessionTest` scenario 43 (config present /
+  absent / malformed) 353/0; `PromptPanelPathResolutionTest` +3 ordering cases;
+  `SoundfetchClientTest` +1. **Not** verified: a real launcher-started DAW (see "Waiting on
+  you"). **Not** done: the in-plugin picker and the "which path resolved" surface (ADR-032
+  items 2, 7 — the WI-3 follow-up).
+
 **Decisions on record.** ADR-030 (no LangGraph), ADR-031 (no Obsidian infra; ID-resolution
 checks + `tools/kg.py` instead) — both Accepted 2026-08-27, merged PR #30. **ADR-032**
 (in-plugin provider/model + a non-secret plugin-read `config.json`, narrow v1) — Accepted
-2026-08-29 after an `/architecture-planning` walk; PR #37. Implementation unstarted, Tier 2.
+2026-08-29, PR #37; **backend implemented 2026-08-31, PR #42**; picker + resolved-path
+surface still to do. **ADR-033** (pre-generation "recommend" review workflow, the Codex
+`feat/recommendation-mvp` / PR #39) — **Accepted with conditions 2026-08-31**: review must
+become opt-in, `detect_target_mismatch` scoped off the legacy path, a stated
+provider-precedence rule, §3–§5 hygiene; and sequenced *after* the ADR-032 picker follow-up.
+The branch does not merge until those four conditions are met.
+
+**Landed 2026-08-30/31:** PR #40 (`docs/phases/` living per-phase rollup), PR #41 (faust-rs
+issue-#26 repair-loop A/B harness + **PF-076**), PR #42 (ADR-032 v1 backend, above).
 
 **Landed 2026-08-29:** PR #34 (`/recap` skill), PR #35 (PF-069/PF-070 efficacy-harness
 fixes), PR #36 (session-017 WP6 closeout). The faust-rs evaluation was written up as a reply
 to GRAME issue #26 (`faust-rs 0.8.0`: 51/51 accept–reject agreement with the C++ compiler,
-source location 15/15 vs 9/15, stable error code 15/15 vs 0/15). Caveat: all of it is a 7B
-model on CPU.
+source location 15/15 vs 9/15, stable error code 15/15 vs 0/15); the **loop-level** follow-up
+is PF-076 — feeding those diagnostics back to the repair model made it *worse* (75%→44%
+repaired-within-2 on `qwen2.5-coder:3b`). Caveat: all of it is small models on CPU.
 
 ---
 
@@ -69,17 +93,24 @@ renders silent 1/4 at L4 on the grid.
 
 **3. Generation fails as an installed VST3: "generate.py not found".** *(PF-065, high, open,
 found 2026-08-19, re-confirmed in REAPER 2026-08-28.)* `resolveGenerateScript()`
-(`host/Source/PromptPanel.cpp:110-143`) resolves once at construction; the env override is
-never inherited by a launcher-started DAW, the 10-level parent walk starts at the `.so` under
-`~/.vst3` with no repo above it, and the XDG fallback misses for the dev copy. ADR-032 item 3
-(config-file source before the XDG step) addresses the *config* half; the install-layout half
-(a real `install.sh` writing a version-matched runtime) stays with PF-065.
+(`host/Source/PromptPanel.cpp`) resolves once at construction; the env override is never
+inherited by a launcher-started DAW, the parent walk starts at the `.so` under `~/.vst3`
+with no repo above it, and the XDG fallback misses for the dev copy. **The config-file
+source landed 2026-08-31 (PR #42)** — a `~/.config/pluginforge/config.json` with
+`generate_script_path` set now resolves ahead of the XDG step. The *install-layout* half
+(a real `install.sh` writing a version-matched runtime + `.env`, and preferring it over a
+stale one) stays open under PF-065. Neither half verified in a real launcher-started DAW.
 
 **4. The XDG-installed runtime is a stale, unconfigured trap.** *(PF-071, high, open, found
-2026-08-28, reproduced in REAPER and Carla.)* PF-065's partial fix traded an honest "not
-found" for `~/.local/share/pluginforge/llm/` — a 2026-08-15 copy that defaults to the *paid*
-provider with no `.env`, so a launcher-started DAW shows "anthropic provider error". ADR-032
-item 3's config-before-XDG ordering is the fix path.
+2026-08-28, reproduced in REAPER and Carla.)* PF-065's earlier partial fix traded an honest
+"not found" for `~/.local/share/pluginforge/llm/` — a 2026-08-15 copy that defaults to the
+*paid* provider with no `.env`, so a launcher-started DAW shows "anthropic provider error".
+**Fix path implemented 2026-08-31 (PR #42):** `resolveGenerateScript()` now checks
+`config.json`'s `generate_script_path` *before* the XDG step, and `PromptPanel` sends the
+config's `active_provider`/`active_model` in the request, so a user-set config beats the
+stale install. **Still open because:** (a) the config file must currently be hand-created —
+no in-plugin picker yet (ADR-032 item 2); (b) unverified in a real launcher-started
+REAPER/Carla. Both are the WI-3 follow-up + a human verification pass.
 
 **5. The DAW still sees raw slots.** *(follow-up to PF-037, medium, open, unfiled.)* No
 section grouping / titled cards in the host parameter view.
@@ -119,10 +150,12 @@ MIDI (~10.7 ms jitter, documented in-code), a hardcoded 2.0 s tail (`PluginProce
 no MIDI CC mapping (`PluginProcessor.cpp:288-317`).
 
 **Closed since the last rewrite** — one line each, detail in git / `docs/BUGS.md`:
-the OS→JUCE QWERTY keypress hop (2026-08-28, session 017); "never been in an interactive
-DAW" (2026-08-28, session 017); PF-069 hardcoded efficacy budget and PF-070 compiler-hang
-crash (2026-08-29, PR #35); PF-063 CI-staleness banner (2026-08-17); PF-066 stale octave
-assertion and PF-067 uncapped `anthropic` pin (2026-08-25).
+**PF-076** (evidence — faust-rs diagnostics fed to the repair loop make it worse, not
+better; A/B, McNemar p<1e-3; 2026-08-30, PR #41); the OS→JUCE QWERTY keypress hop
+(2026-08-28, session 017); "never been in an interactive DAW" (2026-08-28, session 017);
+PF-069 hardcoded efficacy budget and PF-070 compiler-hang crash (2026-08-29, PR #35);
+PF-063 CI-staleness banner (2026-08-17); PF-066 stale octave assertion and PF-067 uncapped
+`anthropic` pin (2026-08-25).
 
 ---
 
@@ -142,11 +175,13 @@ assertion and PF-067 uncapped `anthropic` pin (2026-08-25).
 1. *(evidence)* **The groq 125-cell efficacy run.** Moves PF-011 out of Assumed — the one
    number this project steers by. Free via the harness; blocked only on groq's daily token
    limit resetting. Run it when the quota clears.
-2. **PF-065 + PF-071 joint fix — ADR-032 v1 implementation.** `provider`/`model` in the
-   request-JSON contract (`INTERFACE.md`, Tier 2), an in-plugin picker for the five
-   integrated providers, a plugin-read `~/.config/pluginforge/config.json` read before the
-   XDG step. Makes the plugin usable from a launcher-started DAW. Does **not** close PF-065's
-   install-layout half.
+2. **ADR-032 v1 picker + resolved-path surface (items 2 & 7) — the WI-3 follow-up.** The
+   backend landed (PR #42); what remains is the in-plugin provider/model picker writing
+   `config.json`, and surfacing *which* `generate.py` path resolved. Tier 2, and a
+   `PromptPanel` layout change (its control area is already a tight 2-row layout —
+   `docs/sessions/010-alpha-ui-architecture.md`), so it needs a `resized()` pass +
+   `EditorSessionTest` snapshot review. Pairs with a human verifying the PF-071 repro in a
+   launcher-started DAW.
 3. **Capture repros for PF-072 and PF-074.** The two medium in-host findings are
    currently unactionable — each needs the triggering patch source and the action
    immediately before. Until then they cannot be fixed, only re-observed.
@@ -158,21 +193,32 @@ clock — no host transport in Standalone).
 
 ## Waiting on you
 
-1. **A listening pass on the interactive-session patches.** COLLABORATION.md §1 — whether a
+1. **Merge or shelve the Codex branch once ADR-033's four conditions are met.** ADR-033 is
+   Accepted with conditions (2026-08-31); the implementation work (opt-in review,
+   `detect_target_mismatch` scoping, rebase onto the ADR-032 contract, §3–§5 hygiene) is
+   sequenced after the picker follow-up. PR #39 stays open until then; it currently
+   conflicts with `main` on `INTERFACE.md`, `PromptPanel.{cpp,h}`, and `EditorSessionTest.cpp`
+   (both branches added a "scenario 43").
+2. **Verify PF-071 in a real launcher-started DAW.** Launch REAPER or Carla *from the
+   desktop launcher* (not a terminal), no `PLUGINFORGE_*` exported, no `.env`, with a
+   hand-written `~/.config/pluginforge/config.json` (`generate_script_path` + `active_provider`),
+   and confirm generation succeeds. PR #42's tests prove the resolution logic; only this
+   proves the defect is actually fixed.
+3. **A listening pass on the interactive-session patches.** COLLABORATION.md §1 — whether a
    generated plugin *sounds like what was asked for* has no instrument and is not delegable.
    The render oracle proved the WP6 patches were not broken; it cannot tell you they were
    musical.
-2. **A replacement Freesound API key.** *(PF-056.)* The configured key is sent and rejected
+4. **A replacement Freesound API key.** *(PF-056.)* The configured key is sent and rejected
    (HTTP 403). Code cannot fix a revoked credential — get one from freesound.org.
-3. **`bench/results/.prompt_baseline.json` is still untouched**, deliberately. It records
+5. **`bench/results/.prompt_baseline.json` is still untouched**, deliberately. It records
    `0.88` for the deleted pre-unification prompt; overwriting it is COLLABORATION.md §2
    territory.
-4. **Three Phase-3 backlog plans are drafted, session-local, awaiting a fresh session.**
+6. **Three Phase-3 backlog plans are drafted, session-local, awaiting a fresh session.**
    `~/.claude/plans/phase3-pf032-silent-noise-gate.md`, `phase3-pf045-envelope-time-units.md`,
    `phase3-pf024-invalid-generation-families.md`. Each leads with a re-measurement WP: the
    prompt already contains the fix text for all three, and the open question is whether the
    shipping model obeys it.
-5. **Untracked personal files left alone**, as always — the two notes at the repo root,
+7. **Untracked personal files left alone**, as always — the two notes at the repo root,
    the unshipped brief skill, and the product-architecture draft under bench/. Named in
    `.claude/HANDOFF.md`; not cited here as paths because they are not in the tree and the
    live-doc path check (correctly) rejects that.

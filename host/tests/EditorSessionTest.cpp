@@ -53,6 +53,7 @@
 
 #include "../Source/PluginEditor.h"
 #include "../Source/PluginProcessor.h"
+#include "../Source/PluginConfig.h"
 #include "FakeGenerator.h"
 
 #include <chrono>
@@ -3129,14 +3130,196 @@ void scenario42_promptWritingHint()
                        "elsewhere -- got '") + s.editor.familyHintForTest() + "'");
 }
 
-// 43 - The explicit recommendation pass reaches the native review surface and
-// remains transient. This uses the real subprocess bridge but no model/network.
-void scenario43_recommendationReview(const juce::File& tmp)
+// 43 — ADR-032 v1: the config file's provider/model reach the LLM request, and
+// are OMITTED entirely when no config exists.
+//
+// generate_json() already reads request.get("provider", DEFAULT_PROVIDER) /
+// request.get("model") (llm/generate.py:507-510) — nothing in the host ever
+// sent either. PromptPanel now reads ~/.config/pluginforge/config.json once at
+// construction and snapshots active_provider / active_model with each job. The
+// "omitted when absent" half is load-bearing: an explicit "" would make
+// request.get("provider", DEFAULT_PROVIDER) return "" (the key exists), so the
+// launcher-started-DAW fallback to DEFAULT_PROVIDER would silently break.
+void scenario43_configProviderModelReachesRequest(const juce::File& tmp)
 {
-    scenario("43. recommendation is reviewed before generation",
+    scenario("43. config.json's provider/model reach the request (and are omitted when absent)",
+             "ADR-032 v1 — in-plugin provider/model selection via a plugin-read "
+             "config file, wired to generate.py's existing provider/model fields");
+
+    const char* kOldXdgConfig = ::getenv("XDG_CONFIG_HOME");
+    const juce::String oldXdgConfig = kOldXdgConfig != nullptr ? juce::String(kOldXdgConfig) : juce::String();
+
+    // ── With a config file: both fields ride the request ─────────────────────
+    {
+        auto cfgHome = tmp.getChildFile("cfg43_present");
+        cfgHome.deleteRecursively();
+        ::setenv("XDG_CONFIG_HOME", cfgHome.getFullPathName().toRawUTF8(), 1);
+
+        PluginConfig cfg;
+        cfg.activeProvider = "groq";
+        cfg.activeModel    = "llama-3.3-70b-versatile";
+        check(cfg.writeTo(PluginConfig::configFile()),
+              "PluginConfig::writeTo created ~/.config/pluginforge/config.json");
+
+        FakeGenerator::install(
+            FakeGenerator::writeSuccessCapturing(tmp, "gen43", kTinyPatch));
+
+        Session s;   // reads the config in PromptPanel's constructor
+        s.editor.submitPromptForTest("a patch whose request must name the provider");
+        const bool live = pumpUntil([&] {
+            return s.editor.statusTextForTest().contains("DSP live");
+        });
+        check(live, "the provider-carrying generation reached DSP live");
+
+        const auto parsed = juce::JSON::parse(FakeGenerator::capturedRequestJson(tmp, "gen43"));
+        check(parsed.getProperty("provider", "").toString() == "groq",
+              "the request JSON carries active_provider from config.json");
+        check(parsed.getProperty("model", "").toString() == "llama-3.3-70b-versatile",
+              "the request JSON carries active_model from config.json");
+    }
+
+    // ── With no config file: neither key is present ──────────────────────────
+    {
+        auto cfgHome = tmp.getChildFile("cfg43_absent");
+        cfgHome.deleteRecursively();
+        cfgHome.createDirectory();   // exists, but no pluginforge/config.json inside
+        ::setenv("XDG_CONFIG_HOME", cfgHome.getFullPathName().toRawUTF8(), 1);
+
+        FakeGenerator::install(
+            FakeGenerator::writeSuccessCapturing(tmp, "gen43b", kTinyPatch));
+
+        Session s;
+        s.editor.submitPromptForTest("a patch with no configured provider");
+        const bool live = pumpUntil([&] {
+            return s.editor.statusTextForTest().contains("DSP live");
+        });
+        check(live, "generation still succeeds with no config file");
+
+        const auto req = FakeGenerator::capturedRequestJson(tmp, "gen43b");
+        check(req.isNotEmpty(), "a request.json was written (kind alone forces --request-file)");
+        const auto parsed = juce::JSON::parse(req);
+        check(parsed.isObject() && ! parsed.hasProperty("provider"),
+              "no config => the request omits 'provider' entirely, so DEFAULT_PROVIDER applies");
+        check(parsed.isObject() && ! parsed.hasProperty("model"),
+              "no config => the request omits 'model' entirely");
+    }
+
+    // ── Malformed config file: degrades to environment-only, does not error ──
+    {
+        auto cfgHome = tmp.getChildFile("cfg43_malformed");
+        cfgHome.deleteRecursively();
+        auto cfgFile = cfgHome.getChildFile("pluginforge/config.json");
+        cfgFile.getParentDirectory().createDirectory();
+        cfgFile.replaceWithText("this is not json {{{", false, false, "\n");
+        ::setenv("XDG_CONFIG_HOME", cfgHome.getFullPathName().toRawUTF8(), 1);
+
+        FakeGenerator::install(
+            FakeGenerator::writeSuccessCapturing(tmp, "gen43c", kTinyPatch));
+
+        Session s;
+        s.editor.submitPromptForTest("a patch with a broken config file");
+        const bool live = pumpUntil([&] {
+            return s.editor.statusTextForTest().contains("DSP live");
+        });
+        check(live, "a malformed config.json does not break generation");
+
+        const auto parsed = juce::JSON::parse(FakeGenerator::capturedRequestJson(tmp, "gen43c"));
+        check(parsed.isObject() && ! parsed.hasProperty("provider"),
+              "malformed config => treated as absent, request omits 'provider'");
+    }
+
+    if (oldXdgConfig.isNotEmpty())
+        ::setenv("XDG_CONFIG_HOME", oldXdgConfig.toRawUTF8(), 1);
+    else
+        ::unsetenv("XDG_CONFIG_HOME");
+}
+
+// 44 — ADR-032 v1 items 2 & 7: the in-plugin provider/model picker seeds from
+// config.json, writes it back on change, and the written value reaches the next
+// request. Also: the resolved-runtime source is surfaced (item 7).
+void scenario44_providerPicker(const juce::File& tmp)
+{
+    scenario("44. the provider/model picker reads and writes config.json",
+             "ADR-032 v1 item 2 -- an in-plugin picker so the user does not hand-edit "
+             "config.json; item 7 -- the status line names which runtime resolved");
+
+    const char* kOldXdgConfig = ::getenv("XDG_CONFIG_HOME");
+    const juce::String oldXdgConfig = kOldXdgConfig != nullptr ? juce::String(kOldXdgConfig) : juce::String();
+
+    auto cfgHome = tmp.getChildFile("cfg44");
+    cfgHome.deleteRecursively();
+    ::setenv("XDG_CONFIG_HOME", cfgHome.getFullPathName().toRawUTF8(), 1);
+
+    // Seed a config with a generate_script_path (so writeConfigFromPickers must
+    // preserve it) and an initial provider.
+    const auto cfgFile = cfgHome.getChildFile("pluginforge/config.json");
+    {
+        PluginConfig seed;
+        seed.activeProvider = "gemini";
+        seed.generateScriptPath = "/opt/incant/llm/generate.py";
+        check(seed.writeTo(cfgFile), "seed config.json written");
+    }
+
+    FakeGenerator::install(FakeGenerator::writeSuccessCapturing(tmp, "gen44", kTinyPatch));
+
+    Session s;
+    check(s.editor.pickerProviderForTest() == "gemini",
+          "the picker seeds active_provider from config.json");
+
+    // Change the picker -> config.json is rewritten, generate_script_path preserved.
+    s.editor.setPickerProviderForTest("groq");
+    s.editor.setPickerModelForTest("openai/gpt-oss-120b");
+    const auto rewritten = juce::JSON::parse(cfgFile.loadFileAsString());
+    check(rewritten.getProperty("active_provider", "").toString() == "groq",
+          "changing the picker writes active_provider back to config.json");
+    check(rewritten.getProperty("active_model", "").toString() == "openai/gpt-oss-120b",
+          "the model field is written too");
+    check(rewritten.getProperty("generate_script_path", "").toString() == "/opt/incant/llm/generate.py",
+          "the picker preserves generate_script_path it did not touch (load-modify-write)");
+
+    // The picked provider rides the next request.
+    s.editor.submitPromptForTest("a patch after the picker changed");
+    check(pumpUntil([&] { return s.editor.statusTextForTest().contains("DSP live"); }),
+          "generation after a picker change reaches DSP live");
+    const auto req = juce::JSON::parse(FakeGenerator::capturedRequestJson(tmp, "gen44"));
+    check(req.getProperty("provider", "").toString() == "groq",
+          "the request carries the picker's provider, not config.json's seed value");
+    check(req.getProperty("model", "").toString() == "openai/gpt-oss-120b",
+          "the request carries the picker's model");
+
+    // Anthropic is offered but the gate stays on the Python side: the request
+    // still names it, and the downstream PaidProviderError is not this layer's job.
+    s.editor.setPickerProviderForTest("anthropic");
+    check(s.editor.pickerProviderForTest() == "anthropic", "the picker accepts anthropic");
+    s.editor.submitPromptForTest("a patch naming the paid provider");
+    check(pumpUntil([&] { return s.editor.statusTextForTest().contains("DSP live"); }),
+          "the anthropic-named generation completes (the fake does not gate)");
+    const auto paidReq = juce::JSON::parse(FakeGenerator::capturedRequestJson(tmp, "gen44"));
+    check(paidReq.getProperty("provider", "").toString() == "anthropic",
+          "the picker offers anthropic and the request carries it; the paid gate is downstream");
+
+    // Item 7: which runtime resolved. FakeGenerator sets PLUGINFORGE_LLM_SCRIPT,
+    // so this Session resolved via the env override.
+    check(s.editor.runtimeSourceForTest() == "env",
+          "the resolved-runtime source is recorded (env here - FakeGenerator sets the override)");
+
+    snapshot(s.editor, "44_provider_picker");
+
+    if (oldXdgConfig.isNotEmpty())
+        ::setenv("XDG_CONFIG_HOME", oldXdgConfig.toRawUTF8(), 1);
+    else
+        ::unsetenv("XDG_CONFIG_HOME");
+}
+
+// 45 — ADR-033: the "Plan" refine mode routes through the recommend review
+// surface, which stays transient. Uses the real subprocess bridge, no model.
+// (Was Codex scenario 43; renumbered — main already has 43/44.)
+void scenario45_recommendationReview(const juce::File& tmp)
+{
+    scenario("45. recommendation is reviewed before generation",
              "a typed planner response opens the transient card; editing the prompt marks it stale");
     FakeGenerator::install(FakeGenerator::writeRecommendationThenSuccess(
-        tmp, "recommend43.sh", kTinyPatch));
+        tmp, "recommend45.sh", kTinyPatch));
     Session s;
     const auto initialHeight = s.editor.getHeight();
     s.editor.requestRecommendationForTest("a warm resonant low-pass filter");
@@ -3172,14 +3355,14 @@ void scenario43_recommendationReview(const juce::File& tmp)
     s.editor.clickRecommendationGenerateForTest();
     const bool live = pumpUntil([&] { return s.editor.statusTextForTest().contains("DSP live"); });
     check(live, "Generate from Plan crosses the subprocess bridge and installs Faust");
-    const auto requestText = FakeGenerator::capturedRequestJson(tmp, "recommend43.sh");
+    const auto requestText = FakeGenerator::capturedRequestJson(tmp, "recommend45.sh");
     const auto request = juce::JSON::parse(requestText);
     check(request.isObject(), "the accepted generation wrote a structured request");
     check(request.getProperty("action", {}).toString() == "generate",
           "the accepted request switches from recommend to generate");
     check(request.getProperty("provider", {}).toString() == "anthropic"
               && request.getProperty("model", {}).toString() == "test-model",
-          "the accepted request pins the recommendation provider and model");
+          "ADR-033 precedence: the accepted request pins the recommendation's provider/model");
     const auto design = request.getProperty("design_plan", {});
     check(design.isObject() && design.getProperty("modules", {}).isArray()
               && design.getProperty("controls", {}).isArray(),
@@ -3191,12 +3374,14 @@ void scenario43_recommendationReview(const juce::File& tmp)
           "changing the prompt invalidates the transient recommendation");
 }
 
-void scenario44_recommendationFailureActions(const juce::File& tmp)
+// 46 — ADR-033: recommendation failure actions stay explicit.
+// (Was Codex scenario 44; renumbered.)
+void scenario46_recommendationFailureActions(const juce::File& tmp)
 {
-    scenario("44. recommendation failure actions stay explicit",
+    scenario("46. recommendation failure actions stay explicit",
              "ordinary planner failures can retry or bypass; wrong-target failures cannot bypass");
     FakeGenerator::install(FakeGenerator::writeRecommendationFailureThenSuccess(
-        tmp, "recommend44.sh", "error", kTinyPatch));
+        tmp, "recommend46.sh", "error", kTinyPatch));
     Session retryable;
     retryable.editor.requestRecommendationForTest("a warm filter");
     check(pumpUntil([&] { return retryable.editor.recommendationVisibleForTest(); }),
@@ -3204,7 +3389,7 @@ void scenario44_recommendationFailureActions(const juce::File& tmp)
     check(retryable.editor.recommendationDirectVisibleForTest(),
           "an ordinary planner failure offers direct generation");
 
-    auto captured = tmp.getChildFile("recommend44.sh_request.json");
+    auto captured = tmp.getChildFile("recommend46.sh_request.json");
     captured.deleteFile();
     retryable.editor.clickRecommendationRetryForTest();
     check(pumpUntil([&] { return captured.existsAsFile(); }),
@@ -3218,13 +3403,37 @@ void scenario44_recommendationFailureActions(const juce::File& tmp)
           "Generate Directly bypasses the failed planner and installs Faust");
 
     FakeGenerator::install(FakeGenerator::writeRecommendationFailureThenSuccess(
-        tmp, "recommend44_mismatch.sh", "target_mismatch", kTinyPatch));
+        tmp, "recommend46_mismatch.sh", "target_mismatch", kTinyPatch));
     Session mismatch;
     mismatch.editor.requestRecommendationForTest("a playable saw synth");
     check(pumpUntil([&] { return mismatch.editor.recommendationVisibleForTest(); }),
           "a target mismatch opens the redirect card");
     check(! mismatch.editor.recommendationDirectVisibleForTest(),
           "a wrong-target prompt cannot bypass into direct generation");
+}
+
+// 47 — ADR-033 condition 1: the DEFAULT ("New") path is a single `generate`
+// call with no review panel. detect_target_mismatch must NOT fire on the
+// legacy generate path.
+void scenario47_defaultPathIsDirectGenerate(const juce::File& tmp)
+{
+    scenario("47. the default New path generates directly, no review",
+             "ADR-033: review is opt-in ('Plan'); 'New' sends one generate request and no panel opens");
+    FakeGenerator::install(FakeGenerator::writeSuccessCapturing(tmp, "gen47", kTinyPatch));
+
+    Session s;
+    // Default refine mode is "New" — a plain submit, not requestRecommendationForTest.
+    s.editor.submitPromptForTest("a saw synth"  /* effect target: vocabulary mismatch, must still generate */);
+    check(pumpUntil([&] { return s.editor.statusTextForTest().contains("DSP live"); }),
+          "the default path reaches DSP live without a review round-trip");
+    check(! s.editor.recommendationVisibleForTest(),
+          "no recommendation panel opens on the default path");
+
+    const auto req = juce::JSON::parse(FakeGenerator::capturedRequestJson(tmp, "gen47"));
+    check(req.getProperty("action", {}).toString() == "generate",
+          "the default request is action=generate");
+    check(! req.hasProperty("design_plan"),
+          "the default request carries no design_plan");
 }
 
 } // namespace
@@ -3234,12 +3443,20 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInit;
 
     std::printf("EditorSessionTest -- a simulated human session against the real editor\n");
-    std::printf("  44 scenarios, no network, no quota, snapshots to artifacts/images/\n");
+    std::printf("  47 scenarios, no network, no quota, snapshots to artifacts/images/\n");
 
     auto tmp = juce::File::getSpecialLocation(juce::File::tempDirectory)
                    .getChildFile("pluginforge_editor_session");
     tmp.deleteRecursively();
     tmp.createDirectory();
+
+    // Isolate from the developer's real ~/.config/pluginforge/config.json:
+    // PromptPanel now reads it once at construction (ADR-032 v1). Every Session
+    // here builds a PromptPanel, so point XDG_CONFIG_HOME at an empty scratch
+    // dir; scenario 43 overrides it per-case and restores this baseline.
+    auto isolatedConfigHome = tmp.getChildFile("xdg_config_home_baseline");
+    isolatedConfigHome.createDirectory();
+    ::setenv("XDG_CONFIG_HOME", isolatedConfigHome.getFullPathName().toRawUTF8(), 1);
 
     scenario01_happyPath(tmp);
     scenario02_widgetKinds();
@@ -3283,8 +3500,11 @@ int main()
     scenario40_heuristicAccentIsDeterministicAndValid();
     scenario41_componentDescriptor();
     scenario42_promptWritingHint();
-    scenario43_recommendationReview(tmp);
-    scenario44_recommendationFailureActions(tmp);
+    scenario43_configProviderModelReachesRequest(tmp);
+    scenario44_providerPicker(tmp);
+    scenario45_recommendationReview(tmp);
+    scenario46_recommendationFailureActions(tmp);
+    scenario47_defaultPathIsDirectGenerate(tmp);
 
     tmp.deleteRecursively();
 

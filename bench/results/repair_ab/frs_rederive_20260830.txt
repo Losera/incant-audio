@@ -1,0 +1,30 @@
+cell                 C++      faust-rs   FRS code(s)                        help
+----------------------------------------------------------------------------------------
+trivial-01/L1        reject   reject     FRS-PROP-0002                      yes
+trivial-03/L4        reject   reject     FRS-EVAL-0002                      yes
+trivial-05/L2        reject   reject     FRS-PARSE-0001,FRS-PARSE-0001      -
+trivial-05/L0        reject   reject     FRS-PARSE-0001                     -
+filters-01/L1        reject   reject     FRS-PARSE-0001                     -
+filters-05/L2        reject   reject     FRS-PARSE-0001                     -
+time-based-02/L2     reject   reject     FRS-PARSE-0001                     yes
+dynamics-03/L2       reject   reject     FRS-PROP-0002                      yes
+dynamics-03/L1       reject   reject     FRS-PROP-0002                      yes
+dynamics-04/L0       reject   reject     FRS-EVAL-0002                      yes
+dynamics-05/L3       reject   reject     FRS-PROP-0002                      yes
+generative-05/L4     reject   reject     FRS-PARSE-0001,FRS-PARSE-0001,FRS-PARSE-0001 yes
+generative-05/L3     reject   reject     FRS-PROP-0002                      yes
+generative-05/L1     reject   reject     FRS-PARSE-0001,FRS-PARSE-0001,FRS-PARSE-0001 -
+generative-05/L0     reject   reject     FRS-PROP-0002                      yes
+----------------------------------------------------------------------------------------
+
+n = 15 never-compiled cells (issue-#26 reproducible subset)
+
+  accept/reject verdict agreement : 15/15
+  source location present         : C++ 8/15   faust-rs 15/15
+  stable error code present       : C++ 0/15   faust-rs 15/15
+  remedy (`help`) present         : faust-rs 10/15
+  routing_arity -> FRS-PROP-0002  : 6/15  ['trivial-01/L1', 'dynamics-03/L2', 'dynamics-03/L1', 'dynamics-05/L3', 'generative-05/L3', 'generative-05/L0']
+
+docs/BUGS.md records: agreement 15/15, location C++ 9/15 vs faust-rs 15/15,
+code C++ 0/15 vs faust-rs 15/15, six routing_arity -> FRS-PROP-0002.
+The 36-program hand-built corpus (the other 36 of '51/51') is NOT on disk.

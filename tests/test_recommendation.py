@@ -152,6 +152,24 @@ def test_direct_generation_does_not_gain_a_design_preamble():
     assert call.call_args.args[0] == "warm filter"
 
 
+def test_legacy_generate_path_never_blocks_on_target_mismatch():
+    """ADR-033 condition 2: detect_target_mismatch is scoped to `recommend`.
+
+    A prompt whose vocabulary scores against the requested kind used to return
+    reason:"target_mismatch" from generate_json(). It must now generate.
+    """
+    with patch.object(generate.router, "detect_target_mismatch") as guard, \
+         patch.object(generate, "generate_faust", return_value="process = _, _;"), \
+         patch.object(generate, "validate_faust", return_value=(True, "")):
+        response = generate.generate_json({
+            "prompt": "a playable saw synth pad", "kind": "effect",
+            "provider": "ollama",
+        })
+    guard.assert_not_called()
+    assert response["success"] is True
+    assert response.get("reason") != "target_mismatch"
+
+
 SAMPLES = [
     ("an 80s analog-style synth pad with two detuned saws", "instrument", "synth",
      "MONO_VOICE"),

@@ -523,16 +523,11 @@ def generate_json(request: dict) -> dict:
         )
     except ValueError as exc:
         return _failure(0, "error", str(exc))
-    if requested_kind:
-        mismatch = router.detect_target_mismatch(prompt, requested_kind)
-        if mismatch:
-            response = _failure(
-                0, "target_mismatch",
-                "This prompt asks for an instrument, so use Incant Audio Synth."
-                if mismatch == "instrument" else
-                "This prompt asks for an effect, so use Incant Audio Host.")
-            response["recommended_kind"] = mismatch
-            return response
+
+    # ADR-033: the prompt/kind mismatch guard runs ONLY for the `recommend`
+    # action (process_json_request), never on this legacy `generate` path — a
+    # hard block on generate is a separate change owing its own corpus evidence.
+    # `main`'s behaviour: `generate` honours the requested kind and generates.
 
     # Dynamic stdlib token headroom optimization (PLUGINFORGE_DYNAMIC_STDLIB=1 default)
     if os.environ.get("PLUGINFORGE_DYNAMIC_STDLIB", "1") != "0":

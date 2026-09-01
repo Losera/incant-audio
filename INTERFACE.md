@@ -8,38 +8,71 @@ the REAPER "generate.py not found" defect).*
 back. No shared header or schema file exists; this file documents the wire
 contract. The request has two actions:
 
-- `"action":"recommend"` asks for a bounded, editable design before Faust is
-  generated. It carries `prompt`, resolved `kind`, resolved `family`, and
-  optional `provider`/`model`. Success returns those resolved provider details
-  plus a `recommendation`: `schema:1`, title/summary, kind/family, 1-5 ordered
-  modules, 1-12 controls, and deterministic constraints. Unknown planner fields
-  are discarded by Python validation.
-- `"action":"generate"` is the Faust operation. Accepting a recommendation
-  sends its edited object as `design_plan` with the exact returned provider and
-  model. Python validates it again and folds a bounded brief into generation.
-  Requests without `action` remain legacy generate requests.
+- `"action":"generate"` is the Faust operation, and the **default** — a request
+  with no `action` is a `generate` request. The "New" refine mode sends
+  `generate` directly (one round-trip).
+- `"action":"recommend"` (ADR-033) asks for a bounded, editable design before
+  Faust is generated. It is **opt-in** — selected via the "Plan" refine mode,
+  never the default path. It carries `prompt`, resolved `kind`, resolved
+  `family`, and optional `provider`/`model`. Success returns those resolved
+  provider details plus a `recommendation`: `schema:1`, title/summary,
+  kind/family, 1-5 ordered modules, 1-12 controls, and deterministic
+  constraints. Unknown planner fields are discarded by Python validation.
+  Accepting a recommendation sends its edited object as `design_plan` on the
+  following `generate`, with the `recommend` response's resolved `provider` /
+  `model` echoed back. Python validates the plan again and folds a bounded brief
+  into generation.
 
-An explicit kind that clearly conflicts with the prompt returns
-`reason:"target_mismatch"` and `recommended_kind`; the host redirects instead
-of offering direct generation. Invalid planner output returns
-`reason:"invalid_recommendation"`. Other planner failures may be retried or
-bypassed. Recommendations are transient editor state: prompt, family, or mode
-changes make them stale, and processor/project state never stores them.
+`reason:"target_mismatch"` (with `recommended_kind`) and
+`reason:"invalid_recommendation"` are returned **only for the `recommend`
+action** (ADR-033): the legacy `generate` path never blocks on a
+prompt/kind mismatch. Recommendations are transient editor state — a prompt,
+family, or mode change makes them stale, and processor/project state never
+stores them.
 
-**Located**: env override `PLUGINFORGE_LLM_SCRIPT`, else walk parent dirs
-from the binary for `llm/generate.py` (:136-157); not found =>
-`generateScript` invalid, submit surfaces "generate.py not found".
-Resolved ONCE in `PromptPanel`'s constructor — reinstalling a different
-script mid-session (a test-fixture trap; see `FakeGenerator.h`'s comments
-and `EditorSessionTest.cpp` scenarios 16/24/26) has no effect on a
-`PromptPanel` that already exists. **This resolver does not reach an
-installed VST3** (`~/.vst3/…`) — see PF-065.
+**Located**: four steps, in order (`resolveGenerateScript()`, just above
+`PromptPanel`'s constructor): (1) env override `PLUGINFORGE_LLM_SCRIPT`;
+(2) walk parent dirs from the binary for `llm/generate.py`; (3) **ADR-032 v1**
+— the `generate_script_path` in `~/.config/pluginforge/config.json` when set
+and the file exists, placed *before* the XDG step so a user-set path beats a
+stale install (PF-071); (4) `$XDG_DATA_HOME/pluginforge/llm/generate.py`
+(else `~/.local/share/...`), the location `install.sh` writes to. Not found
+by any step => `generateScript` invalid, submit surfaces "generate.py not
+found". Resolved ONCE in `PromptPanel`'s constructor — reinstalling a
+different script mid-session (a test-fixture trap; see `FakeGenerator.h`'s
+comments and `EditorSessionTest.cpp` scenarios 16/24/26) has no effect on a
+`PromptPanel` that already exists. Step 2 alone **does not reach an installed
+VST3** (`~/.vst3/…`); step 3 is the config-file answer to that — see PF-065.
 **Invoked**: `juce::ChildProcess::start(argv, ...)` — no shell, no
 injection — `argv = [pythonExe, scriptPath, "--prompt", text]`, or
 `--request-file <tmpfile>` whenever the request carries structured fields:
 `action`, `design_plan`, `provider`, `model`, `prior_source`, `kind`, or `refine_mode`
 (`"surgical"` | `"context"` | absent — absent for a "New"/Fresh
 generation, which sends no prior source to refine in the first place).
+
+**`provider` / `model` (optional, ADR-032 v1).** Two optional string fields
+on the `--request-file` payload. Read from `active_provider` /
+`active_model` in `~/.config/pluginforge/config.json` once at construction,
+snapshotted with each job. The in-plugin picker (`PromptPanel`'s
+`providerSelector` + `modelField`, one of `auto`/`gemini`/`groq`/`openrouter`/
+`ollama`/`anthropic`) writes those two keys back via `PluginConfig::writeTo()`
+on change, load-modify-write so it does not drop `generate_script_path`.
+**Omitted entirely when not configured** ("auto" / blank) — an explicit `""`
+would defeat `generate.py`'s `request.get("provider", DEFAULT_PROVIDER)`
+fallback (the key would exist), which is exactly the launcher-started-DAW
+case they exist to fix. `generate_json()` already consumes both
+(`llm/generate.py:507-510`); the Python side is unchanged, and the paid
+`anthropic` gate stays there (`PaidProviderError` unless
+`PLUGINFORGE_ALLOW_PAID=1`) — the picker does not re-implement it.
+
+**Precedence (ADR-033):** the config's `active_provider` / `active_model` is the
+default. A `recommend` response's resolved `provider` / `model`, echoed back on
+the following `generate`, **pins that generation** and overrides the config
+default; absent an echoed pin, the config default applies. The pin is the
+per-generation immutable snapshot (ADR-032 §5).
+
+Credentials are **not** here — they stay in `.env` / the environment, read by
+the Python side (ADR-032 §4).
 **Read**: `readAllProcessOutput()` merges stdout+stderr (:646); the LAST
 line starting with `{` is taken as JSON (:650-658, generate.py's own
 "exactly one JSON line" promise, generate.py:590) — `getProperty` with

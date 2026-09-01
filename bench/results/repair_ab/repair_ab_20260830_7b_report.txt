@@ -1,0 +1,62 @@
+
+========================================================================
+qwen2.5-coder:7b-instruct-q3_K_S   arm A vs arm B (faust-rs full)   —   120 paired programs
+========================================================================
+REPAIRED WITHIN 2 CORRECTIVE ATTEMPTS
+  arm A (C++ stderr) : 87/120  (72%)
+  arm B (faust-rs full): 60/120  (50%)
+  discordant pairs   : B-only 9, A-only 36
+  McNemar exact p    : 0.0001
+
+ATTEMPTS TO GREEN  (never-green scored as 3)
+  arm A mean : 1.71
+  arm B mean : 2.09
+  Wilcoxon signed-rank p : 0.0003  (stat=403.0)
+  both green: B fewer attempts 7, A fewer 6, tied 38
+
+BY FIRST-ERROR CLASS  (n | A green | B green | B-only | A-only)
+  routing_arity         30 |  17 |  10 |  2 |  9
+  syntax                30 |  20 |   9 |  1 | 12
+  hallucinated_symbol   25 |  23 |  14 |  0 |  9
+  unclassified          17 |  15 |  14 |  2 |  3
+  duplicate_symbol      15 |   9 |  12 |  4 |  1
+  delay_range            2 |   2 |   1 |  0 |  1
+  recursion_cycle        1 |   1 |   0 |  0 |  1
+
+SECOND-ERROR IDENTITY  (of repairs that FAILED, was attempt 1's error the same class as the start?)
+  arm A: 33 failed — same class 18, new class 15
+  arm B: 60 failed — same class 43, new class 17
+
+>>> NO — C++ stderr repaired 27 MORE than arm B (faust-rs full) (McNemar p=0.000).
+
+
+========================================================================
+qwen2.5-coder:7b-instruct-q3_K_S   arm A vs arm C (faust-rs core)   —   120 paired programs
+========================================================================
+REPAIRED WITHIN 2 CORRECTIVE ATTEMPTS
+  arm A (C++ stderr) : 87/120  (72%)
+  arm C (faust-rs core): 57/120  (48%)
+  discordant pairs   : C-only 13, A-only 43
+  McNemar exact p    : 0.0001
+
+ATTEMPTS TO GREEN  (never-green scored as 3)
+  arm A mean : 1.71
+  arm C mean : 2.12
+  Wilcoxon signed-rank p : 0.0002  (stat=549.0)
+  both green: C fewer attempts 8, A fewer 2, tied 34
+
+BY FIRST-ERROR CLASS  (n | A green | C green | C-only | A-only)
+  routing_arity         30 |  17 |  11 |  3 |  9
+  syntax                30 |  20 |   9 |  2 | 13
+  hallucinated_symbol   25 |  23 |  11 |  0 | 12
+  unclassified          17 |  15 |  12 |  2 |  5
+  duplicate_symbol      15 |   9 |  12 |  6 |  3
+  delay_range            2 |   2 |   2 |  0 |  0
+  recursion_cycle        1 |   1 |   0 |  0 |  1
+
+SECOND-ERROR IDENTITY  (of repairs that FAILED, was attempt 1's error the same class as the start?)
+  arm A: 33 failed — same class 18, new class 15
+  arm C: 63 failed — same class 48, new class 15
+
+>>> NO — C++ stderr repaired 30 MORE than arm C (faust-rs core) (McNemar p=0.000).
+

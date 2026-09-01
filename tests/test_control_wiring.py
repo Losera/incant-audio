@@ -304,7 +304,7 @@ LIVE_DOC_FILES = [
     ROOT / "PLUGIN_HEALTH_PLAN.md",
     ROOT / "INTERFACE.md",
     ROOT / "README.md",
-]
+] + sorted((ROOT / "docs" / "phases").glob("*.md"))  # per-phase rollup, kept current
 
 
 class TestLiveDocsDoNotReferenceDeletedFiles:
