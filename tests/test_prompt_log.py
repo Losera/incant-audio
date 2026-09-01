@@ -25,6 +25,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -183,6 +184,15 @@ class TestOnlyRealUserPromptsAreLogged:
             "_run_subprocess_mode must log on BOTH the normal and the exception path — "
             "a prompt that blew up is the most interesting kind to have recorded."
         )
+
+    def test_recommendation_pass_is_not_counted_as_a_generation(self):
+        request = {"action": "recommend", "prompt": "a warm filter"}
+        response = {"success": True, "action": "recommend", "reason": "ok"}
+        with patch.object(generate.providers, "check_credentials", return_value=None), \
+             patch.object(generate, "process_json_request", return_value=response), \
+             patch.object(generate, "log_user_prompt") as log:
+            generate._run_subprocess_mode(lambda: request)
+        log.assert_not_called()
 
 
 # ------------------------------------------------------------------- end-to-end wire

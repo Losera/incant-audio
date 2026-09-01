@@ -95,6 +95,95 @@ inline juce::File writeSuccess(const juce::File& dir, const juce::String& name,
                                sleepSeconds);
 }
 
+// success:true recommendation response for the explicit pre-generation pass.
+inline juce::File writeRecommendation(const juce::File& dir, const juce::String& name,
+                                      const juce::String& kind = "effect",
+                                      const juce::String& family = "filter")
+{
+    auto* module = new juce::DynamicObject();
+    module->setProperty("name", "Filter Core");
+    module->setProperty("purpose", "Shape the incoming spectrum");
+    auto* control = new juce::DynamicObject();
+    control->setProperty("name", "Cutoff");
+    control->setProperty("module", "Filter Core");
+    control->setProperty("purpose", "Set the low-pass corner");
+    control->setProperty("range_hint", "20-20000");
+    control->setProperty("default_hint", "1000");
+    control->setProperty("unit", "Hz");
+    juce::Array<juce::var> modules { juce::var(module) };
+    juce::Array<juce::var> controls { juce::var(control) };
+    auto* plan = new juce::DynamicObject();
+    plan->setProperty("schema", 1);
+    plan->setProperty("title", "Warm Low-pass");
+    plan->setProperty("summary", "A compact resonant filter design");
+    plan->setProperty("kind", kind);
+    plan->setProperty("family", family);
+    plan->setProperty("modules", modules);
+    plan->setProperty("controls", controls);
+    plan->setProperty("constraints", juce::Array<juce::var>());
+    auto* response = new juce::DynamicObject();
+    response->setProperty("success", true);
+    response->setProperty("action", "recommend");
+    response->setProperty("reason", "ok");
+    response->setProperty("attempts", 1);
+    response->setProperty("provider", "anthropic");
+    response->setProperty("model", "test-model");
+    response->setProperty("recommendation", juce::var(plan));
+    return detail::writeScript(dir, name,
+        juce::JSON::toString(juce::var(response), true), 0);
+}
+
+// One persistent script for the complete two-step interaction. PromptPanel
+// resolves its script only once, so swapping scripts between recommendation and
+// generation would not test production. The request action selects the canned
+// response, and the latest request is captured for contract assertions.
+inline juce::File writeRecommendationThenSuccess(const juce::File& dir,
+                                                 const juce::String& name,
+                                                 const juce::String& faustCode)
+{
+    writeRecommendation(dir, name + "_recommend");
+    writeSuccess(dir, name + "_generate", faustCode);
+    auto requestFile = dir.getChildFile(name + "_request.json");
+    auto script = dir.getChildFile(name);
+    script.replaceWithText(
+        juce::String("#!/bin/sh\n")
+        + "if [ \"$1\" = '--request-file' ]; then cp \"$2\" '"
+        + requestFile.getFullPathName() + "'; fi\n"
+        + "if grep -q '\"action\".*\"recommend\"' \"$2\"; then\n"
+        + "  cat '" + dir.getChildFile(name + "_recommend.json").getFullPathName() + "'\n"
+        + "else\n"
+        + "  cat '" + dir.getChildFile(name + "_generate.json").getFullPathName() + "'\n"
+        + "fi\n",
+        false, false, "\n");
+    script.setExecutePermission(true);
+    return script;
+}
+
+inline juce::File writeFailure(const juce::File&, const juce::String&,
+                               const juce::String&, const juce::String&, int, bool);
+
+inline juce::File writeRecommendationFailureThenSuccess(
+    const juce::File& dir, const juce::String& name, const juce::String& reason,
+    const juce::String& faustCode)
+{
+    writeFailure(dir, name + "_recommend", "planner unavailable", reason, 0, false);
+    writeSuccess(dir, name + "_generate", faustCode);
+    auto requestFile = dir.getChildFile(name + "_request.json");
+    auto script = dir.getChildFile(name);
+    script.replaceWithText(
+        juce::String("#!/bin/sh\n")
+        + "if [ \"$1\" = '--request-file' ]; then cp \"$2\" '"
+        + requestFile.getFullPathName() + "'; fi\n"
+        + "if grep -q '\"action\".*\"recommend\"' \"$2\"; then\n"
+        + "  cat '" + dir.getChildFile(name + "_recommend.json").getFullPathName() + "'\n"
+        + "else\n"
+        + "  cat '" + dir.getChildFile(name + "_generate.json").getFullPathName() + "'\n"
+        + "fi\n",
+        false, false, "\n");
+    script.setExecutePermission(true);
+    return script;
+}
+
 // success:false — the LLM-side failure the panel surfaces into the error region.
 // `reason` is an ADR-011 reason: invalid_faust | truncated | timeout |
 // rate_limited | no_credentials | error. `errorText` is raw, newlines and all.

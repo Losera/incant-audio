@@ -263,6 +263,7 @@ PromptPanel::PromptPanel(PluginForgeProcessor& p)
         updateAutoFamilyLabel();
         historyBrowseIndex = -1;
         promptInput.setBrowsingHistory(false);
+        if (onRecommendationInvalidated) onRecommendationInvalidated();
     };
 
     // Seed from the processor -- the persisted source of truth since C6, same
@@ -322,7 +323,11 @@ PromptPanel::PromptPanel(PluginForgeProcessor& p)
     }
     familySelector.setSelectedId(1, juce::dontSendNotification);
     familySelector.setTooltip("Generation family. Auto resolves deterministically from the prompt.");
-    familySelector.onChange = [this] { updateAutoFamilyLabel(); };
+    familySelector.onChange = [this]
+    {
+        updateAutoFamilyLabel();
+        if (onRecommendationInvalidated) onRecommendationInvalidated();
+    };
     addAndMakeVisible(familySelector);
     if (processor.currentFamilySource() == "explicit")
         setFamilyForTest(processor.currentFamily());
@@ -336,6 +341,9 @@ PromptPanel::PromptPanel(PluginForgeProcessor& p)
     refineSelector.addItem("New", 1);
     refineSelector.addItem("Add", 2);
     refineSelector.addItem("Redo", 3);
+    // "Plan" (ADR-033): opt-in pre-generation design review. The ONLY mode that
+    // routes to the `recommend` action; New/Add/Redo all generate directly.
+    refineSelector.addItem("Plan", 4);
     refineSelector.setSelectedId(1, juce::dontSendNotification); // default = New
     // Seeded from the processor's source of record, NOT hardcoded false: a DAW
     // restores state (PluginProcessor::setStateInformation) before createEditor
@@ -347,8 +355,15 @@ PromptPanel::PromptPanel(PluginForgeProcessor& p)
     refineSelector.setTooltip(
         "New: fresh plugin - knobs reset to the new patch's own defaults.\n"
         "Add: surgical change to the current patch - preserves structure, changes only the delta.\n"
-        "Redo: regenerate with the current patch as context - may restructure freely.");
+        "Redo: regenerate with the current patch as context - may restructure freely.\n"
+        "Plan: review an editable design (modules, controls) before generating - two LLM calls.");
     addAndMakeVisible(refineSelector);
+    refineSelector.onChange = [this]
+    {
+        updateActionButton();
+        if (onRecommendationInvalidated) onRecommendationInvalidated();
+    };
+    updateActionButton();
 
     // ── Provider / model picker (ADR-032 v1 item 2) ────────────────────────────
     // Item 1 = "auto": config's active_provider stays "" and the request omits
@@ -452,6 +467,14 @@ void PromptPanel::writeConfigFromPickers()
     cfg.activeProvider = activeProvider;
     cfg.activeModel    = activeModel;
     cfg.writeTo();   // best-effort; a failed preferences write is not fatal
+
+    // A visible recommendation was planned against the provider/model as they
+    // were; an ADR-033 `recommend` response pins those for the generation that
+    // follows. Changing the picker now would leave the card showing one provider
+    // while the pinned generation used another — same staleness the prompt/family/
+    // mode changes above already trigger. (Early-returns above guard the no-op
+    // focus-loss case, so this only fires on a real change.)
+    if (onRecommendationInvalidated) onRecommendationInvalidated();
 }
 
 // ── PF-065: the "Paths…" callout ────────────────────────────────────────────
@@ -627,6 +650,32 @@ void PromptPanel::shutdownWorker()
 // ── Submit / worker thread ──────────────────────────────────────────────────
 void PromptPanel::submitPrompt()
 {
+    // ADR-033: "Plan" (id 4) is the only mode that opts into the recommend
+    // review round-trip. New/Add/Redo generate directly, one call.
+    if (refineSelector.getSelectedId() == 4)
+        queueRequest("recommend");
+    else
+        queueRequest("generate");
+}
+
+void PromptPanel::generateFromRecommendation(const juce::var& plan,
+                                             const juce::String& provider,
+                                             const juce::String& model)
+{
+    queueRequest("generate", plan, provider, model);
+}
+
+void PromptPanel::retryRecommendation() { queueRequest("recommend"); }
+void PromptPanel::generateDirect() { queueRequest("generate"); }
+
+void PromptPanel::updateActionButton()
+{
+    generateButton.setButtonText(refineSelector.getSelectedId() == 4 ? "Plan" : "Generate");
+}
+
+void PromptPanel::queueRequest(const juce::String& action, const juce::var& designPlan,
+                               const juce::String& provider, const juce::String& model)
+{
     auto text = promptInput.getText().trim();
     if (text.isEmpty())
         return;
@@ -649,7 +698,8 @@ void PromptPanel::submitPrompt()
     // Prevent double-submit. Re-enabled once the subprocess returns.
     generateButton.setEnabled(false);
     startWorking();
-    statusLabel.setText("Generating...", juce::dontSendNotification);
+    statusLabel.setText(action == "recommend" ? "Planning..." : "Generating...",
+                        juce::dontSendNotification);
 
     if (! generateScript.existsAsFile())
     {
@@ -679,20 +729,25 @@ void PromptPanel::submitPrompt()
         // selection made mid-run retroactively changed a generation the user had
         // already started.
         const int refineSel = refineSelector.getSelectedId();
-        if (refineSel == 1) { // New
-            pendingMode = PluginForgeProcessor::LoadMode::Fresh;
-            pendingPriorSource = juce::String();
-        } else { // Add (surgical) or Redo (context)
+        if (refineSel == 2 || refineSel == 3) { // Add (surgical) or Redo (context)
             pendingMode = PluginForgeProcessor::LoadMode::Iterate;
             pendingPriorSource = processor.currentSource().trim();
+        } else { // New (1) or Plan (4) — fresh, no prior source
+            pendingMode = PluginForgeProcessor::LoadMode::Fresh;
+            pendingPriorSource = juce::String();
         }
         pendingKind = PF_IS_SYNTH != 0 ? "instrument" : "effect";
         pendingFamily = selectedFamilyId();
-        // ADR-032 v1: snapshot the config's provider/model with the job. Empty
-        // == "not configured", and runGeneration omits the key entirely so the
-        // Python side's request.get("provider", DEFAULT_PROVIDER) still applies.
-        pendingProvider = activeProvider;
-        pendingModel    = activeModel;
+        pendingRefineMode = refineSel == 2 ? "surgical" : (refineSel == 3 ? "context" : "");
+        pendingAction = action;
+        pendingDesignPlan = designPlan;
+        // Provider/model precedence (ADR-033): an echoed pin from a `recommend`
+        // response (`provider`/`model` args, non-empty) overrides the config
+        // default; absent a pin, the config's active_provider/active_model
+        // (ADR-032 v1) applies. Empty == not configured -> the request omits the
+        // key so generate.py's DEFAULT_PROVIDER decides.
+        pendingProvider = provider.isNotEmpty() ? provider : activeProvider;
+        pendingModel    = model.isNotEmpty()    ? model    : activeModel;
         // Stamp and job published under ONE lock — see the SUBTLE note on
         // `generation` in the header for why re-reading the atomic at pickup was
         // a race that made a run discard itself.
@@ -715,7 +770,21 @@ void PromptPanel::submitPrompt()
 void PromptPanel::submitPromptForTest(const juce::String& text)
 {
     promptInput.setText(text, juce::dontSendNotification);
-    submitPrompt();
+    // Preserve the established test seam's meaning: drive the generation path.
+    // The new recommendation action has its own explicit seam below.
+    queueRequest("generate");
+}
+
+void PromptPanel::requestRecommendationForTest(const juce::String& text)
+{
+    promptInput.setText(text, juce::dontSendNotification);
+    queueRequest("recommend");
+}
+
+void PromptPanel::clickGenerateButtonForTest(const juce::String& text)
+{
+    promptInput.setText(text, juce::dontSendNotification);
+    submitPrompt();   // the real routing decision — do not shortcut to queueRequest
 }
 
 juce::String PromptPanel::selectedFamilyId() const
@@ -810,8 +879,8 @@ void PromptPanel::workerLoop()
         juce::String priorSource;
         juce::String kind;
         juce::String family;
-        juce::String provider;
-        juce::String model;
+        juce::String refineMode, action, provider, model;
+        juce::var designPlan;
         {
             std::unique_lock<std::mutex> lock(jobMutex);
             jobCv.wait(lock, [this] { return hasJob || stopping; });
@@ -823,13 +892,16 @@ void PromptPanel::workerLoop()
             priorSource  = pendingPriorSource;
             kind         = pendingKind;
             family       = pendingFamily;
+            refineMode   = pendingRefineMode;
+            action       = pendingAction;
+            designPlan   = pendingDesignPlan;
             provider     = pendingProvider;
             model        = pendingModel;
             hasJob       = false;
         }
 
         runGeneration(prompt, myGeneration, mode, priorSource, kind, family,
-                      provider, model);
+                      refineMode, action, designPlan, provider, model);
     }
 }
 
@@ -838,6 +910,9 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
                                 const juce::String& priorSource,
                                 const juce::String& kind,
                                 const juce::String& family,
+                                const juce::String& refineMode,
+                                const juce::String& action,
+                                const juce::var& designPlan,
                                 const juce::String& provider,
                                 const juce::String& model)
 {
@@ -926,30 +1001,29 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
         // request; this wires it to the UI. The old --prompt path (argv fallback)
         // cannot carry structured fields, so it is now reserved for the trivial
         // case: no kind override AND no prior source AND no refine_mode override.
-        const int refineSel = refineSelector.getSelectedId();
-        const juce::String refineModeStr = [&] {
-            switch (refineSel) {
-                case 2: return juce::String("surgical"); // Add
-                case 3: return juce::String("context");  // Redo
-                default: return juce::String();
-            }
-        }();
-        const bool needsRequestFile = priorSource.isNotEmpty() || kind.isNotEmpty()
-                                   || refineModeStr.isNotEmpty()
+        // refineMode is the job snapshot (submitPrompt), not a worker-thread read
+        // of refineSelector — reading the ComboBox here would be a data race.
+        const bool needsRequestFile = action == "recommend" || designPlan.isObject()
+                                   || priorSource.isNotEmpty() || kind.isNotEmpty()
+                                   || refineMode.isNotEmpty()
                                    || provider.isNotEmpty() || model.isNotEmpty();
         if (needsRequestFile)
         {
             requestFile.emplace(".json");
             auto* obj = new juce::DynamicObject();
             obj->setProperty("prompt", promptText);
+            obj->setProperty("action", action);
             obj->setProperty("prior_source", priorSource);
             obj->setProperty("kind", kind);
             obj->setProperty("family", family);
-            obj->setProperty("refine_mode", refineModeStr);
-            // ADR-032 v1: provider/model as OPTIONAL request fields. Omitted
-            // entirely when not configured — an explicit "" would defeat
-            // generate.py's request.get("provider", DEFAULT_PROVIDER) fallback
-            // (the key would exist, so the default never applies).
+            obj->setProperty("refine_mode", refineMode);
+            if (designPlan.isObject()) obj->setProperty("design_plan", designPlan);
+            // ADR-032 v1 / ADR-033: provider/model are OPTIONAL. Omitted when
+            // empty — an explicit "" would defeat generate.py's
+            // request.get("provider", DEFAULT_PROVIDER) fallback (the key would
+            // exist, so the default never applies). The value here already
+            // reflects ADR-033 precedence (echoed pin > config default), set in
+            // submitPrompt().
             if (provider.isNotEmpty()) obj->setProperty("provider", provider);
             if (model.isNotEmpty())    obj->setProperty("model", model);
             // Forced "\n": juce_File.h:781-784's replaceWithText defaults
@@ -1128,6 +1202,45 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
         // `! success` branch below, not the success path above.
         const bool priorSourceRefused = parsed.getProperty("prior_source_refused", false);
 
+        if (action == "recommend")
+        {
+            auto recommendation = parsed.getProperty("recommendation", {});
+            auto resolvedProvider = parsed.getProperty("provider", {}).toString();
+            auto resolvedModel = parsed.getProperty("model", {}).toString();
+            const bool targetMismatch = reason == "target_mismatch";
+            juce::MessageManager::callAsync(
+                [safeThis, success, recommendation, resolvedProvider, resolvedModel,
+                 errorMsg, targetMismatch]
+                {
+                    if (safeThis == nullptr) return;
+                    safeThis->stopWorking();
+                    safeThis->generateButton.setEnabled(true);
+                    if (success && recommendation.isObject())
+                    {
+                        safeThis->statusLabel.setText("Recommendation ready - review below.",
+                                                      juce::dontSendNotification);
+                        if (safeThis->onRecommendationReady)
+                            safeThis->onRecommendationReady(recommendation, resolvedProvider,
+                                                            resolvedModel);
+                    }
+                    else
+                    {
+                        const auto message = errorMsg.isNotEmpty()
+                                                 ? errorMsg
+                                                 : juce::String("Recommendation failed with no error text.");
+                        safeThis->setError(message);
+                        safeThis->statusLabel.setText(targetMismatch
+                                                          ? "Wrong Incant Audio target."
+                                                          : "Recommendation failed.",
+                                                      juce::dontSendNotification);
+                        if (safeThis->onRecommendationFailure)
+                            safeThis->onRecommendationFailure(message, ! targetMismatch,
+                                                              targetMismatch);
+                    }
+                });
+            return;
+        }
+
         if (! success || faustCode.isEmpty())
         {
             juce::MessageManager::callAsync([safeThis, errorMsg, reason, exitCode, priorSourceRefused, retryAfterSeconds]
@@ -1163,6 +1276,10 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
                         : statusForReason(reason, retryAfterSeconds),
                     juce::dontSendNotification);
                 safeThis->generateButton.setEnabled(true);
+                // No target_mismatch handling here: ADR-033 condition 2 scoped
+                // detect_target_mismatch to the `recommend` action only, so the
+                // legacy `generate` path this branch serves never sees that
+                // reason. The recommend path returns earlier (action == "recommend").
             });
             return;
         }

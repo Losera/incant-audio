@@ -3311,6 +3311,224 @@ void scenario44_providerPicker(const juce::File& tmp)
         ::unsetenv("XDG_CONFIG_HOME");
 }
 
+// 45 — ADR-033: the "Plan" refine mode routes through the recommend review
+// surface, which stays transient. Uses the real subprocess bridge, no model.
+// (Was Codex scenario 43; renumbered — main already has 43/44.)
+void scenario45_recommendationReview(const juce::File& tmp)
+{
+    scenario("45. recommendation is reviewed before generation",
+             "a typed planner response opens the transient card; editing the prompt marks it stale");
+
+    // The provider-picker staleness check below calls writeConfigFromPickers(),
+    // which writes config.json. Sandbox XDG_CONFIG_HOME so it never touches the
+    // developer's real ~/.config/pluginforge/config.json (same guard as sc. 44).
+    const char* kOldXdgConfig = ::getenv("XDG_CONFIG_HOME");
+    const juce::String oldXdgConfig = kOldXdgConfig != nullptr ? juce::String(kOldXdgConfig) : juce::String();
+    auto cfgHome = tmp.getChildFile("cfg45");
+    cfgHome.deleteRecursively();
+    ::setenv("XDG_CONFIG_HOME", cfgHome.getFullPathName().toRawUTF8(), 1);
+
+    FakeGenerator::install(FakeGenerator::writeRecommendationThenSuccess(
+        tmp, "recommend45.sh", kTinyPatch));
+    Session s;
+    const auto initialHeight = s.editor.getHeight();
+    s.editor.requestRecommendationForTest("a warm resonant low-pass filter");
+    const bool ready = pumpUntil([&] { return s.editor.recommendationVisibleForTest(); });
+    check(ready, "the recommendation response opens the review panel");
+    if (! ready) return;
+    check(s.editor.statusTextForTest().contains("Recommendation ready"),
+          "the status identifies the review phase, not DSP generation");
+    check(s.editor.recommendationTitleForTest() == "Warm Low-pass",
+          "the planner title reaches the review card");
+    check(s.editor.recommendationModuleCountForTest() == 1,
+          "the editable module list is populated");
+    check(s.editor.recommendationControlCountForTest() == 1,
+          "the editable control list is populated");
+    check(s.editor.getHeight() > initialHeight,
+          "the editor allocates a full-width band while the review is visible");
+    check(s.processor.currentSourceForTest().isEmpty(),
+          "recommendation alone does not generate or install Faust");
+
+    // The host validator must reject the same required-field defect Python
+    // rejects, before starting a second subprocess.
+    s.editor.setRecommendationModulePurposeForTest(0, "");
+    s.editor.clickRecommendationGenerateForTest();
+    const bool locallyRejected = pumpUntil([&] {
+        return s.editor.recommendationValidationErrorForTest().contains("purpose");
+    }, 1000);
+    check(locallyRejected,
+          "an empty required purpose is rejected locally before generation");
+    check(s.processor.currentSourceForTest().isEmpty(),
+          "a locally-invalid plan still cannot install Faust");
+
+    s.editor.setRecommendationModulePurposeForTest(0, "Shape the incoming spectrum");
+    s.editor.clickRecommendationGenerateForTest();
+    const bool live = pumpUntil([&] { return s.editor.statusTextForTest().contains("DSP live"); });
+    check(live, "Generate from Plan crosses the subprocess bridge and installs Faust");
+    const auto requestText = FakeGenerator::capturedRequestJson(tmp, "recommend45.sh");
+    const auto request = juce::JSON::parse(requestText);
+    check(request.isObject(), "the accepted generation wrote a structured request");
+    check(request.getProperty("action", {}).toString() == "generate",
+          "the accepted request switches from recommend to generate");
+    check(request.getProperty("provider", {}).toString() == "anthropic"
+              && request.getProperty("model", {}).toString() == "test-model",
+          "ADR-033 precedence: the accepted request pins the recommendation's provider/model");
+    const auto design = request.getProperty("design_plan", {});
+    check(design.isObject() && design.getProperty("modules", {}).isArray()
+              && design.getProperty("controls", {}).isArray(),
+          "the edited module/control plan reaches the generation request");
+
+    s.editor.setPromptTextForTest("a different filter request");
+    const bool stale = pumpUntil([&] { return s.editor.recommendationStaleForTest(); }, 1000);
+    check(stale,
+          "changing the prompt invalidates the transient recommendation");
+    check(! s.editor.recommendationGenerateEnabledForTest(),
+          "a stale plan's 'Generate from Plan' button is disabled");
+
+    // Regression: markStale() latched the accept button off and only Dismiss
+    // (clear()) re-enabled it, so a second 'Plan' after an edit rendered a live
+    // card with a dead button. setRecommendation() must re-arm it.
+    s.editor.requestRecommendationForTest("a different filter request");
+    const bool replanned = pumpUntil([&] {
+        return s.editor.recommendationVisibleForTest()
+            && ! s.editor.recommendationStaleForTest();
+    });
+    check(replanned, "re-planning after a stale card shows a fresh, non-stale plan");
+    check(s.editor.recommendationGenerateEnabledForTest(),
+          "re-planning re-arms the 'Generate from Plan' button");
+    s.editor.clickRecommendationGenerateForTest();
+    const bool liveAgain = pumpUntil([&] {
+        const auto req = juce::JSON::parse(
+            FakeGenerator::capturedRequestJson(tmp, "recommend45.sh"));
+        return req.getProperty("action", {}).toString() == "generate"
+            && req.getProperty("design_plan", {}).isObject();
+    }, 2000);
+    check(liveAgain, "the re-planned card can still generate - the button is not dead");
+
+    // A provider-picker change after a plan is the same kind of staleness: an
+    // ADR-033 recommend response pins provider/model for the following generate,
+    // so the card would otherwise show one provider while generation used another.
+    s.editor.requestRecommendationForTest("a warm resonant low-pass filter");
+    check(pumpUntil([&] {
+              return s.editor.recommendationVisibleForTest()
+                  && ! s.editor.recommendationStaleForTest();
+          }),
+          "a fresh plan for the provider-change check");
+    s.editor.setPickerProviderForTest("groq");
+    check(pumpUntil([&] { return s.editor.recommendationStaleForTest(); }, 1000),
+          "changing the provider picker invalidates the transient recommendation");
+
+    if (oldXdgConfig.isNotEmpty())
+        ::setenv("XDG_CONFIG_HOME", oldXdgConfig.toRawUTF8(), 1);
+    else
+        ::unsetenv("XDG_CONFIG_HOME");
+}
+
+// 46 — ADR-033: recommendation failure actions stay explicit.
+// (Was Codex scenario 44; renumbered.)
+void scenario46_recommendationFailureActions(const juce::File& tmp)
+{
+    scenario("46. recommendation failure actions stay explicit",
+             "ordinary planner failures can retry or bypass; wrong-target failures cannot bypass");
+    FakeGenerator::install(FakeGenerator::writeRecommendationFailureThenSuccess(
+        tmp, "recommend46.sh", "error", kTinyPatch));
+    Session retryable;
+    retryable.editor.requestRecommendationForTest("a warm filter");
+    check(pumpUntil([&] { return retryable.editor.recommendationVisibleForTest(); }),
+          "a planner failure opens the failure card");
+    check(retryable.editor.recommendationDirectVisibleForTest(),
+          "an ordinary planner failure offers direct generation");
+
+    auto captured = tmp.getChildFile("recommend46.sh_request.json");
+    captured.deleteFile();
+    retryable.editor.clickRecommendationRetryForTest();
+    check(pumpUntil([&] { return captured.existsAsFile(); }),
+          "Retry submits another request through the persistent subprocess seam");
+    auto retried = juce::JSON::parse(captured.loadFileAsString());
+    check(retried.getProperty("action", {}).toString() == "recommend",
+          "Retry preserves the recommendation action");
+
+    retryable.editor.clickRecommendationDirectForTest();
+    check(pumpUntil([&] { return retryable.editor.statusTextForTest().contains("DSP live"); }),
+          "Generate Directly bypasses the failed planner and installs Faust");
+
+    FakeGenerator::install(FakeGenerator::writeRecommendationFailureThenSuccess(
+        tmp, "recommend46_mismatch.sh", "target_mismatch", kTinyPatch));
+    Session mismatch;
+    mismatch.editor.requestRecommendationForTest("a playable saw synth");
+    check(pumpUntil([&] { return mismatch.editor.recommendationVisibleForTest(); }),
+          "a target mismatch opens the redirect card");
+    check(! mismatch.editor.recommendationDirectVisibleForTest(),
+          "a wrong-target prompt cannot bypass into direct generation");
+}
+
+// 47 — ADR-033 condition 1: the DEFAULT ("New") path is a single `generate`
+// call with no review panel. detect_target_mismatch must NOT fire on the
+// legacy generate path.
+void scenario47_defaultPathIsDirectGenerate(const juce::File& tmp)
+{
+    scenario("47. the default New path generates directly, no review",
+             "ADR-033: review is opt-in ('Plan'); 'New' sends one generate request and no panel opens");
+    FakeGenerator::install(FakeGenerator::writeSuccessCapturing(tmp, "gen47", kTinyPatch));
+
+    Session s;
+    // Default refine mode is "New" — a plain submit, not requestRecommendationForTest.
+    s.editor.submitPromptForTest("a saw synth"  /* effect target: vocabulary mismatch, must still generate */);
+    check(pumpUntil([&] { return s.editor.statusTextForTest().contains("DSP live"); }),
+          "the default path reaches DSP live without a review round-trip");
+    check(! s.editor.recommendationVisibleForTest(),
+          "no recommendation panel opens on the default path");
+
+    const auto req = juce::JSON::parse(FakeGenerator::capturedRequestJson(tmp, "gen47"));
+    check(req.getProperty("action", {}).toString() == "generate",
+          "the default request is action=generate");
+    check(! req.hasProperty("design_plan"),
+          "the default request carries no design_plan");
+}
+
+// 49 — ADR-033 condition 1, through the real router. Scenario 47 proves the
+// OUTCOME of the default path, but via submitPromptForTest(), which hardwires
+// queueRequest("generate") and never touches submitPrompt()'s refineSelector
+// branch. This drives submitPrompt() itself (the Generate/Plan button's
+// onClick): "New" must route to generate, "Plan" (refineSelector id 4) must
+// route to recommend.
+void scenario49_generateButtonRoutesByRefineMode(const juce::File& tmp)
+{
+    scenario("49. the Generate/Plan button routes New->generate, Plan->recommend",
+             "ADR-033: submitPrompt()'s refineSelector==4 branch is exercised end to end");
+
+    // Default selector ("New", id 1): the button fires one generate, no panel.
+    {
+        FakeGenerator::install(FakeGenerator::writeSuccessCapturing(tmp, "gen48new", kTinyPatch));
+        Session s;
+        check(s.editor.refineModeForTest() == 1, "default refine mode is New");
+        s.editor.clickGenerateButtonForTest("a warm resonant low-pass filter");
+        check(pumpUntil([&] { return s.editor.statusTextForTest().contains("DSP live"); }),
+              "New routes through submitPrompt() straight to a generate");
+        check(! s.editor.recommendationVisibleForTest(),
+              "no review panel opens on the New path");
+        const auto req = juce::JSON::parse(FakeGenerator::capturedRequestJson(tmp, "gen48new"));
+        check(req.getProperty("action", {}).toString() == "generate",
+              "submitPrompt() with New -> action=generate");
+    }
+
+    // Selector on "Plan" (id 4): the SAME button now routes to recommend and
+    // opens the review panel — only the recommend action can do that.
+    {
+        FakeGenerator::install(FakeGenerator::writeRecommendationThenSuccess(
+            tmp, "gen48plan", kTinyPatch));
+        Session s;
+        s.editor.setRefineModeForTest(4);
+        check(s.editor.refineModeForTest() == 4, "selector moved to Plan");
+        s.editor.clickGenerateButtonForTest("a warm resonant low-pass filter");
+        check(pumpUntil([&] { return s.editor.recommendationVisibleForTest(); }),
+              "Plan routes through submitPrompt() to the recommend review panel");
+        const auto req = juce::JSON::parse(FakeGenerator::capturedRequestJson(tmp, "gen48plan"));
+        check(req.getProperty("action", {}).toString() == "recommend",
+              "submitPrompt() with Plan -> action=recommend");
+    }
+}
+
 // 48 — PF-065: the "Paths…" callout writes generate_script_path + python_path
 // into config.json (merge, not overwrite) and re-resolves the runtime live.
 // Numbered 48 to sit after PR #39's scenarios 45-47; renumber on rebase if that
@@ -3391,7 +3609,7 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInit;
 
     std::printf("EditorSessionTest -- a simulated human session against the real editor\n");
-    std::printf("  44 scenarios, no network, no quota, snapshots to artifacts/images/\n");
+    std::printf("  49 scenarios, no network, no quota, snapshots to artifacts/images/\n");
 
     auto tmp = juce::File::getSpecialLocation(juce::File::tempDirectory)
                    .getChildFile("pluginforge_editor_session");
@@ -3450,7 +3668,11 @@ int main()
     scenario42_promptWritingHint();
     scenario43_configProviderModelReachesRequest(tmp);
     scenario44_providerPicker(tmp);
+    scenario45_recommendationReview(tmp);
+    scenario46_recommendationFailureActions(tmp);
+    scenario47_defaultPathIsDirectGenerate(tmp);
     scenario48_runtimePathsCallout(tmp);
+    scenario49_generateButtonRoutesByRefineMode(tmp);
 
     tmp.deleteRecursively();
 

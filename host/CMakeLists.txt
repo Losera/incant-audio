@@ -38,6 +38,7 @@ set(PF_CORE_SOURCES
     Source/SampleBrowserPanel.cpp
     Source/SoundfetchClient.cpp
     Source/PromptPanel.cpp
+    Source/RecommendationPanel.cpp
     Source/CodeEditorPanel.cpp
     Source/ParamGridPanel.cpp
     Source/KeyboardPanel.cpp
@@ -178,6 +179,7 @@ target_sources(ParamPoolTsanTest PRIVATE
     Source/SampleBrowserPanel.cpp
     Source/SoundfetchClient.cpp
     Source/PromptPanel.cpp
+    Source/RecommendationPanel.cpp
     Source/CodeEditorPanel.cpp
     Source/ParamGridPanel.cpp
     Source/KeyboardPanel.cpp
@@ -225,6 +227,7 @@ target_sources(AuditionThreadingTest PRIVATE
     Source/SampleBrowserPanel.cpp
     Source/SoundfetchClient.cpp
     Source/PromptPanel.cpp
+    Source/RecommendationPanel.cpp
     Source/CodeEditorPanel.cpp
     Source/ParamGridPanel.cpp
     Source/KeyboardPanel.cpp
@@ -454,6 +457,7 @@ target_sources(StatePersistenceTest PRIVATE
     Source/SampleBrowserPanel.cpp
     Source/SoundfetchClient.cpp
     Source/PromptPanel.cpp
+    Source/RecommendationPanel.cpp
     Source/CodeEditorPanel.cpp
     Source/ParamGridPanel.cpp
     Source/KeyboardPanel.cpp
@@ -504,6 +508,7 @@ target_sources(ValidationGateTest PRIVATE
     Source/SampleBrowserPanel.cpp
     Source/SoundfetchClient.cpp
     Source/PromptPanel.cpp
+    Source/RecommendationPanel.cpp
     Source/CodeEditorPanel.cpp
     Source/ParamGridPanel.cpp
     Source/KeyboardPanel.cpp
@@ -556,6 +561,7 @@ target_sources(PromptPanelThreadingTest PRIVATE
     Source/SampleBrowserPanel.cpp
     Source/SoundfetchClient.cpp
     Source/PromptPanel.cpp
+    Source/RecommendationPanel.cpp
     Source/CodeEditorPanel.cpp
     Source/ParamGridPanel.cpp
     Source/KeyboardPanel.cpp
@@ -618,6 +624,7 @@ target_sources(PromptPanelPathResolutionTest PRIVATE
     Source/SampleBrowserPanel.cpp
     Source/SoundfetchClient.cpp
     Source/PromptPanel.cpp
+    Source/RecommendationPanel.cpp
     Source/CodeEditorPanel.cpp
     Source/ParamGridPanel.cpp
     Source/KeyboardPanel.cpp
@@ -669,6 +676,7 @@ target_sources(OfflineRenderTest PRIVATE
     Source/SampleBrowserPanel.cpp
     Source/SoundfetchClient.cpp
     Source/PromptPanel.cpp
+    Source/RecommendationPanel.cpp
     Source/CodeEditorPanel.cpp
     Source/ParamGridPanel.cpp
     Source/KeyboardPanel.cpp
@@ -772,6 +780,7 @@ target_sources(EditorSessionTest PRIVATE
     Source/SampleBrowserPanel.cpp
     Source/SoundfetchClient.cpp
     Source/PromptPanel.cpp
+    Source/RecommendationPanel.cpp
     Source/CodeEditorPanel.cpp
     Source/ParamGridPanel.cpp
     Source/KeyboardPanel.cpp
@@ -886,6 +895,7 @@ target_sources(UiDesignGallery PRIVATE
     Source/SampleBrowserPanel.cpp
     Source/SoundfetchClient.cpp
     Source/PromptPanel.cpp
+    Source/RecommendationPanel.cpp
     Source/CodeEditorPanel.cpp
     Source/ParamGridPanel.cpp
     Source/KeyboardPanel.cpp

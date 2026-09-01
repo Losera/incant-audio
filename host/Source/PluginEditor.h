@@ -2,6 +2,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "PluginProcessor.h"
 #include "PromptPanel.h"
+#include "RecommendationPanel.h"
 #include "CodeEditorPanel.h"
 #include "ParamGridPanel.h"
 #include "KeyboardPanel.h"
@@ -90,6 +91,26 @@ public:
     // ParamGridPanel and the meter/mute edge-detect below had zero coverage;
     // PromptPanelThreadingTest drives the PANEL, never the editor that owns it.
     void         submitPromptForTest(const juce::String& text);
+    void         requestRecommendationForTest(const juce::String& text)
+                     { promptPanel.requestRecommendationForTest(text); }
+    void         clickGenerateButtonForTest(const juce::String& text)
+                     { promptPanel.clickGenerateButtonForTest(text); }
+    bool         recommendationVisibleForTest() const { return recommendationPanel.isVisible(); }
+    bool         recommendationStaleForTest() const { return recommendationPanel.isStale(); }
+    juce::String recommendationTitleForTest() const { return recommendationPanel.titleForTest(); }
+    int          recommendationModuleCountForTest() const { return recommendationPanel.moduleCountForTest(); }
+    int          recommendationControlCountForTest() const { return recommendationPanel.controlCountForTest(); }
+    void         clickRecommendationGenerateForTest() { recommendationPanel.clickGenerateForTest(); }
+    void         clickRecommendationRetryForTest() { recommendationPanel.clickRetryForTest(); }
+    void         clickRecommendationDirectForTest() { recommendationPanel.clickDirectForTest(); }
+    bool         recommendationDirectVisibleForTest() const
+                     { return recommendationPanel.directVisibleForTest(); }
+    bool         recommendationGenerateEnabledForTest() const
+                     { return recommendationPanel.generateEnabledForTest(); }
+    void         setRecommendationModulePurposeForTest(int index, const juce::String& text)
+                     { recommendationPanel.setModulePurposeForTest(index, text); }
+    juce::String recommendationValidationErrorForTest() const
+                     { return recommendationPanel.validationErrorForTest(); }
     juce::String statusTextForTest() const;
     juce::String errorTextForTest() const;
     int          gridControlCountForTest() const;
@@ -353,6 +374,8 @@ private:
                                 // the window — the grow-on-show contract scenario 11
                                 // pins — even when the right prompt column is the
                                 // taller of the two and would otherwise absorb it.)
+        int gapRecommendation = 8;
+        int recommendationH = 260;
     };
 
     // The left column's share of the split region's width.
@@ -441,6 +464,7 @@ private:
 
     // ── Child panels ─────────────────────────────────────────────────────────
     PromptPanel     promptPanel;
+    RecommendationPanel recommendationPanel;
     CodeEditorPanel codeEditorPanel;
     ParamGridPanel  paramGridPanel;
     KeyboardPanel   keyboardPanel;

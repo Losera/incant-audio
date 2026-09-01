@@ -138,6 +138,26 @@ public:
     // keyboard/mouse events. Mirrors PluginForgeProcessor::currentSourceForTest().
     // Sets the prompt box and submits, exactly as the Generate button does.
     void submitPromptForTest(const juce::String& text);
+    void requestRecommendationForTest(const juce::String& text);
+
+    // Like submitPromptForTest, but drives submitPrompt() itself — the Generate/
+    // Plan button's onClick — so its refineSelector routing (id 4 "Plan" ->
+    // "recommend", everything else -> "generate") is exercised end to end,
+    // rather than bypassed by jumping straight to queueRequest("generate").
+    void clickGenerateButtonForTest(const juce::String& text);
+
+    // RecommendationPanel routes its explicit review actions back through the
+    // same owned worker and subprocess contract as ordinary generation.
+    void generateFromRecommendation(const juce::var& plan,
+                                    const juce::String& provider,
+                                    const juce::String& model);
+    void retryRecommendation();
+    void generateDirect();
+
+    std::function<void(const juce::var&, const juce::String&, const juce::String&)>
+        onRecommendationReady;
+    std::function<void(const juce::String&, bool, bool)> onRecommendationFailure;
+    std::function<void()> onRecommendationInvalidated;
 
     // Test-only. True while the worker thread exists — lets a test assert that a
     // panel which never generated also never spawned a thread.
@@ -269,6 +289,9 @@ private:
     void applyFonts();
 
     void submitPrompt();
+    void queueRequest(const juce::String& action, const juce::var& designPlan = {},
+                      const juce::String& provider = {}, const juce::String& model = {});
+    void updateActionButton();
     void startWorking();
     void stopWorking();
     void showHistoryMenu();
@@ -410,6 +433,9 @@ private:
                        const juce::String& priorSource,
                        const juce::String& kind,
                        const juce::String& family,
+                       const juce::String& refineMode,
+                       const juce::String& action,
+                       const juce::var& designPlan,
                        const juce::String& provider,
                        const juce::String& model);
     void shutdownWorker();
@@ -439,9 +465,14 @@ private:
     // pendingPriorSource: read on message thread, published with the job.
     juce::String            pendingKind;              // guarded by jobMutex
     juce::String            pendingFamily;            // guarded by jobMutex
-    // ADR-032 v1: provider/model AS OF SUBMIT, snapshotted from activeProvider/
-    // activeModel on the message thread and published with the job — same
-    // thread/mutex reasoning as pendingKind. Empty == not configured.
+    juce::String            pendingRefineMode;        // guarded by jobMutex
+    juce::String            pendingAction { "generate" }; // guarded by jobMutex
+    juce::var               pendingDesignPlan;        // guarded by jobMutex
+    // provider/model AS OF SUBMIT, published with the job (same thread/mutex
+    // reasoning as pendingKind). Precedence (ADR-033): an echoed pin from a
+    // `recommend` response overrides the config default; absent a pin, the
+    // config's active_provider/active_model (ADR-032 v1) applies; empty ==
+    // "not configured" and the request omits the field.
     juce::String            pendingProvider;          // guarded by jobMutex
     juce::String            pendingModel;             // guarded by jobMutex
     bool                    hasJob   = false;
