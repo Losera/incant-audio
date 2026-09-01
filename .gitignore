@@ -10,6 +10,7 @@ dist/
 
 # --- Build output ---
 build/
+build-release/
 *.o
 *.a
 *.so
