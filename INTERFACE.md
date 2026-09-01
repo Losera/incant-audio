@@ -4,8 +4,31 @@
 of this file had drifted on every citation (see PF-065, `docs/BUGS.md`, discovered while tracing
 the REAPER "generate.py not found" defect).*
 
-`PromptPanel.cpp` shells out to `llm/generate.py`, parses one JSON line
-back. No shared header, no schema file — this file IS the schema.
+`PromptPanel.cpp` shells out to `llm/generate.py` and parses one JSON line
+back. No shared header or schema file exists; this file documents the wire
+contract. The request has two actions:
+
+- `"action":"generate"` is the Faust operation, and the **default** — a request
+  with no `action` is a `generate` request. The "New" refine mode sends
+  `generate` directly (one round-trip).
+- `"action":"recommend"` (ADR-033) asks for a bounded, editable design before
+  Faust is generated. It is **opt-in** — selected via the "Plan" refine mode,
+  never the default path. It carries `prompt`, resolved `kind`, resolved
+  `family`, and optional `provider`/`model`. Success returns those resolved
+  provider details plus a `recommendation`: `schema:1`, title/summary,
+  kind/family, 1-5 ordered modules, 1-12 controls, and deterministic
+  constraints. Unknown planner fields are discarded by Python validation.
+  Accepting a recommendation sends its edited object as `design_plan` on the
+  following `generate`, with the `recommend` response's resolved `provider` /
+  `model` echoed back. Python validates the plan again and folds a bounded brief
+  into generation.
+
+`reason:"target_mismatch"` (with `recommended_kind`) and
+`reason:"invalid_recommendation"` are returned **only for the `recommend`
+action** (ADR-033): the legacy `generate` path never blocks on a
+prompt/kind mismatch. Recommendations are transient editor state — a prompt,
+family, or mode change makes them stale, and processor/project state never
+stores them.
 
 **Located**: four steps, in order (`resolveGenerateScript()`, just above
 `PromptPanel`'s constructor): (1) env override `PLUGINFORGE_LLM_SCRIPT`;
@@ -29,11 +52,10 @@ runtime's own venv interpreter.
 
 **Invoked**: `juce::ChildProcess::start(argv, ...)` — no shell, no
 injection — `argv = [pythonExe, scriptPath, "--prompt", text]`, or
-`--request-file <tmpfile>` (:520-576) whenever the request carries
-structured fields: `prior_source`, `kind`, `refine_mode`
+`--request-file <tmpfile>` whenever the request carries structured fields:
+`action`, `design_plan`, `provider`, `model`, `prior_source`, `kind`, or `refine_mode`
 (`"surgical"` | `"context"` | absent — absent for a "New"/Fresh
-generation, which sends no prior source to refine in the first place), or
-`provider` / `model`.
+generation, which sends no prior source to refine in the first place).
 
 **`provider` / `model` (optional, ADR-032 v1).** Two optional string fields
 on the `--request-file` payload. Read from `active_provider` /
@@ -53,6 +75,13 @@ case they exist to fix. `generate_json()` already consumes both
 (`llm/generate.py:507-510`); the Python side is unchanged, and the paid
 `anthropic` gate stays there (`PaidProviderError` unless
 `PLUGINFORGE_ALLOW_PAID=1`) — the picker does not re-implement it.
+
+**Precedence (ADR-033):** the config's `active_provider` / `active_model` is the
+default. A `recommend` response's resolved `provider` / `model`, echoed back on
+the following `generate`, **pins that generation** and overrides the config
+default; absent an echoed pin, the config default applies. The pin is the
+per-generation immutable snapshot (ADR-032 §5).
+
 Credentials are **not** here — they stay in `.env` / the environment, read by
 the Python side (ADR-032 §4).
 **Read**: `readAllProcessOutput()` merges stdout+stderr (:646); the LAST

@@ -111,3 +111,22 @@ def explain(prompt: str) -> dict:
         "source_hits": [] if modulator else matched_src,
         "sources_read_as_modulators": modulator and bool(matched_src),
     }
+
+
+def detect_target_mismatch(prompt: str, requested_kind: str) -> str | None:
+    """Return the opposite target only for an evidenced, strict-score mismatch.
+
+    Empty/ambiguous prompts remain allowed. This is intentionally stricter than
+    classify()'s effect default: a safe default must never become a false block in
+    the Synth target merely because the user used vocabulary outside our lists.
+    """
+    if requested_kind not in {INSTRUMENT, EFFECT}:
+        return None
+    evidence = explain(prompt)
+    inst = len(evidence["instrument_hits"]) + len(evidence["source_hits"])
+    fx = len(evidence["effect_hits"])
+    if requested_kind == EFFECT and inst > fx and inst > 0:
+        return INSTRUMENT
+    if requested_kind == INSTRUMENT and fx > inst and fx > 0:
+        return EFFECT
+    return None
