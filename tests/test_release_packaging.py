@@ -23,7 +23,7 @@ def _fake_package(tmp_path: Path) -> Path:
     # Empty so `pip install -r` is an instant no-op with the venv's bundled pip
     # (no network); a real release ships the four real deps here.
     (package / "runtime/requirements.txt").write_text("")
-    (package / "runtime/.env.example").write_text("PLUGINFORGE_PROVIDER=gemini\n")
+    (package / "runtime/.env.example").write_text("PLUGINFORGE_PROVIDER=ollama\n")
     (package / "install.sh").write_text(INSTALL.read_text())
     return package
 
@@ -141,7 +141,7 @@ def test_installer_writes_a_config_the_plugin_can_read(tmp_path):
     assert config["schema"] == 1
 
     # .env is seeded from the example, not left absent
-    assert (tmp_path / "data/pluginforge/.env").read_text() == "PLUGINFORGE_PROVIDER=gemini\n"
+    assert (tmp_path / "data/pluginforge/.env").read_text() == "PLUGINFORGE_PROVIDER=ollama\n"
 
 
 def test_installer_preserves_picker_written_config_keys(tmp_path):
