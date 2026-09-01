@@ -1,4 +1,4 @@
-# PluginForge — Status  (2026-08-31)
+# PluginForge — Status  (2026-09-01)
 
 Rewritten each session per COLLABORATION.md §5. Single writer, no merge conflicts.
 Narrative history lives in git and in `docs/sessions/`.
@@ -68,6 +68,18 @@ mode; `detect_target_mismatch` off the legacy path; contract reconciled onto ADR
 provider-precedence rule; §3–§5 hygiene) were **applied 2026-08-31** and pushed to PR #39
 as merge commit `8edd7cd`; `check.sh full` green from a clean build. **Awaiting the human's
 semantic review** — it edits the ADR-011 wire contract, so it is not auto-merged.
+**ADR-034** (a single-purpose reproduction container for issue #26 — one Arch-based
+Dockerfile that builds Faust + faust-rs, wired into nothing) — **Accepted 2026-09-01** by
+explicit user decision; text in `docs/decisions.md`, riding on PR #44.
+
+**Open for review — PR #44** (branch bench/issue26-repro-package): the issue-#26 reproduction
+package (`bench/issue26/` — `verify.py`, standalone A/B driver, README/SCHEMA, the ADR-034
+Dockerfile) + the shared `bench/repair_ab_core.py` extraction so `run_repair_ab.py` and the
+standalone driver run byte-identical trajectories. CI green (`build-host` + `test`);
+`MERGEABLE`/`CLEAN`. Not auto-merged — it adds an ADR (§2 trigger 2). Verified this session:
+`bench/issue26/verify.py` → **REPRODUCED** (every committed count + p-bound holds); Docker
+image built (976 MB content), in-container `verify` → REPRODUCED and `rederive` → 15/15
+verdict agreement matching the README.
 
 **Landed 2026-08-30/31:** PR #40 (`docs/phases/` living per-phase rollup), PR #41 (faust-rs
 issue-#26 repair-loop A/B harness + **PF-076**), PR #42 (ADR-032 v1 backend, above).
@@ -168,10 +180,10 @@ PF-063 CI-staleness banner (2026-08-17); PF-066 stale octave assertion and PF-06
   grid ran once, on `ollama qwen2.5-coder:7b` (CPU) — compile rate tier-independent,
   fidelity monotonically declining. **Still assumed:** whether that gradient holds on
   `groq`'s `openai/gpt-oss-120b`. A groq run **started 2026-08-31** and the bounded harness
-  checkpointed at **27/125** when the daily token limit ran low
-  (`bench/results/efficacy/efficacy_groq_20260831.json`) — partial: L4 5/6, L3 4/6, L2 5/5,
-  L1 4/5, L0 4/5, no tier gradient visible yet at this n. Resume with `--resume` next quota
-  window. Also n=1 per cell (PF-031's ≥3-run bar unmet), and the judge is a 7B grading a 7B.
+  checkpointed at **29/125** when the daily token limit ran low
+  (`bench/results/efficacy/efficacy_groq_20260831.json`, `origin/main` `6799a75`) — no tier
+  gradient visible yet at this n. Resume with `--resume` next quota window. Also n=1 per
+  cell (PF-031's ≥3-run bar unmet), and the judge is a 7B grading a 7B.
 
 ---
 
@@ -179,13 +191,15 @@ PF-063 CI-staleness banner (2026-08-17); PF-066 stale octave assertion and PF-06
 
 1. *(evidence)* **Resume the groq 125-cell efficacy run.** `python bench/run_efficacy_study.py
    --provider groq --resume --out bench/results/efficacy/efficacy_groq_20260831.json` when
-   the daily quota clears — it is at 27/125. Moves PF-011 out of Assumed, the one number
+   the daily quota clears — it is at 29/125. Moves PF-011 out of Assumed, the one number
    this project steers by. Score with `bench/score_efficacy.py` (compile rate first;
    `--judge` spends quota — defect #10).
 2. **PF-065's install-layout half.** A real `install.sh` that writes a version-matched
    runtime + `.env` and has the plugin prefer it over a stale one. The config-file and
    picker halves landed (PR #42/#43); this is what is left of PF-065, and it is a
-   release-rehearsal prerequisite.
+   release-rehearsal prerequisite. (`feat/pf065-install-layout` exists in
+   `.worktrees/main-session` — a parallel phone-rescue session; check its own
+   `.claude/HANDOFF.md` before starting.)
 3. **Capture repros for PF-072 and PF-074.** The two medium in-host findings are
    currently unactionable — each needs the triggering patch source and the action
    immediately before. Until then they cannot be fixed, only re-observed.
@@ -198,32 +212,47 @@ clock — no host transport in Standalone).
 ## Waiting on you
 
 1. **Semantic review of PR #39 (Codex `feat/recommendation-mvp`).** ADR-033's four
-   conditions were applied 2026-08-31 and pushed as merge commit `8edd7cd`; `check.sh full`
-   is green from a clean build. It edits the ADR-011 wire contract (adds `action` dispatch,
-   `design_plan`, `recommendation`, two `reason` codes), so it is **not auto-merged** — it
-   needs your read. The one open design point: `submitPromptForTest` bypasses
-   `submitPrompt()`'s routing, so scenario 47 checks the default *outcome* but not the
-   `getSelectedId()==4` branch (noted in the PR).
-2. **Verify PF-065/PF-071 in a real launcher-started DAW.** Launch REAPER or Carla *from
+   conditions were applied 2026-08-31 and pushed as merge commit `8edd7cd`; a further fix
+   `4fedfb37` (re-arm the accept button after a re-plan; wire the provider/model picker to
+   plan-invalidation; drop the now-unreachable `target_mismatch` branch on plain
+   `generate`). `MERGEABLE`/`CLEAN`; CI green (on `4fedfb37`, ~8h old — `main` has moved 4
+   non-conflicting commits since). It edits the ADR-011 wire contract (adds `action`
+   dispatch, `design_plan`, `recommendation`, two `reason` codes), so it is **not
+   auto-merged** — it needs your read. Confirmed open coverage gap (2026-09-01):
+   `PromptPanel::submitPrompt()`'s selector-routing branch (`getSelectedId()==4 → recommend`,
+   else `generate`) has **no `EditorSessionTest` scenario** — tests drive
+   `submitPromptForTest()` (hardwired `generate`) or `requestRecommendationForTest()`
+   (hardwired `recommend`), never the decision itself. Small (3 lines, correct by reading)
+   but it is exactly what ADR-033 condition 1 governs.
+2. **Semantic review of PR #44 (branch bench/issue26-repro-package).** Adds ADR-034 + the
+   `bench/issue26/` repro package + the `bench/repair_ab_core.py` extraction (~175 lines,
+   the part worth reading; the rest is package scaffolding). CI green, `MERGEABLE`. No
+   `check.sh` level exercises `run_repair_ab`, so the extraction is covered only by the new
+   `tests/test_repair_ab_core.py` (13) + `verify.py`'s byte-identical replay — not a live
+   A/B run.
+3. **The issue #26 reply for Stéphane Letz is drafted, not posted.** Terse — finding /
+   setup / mechanism, no bullet lists; text is in the session log. Needs your wording
+   approval and a link (PR #44 or a GitHub Release) before it goes on the issue.
+4. **Verify PF-065/PF-071 in a real launcher-started DAW.** Launch REAPER or Carla *from
    the desktop launcher* (not a terminal), no `PLUGINFORGE_*` exported, no `.env`, set the
    provider in the plugin's new picker (writes `~/.config/pluginforge/config.json`), and
    confirm generation succeeds. The tests prove the resolution logic; only this proves the
    defects are actually fixed.
-3. **A listening pass on the interactive-session patches.** COLLABORATION.md §1 — whether a
+5. **A listening pass on the interactive-session patches.** COLLABORATION.md §1 — whether a
    generated plugin *sounds like what was asked for* has no instrument and is not delegable.
    The render oracle proved the WP6 patches were not broken; it cannot tell you they were
    musical.
-4. **A replacement Freesound API key.** *(PF-056.)* The configured key is sent and rejected
+6. **A replacement Freesound API key.** *(PF-056.)* The configured key is sent and rejected
    (HTTP 403). Code cannot fix a revoked credential — get one from freesound.org.
-5. **`bench/results/.prompt_baseline.json` is still untouched**, deliberately. It records
+7. **`bench/results/.prompt_baseline.json` is still untouched**, deliberately. It records
    `0.88` for the deleted pre-unification prompt; overwriting it is COLLABORATION.md §2
    territory.
-6. **Three Phase-3 backlog plans are drafted, session-local, awaiting a fresh session.**
+8. **Three Phase-3 backlog plans are drafted, session-local, awaiting a fresh session.**
    `~/.claude/plans/phase3-pf032-silent-noise-gate.md`, `phase3-pf045-envelope-time-units.md`,
    `phase3-pf024-invalid-generation-families.md`. Each leads with a re-measurement WP: the
    prompt already contains the fix text for all three, and the open question is whether the
    shipping model obeys it.
-7. **Untracked personal files left alone**, as always — the two notes at the repo root,
+9. **Untracked personal files left alone**, as always — the two notes at the repo root,
    the unshipped brief skill, and the product-architecture draft under bench/. Named in
    `.claude/HANDOFF.md`; not cited here as paths because they are not in the tree and the
    live-doc path check (correctly) rejects that.
