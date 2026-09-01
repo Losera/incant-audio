@@ -1143,10 +1143,11 @@ for a trustworthy fresh measurement, not the measurement itself.
 > `python_path`; `PromptPanel::resolvePythonExe()`; the "Paths…" callout, gated during a run).
 > **Clean-machine rehearsal PASSED**: `package_release.sh` → tarball → `install.sh` into a
 > scratch `HOME` → REAPER started against it with no `PLUGINFORGE_*` and no `config.json`
-> hand-edit → the human generated a working effect (provider `ollama`, the seeded default;
-> local, zero credentials). Remaining install-adjacent gap tracked separately in PR #46
-> (`requirements.txt` omitted `google-genai`, so the *seeded default `gemini`* can't run
-> until that lands). The rest of this entry is the original diagnosis, kept for the record.
+> hand-edit → the human generated a working effect (provider `ollama`; local, zero
+> credentials). Two install-adjacent follow-ups landed after: **PF-077** (`requirements.txt`
+> omitted `google-genai` so the then-seeded `gemini` default couldn't run — PR #46,
+> `52903d5`), and `.env.example`'s default switched `gemini` → `ollama` so a fresh install
+> needs no credential at all. The rest of this entry is the original diagnosis.
 
 **high · open · S1 Backend · user-reported, running the built VST3 in REAPER**
 
