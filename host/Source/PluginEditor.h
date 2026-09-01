@@ -213,6 +213,10 @@ public:
     juce::String pickerModelForTest() const { return promptPanel.modelForTest(); }
     void         setPickerModelForTest(const juce::String& m) { promptPanel.setModelForTest(m); }
     juce::String runtimeSourceForTest() const { return promptPanel.generateScriptSourceForTest(); }
+    juce::String interpreterSourceForTest() const { return promptPanel.pythonExeSourceForTest(); }
+    juce::String interpreterForTest() const { return promptPanel.pythonExeForTest(); }
+    void         setRuntimePathsForTest(const juce::String& script, const juce::String& python)
+                     { promptPanel.setRuntimePathsForTest(script, python); }
     // Dev-cockpit state export — OFF by default. Nothing is written anywhere
     // until a caller (the Standalone app or the /cockpit skill) opts in via
     // setCockpitStatePath(path), which sets the path AND arms the 30Hz timer

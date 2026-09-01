@@ -185,6 +185,39 @@ juce::File resolveGenerateScript(const juce::File& binaryDir,
     return {};
 }
 
+// Which Python interpreter runs generate.py. Three steps, in order:
+//   1. PLUGINFORGE_PYTHON env override — the pre-ADR-032 mechanism, kept first
+//      so an existing dev/venv setup is unaffected.
+//   2. config.json's python_path (ADR-032 v1 / PF-065), when it names a file
+//      that exists. A launcher-started DAW inherits no venv on PATH and no env
+//      var, so install.sh writes this to the runtime's own interpreter. A
+//      configured path that is not there falls through rather than hard-failing
+//      the child-process start.
+//   3. "python3" — resolved by the OS PATH search, the historical default.
+// `resolvedVia` receives "env" | "config" | "default". External linkage +
+// explicit config for PromptPanelPathResolutionTest, exactly like the function
+// above.
+juce::String resolvePythonExe(const PluginConfig& config, juce::String* resolvedVia)
+{
+    const auto note = [resolvedVia](const char* tag) { if (resolvedVia != nullptr) *resolvedVia = tag; };
+
+    auto envPython = juce::SystemStats::getEnvironmentVariable("PLUGINFORGE_PYTHON", "");
+    if (envPython.isNotEmpty())
+    {
+        note("env");
+        return envPython;
+    }
+
+    if (config.pythonPath.isNotEmpty() && juce::File(config.pythonPath).existsAsFile())
+    {
+        note("config");
+        return config.pythonPath;
+    }
+
+    note("default");
+    return "python3";
+}
+
 // ── PromptPanel ─────────────────────────────────────────────────────────────
 PromptPanel::PromptPanel(PluginForgeProcessor& p)
     : processor(p)
@@ -256,11 +289,23 @@ PromptPanel::PromptPanel(PluginForgeProcessor& p)
         config,
         &generateScriptSource);
 
+    // Same resolution shape for the interpreter (PF-065): env → config → python3.
+    // Resolved once here, not per generation, so the tooltip and runGeneration
+    // agree and neither re-reads the environment on the worker thread.
+    pythonExe = resolvePythonExe(config, &pythonExeSource);
+
     addAndMakeVisible(generateButton);
     generateButton.onClick = [this] { submitPrompt(); };
 
     addAndMakeVisible(historyButton);
     historyButton.onClick = [this] { showHistoryMenu(); };
+
+    addAndMakeVisible(pathsButton);
+    pathsButton.setTooltip(
+        "Set where llm/generate.py lives and which Python runs it. Written to "
+        "~/.config/pluginforge/config.json so a DAW started from a desktop "
+        "launcher finds the runtime without any PLUGINFORGE_* variable (PF-065).");
+    pathsButton.onClick = [this] { openPathsCallout(); };
 
     // Host role is fixed by the VST/JUCE target. Families are selectable only
     // within that role; Auto's deterministic result remains visible while typing.
@@ -432,6 +477,109 @@ void PromptPanel::writeConfigFromPickers()
     if (onRecommendationInvalidated) onRecommendationInvalidated();
 }
 
+// ── PF-065: the "Paths…" callout ────────────────────────────────────────────
+void PromptPanel::applyRuntimePaths(const juce::String& scriptPath,
+                                    const juce::String& pythonPath)
+{
+    // Same load-modify-write discipline as writeConfigFromPickers(): a fresh
+    // PluginConfig would drop active_provider / active_model / the Soundfetch
+    // interpreter. An empty field clears that key (writeTo() omits empties).
+    PluginConfig cfg = PluginConfig::load();
+    cfg.generateScriptPath = scriptPath.trim();
+    cfg.pythonPath         = pythonPath.trim();
+    cfg.writeTo();
+
+    // Re-resolve so the tooltip and the next generation reflect the new paths
+    // without a plugin reload — the picker gives the same immediacy for provider.
+    reresolveRuntime();
+}
+
+void PromptPanel::reresolveRuntime()
+{
+    const PluginConfig cfg = PluginConfig::load();
+    generateScript = resolveGenerateScript(
+        juce::File::getSpecialLocation(juce::File::currentExecutableFile).getParentDirectory(),
+        juce::File::getSpecialLocation(juce::File::userHomeDirectory),
+        cfg,
+        &generateScriptSource);
+    pythonExe = resolvePythonExe(cfg, &pythonExeSource);
+    statusLabel.setTooltip(runtimeTooltip());
+}
+
+void PromptPanel::openPathsCallout()
+{
+    const PluginConfig cfg = PluginConfig::load();
+
+    struct PathsContent : juce::Component
+    {
+        juce::Label   scriptLabel { {}, "llm/generate.py" };
+        juce::TextEditor scriptField;
+        juce::Label   pyLabel { {}, "Python interpreter" };
+        juce::TextEditor pyField;
+        juce::Label   resolvedLine;
+        juce::TextButton saveButton { "Save" };
+
+        PathsContent()
+        {
+            for (auto* c : { &scriptLabel, &pyLabel, &resolvedLine })
+                addAndMakeVisible(c);
+            for (auto* e : { &scriptField, &pyField })
+            {
+                addAndMakeVisible(e);
+                e->setMultiLine(false);
+            }
+            addAndMakeVisible(saveButton);
+            scriptField.setTextToShowWhenEmpty("blank = auto (dev walk / XDG install)",
+                                               Theme::textSecondary);
+            pyField.setTextToShowWhenEmpty("blank = PLUGINFORGE_PYTHON / python3",
+                                           Theme::textSecondary);
+            resolvedLine.setColour(juce::Label::textColourId, Theme::textSecondary);
+            resolvedLine.setJustificationType(juce::Justification::topLeft);
+            setSize(460, 176);
+        }
+
+        void resized() override
+        {
+            auto r = getLocalBounds().reduced(10);
+            scriptLabel.setBounds(r.removeFromTop(18));
+            scriptField.setBounds(r.removeFromTop(26));
+            r.removeFromTop(8);
+            pyLabel.setBounds(r.removeFromTop(18));
+            pyField.setBounds(r.removeFromTop(26));
+            r.removeFromTop(6);
+            saveButton.setBounds(r.removeFromBottom(26).removeFromRight(80));
+            resolvedLine.setBounds(r);
+        }
+    };
+
+    auto content = std::make_unique<PathsContent>();
+    content->scriptField.setText(cfg.generateScriptPath, juce::dontSendNotification);
+    content->pyField.setText(cfg.pythonPath, juce::dontSendNotification);
+    content->resolvedLine.setText(runtimeTooltip(), juce::dontSendNotification);
+
+    auto* raw = content.get();
+    juce::Component::SafePointer<PromptPanel> safeThis(this);
+    auto commit = [safeThis, raw]
+    {
+        if (safeThis != nullptr)
+        {
+            safeThis->applyRuntimePaths(raw->scriptField.getText(), raw->pyField.getText());
+            raw->resolvedLine.setText(safeThis->runtimeTooltip(), juce::dontSendNotification);
+        }
+    };
+    raw->saveButton.onClick = commit;
+    raw->scriptField.onReturnKey = commit;
+    raw->pyField.onReturnKey = commit;
+    // Focus-loss too, so a click straight onto Save (or outside) is not lost.
+    raw->scriptField.onFocusLost = commit;
+    raw->pyField.onFocusLost = commit;
+
+    juce::CallOutBox::launchAsynchronously(
+        std::move(content),
+        pathsButton.getScreenBounds(),
+        nullptr);
+}
+
 juce::String PromptPanel::runtimeTooltip() const
 {
     const juce::String where =
@@ -440,9 +588,14 @@ juce::String PromptPanel::runtimeTooltip() const
         generateScriptSource == "config" ? "~/.config/pluginforge/config.json" :
         generateScriptSource == "xdg"    ? "XDG install (~/.local/share/pluginforge)" :
                                            "not found";
+    const juce::String interp =
+        pythonExeSource == "env"    ? "PLUGINFORGE_PYTHON" :
+        pythonExeSource == "config" ? "~/.config/pluginforge/config.json" :
+                                      "python3 (PATH)";
+    const juce::String tail = "\ninterpreter: " + interp + " (" + pythonExe + ")";
     if (! generateScript.existsAsFile())
-        return "generation runtime: " + where;
-    return "generation runtime: " + where + "\n" + generateScript.getFullPathName();
+        return "generation runtime: " + where + tail;
+    return "generation runtime: " + where + "\n" + generateScript.getFullPathName() + tail;
 }
 
 void PromptPanel::parentHierarchyChanged()
@@ -784,12 +937,10 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
     juce::Component::SafePointer<PromptPanel> safeThis(this);
     auto scriptPath = generateScript.getFullPathName();
 
-    // Interpreter discovery (ADR-011): PLUGINFORGE_PYTHON overrides for
-    // installed/venv layouts where the right interpreter isn't `python3` on
-    // PATH; the bare-name default relies on the OS PATH search, fine on the
-    // Arch dev target.
-    auto pythonExe = juce::SystemStats::getEnvironmentVariable(
-        "PLUGINFORGE_PYTHON", "python3");
+    // Interpreter resolved once in the constructor (resolvePythonExe): env
+    // PLUGINFORGE_PYTHON → config.json python_path → "python3". Copied here so
+    // the worker thread never re-reads the environment.
+    const auto pythonExe = this->pythonExe;
 
     // Sound because this worker is owned and joined by ~PromptPanel, and
     // juce_AudioProcessor.cpp:51-57 asserts the editor (hence this panel) is
@@ -1219,6 +1370,16 @@ void PromptPanel::startWorking()
     pulsePhase  = 0.0f;
     progressLabel.setVisible(true);
     startTimerHz(30);   // pulse the "Working…" label
+
+    // Lock the "Paths…" affordance for the duration of a run. reresolveRuntime()
+    // reassigns generateScript / pythonExe on the message thread; runGeneration()
+    // reads both on the worker thread at pickup. They used to be immutable after
+    // construction, so the worker read was race-free by construction -- the
+    // callout is the only thing that can now mutate them, so gating it here keeps
+    // that guarantee, and also stops a mid-run path change from silently applying
+    // to a generation the user already started (same reasoning as the job-field
+    // snapshot in submitPrompt()).
+    pathsButton.setEnabled(false);
 }
 
 void PromptPanel::stopWorking()
@@ -1227,6 +1388,7 @@ void PromptPanel::stopWorking()
     stopTimer();
     progressLabel.setVisible(false);
     progressLabel.setAlpha(1.0f);
+    pathsButton.setEnabled(true);
 }
 
 void PromptPanel::timerCallback()
@@ -1368,6 +1530,9 @@ void PromptPanel::resized()
     generateButton.setBounds(actionRow.removeFromLeft(110));
     actionRow.removeFromLeft(gap);
     historyButton.setBounds(actionRow.removeFromLeft(90));
+    // "Paths…" is right-aligned so it never crowds Generate; in a band too
+    // narrow for it the ComboBoxes below already collapse the same way.
+    pathsButton.setBounds(actionRow.removeFromRight(juce::jmin(72, actionRow.getWidth())));
 
     // Family selector: generation-time family override, replacing the old
     // Instrument/Effect kind selector (main, "deterministic plugin families";

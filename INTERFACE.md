@@ -43,6 +43,13 @@ different script mid-session (a test-fixture trap; see `FakeGenerator.h`'s
 comments and `EditorSessionTest.cpp` scenarios 16/24/26) has no effect on a
 `PromptPanel` that already exists. Step 2 alone **does not reach an installed
 VST3** (`~/.vst3/…`); step 3 is the config-file answer to that — see PF-065.
+**Interpreter** (`pythonExe`): `resolvePythonExe()`, next to
+`resolveGenerateScript()`, resolved once in the constructor — (1) env
+`PLUGINFORGE_PYTHON`; (2) **ADR-032 v1 / PF-065** the `python_path` in
+`config.json` when it names a file that exists (a launcher-started DAW inherits
+no venv on `PATH`); (3) `"python3"`. `install.sh` writes `python_path` to the
+runtime's own venv interpreter.
+
 **Invoked**: `juce::ChildProcess::start(argv, ...)` — no shell, no
 injection — `argv = [pythonExe, scriptPath, "--prompt", text]`, or
 `--request-file <tmpfile>` whenever the request carries structured fields:
@@ -56,7 +63,11 @@ on the `--request-file` payload. Read from `active_provider` /
 snapshotted with each job. The in-plugin picker (`PromptPanel`'s
 `providerSelector` + `modelField`, one of `auto`/`gemini`/`groq`/`openrouter`/
 `ollama`/`anthropic`) writes those two keys back via `PluginConfig::writeTo()`
-on change, load-modify-write so it does not drop `generate_script_path`.
+on change, load-modify-write so it does not drop `generate_script_path` /
+`python_path` / `soundfetch_interpreter_path`. The **"Paths…"** callout
+(`PromptPanel`'s `pathsButton`) writes `generate_script_path` + `python_path`
+the same way and re-resolves the runtime live, so no user ever hand-edits the
+file — that is what closes PF-065's install-layout half alongside `install.sh`.
 **Omitted entirely when not configured** ("auto" / blank) — an explicit `""`
 would defeat `generate.py`'s `request.get("provider", DEFAULT_PROVIDER)`
 fallback (the key would exist), which is exactly the launcher-started-DAW
