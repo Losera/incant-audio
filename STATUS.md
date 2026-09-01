@@ -73,8 +73,24 @@ PR #39) — **Accepted with conditions 2026-08-31**. The four conditions (opt-in
 mode; `detect_target_mismatch` off the legacy path; contract reconciled onto ADR-032 with a
 provider-precedence rule; §3–§5 hygiene) were **applied 2026-08-31** and pushed to PR #39
 as merge commit `8edd7cd`; `check.sh full` green from a clean build. **Reviewed 2026-09-01**
-(diff read, conditions confirmed applied); two fixes go on the branch before merge — see
-"Waiting on you" #1. Merge stays with the human — it edits the ADR-011 wire contract.
+(diff read, conditions confirmed applied); the two branch fixes landed as `4fedfb37`
+(re-arm the accept button after a re-plan; wire the provider/model picker to
+plan-invalidation; drop the now-unreachable `target_mismatch` branch on plain `generate`).
+Merge stays with the human — it edits the ADR-011 wire contract. See "Waiting on you" #1.
+**ADR-034** (a single-purpose reproduction container for issue #26 — one Arch-based
+Dockerfile that builds Faust + faust-rs, wired into nothing) — **Accepted 2026-09-01** by
+explicit user decision; text in `docs/decisions.md`, riding on PR #44.
+
+**Open for review — PR #44** (branch bench/issue26-repro-package). Adds ADR-034 + the
+`bench/issue26/` reproduction package (`verify.py`, a stdlib-only A/B driver, README/SCHEMA,
+the ADR-034 Dockerfile) + `bench/repair_ab_core.py` — the paired corrective loop extracted
+so `bench/run_repair_ab.py` and the standalone driver run byte-identical trajectories. CI
+green (`build-host` + `test`). Not auto-merged — it adds an ADR (§2 trigger 2). Verified
+2026-09-01: `bench/issue26/verify.py` → **REPRODUCED** (every committed count + p-bound
+holds); Docker image built (976 MB content), in-container `verify` → REPRODUCED and
+`rederive` → 15/15 verdict agreement matching the README. Reply to GRAME issue #26 is
+drafted (terse: finding / setup / mechanism) but **not posted** — awaits human wording
+approval + a link.
 
 **Landed 2026-08-30/31:** PR #40 (`docs/phases/` living per-phase rollup), PR #41 (faust-rs
 issue-#26 repair-loop A/B harness + **PF-076**), PR #42 (ADR-032 v1 backend, above).
@@ -196,7 +212,7 @@ PF-063 CI-staleness banner (2026-08-17); PF-066 stale octave assertion and PF-06
 
 1. *(evidence)* **Resume the groq 125-cell efficacy run.** `python bench/run_efficacy_study.py
    --provider groq --resume --out bench/results/efficacy/efficacy_groq_20260831.json` — at
-   27/125. **In flight this block (WI-2)**, resumes when the daily quota permits; it
+   ~29/125. **In flight this block (WI-2)**, resumes when the daily quota permits; it
    checkpoints harmlessly if not. Moves PF-011 out of Assumed, the one number this project
    steers by. Score with `bench/score_efficacy.py` (compile rate first; `--judge` spends
    quota — defect #10).
@@ -217,39 +233,48 @@ clock — no host transport in Standalone).
 
 ## Waiting on you
 
-1. **PR #39 (Codex `feat/recommendation-mvp`) — reviewed 2026-09-01, two fixes then merge.**
-   The four ADR-033 conditions are genuinely applied (`detect_target_mismatch` off the
-   legacy `generate` path — `llm/generate.py:1455`; "Plan" is `refineSelector` item 4;
-   scenario 47 pins the default). Diff read surfaced: **(a)** a confirmed bug —
-   `RecommendationPanel::markStale()` disables the accept button and nothing re-enables it
-   except Dismiss, so a second "Plan" after an edit renders a dead button; **(b)** the
-   provider picker is not wired to `onRecommendationInvalidated`, so changing it after a
-   plan silently diverges the shown provider from the pinned one. This block fixes both on
-   the branch (WI-1), re-runs `check.sh full`, then **you merge** — it edits the ADR-011
-   wire contract. Stated remainder: `submitPromptForTest` bypasses `submitPrompt()` routing,
-   so scenario 47 checks the default *outcome* not the `getSelectedId()==4` branch.
-2. **Clean-machine `install.sh` rehearsal (PF-065).** The launcher-DAW generation path is
+1. **PR #39 (Codex `feat/recommendation-mvp`) — reviewed 2026-09-01, fixes landed, ready for
+   your merge.** The four ADR-033 conditions are genuinely applied (`detect_target_mismatch`
+   off the legacy `generate` path — `llm/generate.py:1455`; "Plan" is `refineSelector` item
+   4; scenario 47 pins the default). The two review findings — **(a)**
+   `RecommendationPanel::markStale()` left the accept button dead after a re-plan; **(b)**
+   the provider picker was not wired to `onRecommendationInvalidated` — were **fixed on the
+   branch as `4fedfb37`** (`check.sh full` green, `EditorSessionTest` 397/0). PR is
+   `MERGEABLE`/`CLEAN`; CI green on `4fedfb37` (~8h old — `main` has moved 4 non-conflicting
+   commits since, worth a fresh `merge main` + CI before you merge). **You merge** — it
+   edits the ADR-011 wire contract. Confirmed remaining coverage gap:
+   `PromptPanel::submitPrompt()`'s selector-routing branch (`getSelectedId()==4 → recommend`,
+   else `generate`) has no `EditorSessionTest` scenario — tests drive `submitPromptForTest()`
+   (hardwired `generate`) or `requestRecommendationForTest()` (hardwired `recommend`), never
+   the decision itself. Small, correct by reading, but it is what ADR-033 condition 1 governs.
+2. **PR #44 (branch bench/issue26-repro-package) — semantic review.** ADR-034 + the
+   `bench/issue26/` repro package + the `bench/repair_ab_core.py` extraction (~175 lines —
+   the part worth reading; the rest is package scaffolding). CI green, `MERGEABLE`. No
+   `check.sh` level exercises `run_repair_ab`, so the extraction is covered only by the new
+   `tests/test_repair_ab_core.py` (13) + `verify.py`'s byte-identical replay. Also review
+   the drafted GRAME issue #26 reply (in the session log) before it is posted.
+3. **Clean-machine `install.sh` rehearsal (PF-065).** The launcher-DAW generation path is
    verified (2026-09-01, REAPER) *with a hand-written config*. What is still unproven:
    `tools/install_release.sh` extended (WI-3) to create a venv, seed `.env`, and write a
    `config.json` pointing at both — installed from a packaged tarball into a clean-ish
    `HOME`, then REAPER from the desktop launcher with **nothing** hand-set. Only that
    closes PF-065. A shell-level rehearsal into a scratch `HOME` lands in the block; the
    real clean-machine pass is yours.
-3. **A listening pass on the interactive-session patches.** COLLABORATION.md §1 — whether a
+4. **A listening pass on the interactive-session patches.** COLLABORATION.md §1 — whether a
    generated plugin *sounds like what was asked for* has no instrument and is not delegable.
    The render oracle proved the WP6 patches were not broken; it cannot tell you they were
    musical.
-4. **A replacement Freesound API key.** *(PF-056.)* The configured key is sent and rejected
+5. **A replacement Freesound API key.** *(PF-056.)* The configured key is sent and rejected
    (HTTP 403). Code cannot fix a revoked credential — get one from freesound.org.
-5. **`bench/results/.prompt_baseline.json` is still untouched**, deliberately. It records
+6. **`bench/results/.prompt_baseline.json` is still untouched**, deliberately. It records
    `0.88` for the deleted pre-unification prompt; overwriting it is COLLABORATION.md §2
    territory.
-6. **Three Phase-3 backlog plans are drafted, session-local, awaiting a fresh session.**
+7. **Three Phase-3 backlog plans are drafted, session-local, awaiting a fresh session.**
    `~/.claude/plans/phase3-pf032-silent-noise-gate.md`, `phase3-pf045-envelope-time-units.md`,
    `phase3-pf024-invalid-generation-families.md`. Each leads with a re-measurement WP: the
    prompt already contains the fix text for all three, and the open question is whether the
    shipping model obeys it.
-7. **Untracked personal files left alone**, as always — the two notes at the repo root,
+8. **Untracked personal files left alone**, as always — the two notes at the repo root,
    the unshipped brief skill, and the product-architecture draft under bench/. Named in
    `.claude/HANDOFF.md`; not cited here as paths because they are not in the tree and the
    live-doc path check (correctly) rejects that.
