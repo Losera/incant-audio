@@ -3486,6 +3486,49 @@ void scenario47_defaultPathIsDirectGenerate(const juce::File& tmp)
           "the default request carries no design_plan");
 }
 
+// 48 — ADR-033 condition 1, through the real router. Scenario 47 proves the
+// OUTCOME of the default path, but via submitPromptForTest(), which hardwires
+// queueRequest("generate") and never touches submitPrompt()'s refineSelector
+// branch. This drives submitPrompt() itself (the Generate/Plan button's
+// onClick): "New" must route to generate, "Plan" (refineSelector id 4) must
+// route to recommend.
+void scenario48_generateButtonRoutesByRefineMode(const juce::File& tmp)
+{
+    scenario("48. the Generate/Plan button routes New->generate, Plan->recommend",
+             "ADR-033: submitPrompt()'s refineSelector==4 branch is exercised end to end");
+
+    // Default selector ("New", id 1): the button fires one generate, no panel.
+    {
+        FakeGenerator::install(FakeGenerator::writeSuccessCapturing(tmp, "gen48new", kTinyPatch));
+        Session s;
+        check(s.editor.refineModeForTest() == 1, "default refine mode is New");
+        s.editor.clickGenerateButtonForTest("a warm resonant low-pass filter");
+        check(pumpUntil([&] { return s.editor.statusTextForTest().contains("DSP live"); }),
+              "New routes through submitPrompt() straight to a generate");
+        check(! s.editor.recommendationVisibleForTest(),
+              "no review panel opens on the New path");
+        const auto req = juce::JSON::parse(FakeGenerator::capturedRequestJson(tmp, "gen48new"));
+        check(req.getProperty("action", {}).toString() == "generate",
+              "submitPrompt() with New -> action=generate");
+    }
+
+    // Selector on "Plan" (id 4): the SAME button now routes to recommend and
+    // opens the review panel — only the recommend action can do that.
+    {
+        FakeGenerator::install(FakeGenerator::writeRecommendationThenSuccess(
+            tmp, "gen48plan", kTinyPatch));
+        Session s;
+        s.editor.setRefineModeForTest(4);
+        check(s.editor.refineModeForTest() == 4, "selector moved to Plan");
+        s.editor.clickGenerateButtonForTest("a warm resonant low-pass filter");
+        check(pumpUntil([&] { return s.editor.recommendationVisibleForTest(); }),
+              "Plan routes through submitPrompt() to the recommend review panel");
+        const auto req = juce::JSON::parse(FakeGenerator::capturedRequestJson(tmp, "gen48plan"));
+        check(req.getProperty("action", {}).toString() == "recommend",
+              "submitPrompt() with Plan -> action=recommend");
+    }
+}
+
 } // namespace
 
 int main()
@@ -3493,7 +3536,7 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInit;
 
     std::printf("EditorSessionTest -- a simulated human session against the real editor\n");
-    std::printf("  47 scenarios, no network, no quota, snapshots to artifacts/images/\n");
+    std::printf("  48 scenarios, no network, no quota, snapshots to artifacts/images/\n");
 
     auto tmp = juce::File::getSpecialLocation(juce::File::tempDirectory)
                    .getChildFile("pluginforge_editor_session");
@@ -3555,6 +3598,7 @@ int main()
     scenario45_recommendationReview(tmp);
     scenario46_recommendationFailureActions(tmp);
     scenario47_defaultPathIsDirectGenerate(tmp);
+    scenario48_generateButtonRoutesByRefineMode(tmp);
 
     tmp.deleteRecursively();
 

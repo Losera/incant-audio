@@ -93,6 +93,8 @@ public:
     void         submitPromptForTest(const juce::String& text);
     void         requestRecommendationForTest(const juce::String& text)
                      { promptPanel.requestRecommendationForTest(text); }
+    void         clickGenerateButtonForTest(const juce::String& text)
+                     { promptPanel.clickGenerateButtonForTest(text); }
     bool         recommendationVisibleForTest() const { return recommendationPanel.isVisible(); }
     bool         recommendationStaleForTest() const { return recommendationPanel.isStale(); }
     juce::String recommendationTitleForTest() const { return recommendationPanel.titleForTest(); }

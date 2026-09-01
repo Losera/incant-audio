@@ -628,6 +628,12 @@ void PromptPanel::requestRecommendationForTest(const juce::String& text)
     queueRequest("recommend");
 }
 
+void PromptPanel::clickGenerateButtonForTest(const juce::String& text)
+{
+    promptInput.setText(text, juce::dontSendNotification);
+    submitPrompt();   // the real routing decision — do not shortcut to queueRequest
+}
+
 juce::String PromptPanel::selectedFamilyId() const
 {
     if (familySelector.getSelectedId() == 1)

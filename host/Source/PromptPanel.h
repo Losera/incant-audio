@@ -140,6 +140,12 @@ public:
     void submitPromptForTest(const juce::String& text);
     void requestRecommendationForTest(const juce::String& text);
 
+    // Like submitPromptForTest, but drives submitPrompt() itself — the Generate/
+    // Plan button's onClick — so its refineSelector routing (id 4 "Plan" ->
+    // "recommend", everything else -> "generate") is exercised end to end,
+    // rather than bypassed by jumping straight to queueRequest("generate").
+    void clickGenerateButtonForTest(const juce::String& text);
+
     // RecommendationPanel routes its explicit review actions back through the
     // same owned worker and subprocess contract as ordinary generation.
     void generateFromRecommendation(const juce::var& plan,
