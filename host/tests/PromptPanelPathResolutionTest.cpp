@@ -51,6 +51,12 @@ juce::File resolveGenerateScript(const juce::File& binaryDir, const juce::File& 
                                  const PluginConfig& config,
                                  juce::String* resolvedVia = nullptr);
 
+// Same story for the interpreter that runs generate.py (PF-065): env
+// PLUGINFORGE_PYTHON → config.json python_path (when it names a file that
+// exists) → "python3". `resolvedVia` receives "env" | "config" | "default".
+juce::String resolvePythonExe(const PluginConfig& config,
+                              juce::String* resolvedVia = nullptr);
+
 namespace
 {
 int failures = 0;
@@ -270,6 +276,37 @@ int main()
         auto h = scratch.getChildFile("case9_none_home"); h.createDirectory();
         resolveGenerateScript(b, h, kNoConfig, &via);
         check(via.isEmpty(), "resolvedVia == '' when nothing resolves");
+    }
+
+    // ── 10. PF-065: which interpreter runs generate.py (resolvePythonExe) ─────
+    {
+        ::unsetenv("PLUGINFORGE_PYTHON");
+        juce::String via;
+
+        // env override wins, even with a config python_path present
+        auto envPy = scratch.getChildFile("case10_env_python");
+        envPy.replaceWithText("#!/bin/sh\n");
+        ::setenv("PLUGINFORGE_PYTHON", envPy.getFullPathName().toRawUTF8(), 1);
+        PluginConfig cfgWithPy;
+        cfgWithPy.pythonPath = scratch.getChildFile("case10_cfg_python").getFullPathName();
+        juce::File(cfgWithPy.pythonPath).replaceWithText("#!/bin/sh\n");
+        check(resolvePythonExe(cfgWithPy, &via) == envPy.getFullPathName() && via == "env",
+              "PLUGINFORGE_PYTHON wins over a configured python_path");
+
+        // no env: an existing config python_path is used
+        ::unsetenv("PLUGINFORGE_PYTHON");
+        check(resolvePythonExe(cfgWithPy, &via) == cfgWithPy.pythonPath && via == "config",
+              "config.json python_path is used when it names a file that exists");
+
+        // no env, config path does not exist: fall through to "python3"
+        PluginConfig cfgMissingPy;
+        cfgMissingPy.pythonPath = scratch.getChildFile("case10_missing_python").getFullPathName();
+        check(resolvePythonExe(cfgMissingPy, &via) == "python3" && via == "default",
+              "a python_path that does not exist falls through to python3, not a hard failure");
+
+        // nothing configured: "python3"
+        check(resolvePythonExe(kNoConfig, &via) == "python3" && via == "default",
+              "with neither env nor config, the interpreter is python3 (pre-ADR-032 default)");
     }
 
     scratch.deleteRecursively();

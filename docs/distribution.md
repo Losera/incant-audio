@@ -41,12 +41,18 @@ The default user-local destinations are:
 - VST3: `$HOME/.vst3`
 - Standalone launchers: `$HOME/.local/bin`
 - Python generation runtime: `$XDG_DATA_HOME/pluginforge` or
-  `$HOME/.local/share/pluginforge`
+  `$HOME/.local/share/pluginforge`, with a dedicated venv under `.../venv`
+- Config: `$XDG_CONFIG_HOME/pluginforge/config.json` or
+  `$HOME/.config/pluginforge/config.json`
 
-The installer prints the `PLUGINFORGE_LLM_SCRIPT` value that must be present in
-the environment used to launch the DAW. Python dependencies are intentionally
-not installed automatically; create an environment and install
-`runtime/requirements.txt` explicitly.
+The installer creates a venv, installs `runtime/requirements.txt` into it, seeds
+`.env` from `.env.example` if absent, and writes `config.json` with
+`generate_script_path` and `python_path` pointing at what it just installed. It
+**merges** into an existing `config.json` — a provider or model set from the
+in-plugin picker survives a reinstall. No `PLUGINFORGE_*` environment variable is
+needed afterward, including for a DAW started from a desktop launcher (PF-065 /
+PF-071). If `python3 -m venv` is unavailable it records the system `python3` and
+prints the `pip install` command to finish by hand.
 
 This is an artifact installer, not host validation. A release still needs a
 pluginval scan and a real-DAW smoke test before it can be called verified.
