@@ -112,6 +112,7 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-074 | A generated **instrument patch produced NaN/Inf during normal play**, forcing a regeneration to recover. `OutputGuard` is designed to catch non-finite output and **latch-mute even for instruments** (`OutputGuard.h:89`, "NonFinite always latches regardless of policy"), so either it caught it (silence, regen cleared the latch) or it did not (a real hole). The operator saw "NaN/inf" — where (REAPER meter? the plugin?) and whether audio went silent or stayed broken was not captured. `OfflineSynthRenderTest` (184 checks, 0 failures) shows the synth audio path + OutputGuard are healthy on the tested fixtures, so this is a specific generated patch under a specific runtime condition. Needs the triggering patch + action captured | medium | open | S1 Backend | `host/Source/OutputGuard.{h,cpp}`, `host/Source/FaustEngine.cpp` | 2026-08-28 | — |
 | PF-075 | Instrument polyphony: `FaustEngine` is **strictly monophonic** (one `currentNote`, one gate, last-note priority, no per-voice cloning — `FaustEngine.cpp:547-562`), but the operator playing a chord in-host heard "more than 3 voices, up to 5". Most likely overlapping **release tails + reverb** from a mono voice (each note gated off when the next arrives, but its envelope/reverb keeps ringing) — which would confirm the mono model and be nice musical behaviour. The disambiguating test — hold a sustained 5-note chord: do all 5 sustain, or do 4 decay leaving 1 — has not been run | low | open | S3 Plugin UX | `host/Source/FaustEngine.cpp:547-562` | 2026-08-28 | — |
 | PF-076 | **faust-rs diagnostics fed to the repair loop *reduce* its success rate** (issue #26). A/B over 202 C++-rejected Faust programs, repaired from the identical start with raw C++ stderr vs `faust-rs --check` rendered: repaired-within-2 dropped from 75% to 44% (`qwen2.5-coder:3b`, n=202) and 72% to 50% (`7b` Q3, n=120), McNemar p<1e-3 both, arm A also fewer attempts. Trimming faust-rs to code+message+caret (arm C) changed nothing. Mechanism: precise localisation makes a weak model edit at the caret and re-break it (same-class-again ~75–80% vs ~45%); vague stderr provokes a broader rewrite that compiles. Not a defect in faust-rs (diagnostics are a human win — stable code + location 15/15 vs C++ 0/15 + 8/15); a finding about how to use it. Untested: frontier model, FRS code as a *branch* signal, resending the failing source | — (evidence) | closed | S4 Testing | `bench/run_repair_ab.py`, `bench/results/repair_ab/repair_ab_20260830{,_7b}.json` | 2026-08-30 | 2026-08-30 |
+| PF-077 | The shipped `requirements.txt` omits `google-genai`, so a clean `install.sh` builds a venv that **cannot run the provider its own seeded `.env` defaults to** (`.env.example` sets `PLUGINFORGE_PROVIDER=gemini`). `providers.py`'s gemini adapter does `from google import genai` (`llm/providers.py:680,991`) → `ModuleNotFoundError: No module named 'google'` for a launcher-started DAW off a fresh install. groq / openrouter (both httpx) and ollama (local) work; anthropic is already pinned. `bench/requirements.txt:2` has carried `google-genai>=1.0.0` since the gemini adapter landed — the root file the installer ships was just never synced to it. Found during the PF-065 clean-machine install rehearsal (2026-09-01, scratch `HOME`, `install.sh` → venv → `providers.py --check gemini`) | medium | fixed | S1 Backend | `requirements.txt`, `llm/providers.py:680` | 2026-09-01 | this session |
 
 ---
 
@@ -2623,3 +2624,45 @@ fails at HEAD — the `/orient` digest's CI-staleness banner does not include th
 only `host/CMakeLists.txt`, `host/Source/PluginProcessor.cpp`, and
 `host/tests/OfflineRenderTest.cpp` — none of which the failing test or the code it exercises
 touches. Needs its own investigation.
+
+---
+
+### PF-077 — the shipped `requirements.txt` can't run the installer's own default provider. *(fixed 2026-09-01)*
+
+**medium · fixed · S1 Backend · found during the PF-065 clean-machine install rehearsal**
+
+`tools/package_release.sh` ships the repo-root `requirements.txt` into the release tarball as
+`runtime/requirements.txt`; `tools/install_release.sh` then `pip install`s it into the venv it
+writes `python_path` at. That file listed only `anthropic`, `httpx`, `python-dotenv`, `pytest`.
+
+`llm/providers.py`'s gemini adapter imports the Google SDK lazily — `from google import genai as
+gai` at `llm/providers.py:680` (and again at `:991`) — so nothing fails at import of
+`providers.py` itself; it fails only when gemini is actually selected. And gemini **is** what
+gets selected on a clean install: `.env.example` (which `install.sh` seeds verbatim as `.env`)
+sets `PLUGINFORGE_PROVIDER=gemini`. Net effect: a DAW started from a desktop launcher against a
+fresh install, with no `PLUGINFORGE_*` overrides, runs `generate.py` → `providers.py` → gemini
+→ `ModuleNotFoundError: No module named 'google'`.
+
+**Scope.** Only gemini. `groq` and `openrouter` go over `httpx` (already pinned); `ollama` is
+local HTTP over `httpx`; `anthropic` has its own pin. So three of five providers work from a
+clean install and the PF-065 *resolution* mechanism (config.json → venv interpreter →
+generate.py) is unaffected — verified end-to-end in the same rehearsal with
+`PLUGINFORGE_PROVIDER=ollama` (`{"success": true, ...}`, no `PLUGINFORGE_*` set).
+
+**How it was missed.** `bench/requirements.txt:2` has carried `google-genai>=1.0.0` since the
+gemini adapter landed — the benchmark harness's deps were kept in sync, the shipped file was
+not. `tests/test_release_packaging.py` writes an **empty** `requirements.txt` into its fake
+package (`:25`) so `pip install -r` is an offline no-op — it never exercises the real
+dependency closure, so no test caught the gap.
+
+**Fix.** `requirements.txt` — add `google-genai>=1.0.0`, matching `bench/requirements.txt`.
+
+**Verified.** Re-ran the clean-machine rehearsal from a fresh tarball: `install.sh` → venv →
+`venv/bin/python3 llm/providers.py --check gemini` now resolves (reports `ok` / a key prompt,
+not `ModuleNotFoundError`). `tools/check.sh full` green.
+
+**Not fixed here (follow-ups):** (a) `test_release_packaging.py` still never installs the real
+requirement set — a test that `pip install`s the actual `requirements.txt` into a throwaway
+venv would have caught this and would catch the next omission; (b) nothing asserts
+`requirements.txt` ⊇ `bench/requirements.txt`, or that every provider adapter's imports are
+covered by a pinned dep.
