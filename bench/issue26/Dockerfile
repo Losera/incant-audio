@@ -1,7 +1,7 @@
 # bench/issue26/Dockerfile — a pinned, single-purpose environment for reproducing
 # the issue-#26 repair-loop A/B (https://github.com/Losera/incant-audio/issues/26).
 #
-# WHY THIS EXISTS  (see bench/issue26/ADR-034-draft-repro-container.md)
+# WHY THIS EXISTS  (see docs/decisions.md — ADR-034)
 #   The one hard part of reproducing this result is building the two compilers:
 #   Faust (C++, for arm A + the compile gate) and faust-rs (Rust, for arms B/C).
 #   This image builds both, pinned to the versions the published corpus used,
@@ -56,9 +56,11 @@ RUN faust --version && faust-rs --version
 # so the image is built from exactly the tree you build it in.
 WORKDIR /work
 COPY bench/issue26/            /work/bench/issue26/
-COPY bench/repair_ab_core.py bench/frs_check.py bench/score_repair_ab.py  /work/bench/
+COPY bench/repair_ab_core.py bench/frs_check.py bench/score_repair_ab.py bench/frs_rederive_issue26.py  /work/bench/
 COPY bench/corpora/            /work/bench/corpora/
 COPY bench/results/repair_ab/  /work/bench/results/repair_ab/
+# frs_rederive_issue26.py reads this archived efficacy run (the 15 never-compiled cells).
+COPY bench/results/efficacy/efficacy_ollama_20260828.json  /work/bench/results/efficacy/
 COPY llm/error_classes.py      /work/llm/
 COPY llm/prompts/system_prompt.txt  /work/llm/prompts/
 
