@@ -112,3 +112,31 @@ def test_strip_fences_parity_with_providers(text):
     import repair_ab_standalone
     import providers
     assert repair_ab_standalone.strip_code_fences(text) == providers.strip_code_fences(text)
+
+
+def test_validate_faust_parity(monkeypatch):
+    """arm A's feedback IS the C++ stderr. run_repair_ab injects
+    run_benchmark.validate_faust; repair_ab_standalone vendors its own copy.
+    If they truncate or shape the verdict differently, arm A diverges between
+    the canonical harness and the reproduction one. Diff them without faust by
+    faking subprocess.run — same as test_strip_fences_parity does for the other
+    vendored piece."""
+    import subprocess
+    import repair_ab_standalone
+    import run_benchmark
+
+    # a rejecting compile with an over-long stderr -> exercises the [:500] cut
+    long_err = "ERROR : " + "x" * 900
+    monkeypatch.setattr(
+        subprocess, "run",
+        lambda *a, **k: subprocess.CompletedProcess(a, 1, stdout="", stderr=long_err))
+    std = repair_ab_standalone.validate_faust("process = _;")
+    canon = run_benchmark.validate_faust("process = _;")
+    assert std == canon
+    assert std[0] is False and len(std[1]) == 500      # identical truncation
+
+    # the compiler wedges -> both must return a non-crash verdict, same text
+    def boom(*a, **k):
+        raise subprocess.TimeoutExpired(cmd="faust", timeout=30)
+    monkeypatch.setattr(subprocess, "run", boom)
+    assert repair_ab_standalone.validate_faust("x") == run_benchmark.validate_faust("x")

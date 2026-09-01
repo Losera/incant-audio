@@ -98,7 +98,8 @@ issue-#26 repair-loop A/B harness + **PF-076**), PR #42 (ADR-032 v1 backend, abo
 **Landed 2026-08-29:** PR #34 (`/recap` skill), PR #35 (PF-069/PF-070 efficacy-harness
 fixes), PR #36 (session-017 WP6 closeout). The faust-rs evaluation was written up as a reply
 to GRAME issue #26 (`faust-rs 0.8.0`: 51/51 accept–reject agreement with the C++ compiler,
-source location 15/15 vs 9/15, stable error code 15/15 vs 0/15); the **loop-level** follow-up
+source location 15/15 vs 8/15 — the 15-cell re-derivation and `docs/BUGS.md`; a "9" in the
+2026-08-28 write-up was superseded — stable error code 15/15 vs 0/15); the **loop-level** follow-up
 is PF-076 — feeding those diagnostics back to the repair model made it *worse* (75%→44%
 repaired-within-2 on `qwen2.5-coder:3b`). Caveat: all of it is small models on CPU.
 

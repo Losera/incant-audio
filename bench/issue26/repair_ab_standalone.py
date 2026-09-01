@@ -106,7 +106,9 @@ DEFAULT_SYSTEM_PROMPT = _ROOT / "llm" / "prompts" / "system_prompt.txt"
 FAUST_VALIDATE_TIMEOUT_S = 30.0
 
 
-# ── compile gate — byte-identical to bench/run_benchmark.py::validate_faust ───
+# ── compile gate — behaviourally identical to bench/run_benchmark.py::validate_faust ───
+# (same command, timeout and stderr truncation; pinned by
+#  tests/test_repair_ab_core.py::test_validate_faust_parity)
 
 def validate_faust(code: str) -> tuple[bool, str]:
     """(compiles, stderr[:500]). Mirrors bench/run_benchmark.py::validate_faust

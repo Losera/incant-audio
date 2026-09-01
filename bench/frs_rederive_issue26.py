@@ -93,8 +93,10 @@ def main() -> int:
     print(f"  stable error code present       : C++ {cpp_code}/{n}   faust-rs {frs_code}/{n}")
     print(f"  remedy (`help`) present         : faust-rs {frs_help}/{n}")
     print(f"  routing_arity -> FRS-PROP-0002  : {len(prop_cells)}/{n}  {prop_cells}")
-    print("\ndocs/BUGS.md records: agreement 15/15, location C++ 9/15 vs faust-rs 15/15,")
+    print("\nMatches docs/BUGS.md: agreement 15/15, location C++ 8/15 vs faust-rs 15/15,")
     print("code C++ 0/15 vs faust-rs 15/15, six routing_arity -> FRS-PROP-0002.")
+    print("(C++ location was recorded as 9 in the 2026-08-28 write-up; this re-derivation")
+    print(" and docs/BUGS.md both say 8 — a stderr-scoring-heuristic diff, not material.)")
     print("The 36-program hand-built corpus (the other 36 of '51/51') is NOT on disk.")
     return 0
 

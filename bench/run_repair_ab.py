@@ -53,7 +53,9 @@ from run_efficacy_study import (  # noqa: E402
 )
 import frs_check  # noqa: E402
 # The paired corrective loop itself lives in repair_ab_core so this harness and
-# bench/issue26/repair_ab_standalone.py run byte-identical trajectories.
+# bench/issue26/repair_ab_standalone.py share one implementation of the loop and
+# the feedback construction — byte-identical given the same model and compilers,
+# not merely a re-implementation of the same design.
 from repair_ab_core import (  # noqa: E402
     ARMS, load_corpus, repair_loop as _repair_loop, stratified_sample,
 )
