@@ -57,12 +57,19 @@ One line per capability, each naming its evidence. "Builds clean" is not a capab
   anthropic still carries through) 365/0; `PromptPanelPathResolutionTest` +8 cases.
   **Config half verified live 2026-09-01:** a human generated "a haunting reverb" in a
   launcher-started REAPER against the installed VST3, resolving `generate.py` through a
-  `~/.config/pluginforge/config.json` — but that config was **hand-written** this session
-  (provider `groq` over `httpx`, key from `PluginForge/.env`). **Not** done: PF-065's
-  install-layout half (a real `install.sh`); the picker still has **no field** for
-  `generate_script_path` and there is **no config field** for the Python interpreter
-  (that is `PLUGINFORGE_PYTHON` only), so a launcher DAW still needs a hand-written
-  config for those two; in-plugin API-key entry (v2).
+  `~/.config/pluginforge/config.json` — but that config was **hand-written** that day
+  (provider `groq` over `httpx`, key from `PluginForge/.env`). **Install-layout half now
+  landed** — PR #45 (`ee11db6`, 2026-09-01): `tools/install_release.sh` builds a dedicated
+  venv from `requirements.txt`, seeds `.env` from the example, and writes a **merged**
+  `config.json` with `generate_script_path` + `python_path`; `PluginConfig` gained an
+  additive `python_path` field, `PromptPanel` gained `resolvePythonExe()`
+  (env `PLUGINFORGE_PYTHON` → config `python_path` if it names an existing file → `python3`)
+  and a **"Paths…" callout** that writes both runtime paths so nobody hand-edits JSON.
+  Verified: `check.sh full` all green from a clean build (full C++ build, TSan,
+  `EditorSessionTest` 372/0 incl. scenario 48, `PromptPanelThreadingTest`);
+  `test_release_packaging` covers the merge, the picker-key preservation, and the
+  no-`venv` fallback. **Not** done: a real clean-machine install rehearsal (Waiting on
+  you #2); in-plugin API-key entry (v2).
 
 **Decisions on record.** ADR-030 (no LangGraph), ADR-031 (no Obsidian infra; ID-resolution
 checks + `tools/kg.py` instead) — both Accepted 2026-08-27, merged PR #30. **ADR-032**
@@ -92,6 +99,11 @@ holds); Docker image built (976 MB content), in-container `verify` → REPRODUCE
 drafted (terse: finding / setup / mechanism) but **not posted** — awaits human wording
 approval + a link.
 
+**Landed 2026-09-01:** PR #45 (`ee11db6`, PF-065 install-layout half — `install_release.sh`
+writes a venv + seeded `.env` + a merged `config.json`; plugin gains `python_path` config
++ `resolvePythonExe()` + the "Paths…" callout; the callout button is gated during a run so
+`reresolveRuntime()` cannot race the generation worker — found in review).
+
 **Landed 2026-08-30/31:** PR #40 (`docs/phases/` living per-phase rollup), PR #41 (faust-rs
 issue-#26 repair-loop A/B harness + **PF-076**), PR #42 (ADR-032 v1 backend, above).
 
@@ -118,35 +130,34 @@ tier that compiles renders +79.6 dB runaway; the sidechain compressor fails ever
 **2. The noise gate still renders silent.** *(PF-032's surviving half, high, open.)* Warm-LP
 renders silent 1/4 at L4 on the grid.
 
-**3. Generation fails as an installed VST3: "generate.py not found".** *(PF-065, high, open,
-found 2026-08-19, re-confirmed in REAPER 2026-08-28.)* `resolveGenerateScript()`
-(`host/Source/PromptPanel.cpp`) resolves once at construction; the env override is never
-inherited by a launcher-started DAW, the parent walk starts at the `.so` under `~/.vst3`
-with no repo above it, and the XDG fallback misses for the dev copy. **The config-file source
-landed** (PR #42, resolution) **and the in-plugin picker landed** (PR #43, provider/model
-only). Two gaps found 2026-09-01: the picker has **no field** for `generate_script_path`,
-and there is **no config field at all** for the Python interpreter (`PLUGINFORGE_PYTHON`
-env only, which a launcher DAW never inherits) — so a launcher-started DAW still needs a
-hand-written `config.json` for those, which is what this session did to verify PF-071.
-The *install-layout* half (a real `install.sh` writing a version-matched runtime + venv +
-`.env` and a `config.json` pointing at both, plus those two path fields in the picker)
-stays open under PF-065 and is this block's headline. Generation itself now works from a
-launcher-started REAPER once `config.json` names the script (see PF-071 and "Waiting on
-you").
+**3. Generation as an installed VST3 — code complete, clean-machine rehearsal outstanding.**
+*(PF-065, high, found 2026-08-19, re-confirmed in REAPER 2026-08-28.)* Root cause:
+`resolveGenerateScript()` resolves once at construction; the env override is never inherited
+by a launcher-started DAW, the parent walk starts at the `.so` under `~/.vst3` with no repo
+above it, the XDG fallback misses the dev copy. **Fixed across four PRs:** the config-file
+source (PR #42), the provider/model picker (PR #43), and the **install-layout half** (PR #45,
+`ee11db6`, 2026-09-01) — `tools/install_release.sh` now writes a venv + seeded `.env` + a
+merged `config.json` with `generate_script_path` **and** `python_path`, the plugin resolves
+the interpreter via `resolvePythonExe()`, and the "Paths…" callout sets both without a
+hand-edit. `check.sh full` green from a clean build; `test_release_packaging` covers the
+installer. **Still not seen working end to end:** a real install from a packaged tarball
+into a clean `HOME`, then a launcher-started REAPER with nothing hand-set — Waiting on you
+#2. Stays listed until that runs (per "a control counts only once it has been seen
+failing").
 
-**4. The XDG-installed runtime is a stale, unconfigured trap.** *(PF-071, high, open, found
-2026-08-28, reproduced in REAPER and Carla.)* PF-065's earlier partial fix traded an honest
-"not found" for `~/.local/share/pluginforge/llm/` — a 2026-08-15 copy that defaults to the
-*paid* provider with no `.env`, so a launcher-started DAW shows "anthropic provider error".
-**Fix path implemented 2026-08-31 (PR #42 + PR #43):** `resolveGenerateScript()`
+**4. The XDG-installed runtime was a stale, unconfigured trap — code complete, same
+clean-machine rehearsal outstanding.** *(PF-071, high, found 2026-08-28, reproduced in
+REAPER and Carla.)* PF-065's earlier partial fix traded an honest "not found" for
+`~/.local/share/pluginforge/llm/` — a 2026-08-15 copy that defaults to the *paid* provider
+with no `.env`, so a launcher-started DAW showed "anthropic provider error".
+**Fix path implemented 2026-08-31 → 2026-09-01 (PR #42, #43, #45):** `resolveGenerateScript()`
 checks `config.json`'s `generate_script_path` *before* the XDG step; the picker writes
 `active_provider`/`active_model` and `PromptPanel` sends them in the request, so a user-set
-config beats the stale install. **Config half verified 2026-09-01:** generation succeeded
-in a launcher-started REAPER via a `~/.config/pluginforge/config.json` — but the config was
-**hand-written** this session, because the picker writes no `generate_script_path` and
-there is no interpreter field. **Still open** on the install-layout half (PF-065's headline
-work: a real `install.sh` + the two missing picker path fields) and a clean-machine
-rehearsal.
+config beats the stale install; PR #45's `install_release.sh` now *creates* that config
+(with `python_path` too) at install time, so the stale XDG copy is never the resolved
+runtime on a real install. **Config half verified 2026-09-01** in a launcher-started REAPER
+(hand-written config that day). **Remaining:** the same clean-machine rehearsal as PF-065 #3
+— Waiting on you #2.
 
 **5. The DAW still sees raw slots.** *(follow-up to PF-037, medium, open, unfiled.)* No
 section grouping / titled cards in the host parameter view.
@@ -213,19 +224,17 @@ PF-063 CI-staleness banner (2026-08-17); PF-066 stale octave assertion and PF-06
 
 1. *(evidence)* **Resume the groq 125-cell efficacy run.** `python bench/run_efficacy_study.py
    --provider groq --resume --out bench/results/efficacy/efficacy_groq_20260831.json` — at
-   ~29/125. **In flight this block (WI-2)**, resumes when the daily quota permits; it
-   checkpoints harmlessly if not. Moves PF-011 out of Assumed, the one number this project
-   steers by. Score with `bench/score_efficacy.py` (compile rate first; `--judge` spends
-   quota — defect #10).
-2. **PF-065's install-layout half + the two missing picker path fields.** A real
-   `install.sh` that writes a venv + `.env` + a `config.json` naming both, and a
-   `generate_script_path` / `python_path` surface in the plugin so nobody hand-writes JSON.
-   **This block's headline (WI-3).** The config-file and provider/model picker halves
-   landed (PR #42/#43); this is the release-rehearsal prerequisite that is left.
-3. **Capture repros for PF-072 and PF-074.** The two medium in-host findings are
+   ~29/125. Resumes when the daily quota permits; it checkpoints harmlessly if not. Moves
+   PF-011 out of Assumed, the one number this project steers by. Score with
+   `bench/score_efficacy.py` (compile rate first; `--judge` spends quota — defect #10).
+2. **Capture repros for PF-072 and PF-074.** The two medium in-host findings are
    currently unactionable — each needs the triggering patch source and the action
-   immediately before. Deferred out of this block (needs an interactive host session);
-   until then they can only be re-observed.
+   immediately before. Needs an interactive host session; until then they can only be
+   re-observed.
+3. **PF-032 silent noise gate — re-measure on the shipping model.** Highest-severity open
+   generation defect (#2). The prompt already carries the fix text; the drafted plan
+   `~/.claude/plans/phase3-pf032-silent-noise-gate.md` leads with a re-measurement WP to
+   see whether `groq`/`gpt-oss-120b` obeys it.
 
 **Displaced, not urgent.** A piano roll (requested, unplanned; needs a note grid *and* a
 clock — no host transport in Standalone).
@@ -234,33 +243,33 @@ clock — no host transport in Standalone).
 
 ## Waiting on you
 
-1. **PR #39 (Codex `feat/recommendation-mvp`) — reviewed 2026-09-01, fixes landed, ready for
-   your merge.** The four ADR-033 conditions are genuinely applied (`detect_target_mismatch`
-   off the legacy `generate` path — `llm/generate.py:1455`; "Plan" is `refineSelector` item
-   4; scenario 47 pins the default). The two review findings — **(a)**
-   `RecommendationPanel::markStale()` left the accept button dead after a re-plan; **(b)**
-   the provider picker was not wired to `onRecommendationInvalidated` — were **fixed on the
-   branch as `4fedfb37`** (`check.sh full` green, `EditorSessionTest` 397/0). PR is
-   `MERGEABLE`/`CLEAN`; CI green on `4fedfb37` (~8h old — `main` has moved 4 non-conflicting
-   commits since, worth a fresh `merge main` + CI before you merge). **You merge** — it
-   edits the ADR-011 wire contract. Confirmed remaining coverage gap:
-   `PromptPanel::submitPrompt()`'s selector-routing branch (`getSelectedId()==4 → recommend`,
-   else `generate`) has no `EditorSessionTest` scenario — tests drive `submitPromptForTest()`
-   (hardwired `generate`) or `requestRecommendationForTest()` (hardwired `recommend`), never
-   the decision itself. Small, correct by reading, but it is what ADR-033 condition 1 governs.
+1. **PR #39 (Codex `feat/recommendation-mvp`) — reviewed 2026-09-01, fixes landed, needs a
+   `merge main` then your merge.** The four ADR-033 conditions are genuinely applied
+   (`detect_target_mismatch` off the legacy `generate` path — `llm/generate.py:1455`; "Plan"
+   is `refineSelector` item 4; scenario 47 pins the default). The two review findings —
+   **(a)** `RecommendationPanel::markStale()` left the accept button dead after a re-plan;
+   **(b)** the provider picker was not wired to `onRecommendationInvalidated` — were **fixed
+   as `4fedfb37`**, and the `submitPrompt()` routing-branch coverage gap was closed by
+   **`8336dab`** (`EditorSessionTest` scenario 48: New→generate, Plan→recommend; 404/0). CI
+   green on `8336dab`. **Blocker:** PR #45 landed changes to the same `EditorSessionTest.cpp`
+   / `PromptPanel.*` / `PluginEditor.h` / `INTERFACE.md` — a real merge conflict (scenario
+   renumbering + the `PromptPanel` constructor). That resolution must be done and shown
+   before merge; **you merge** the result (it edits the ADR-011 wire contract).
 2. **PR #44 (branch bench/issue26-repro-package) — semantic review.** ADR-034 + the
    `bench/issue26/` repro package + the `bench/repair_ab_core.py` extraction (~175 lines —
    the part worth reading; the rest is package scaffolding). CI green, `MERGEABLE`. No
-   `check.sh` level exercises `run_repair_ab`, so the extraction is covered only by the new
-   `tests/test_repair_ab_core.py` (13) + `verify.py`'s byte-identical replay. Also review
-   the drafted GRAME issue #26 reply (in the session log) before it is posted.
-3. **Clean-machine `install.sh` rehearsal (PF-065).** The launcher-DAW generation path is
-   verified (2026-09-01, REAPER) *with a hand-written config*. What is still unproven:
-   `tools/install_release.sh` extended (WI-3) to create a venv, seed `.env`, and write a
-   `config.json` pointing at both — installed from a packaged tarball into a clean-ish
-   `HOME`, then REAPER from the desktop launcher with **nothing** hand-set. Only that
-   closes PF-065. A shell-level rehearsal into a scratch `HOME` lands in the block; the
-   real clean-machine pass is yours.
+   `check.sh` level exercises `run_repair_ab`, so the extraction is covered only by
+   `tests/test_repair_ab_core.py` (14, incl. the new `validate_faust` parity test) +
+   `verify.py`'s replay. Also review the drafted GRAME issue #26 reply (in the session log)
+   before it is posted.
+3. **Clean-machine `install.sh` rehearsal (PF-065 / PF-071).** The installer code landed
+   (PR #45) and is covered at the shell level by `test_release_packaging` (merge, picker-key
+   preservation, no-`venv` fallback). What is still unproven end to end: `package_release.sh`
+   → install the tarball into a clean-ish `HOME` → REAPER from the desktop launcher with
+   **nothing** hand-set → generate. Only that closes PF-065 #3 and PF-071 #4. Watch for:
+   `python3 -m venv` on this Arch box (PEP-668 externally-managed — should be fine inside a
+   venv), `pip install` offline behaviour, and whether the "Paths…" tooltip names the
+   `config` branch as the interpreter source.
 4. **A listening pass on the interactive-session patches.** COLLABORATION.md §1 — whether a
    generated plugin *sounds like what was asked for* has no instrument and is not delegable.
    The render oracle proved the WP6 patches were not broken; it cannot tell you they were

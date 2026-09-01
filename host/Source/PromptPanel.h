@@ -192,6 +192,14 @@ public:
     }
     // Which resolveGenerateScript() step produced the runtime path.
     juce::String generateScriptSourceForTest() const { return generateScriptSource; }
+    // Which resolvePythonExe() step produced the interpreter ("env"|"config"|"default").
+    juce::String pythonExeSourceForTest() const { return pythonExeSource; }
+    juce::String pythonExeForTest() const { return pythonExe; }
+    // Drives the same load-modify-write + re-resolve the "Paths…" callout does,
+    // without constructing the CallOutBox (which needs a modal pump).
+    void setRuntimePathsForTest(const juce::String& script, const juce::String& python)
+    { applyRuntimePaths(script, python); }
+    juce::String runtimeTooltipForTest() const { return runtimeTooltip(); }
 
     // Test-only. True when the LAST generation attempt (successful or not — a
     // refusal is itself a failure response, generate.py's prior_source_refused)
@@ -274,6 +282,11 @@ private:
     PromptTextEditor promptInput;
     juce::TextButton  generateButton { "Generate" };
     juce::TextButton  historyButton  { "History" };
+    // ADR-032 item 2 / PF-065: opens a CallOutBox to set generate_script_path and
+    // python_path in config.json, so a launcher-started DAW never needs a
+    // hand-written config or a PLUGINFORGE_* export. A rare set-once affordance,
+    // hence a callout rather than a fourth always-visible control row.
+    juce::TextButton  pathsButton { juce::String (juce::CharPointer_UTF8 ("Paths\xe2\x80\xa6")) };
     juce::ComboBox    familySelector;
     // Cached alongside familySelector's tooltip -- see familyHintForTest()'s
     // own comment for why this exists rather than reading the widget back.
@@ -321,10 +334,26 @@ private:
     // tell which runtime the plugin is talking to.
     juce::String generateScriptSource;
 
+    // The interpreter that runs generate.py, resolved once at construction:
+    // PLUGINFORGE_PYTHON env → config.json's python_path → "python3" (PATH).
+    // pythonExeSource is "env" | "config" | "default", surfaced in the tooltip
+    // for the same reason generateScriptSource is (ADR-032 item 7 / PF-065).
+    juce::String pythonExe;
+    juce::String pythonExeSource;
+
     // Load config.json, overwrite active_provider/active_model from the pickers,
     // write it back (preserving the other fields), and keep activeProvider/
     // activeModel in sync for the next submit. Called from the picker callbacks.
     void writeConfigFromPickers();
+
+    // ── PF-065: runtime path affordance ────────────────────────────────────
+    // Opens the "Paths…" CallOutBox (generate.py + interpreter, seeded from
+    // config.json). applyRuntimePaths() does the load-modify-write and then
+    // reresolveRuntime() re-runs both resolvers so the tooltip and the next
+    // generation pick up the change without a plugin reload.
+    void openPathsCallout();
+    void applyRuntimePaths(const juce::String& scriptPath, const juce::String& pythonPath);
+    void reresolveRuntime();
 
     // "runtime: <source> — <path>" for the status-line tooltip (ADR-032 item 7).
     juce::String runtimeTooltip() const;

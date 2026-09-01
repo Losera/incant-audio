@@ -3311,6 +3311,79 @@ void scenario44_providerPicker(const juce::File& tmp)
         ::unsetenv("XDG_CONFIG_HOME");
 }
 
+// 48 — PF-065: the "Paths…" callout writes generate_script_path + python_path
+// into config.json (merge, not overwrite) and re-resolves the runtime live.
+// Numbered 48 to sit after PR #39's scenarios 45-47; renumber on rebase if that
+// branch has not landed.
+void scenario48_runtimePathsCallout(const juce::File& tmp)
+{
+    scenario("48. the Paths callout writes runtime paths to config.json",
+             "PF-065: a launcher-started DAW needs generate_script_path + python_path "
+             "set without hand-editing JSON; the callout does the load-modify-write");
+
+    const char* kOldXdgConfig = ::getenv("XDG_CONFIG_HOME");
+    const juce::String oldXdgConfig = kOldXdgConfig != nullptr ? juce::String(kOldXdgConfig) : juce::String();
+    const char* kOldPython = ::getenv("PLUGINFORGE_PYTHON");
+    const juce::String oldPython = kOldPython != nullptr ? juce::String(kOldPython) : juce::String();
+    ::unsetenv("PLUGINFORGE_PYTHON");
+
+    auto cfgHome = tmp.getChildFile("cfg48");
+    cfgHome.deleteRecursively();
+    ::setenv("XDG_CONFIG_HOME", cfgHome.getFullPathName().toRawUTF8(), 1);
+    const auto cfgFile = cfgHome.getChildFile("pluginforge/config.json");
+
+    // Seed with a provider the callout must not clobber.
+    {
+        PluginConfig seed;
+        seed.activeProvider = "groq";
+        check(seed.writeTo(cfgFile), "seed config.json written");
+    }
+
+    // Real files on disk so the resolvers actually accept them.
+    auto script = tmp.getChildFile("cfg48_runtime/llm/generate.py");
+    script.getParentDirectory().createDirectory();
+    script.replaceWithText("# runtime\n");
+    auto python = tmp.getChildFile("cfg48_venv/bin/python3");
+    python.getParentDirectory().createDirectory();
+    python.replaceWithText("#!/bin/sh\n");
+
+    FakeGenerator::install(FakeGenerator::writeSuccessCapturing(tmp, "gen48", kTinyPatch));
+    Session s;
+    // FakeGenerator::install set PLUGINFORGE_PYTHON=/bin/sh; clear it so config.json
+    // is the actual interpreter source under test (env would legitimately win — see
+    // scenario 44's runtimeSourceForTest()=="env"). The *script* source is not
+    // asserted here: the test binary lives in the repo tree, so resolveGenerateScript's
+    // parent-dir walk finds the real llm/generate.py first — that masking is exactly
+    // why PromptPanelPathResolutionTest injects scratch dirs for the script cases.
+    ::unsetenv("PLUGINFORGE_PYTHON");
+
+    s.editor.setRuntimePathsForTest(script.getFullPathName(), python.getFullPathName());
+
+    const auto written = juce::JSON::parse(cfgFile.loadFileAsString());
+    check(written.getProperty("generate_script_path", "").toString() == script.getFullPathName(),
+          "the callout writes generate_script_path");
+    check(written.getProperty("python_path", "").toString() == python.getFullPathName(),
+          "the callout writes python_path");
+    check(written.getProperty("active_provider", "").toString() == "groq",
+          "the callout preserves active_provider it did not touch (load-modify-write)");
+
+    check(s.editor.interpreterSourceForTest() == "config"
+              && s.editor.interpreterForTest() == python.getFullPathName(),
+          "the interpreter re-resolves to the configured python_path, no plugin reload");
+
+    // Clearing both fields returns to auto-resolution.
+    s.editor.setRuntimePathsForTest("", "");
+    const auto cleared = juce::JSON::parse(cfgFile.loadFileAsString());
+    check(! cleared.hasProperty("generate_script_path") && ! cleared.hasProperty("python_path"),
+          "clearing the fields removes the keys (writeTo omits empties)");
+    check(s.editor.interpreterForTest() == "python3",
+          "with the field cleared the interpreter falls back to python3");
+
+    if (oldXdgConfig.isNotEmpty()) ::setenv("XDG_CONFIG_HOME", oldXdgConfig.toRawUTF8(), 1);
+    else ::unsetenv("XDG_CONFIG_HOME");
+    if (oldPython.isNotEmpty()) ::setenv("PLUGINFORGE_PYTHON", oldPython.toRawUTF8(), 1);
+}
+
 } // namespace
 
 int main()
@@ -3377,6 +3450,7 @@ int main()
     scenario42_promptWritingHint();
     scenario43_configProviderModelReachesRequest(tmp);
     scenario44_providerPicker(tmp);
+    scenario48_runtimePathsCallout(tmp);
 
     tmp.deleteRecursively();
 
