@@ -8,9 +8,9 @@
 //       ~/.config/pluginforge/config.json.
 //
 // WHY THIS EXISTS: the plugin owned none of its configuration. Which provider,
-// which model, where llm/generate.py lives, and which interpreter runs
-// Soundfetch were all read from whatever environment the DAW process happened
-// to inherit. A DAW started from a desktop launcher inherits none of the
+// which model, where llm/generate.py lives, which interpreter runs it, and which
+// interpreter runs Soundfetch were all read from whatever environment the DAW
+// process happened to inherit. A DAW started from a desktop launcher inherits none of the
 // PLUGINFORGE_* variables and no .env — PF-071 (a launcher-started REAPER/Carla
 // falling through to a stale XDG runtime that defaults to the paid provider)
 // and PF-065 (installed VST3 can't find generate.py) are the observed failures.
@@ -36,8 +36,14 @@ struct PluginConfig
     juce::String activeModel;
     // "" => resolveGenerateScript() falls through to the parent-dir walk / XDG.
     juce::String generateScriptPath;
+    // "" => PromptPanel runs generate.py with PLUGINFORGE_PYTHON / "python3",
+    //       exactly as before. A launcher-started DAW inherits neither the env
+    //       var nor a venv on PATH, so install.sh writes this to point at the
+    //       runtime's own interpreter (PF-065's install-layout half).
+    juce::String pythonPath;
     // "" => SoundfetchClient uses PLUGINFORGE_SOUNDFETCH_PYTHON / PLUGINFORGE_PYTHON
-    //       / "python3", exactly as before.
+    //       / "python3", exactly as before. Kept separate from pythonPath above:
+    //       Soundfetch and generate.py can live in different virtualenvs.
     juce::String soundfetchInterpreterPath;
 
     // The on-disk schema version this struct was loaded from (or would be
@@ -81,6 +87,7 @@ struct PluginConfig
         cfg.activeProvider           = parsed.getProperty("active_provider", "").toString().trim();
         cfg.activeModel              = parsed.getProperty("active_model", "").toString().trim();
         cfg.generateScriptPath       = parsed.getProperty("generate_script_path", "").toString().trim();
+        cfg.pythonPath               = parsed.getProperty("python_path", "").toString().trim();
         cfg.soundfetchInterpreterPath = parsed.getProperty("soundfetch_interpreter_path", "").toString().trim();
         cfg.schema = static_cast<int>(parsed.getProperty("schema", kSchemaVersion));
         return cfg;
@@ -104,6 +111,7 @@ struct PluginConfig
         if (activeProvider.isNotEmpty())            obj->setProperty("active_provider", activeProvider);
         if (activeModel.isNotEmpty())               obj->setProperty("active_model", activeModel);
         if (generateScriptPath.isNotEmpty())        obj->setProperty("generate_script_path", generateScriptPath);
+        if (pythonPath.isNotEmpty())                obj->setProperty("python_path", pythonPath);
         if (soundfetchInterpreterPath.isNotEmpty()) obj->setProperty("soundfetch_interpreter_path", soundfetchInterpreterPath);
 
         return file.replaceWithText(
