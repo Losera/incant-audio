@@ -42,29 +42,32 @@ One line per capability, each naming its evidence. "Builds clean" is not a capab
 - **Spectral judge produces a per-prompt verdict** (report-only, not gated). PF-041/PF-042
   closed 2026-08-06.
 
-- **ADR-032 v1 backend: the plugin reads its own config file.** Landed 2026-08-31, PR #42.
-  New `host/Source/PluginConfig.h` (header-only) reads `~/.config/pluginforge/config.json`
-  (`$XDG_CONFIG_HOME`-aware); `resolveGenerateScript()` consults its `generate_script_path`
-  **between** the parent-dir walk and the XDG step (the PF-071 ordering fix); `PromptPanel`
-  puts `provider`/`model` in the request JSON when configured, omitting the keys entirely
-  otherwise so `generate.py`'s `DEFAULT_PROVIDER` fallback still applies; `SoundfetchClient`
-  honours `soundfetch_interpreter_path`. **No Python change** — `generate_json()` already
-  read both fields (`llm/generate.py:507-510`). `INTERFACE.md` documents the 4-step chain.
-  Verified: `check.sh full` all green; `EditorSessionTest` scenario 43 (config present /
-  absent / malformed) 353/0; `PromptPanelPathResolutionTest` +3 ordering cases;
-  `SoundfetchClientTest` +1. **Not** verified: a real launcher-started DAW (see "Waiting on
-  you"). **Not** done: the in-plugin picker and the "which path resolved" surface (ADR-032
-  items 2, 7 — the WI-3 follow-up).
+- **ADR-032 v1: the plugin reads and writes its own config file.** Backend PR #42, picker
+  PR #43 — both landed 2026-08-31. `host/Source/PluginConfig.h` (header-only) reads/writes
+  `~/.config/pluginforge/config.json` (`$XDG_CONFIG_HOME`-aware); `resolveGenerateScript()`
+  consults `generate_script_path` **between** the parent-dir walk and the XDG step (the
+  PF-071 ordering fix) and reports which of the four steps won; `PromptPanel` has a
+  **provider ComboBox + free-text model field** (a third control row, `Chrome::promptH`
+  220→254) that writes `active_provider`/`active_model` on change (load-modify-write) and
+  puts them in the request JSON, omitting the keys when unset so `generate.py`'s
+  `DEFAULT_PROVIDER` still applies; the status-line tooltip names the resolved runtime;
+  `SoundfetchClient` honours `soundfetch_interpreter_path`. **No Python change**
+  (`llm/generate.py:507-510`). Verified: `check.sh full` all green; `EditorSessionTest`
+  scenarios 43 + 44 (config present/absent/malformed; picker seeds/writes/round-trips;
+  anthropic still carries through) 365/0; `PromptPanelPathResolutionTest` +8 cases.
+  **Not** done: PF-065's install-layout half (a real `install.sh`); in-plugin API-key
+  entry (v2). **Not** verified: a real launcher-started DAW (see "Waiting on you").
 
 **Decisions on record.** ADR-030 (no LangGraph), ADR-031 (no Obsidian infra; ID-resolution
 checks + `tools/kg.py` instead) — both Accepted 2026-08-27, merged PR #30. **ADR-032**
 (in-plugin provider/model + a non-secret plugin-read `config.json`, narrow v1) — Accepted
-2026-08-29, PR #37; **backend implemented 2026-08-31, PR #42**; picker + resolved-path
-surface still to do. **ADR-033** (pre-generation "recommend" review workflow, the Codex
-`feat/recommendation-mvp` / PR #39) — **Accepted with conditions 2026-08-31**: review must
-become opt-in, `detect_target_mismatch` scoped off the legacy path, a stated
-provider-precedence rule, §3–§5 hygiene; and sequenced *after* the ADR-032 picker follow-up.
-The branch does not merge until those four conditions are met.
+2026-08-29, PR #37; **fully implemented 2026-08-31** (backend PR #42, picker PR #43).
+**ADR-033** (pre-generation "recommend" review workflow, Codex `feat/recommendation-mvp` /
+PR #39) — **Accepted with conditions 2026-08-31**. The four conditions (opt-in "Plan"
+mode; `detect_target_mismatch` off the legacy path; contract reconciled onto ADR-032 with a
+provider-precedence rule; §3–§5 hygiene) were **applied 2026-08-31** and pushed to PR #39
+as merge commit `8edd7cd`; `check.sh full` green from a clean build. **Awaiting the human's
+semantic review** — it edits the ADR-011 wire contract, so it is not auto-merged.
 
 **Landed 2026-08-30/31:** PR #40 (`docs/phases/` living per-phase rollup), PR #41 (faust-rs
 issue-#26 repair-loop A/B harness + **PF-076**), PR #42 (ADR-032 v1 backend, above).
@@ -95,22 +98,22 @@ renders silent 1/4 at L4 on the grid.
 found 2026-08-19, re-confirmed in REAPER 2026-08-28.)* `resolveGenerateScript()`
 (`host/Source/PromptPanel.cpp`) resolves once at construction; the env override is never
 inherited by a launcher-started DAW, the parent walk starts at the `.so` under `~/.vst3`
-with no repo above it, and the XDG fallback misses for the dev copy. **The config-file
-source landed 2026-08-31 (PR #42)** — a `~/.config/pluginforge/config.json` with
-`generate_script_path` set now resolves ahead of the XDG step. The *install-layout* half
-(a real `install.sh` writing a version-matched runtime + `.env`, and preferring it over a
-stale one) stays open under PF-065. Neither half verified in a real launcher-started DAW.
+with no repo above it, and the XDG fallback misses for the dev copy. **The config-file source
+landed** (PR #42, resolution) **and the in-plugin picker landed** (PR #43, so a user sets
+provider/model + can point `generate_script_path` without hand-editing JSON). The
+*install-layout* half (a real `install.sh` writing a version-matched runtime + `.env`, and
+preferring it over a stale one) stays open under PF-065. **Not verified in a real
+launcher-started DAW** — that pass is what closes this (see "Waiting on you").
 
 **4. The XDG-installed runtime is a stale, unconfigured trap.** *(PF-071, high, open, found
 2026-08-28, reproduced in REAPER and Carla.)* PF-065's earlier partial fix traded an honest
 "not found" for `~/.local/share/pluginforge/llm/` — a 2026-08-15 copy that defaults to the
 *paid* provider with no `.env`, so a launcher-started DAW shows "anthropic provider error".
-**Fix path implemented 2026-08-31 (PR #42):** `resolveGenerateScript()` now checks
-`config.json`'s `generate_script_path` *before* the XDG step, and `PromptPanel` sends the
-config's `active_provider`/`active_model` in the request, so a user-set config beats the
-stale install. **Still open because:** (a) the config file must currently be hand-created —
-no in-plugin picker yet (ADR-032 item 2); (b) unverified in a real launcher-started
-REAPER/Carla. Both are the WI-3 follow-up + a human verification pass.
+**Fix path fully implemented 2026-08-31 (PR #42 + PR #43):** `resolveGenerateScript()`
+checks `config.json`'s `generate_script_path` *before* the XDG step; the picker writes the
+config and `PromptPanel` sends `active_provider`/`active_model` in the request, so a
+user-set config beats the stale install. **Still open only because** it is unverified in a
+real launcher-started REAPER/Carla — a human verification pass.
 
 **5. The DAW still sees raw slots.** *(follow-up to PF-037, medium, open, unfiled.)* No
 section grouping / titled cards in the host parameter view.
@@ -164,24 +167,25 @@ PF-063 CI-staleness banner (2026-08-17); PF-066 stale octave assertion and PF-06
 - **The efficacy tier gradient is unknown on the shipping model.** *(PF-011.)* The 125-cell
   grid ran once, on `ollama qwen2.5-coder:7b` (CPU) — compile rate tier-independent,
   fidelity monotonically declining. **Still assumed:** whether that gradient holds on
-  `groq`'s `openai/gpt-oss-120b`. A groq 125-cell run is owed; blocked 2026-08-28 by groq's
-  daily token limit. Also n=1 per cell (PF-031's ≥3-run bar unmet), and the judge is a 7B
-  grading a 7B.
+  `groq`'s `openai/gpt-oss-120b`. A groq run **started 2026-08-31** and the bounded harness
+  checkpointed at **27/125** when the daily token limit ran low
+  (`bench/results/efficacy/efficacy_groq_20260831.json`) — partial: L4 5/6, L3 4/6, L2 5/5,
+  L1 4/5, L0 4/5, no tier gradient visible yet at this n. Resume with `--resume` next quota
+  window. Also n=1 per cell (PF-031's ≥3-run bar unmet), and the judge is a 7B grading a 7B.
 
 ---
 
 ## Next three things
 
-1. *(evidence)* **The groq 125-cell efficacy run.** Moves PF-011 out of Assumed — the one
-   number this project steers by. Free via the harness; blocked only on groq's daily token
-   limit resetting. Run it when the quota clears.
-2. **ADR-032 v1 picker + resolved-path surface (items 2 & 7) — the WI-3 follow-up.** The
-   backend landed (PR #42); what remains is the in-plugin provider/model picker writing
-   `config.json`, and surfacing *which* `generate.py` path resolved. Tier 2, and a
-   `PromptPanel` layout change (its control area is already a tight 2-row layout —
-   `docs/sessions/010-alpha-ui-architecture.md`), so it needs a `resized()` pass +
-   `EditorSessionTest` snapshot review. Pairs with a human verifying the PF-071 repro in a
-   launcher-started DAW.
+1. *(evidence)* **Resume the groq 125-cell efficacy run.** `python bench/run_efficacy_study.py
+   --provider groq --resume --out bench/results/efficacy/efficacy_groq_20260831.json` when
+   the daily quota clears — it is at 27/125. Moves PF-011 out of Assumed, the one number
+   this project steers by. Score with `bench/score_efficacy.py` (compile rate first;
+   `--judge` spends quota — defect #10).
+2. **PF-065's install-layout half.** A real `install.sh` that writes a version-matched
+   runtime + `.env` and has the plugin prefer it over a stale one. The config-file and
+   picker halves landed (PR #42/#43); this is what is left of PF-065, and it is a
+   release-rehearsal prerequisite.
 3. **Capture repros for PF-072 and PF-074.** The two medium in-host findings are
    currently unactionable — each needs the triggering patch source and the action
    immediately before. Until then they cannot be fixed, only re-observed.
@@ -193,17 +197,18 @@ clock — no host transport in Standalone).
 
 ## Waiting on you
 
-1. **Merge or shelve the Codex branch once ADR-033's four conditions are met.** ADR-033 is
-   Accepted with conditions (2026-08-31); the implementation work (opt-in review,
-   `detect_target_mismatch` scoping, rebase onto the ADR-032 contract, §3–§5 hygiene) is
-   sequenced after the picker follow-up. PR #39 stays open until then; it currently
-   conflicts with `main` on `INTERFACE.md`, `PromptPanel.{cpp,h}`, and `EditorSessionTest.cpp`
-   (both branches added a "scenario 43").
-2. **Verify PF-071 in a real launcher-started DAW.** Launch REAPER or Carla *from the
-   desktop launcher* (not a terminal), no `PLUGINFORGE_*` exported, no `.env`, with a
-   hand-written `~/.config/pluginforge/config.json` (`generate_script_path` + `active_provider`),
-   and confirm generation succeeds. PR #42's tests prove the resolution logic; only this
-   proves the defect is actually fixed.
+1. **Semantic review of PR #39 (Codex `feat/recommendation-mvp`).** ADR-033's four
+   conditions were applied 2026-08-31 and pushed as merge commit `8edd7cd`; `check.sh full`
+   is green from a clean build. It edits the ADR-011 wire contract (adds `action` dispatch,
+   `design_plan`, `recommendation`, two `reason` codes), so it is **not auto-merged** — it
+   needs your read. The one open design point: `submitPromptForTest` bypasses
+   `submitPrompt()`'s routing, so scenario 47 checks the default *outcome* but not the
+   `getSelectedId()==4` branch (noted in the PR).
+2. **Verify PF-065/PF-071 in a real launcher-started DAW.** Launch REAPER or Carla *from
+   the desktop launcher* (not a terminal), no `PLUGINFORGE_*` exported, no `.env`, set the
+   provider in the plugin's new picker (writes `~/.config/pluginforge/config.json`), and
+   confirm generation succeeds. The tests prove the resolution logic; only this proves the
+   defects are actually fixed.
 3. **A listening pass on the interactive-session patches.** COLLABORATION.md §1 — whether a
    generated plugin *sounds like what was asked for* has no instrument and is not delegable.
    The render oracle proved the WP6 patches were not broken; it cannot tell you they were
