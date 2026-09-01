@@ -38,6 +38,7 @@ public:
     void clickRetryForTest() { retryButton.triggerClick(); }
     void clickDirectForTest() { directButton.triggerClick(); }
     bool directVisibleForTest() const { return directButton.isVisible(); }
+    bool generateEnabledForTest() const { return generateButton.isEnabled(); }
     void setModulePurposeForTest(int index, const juce::String& text);
     juce::String validationErrorForTest() const { return validation.getText(); }
     juce::String titleForTest() const { return title.getText(); }

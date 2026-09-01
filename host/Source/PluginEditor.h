@@ -103,6 +103,8 @@ public:
     void         clickRecommendationDirectForTest() { recommendationPanel.clickDirectForTest(); }
     bool         recommendationDirectVisibleForTest() const
                      { return recommendationPanel.directVisibleForTest(); }
+    bool         recommendationGenerateEnabledForTest() const
+                     { return recommendationPanel.generateEnabledForTest(); }
     void         setRecommendationModulePurposeForTest(int index, const juce::String& text)
                      { recommendationPanel.setModulePurposeForTest(index, text); }
     juce::String recommendationValidationErrorForTest() const

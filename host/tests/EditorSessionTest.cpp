@@ -3318,6 +3318,16 @@ void scenario45_recommendationReview(const juce::File& tmp)
 {
     scenario("45. recommendation is reviewed before generation",
              "a typed planner response opens the transient card; editing the prompt marks it stale");
+
+    // The provider-picker staleness check below calls writeConfigFromPickers(),
+    // which writes config.json. Sandbox XDG_CONFIG_HOME so it never touches the
+    // developer's real ~/.config/pluginforge/config.json (same guard as sc. 44).
+    const char* kOldXdgConfig = ::getenv("XDG_CONFIG_HOME");
+    const juce::String oldXdgConfig = kOldXdgConfig != nullptr ? juce::String(kOldXdgConfig) : juce::String();
+    auto cfgHome = tmp.getChildFile("cfg45");
+    cfgHome.deleteRecursively();
+    ::setenv("XDG_CONFIG_HOME", cfgHome.getFullPathName().toRawUTF8(), 1);
+
     FakeGenerator::install(FakeGenerator::writeRecommendationThenSuccess(
         tmp, "recommend45.sh", kTinyPatch));
     Session s;
@@ -3372,6 +3382,46 @@ void scenario45_recommendationReview(const juce::File& tmp)
     const bool stale = pumpUntil([&] { return s.editor.recommendationStaleForTest(); }, 1000);
     check(stale,
           "changing the prompt invalidates the transient recommendation");
+    check(! s.editor.recommendationGenerateEnabledForTest(),
+          "a stale plan's 'Generate from Plan' button is disabled");
+
+    // Regression: markStale() latched the accept button off and only Dismiss
+    // (clear()) re-enabled it, so a second 'Plan' after an edit rendered a live
+    // card with a dead button. setRecommendation() must re-arm it.
+    s.editor.requestRecommendationForTest("a different filter request");
+    const bool replanned = pumpUntil([&] {
+        return s.editor.recommendationVisibleForTest()
+            && ! s.editor.recommendationStaleForTest();
+    });
+    check(replanned, "re-planning after a stale card shows a fresh, non-stale plan");
+    check(s.editor.recommendationGenerateEnabledForTest(),
+          "re-planning re-arms the 'Generate from Plan' button");
+    s.editor.clickRecommendationGenerateForTest();
+    const bool liveAgain = pumpUntil([&] {
+        const auto req = juce::JSON::parse(
+            FakeGenerator::capturedRequestJson(tmp, "recommend45.sh"));
+        return req.getProperty("action", {}).toString() == "generate"
+            && req.getProperty("design_plan", {}).isObject();
+    }, 2000);
+    check(liveAgain, "the re-planned card can still generate - the button is not dead");
+
+    // A provider-picker change after a plan is the same kind of staleness: an
+    // ADR-033 recommend response pins provider/model for the following generate,
+    // so the card would otherwise show one provider while generation used another.
+    s.editor.requestRecommendationForTest("a warm resonant low-pass filter");
+    check(pumpUntil([&] {
+              return s.editor.recommendationVisibleForTest()
+                  && ! s.editor.recommendationStaleForTest();
+          }),
+          "a fresh plan for the provider-change check");
+    s.editor.setPickerProviderForTest("groq");
+    check(pumpUntil([&] { return s.editor.recommendationStaleForTest(); }, 1000),
+          "changing the provider picker invalidates the transient recommendation");
+
+    if (oldXdgConfig.isNotEmpty())
+        ::setenv("XDG_CONFIG_HOME", oldXdgConfig.toRawUTF8(), 1);
+    else
+        ::unsetenv("XDG_CONFIG_HOME");
 }
 
 // 46 — ADR-033: recommendation failure actions stay explicit.

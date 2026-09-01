@@ -139,6 +139,11 @@ void RecommendationPanel::setRecommendation(const juce::var& plan,
     addModuleButton.setVisible(true);
     addControlButton.setVisible(true);
     generateButton.setVisible(true);
+    // A prior markStale() latched the accept button off; the only other re-enable
+    // is clear() (Dismiss). A fresh plan supersedes any stale one, so re-arm it
+    // here alongside stale=false — without this, a second "Plan" after an edit
+    // renders a live card with a dead "Generate from Plan".
+    generateButton.setEnabled(true);
     setPanelVisible(true);
     resized();
 }

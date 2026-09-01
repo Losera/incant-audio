@@ -422,6 +422,14 @@ void PromptPanel::writeConfigFromPickers()
     cfg.activeProvider = activeProvider;
     cfg.activeModel    = activeModel;
     cfg.writeTo();   // best-effort; a failed preferences write is not fatal
+
+    // A visible recommendation was planned against the provider/model as they
+    // were; an ADR-033 `recommend` response pins those for the generation that
+    // follows. Changing the picker now would leave the card showing one provider
+    // while the pinned generation used another — same staleness the prompt/family/
+    // mode changes above already trigger. (Early-returns above guard the no-op
+    // focus-loss case, so this only fires on a real change.)
+    if (onRecommendationInvalidated) onRecommendationInvalidated();
 }
 
 juce::String PromptPanel::runtimeTooltip() const
@@ -1111,8 +1119,10 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
                         : statusForReason(reason, retryAfterSeconds),
                     juce::dontSendNotification);
                 safeThis->generateButton.setEnabled(true);
-                if (reason == "target_mismatch" && safeThis->onRecommendationFailure)
-                    safeThis->onRecommendationFailure(fullErr, false, true);
+                // No target_mismatch handling here: ADR-033 condition 2 scoped
+                // detect_target_mismatch to the `recommend` action only, so the
+                // legacy `generate` path this branch serves never sees that
+                // reason. The recommend path returns earlier (action == "recommend").
             });
             return;
         }

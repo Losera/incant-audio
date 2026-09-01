@@ -667,8 +667,11 @@ def process_json_request(request: dict) -> dict:
     try:
         profile, _ = generation_profiles.resolve(prompt, kind, request.get("family"))
         prepared = dict(request, kind=kind, family=profile.id)
-        return recommendation.recommend_plugin(
-            prepared, request.get("budget") or generation_budget())
+        # generation_budget() returns a providers.Budget; the wire never carries a
+        # `budget` field, so this is always the freshly-built one. (A raw JSON
+        # number here would reach make_generator's `budget:` param, which expects
+        # a Budget — kept simple rather than defensively coerced.)
+        return recommendation.recommend_plugin(prepared, generation_budget())
     except recommendation.InvalidRecommendation as exc:
         response = _failure(1, "invalid_recommendation", str(exc))
         response["action"] = "recommend"
