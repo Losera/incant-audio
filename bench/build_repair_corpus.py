@@ -3,15 +3,22 @@
 for the issue-#26 repair-loop A/B (bench/run_repair_ab.py).
 
 WHY A CORPUS, NOT A GRID RE-RUN
-    The ollama repair step is deterministic at temperature=0 (measured
-    2026-08-30: 3/3 byte-identical), so each (failing program, feedback arm)
-    yields exactly one repair trajectory — repeats carry no information and all
-    statistical power comes from the NUMBER of distinct failing programs. One
-    attempt-1 pass over the 125-cell grid only fails ~40 times, which is thin.
-    So this script generates first-attempt programs across several
-    (model, temperature) configs and keeps every one the C++ compiler rejects.
-    The A/B then repairs each program identically under both arms; how the
-    program was first generated does not bias that comparison.
+    Statistical power comes from the NUMBER of distinct failing programs, not
+    from repeats of one cell. One attempt-1 pass over the 125-cell grid only
+    fails ~40 times, which is thin. So this script generates first-attempt
+    programs across several (model, temperature) configs and keeps every one
+    the C++ compiler rejects. The A/B then repairs each program identically
+    under both arms; how the program was first generated does not bias that
+    comparison.
+
+    The A/B runs n=1 per (program, arm) cell. That would carry no information
+    loss IF the ollama repair step were byte-deterministic at temperature=0 —
+    but run-to-run determinism at temp 0 is NOT established for this stack.
+    The earlier "measured 2026-08-30: 3/3 byte-identical" note here had no
+    artifact anywhere and is retracted; `docs/BUGS.md` records ~20% run-to-run
+    output flips for ollama at temp 0 on a related measurement. A proper
+    determinism audit is pre-registered as WP5 of the issue-#26 methodology
+    plan; until it runs, n=1 is a known limitation, not a warranted design.
 
 WHAT IT WRITES
     bench/corpora/repair_corpus_<date>.json — a flat list of attempt records:

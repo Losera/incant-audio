@@ -55,8 +55,12 @@ EXAMPLES
         --samples 3 --out run_groq.json
 
 DETERMINISM
-    The published runs used temperature 0 and n=1 per (program, arm) because the
-    local model is deterministic when warm. A hosted model usually is NOT bit
+    The published runs used temperature 0 and n=1 per (program, arm). Whether
+    the local repair step is byte-stable run-to-run at temp 0 is NOT audited —
+    the earlier claim that it "is deterministic when warm" had no artifact and
+    is retracted; docs/BUGS.md records ~20% run-to-run output flips for ollama
+    at temp 0 on a related measurement, and a proper audit is pre-registered as
+    WP5 of the issue-#26 methodology plan. A hosted model is definitely NOT bit
     deterministic at temp 0 — use --samples K (K>=5) and score the per-cell
     majority / median. --samples writes K records per (program, arm) tagged with
     `sample_index`; score_repair_ab.py treats them as independent, so for K>1

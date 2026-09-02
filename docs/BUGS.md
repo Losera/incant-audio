@@ -712,6 +712,18 @@ place of C++ stderr made the repair loop **worse** — 75%→44% repaired-within
 quality is a human win but not, as-is, an automated-repair win. See PF-076 and
 `bench/results/repair_ab/`.
 
+**Methodology retractions (2026-09-01, issue-#26 review).** Two claims that supported the
+A/B design had no artifact and are withdrawn: (1) `bench/build_repair_corpus.py`'s
+"deterministic at temperature=0 (measured 2026-08-30: 3/3 byte-identical)" — `git log -S`
+shows the only commit touching that string *added the comment*; the closest real measurement
+is the ~20% ollama temp-0 output-flip rate two sections above (`:659-660`). n=1 per cell is
+now flagged as an unaudited limitation, with a determinism audit pre-registered as WP5 of
+the issue-#26 methodology plan. (2) The "~24% of arm A's wins shrink the program — arm A
+partly buys the compile with fidelity" line in `bench/issue26/README.md` reversed the
+comparison: recomputed paired (`bench/fidelity_gate.py`), arm B shrinks *more* (A 23%,
+B 40%, C 31% of wins on the 3b run). Shrinkage is a small-model-repair property, not an
+arm-A differentiator; the loop-level result above is unaffected.
+
 **Caveat, unchanged:** the diagnostic-quality half is the 7B on CPU. groq's 120B is barely
 sampled (a 2026-08-28 probe sweep got 4 PF-024 syntax classes clean on groq — no
 reproduction — and the `duplicate_symbol` residual once in 3, before the daily token limit

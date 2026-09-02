@@ -42,9 +42,15 @@ sub-expression" — that compiles more often.
 ### What this does *not* claim
 
 - **Compilability only.** The harness scores whether the repaired patch
-  compiles, not whether it still does what the prompt asked. ~24% of arm A's
-  wins shrink the program materially — arm A partly buys a green compile with
-  fidelity.
+  compiles, not whether it still does what the prompt asked. Recomputed paired
+  from the committed data (`bench/fidelity_gate.py`, non-blank line ratio
+  `< 0.60`): **both** arms shrink a sizeable share of their wins — 3b: arm A
+  35/151 (23%), arm B 35/88 (40%), arm C 27/86 (31%). Shrinkage is a
+  small-model-repair property, **not** an arm-A tell; an earlier note here
+  saying "~24% of arm A's wins shrink … arm A partly buys the compile with
+  fidelity" reversed the comparison and is retracted. Arm A does lose a named
+  `expected_primitive` slightly more often (14% of determinable wins vs
+  9% / 6%), consistent with the broader-rewrite mechanism above.
 - **Not a frontier model.** `qwen2.5-coder:3b`/`7b` local. The shipping product
   runs a much larger model; that regime is untested here.
 - **Quantization confound on the 7B:** 7B is Q3_K_S (fits a 4 GB GPU), 3B is Q4.
@@ -102,8 +108,12 @@ GROQ_API_KEY=... python bench/issue26/repair_ab_standalone.py \
   --samples 5 --out run_hosted.json
 ```
 
-**Determinism:** the published runs used n=1 per (program, arm) because the
-local model is deterministic when warm. A hosted model usually is **not** bit
+**Determinism:** the published runs used n=1 per (program, arm). Whether the
+local repair step is byte-stable run-to-run at temp 0 is **not** audited — an
+earlier claim that it "is deterministic when warm" had no supporting artifact
+and is retracted; `docs/BUGS.md` records ~20% run-to-run output flips for ollama
+at temp 0 on a related measurement, and a proper audit is pre-registered as WP5
+of the issue-#26 methodology plan. A hosted model is definitely **not** bit
 deterministic at temp 0 — use `--samples K` (K ≥ 5); `score_repair_ab.py` treats
 samples as independent records, so aggregate per cell (majority-green,
 median-attempts) before reading the verdict.
@@ -174,3 +184,15 @@ Shared with the in-repo harness (not duplicated):
 3. **faust-rs is advisory only.** `frs_codes` / `frs_feedback` in the corpus are
    recomputed live during the A/B (`repair_ab_core.feedback_for`), so a newer
    faust-rs changes arms B/C without rebuilding the corpus.
+4. **The arm A vs faust-rs prompt wrappers are not byte-matched.** Arm A wraps
+   the error with *"Your previous output had this compiler error — fix it:"*
+   (`repair_ab_core.ARM_A_TEMPLATE`); arms B/C carry faust-rs's own framing —
+   a *"The Faust compiler rejected your program."* header **and** a closing
+   *"Fix this and re-emit the complete program."* directive
+   (`frs_check.render`). So the A-vs-B contrast mixes three things: the error
+   payload, the framing, and the presence of an explicit "re-emit the complete
+   program" instruction — the last of which is itself a plausible cause of the
+   "arm A provokes a broader rewrite" mechanism. A matched-wrapper re-run
+   (arms A2/B2/C2, identical wrapper, payload the only difference) is the next
+   step and is WP3 of the issue-#26 methodology plan.
+5. **n=1 per cell, determinism unaudited.** See the Determinism note above.
