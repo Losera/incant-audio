@@ -17,7 +17,7 @@ prompt asked. This module adds the cheap, compiler-free half of that question:
                    are excluded from the primitives denominator.
 
 Neither tier needs faust or faust-rs.  The render tier (silence / NaN / DC /
-runaway + acoustic compliance) is WP4 of the issue-#26 methodology plan and will
+runaway + acoustic compliance) is WP4 in bench/issue26/METHODOLOGY.md and will
 land here too; it needs faust2sndfile and is deliberately kept out of
 bench/issue26/verify.py's scipy-only ~1 s closure.
 

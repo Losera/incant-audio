@@ -12,3 +12,60 @@ separate written agreement from the applicable copyright holder(s).
 Third-party components used by or distributed with PluginForge remain subject
 to their own license terms. This notice does not grant rights in JUCE, Faust,
 LLVM, or any other third-party software.
+
+
+-------------------------------------------------------------------------------
+EXCEPTIONS — openly licensed components
+-------------------------------------------------------------------------------
+
+Notwithstanding the notice above, the following parts of this repository are
+released under open licenses so that the issue #26 result
+(https://github.com/Losera/incant-audio/issues/26) can be independently
+reproduced and the dataset reused:
+
+(a) DATASET — Creative Commons Attribution 4.0 International (CC-BY-4.0)
+
+      bench/corpora/repair_corpus_20260830.json
+      bench/issue26/SCHEMA.md
+
+    Full terms: bench/corpora/LICENSE
+
+(b) REPRODUCTION HARNESS — The MIT License (text below)
+
+      bench/issue26/                         (the whole directory)
+      bench/repair_ab_core.py
+      bench/build_repair_corpus.py
+      bench/frs_check.py
+      bench/score_repair_ab.py
+      bench/frs_rederive_issue26.py
+      bench/fidelity_gate.py
+      bench/results/repair_ab/               (the committed A/B result JSONs,
+                                              summaries, reports, and charts)
+      llm/error_classes.py
+
+No rights are granted in any other file. In particular the synthesis engine,
+the LLM prompt layer, the JUCE host, and everything under host/ and llm/ (other
+than llm/error_classes.py) remain "All rights reserved" per the notice above.
+
+
+The MIT License (MIT)
+
+Copyright (c) 2026 Juan Naranjo
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of the files enumerated in exception (b) above and associated documentation
+files (the "Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish, distribute,
+sublicense, and/or sell copies of the Software, and to permit persons to whom
+the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

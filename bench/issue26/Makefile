@@ -20,7 +20,7 @@
 #   e.g.  make docker-replay LIMIT=20        # 20-program smoke run, then scores it
 
 ROOT       := $(shell git -C $(CURDIR) rev-parse --show-toplevel 2>/dev/null || echo $(CURDIR)/../..)
-PYTHON     ?= python
+PYTHON     ?= python3
 CORPUS     ?= $(ROOT)/bench/corpora/repair_corpus_20260830.json
 BACKEND    ?= ollama
 ENDPOINT   ?= http://localhost:11434
@@ -53,7 +53,8 @@ replay:
 
 test:
 	cd $(ROOT) && PLUGINFORGE_PROVIDER=anthropic $(PYTHON) -m pytest \
-	  tests/test_repair_ab_core.py tests/test_frs_check_unit.py -q
+	  tests/test_repair_ab_core.py tests/test_frs_check_unit.py \
+	  tests/test_fidelity_gate.py -q
 
 docker:
 	docker build -f $(CURDIR)/Dockerfile -t $(IMAGE) \

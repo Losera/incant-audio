@@ -17,8 +17,9 @@ WHY A CORPUS, NOT A GRID RE-RUN
     The earlier "measured 2026-08-30: 3/3 byte-identical" note here had no
     artifact anywhere and is retracted; `docs/BUGS.md` records ~20% run-to-run
     output flips for ollama at temp 0 on a related measurement. A proper
-    determinism audit is pre-registered as WP5 of the issue-#26 methodology
-    plan; until it runs, n=1 is a known limitation, not a warranted design.
+    determinism audit is pre-registered as WP5 in
+    bench/issue26/METHODOLOGY.md; until it runs, n=1 is a known limitation,
+    not a warranted design.
 
 WHAT IT WRITES
     bench/corpora/repair_corpus_<date>.json — a flat list of attempt records:
