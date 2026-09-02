@@ -385,6 +385,38 @@ target_link_libraries(GenerationProfilesAutoTest PRIVATE
 )
 
 # ---------------------------------------------------------------------------
+# UiIrTest -- UiIr::parse()/toVar() (host/Source/UiIr.h), the renderer-agnostic
+# layout IR. UiIr schema 3 (the theme block) makes these two functions a real
+# production path: PluginProcessor persists the IR as JSON in the state blob.
+# Before this target neither had a direct test. Pure juce_data_structures
+# (var/DynamicObject/JSON) -- no plugin sources, no libfaust, no gui, same
+# "pure and cheap" shape as GenerationProfilesAutoTest. ASan/UBSan because the
+# code under test indexes into author-supplied strings.
+juce_add_console_app(UiIrTest
+    PRODUCT_NAME "UiIr Test"
+)
+
+target_sources(UiIrTest PRIVATE
+    tests/UiIrTest.cpp
+)
+
+target_compile_features(UiIrTest PRIVATE cxx_std_17)
+
+target_compile_definitions(UiIrTest PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_VST3_CAN_REPLACE_VST2=0
+)
+
+target_compile_options(UiIrTest PRIVATE -fsanitize=address,undefined -g -O1)
+target_link_options(UiIrTest PRIVATE -fsanitize=address,undefined)
+
+target_link_libraries(UiIrTest PRIVATE
+    juce::juce_data_structures
+    juce::juce_recommended_config_flags
+)
+
+# ---------------------------------------------------------------------------
 # ParamIdentityTest -- the parameter-identity derivation rule
 # (host/Source/ParamIdentity.h, host/tests/ParamIdentityTest.cpp).
 #
