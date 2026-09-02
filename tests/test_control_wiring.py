@@ -897,6 +897,139 @@ class TestHandoffTelemetry:
         assert len(log_path.read_text().splitlines()) == 3
 
 
+# --------------------------------------------------- session collision guard
+
+
+def _guard_context(payload_extra: dict | None = None, env: dict | None = None) -> tuple[int, str]:
+    payload = {
+        "hook_event_name": "SessionStart", "source": "startup", "cwd": CWD,
+        "session_id": "collision-guard-test",
+    }
+    payload.update(payload_extra or {})
+    proc = _run_hook_capture("session_collision_guard.py", payload, env=env)
+    return proc.returncode, _additional_context(proc)
+
+
+@pytest.fixture
+def fake_checkout(tmp_path):
+    """A throwaway git repo the guard can be pointed at via PLUGINFORGE_SCG_ROOT,
+    so the branch/handoff checks run against a state the test fully controls --
+    not whatever branch and HANDOFF.md the real tree carries (which would make
+    the red case skip on a detached-HEAD CI checkout). Returns (path, env, on_branch).
+    """
+    repo = tmp_path / "checkout"
+    (repo / ".claude").mkdir(parents=True)
+    for args in (
+        ["init", "-q", "-b", "feature-x"],
+        ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
+         "--allow-empty", "-m", "root"],
+    ):
+        subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
+    # An empty, gitignore-free transcript dir so the concurrent-session check
+    # finds nothing and only the branch check can speak.
+    tdir = tmp_path / "transcripts"
+    tdir.mkdir()
+    env = {
+        "PLUGINFORGE_SCG_ROOT": str(repo),
+    }
+    return repo, env, "feature-x", tdir
+
+
+class TestSessionCollisionGuardHasTeeth:
+    """AGENTS.md §6 (worktree per concurrent agent) has no enforcement — two
+    sessions in one checkout share a working tree, an index, and one
+    .claude/HANDOFF.md, and that last one bit this project on 2026-09-02: a
+    session cleared and /handoff overwrote another effort's still-owed handoff.
+    This SessionStart hook cannot block (no decision control for SessionStart),
+    so 'teeth' means the honest-signal cases: it flags a foreign handoff, it
+    never blocks a start, and it is never silent.
+    """
+
+    def test_flags_a_handoff_from_another_branch(self, fake_checkout):
+        """THE RED CASE — the 2026-09-02 failure exactly: a HANDOFF.md whose
+        recorded branch is not the one this checkout is on."""
+        repo, env, branch, tdir = fake_checkout
+        (repo / ".claude" / "HANDOFF.md").write_text(
+            "# Handoff\n\n<!-- handoff-meta: head=deadbeef "
+            "written=2026-01-01T00:00:00Z branch=some-other-effort -->\n"
+        )
+        rc, ctx = _guard_context(
+            {"transcript_path": str(tdir / "collision-guard-test.jsonl")}, env=env)
+        assert rc == 0
+        assert "FOREIGN HANDOFF" in ctx, (
+            "A HANDOFF.md recording a branch other than the checked-out one must be "
+            f"flagged before /handoff can overwrite it. Got:\n{ctx}"
+        )
+        assert "'some-other-effort'" in ctx and f"'{branch}'" in ctx
+
+    def test_silent_on_a_matching_branch(self, fake_checkout):
+        """THE GREEN CASE — a handoff for the branch this checkout is on is this
+        session's own; no warning."""
+        repo, env, branch, tdir = fake_checkout
+        (repo / ".claude" / "HANDOFF.md").write_text(
+            "# Handoff\n\n<!-- handoff-meta: head=deadbeef "
+            f"written=2026-01-01T00:00:00Z branch={branch} -->\n"
+        )
+        rc, ctx = _guard_context(
+            {"transcript_path": str(tdir / "collision-guard-test.jsonl")}, env=env)
+        assert rc == 0
+        assert "FOREIGN HANDOFF" not in ctx, f"A same-branch handoff was flagged:\n{ctx}"
+
+    def test_ignores_a_handoff_with_no_meta_comment(self, fake_checkout):
+        """A meta-less handoff's staleness is handoff_injector.py's job, not this
+        one's — the guard must not double-flag it."""
+        repo, env, _branch, tdir = fake_checkout
+        (repo / ".claude" / "HANDOFF.md").write_text("# Handoff\n\nno meta line here\n")
+        rc, ctx = _guard_context(
+            {"transcript_path": str(tdir / "collision-guard-test.jsonl")}, env=env)
+        assert rc == 0
+        assert "FOREIGN HANDOFF" not in ctx
+
+    def test_flags_a_dirty_index_in_the_checkout(self, fake_checkout):
+        """The other collision surface: a tracked file already modified before
+        this session acted means a shared index."""
+        repo, env, _branch, tdir = fake_checkout
+        tracked = repo / "already-here.txt"
+        tracked.write_text("v1\n")
+        subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t",
+                        "add", "-A"], cwd=repo, check=True, capture_output=True)
+        subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t",
+                        "commit", "-qm", "add"], cwd=repo, check=True, capture_output=True)
+        tracked.write_text("v2 — another session's edit\n")
+        rc, ctx = _guard_context(
+            {"transcript_path": str(tdir / "collision-guard-test.jsonl")}, env=env)
+        assert rc == 0
+        assert "SHARED INDEX" in ctx and "already-here.txt" in ctx
+
+    @pytest.mark.parametrize("source", ["startup", "resume", "clear", "compact"])
+    def test_never_blocks_and_never_silent(self, source):
+        """Runs against the REAL checkout — the point is the in-situ invariant.
+        SessionStart has no decision control, so a non-zero exit could be misread
+        as 'session denied'; an empty additionalContext would be the one
+        forbidden output (tools/status_digest.sh's rule)."""
+        rc, ctx = _guard_context({"source": source})
+        assert rc == 0, f"guard exited {rc} on source={source} — must never block a start"
+        assert ctx.strip(), f"guard emitted empty additionalContext on source={source}"
+
+    def test_all_clear_output_still_names_the_worktree_layout(self, fake_checkout):
+        """Even with nothing wrong, the guard says where it is — so 'no output'
+        is never ambiguous between 'clean' and 'hook broken'."""
+        repo, env, _branch, tdir = fake_checkout
+        rc, ctx = _guard_context(
+            {"transcript_path": str(tdir / "collision-guard-test.jsonl")}, env=env)
+        assert rc == 0
+        assert "worktree" in ctx.lower()
+        assert "no concurrent-session signals" in ctx
+
+    def test_a_broken_guard_fails_loud_not_silent(self):
+        """The catch-all: point PLUGINFORGE_SCG_ROOT at a path that is not a repo
+        — every git call fails — and the hook must still exit 0 with non-empty
+        context, not a stack trace to stderr and an empty injection."""
+        rc, ctx = _guard_context(env={"PLUGINFORGE_SCG_ROOT": "/nonexistent/checkout"})
+        assert rc == 0
+        assert ctx.strip()
+
+
 # ------------------------------------------------------- benchmark concurrency (PF-025)
 
 
