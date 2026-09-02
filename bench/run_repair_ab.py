@@ -17,10 +17,11 @@ DESIGN
                              FRS code, concrete arities, source line:col + caret,
                              and the `help` remedy, with the box-expr noise dropped
 
-    The repair model is fixed (qwen2.5-coder:3b, temperature=0 — verified
-    deterministic) regardless of which model first produced the program, so the
-    only variable is the feedback text. A small local model is deliberate: it is
-    where compiler-feedback quality should matter most, and it is what the #26
+    The repair model is fixed (qwen2.5-coder:3b, temperature=0 — run-to-run
+    stability unaudited; see docs/BUGS.md and WP5 of the issue-#26 methodology
+    plan) regardless of which model first produced the program, so the only
+    intended variable is the feedback text. A small local model is deliberate:
+    it is where compiler-feedback quality should matter most, and it is what #26
     question ("can the LLM better understand what the corrected DSP has to be")
     is really about. Pairing removes the sampling variance two independent grid
     runs would carry.
