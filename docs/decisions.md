@@ -1892,3 +1892,121 @@ on the Obsidian vault). The project remains un-containerised.
 **Accepted 2026-09-01 by explicit user decision** (AskUserQuestion — "Accept — keep the
 container"). The draft `bench/issue26/ADR-034-draft-repro-container.md` is superseded by
 this entry and deleted.
+
+---
+
+## ADR-035 — Per-plugin generated faces: UiIr schema 3 + a scoped face renderer
+
+| | |
+|---|---|
+| **Status** | Proposed (2026-09-02). Step 1 (schema 3 + state persistence) implemented and in review as PR #51; Steps 2–6 await acceptance. |
+| **Date** | 2026-09-02 |
+| **Relates to** | ADR-024 (extends its versioned `UiIr` schema), ADR-029 (schema 2 / components — same deterministic post-compile pattern), ADR-022 §3 (per-generation accent — narrowed, not reopened), ADR-019 (no WebView — unchanged) |
+
+**Context**
+Every generated patch renders with one shell look: `ForgeLookAndFeel` + Ember Console
+tokens + `ParamGridPanel`'s sqrt grid or one-control-per-row sectioned list. ADR-022 §3
+added a per-generation accent (one of four Ember swatches); ADR-024 and ADR-029 added
+sectioned layout and a component descriptor — all deterministic, post-compile, reusing
+facts the compiler already produced. What is still missing: a generated plugin that
+looks like *its own product* — its own palette, type, knob style and archetype layout —
+while the host chrome around it stays Ember Console.
+
+An external design handoff supplies the target: `design_handoff_generated_plugin_faces/`
+at the repo root — a README with a six-step plan and design tokens, a draft schema-3
+generation prompt (`ui_ir_system_prompt.md`), and four high-fidelity reference faces as
+`.dc.html` (Velvet Drift / Iron Strip / Echo Plate / Dustfield), one per worked example.
+The bundle is kept **untracked** by explicit decision (2026-09-02): it is reference
+material, not code, and a reader works from it on disk.
+
+**Decision**
+Six independently-shippable steps, each extending the ADR-024/029 mechanism rather than
+adding a parallel one:
+
+1. **UiIr schema 3** — schema 2 plus a `theme` block: colour strings
+   (`surface/panel/line/text/textDim/accent/accentAlt`) and enums
+   (`display/readout/knob/density`). Every field defaults to its Ember Console token, so
+   schema 0/1/2 layouts are byte-unaffected. `parse()` degrades a missing/blank colour or
+   an unrecognised enum to the default token **per field**, never rejecting the layout.
+   The IR is persisted in the state blob as a `uiIr` root attribute — **a v3 state-blob
+   amendment, not a `kStateSchemaVersion` bump**, by the same argument the `uiStyle`
+   attribute used: an old blob simply lacks it and parses to `UiIr::empty()`, the
+   un-themed state every patch already had. Nothing renders the restored IR yet.
+   *Implemented — PR #51, commit `a8937b6`; green at `check.sh full`. New `UiIrTest`
+   (41 checks) plus a `StatePersistenceTest` round-trip case.*
+
+2. **Host-side theme validation** — a new `ThemeValidate.h` next to `Theme.h`, no JUCE
+   `Component` dependency. Parse hex/rgba to `juce::Colour`, compute WCAG relative
+   luminance with the formula `Theme.h` already documents, and enforce `text` on
+   `surface` ≥ 7:1, `textDim` ≥ 4.5:1, `accent` ≥ 3:1, and `accent ≠ accentAlt ≠ text`.
+   Failure is **per-token**: substitute the Ember token for the failing field and keep
+   the rest. Never reject the whole face.
+
+3. **A LookAndFeel per face** — a new header-only `GeneratedFaceLookAndFeel.h`, same
+   convention as `ForgeLookAndFeel.h`, constructed from a validated `UiIr::Theme` and
+   attached to `paramGridPanel` **only** (never `setDefaultLookAndFeel` — the reason
+   `ForgeLookAndFeel.h`'s header already gives), so the title band, prompt column, sample
+   browser and keyboard keep the shell look. Fonts are a fixed embedded set dispatched by
+   name in `getTypefaceForFont`, exactly as `ForgeLookAndFeel` does today for its five;
+   `theme.display`/`theme.readout` are enums over that set.
+
+4. **Archetype layouts** — a new `ArchetypeLayout.h` of free functions, no JUCE
+   dependency, mirroring `ParamGridLayout.h`. `synth-panel`/`channel-strip` lay sections
+   out as columns; `tape-unit` splits transport/tone; `texture-field` is a display region
+   plus a control rail; `pedal`/`utility` keep the existing grid. One source of truth for
+   content height. This step also writes `host/tests/ParamGridLayoutTest.cpp`, which
+   `ParamGridLayout.h`'s own header notes has never existed.
+
+5. **The generation call** — a new metadata-to-metadata action in `llm/generate.py`,
+   made after a successful compile. Input: the captured param table + the user's prompt +
+   `isInstrument`. Output: the IR JSON. Validated host-side (schema in range, every
+   writable param named exactly once, no continuous style on a `Button`/`CheckButton`, no
+   `Kind::Meter` as a control, theme passes Step 2). Any failure →
+   `deriveLayoutFromGroups()`, which stays the floor. Cheap and optional — a failed or
+   slow second call must never delay the DSP going live.
+
+6. **Verification loop** — drive the four worked-example prompts through
+   `tools/ui_iterate.sh` and diff the contact sheet against the reference faces; extend
+   the dev-cockpit export with archetype + theme so a run is checkable without eyes; add
+   `EditorSessionTest` scenarios (theme applied, theme rejected per-token, IR restored
+   from a reopened project, archetype layout placed every control).
+
+**Reasons**
+- Extends ADR-024's versioned schema and ADR-029's deterministic post-compile pass
+  instead of introducing a second descriptor mechanism next to `UiIr::Layout`.
+- Per-token degradation at every layer (parse, validation) — one bad string never costs
+  a whole valid layout. This is ADR-022 §3's `GeneratedAccent` bone-swatch lesson applied
+  structurally rather than case by case.
+- The scoped LookAndFeel keeps the "one shell, many faces" separation: the chrome stays
+  Ember Console, the generated panel becomes its own product.
+- Step 5's LLM call is additive and non-blocking; the heuristic `deriveLayoutFromGroups()`
+  stays the floor, so a provider outage or a malformed IR degrades to today's behaviour —
+  not to a broken face, and never to bad audio.
+
+**Consequences**
+- **Narrows ADR-022 §3's `derivePalette()` to the no-IR path.** A schema-3 IR with a
+  validated theme drives the panel's colours; the single-accent heuristic remains the
+  fallback when there is no IR. ADR-022 §3 is not reopened, only scoped.
+- **Step 3 is new UI architecture** — a second `LookAndFeel` instance, lifetime-coupled to
+  `paramGridPanel`, plus an embedded font set through the `PluginForgeAssets` target. It
+  does not land on this ADR's acceptance alone: it goes through a change report and the
+  Tier-2 evidence bar / semantic diff review (AGENTS.md §4, COLLABORATION.md §2).
+- **The design bundle is untracked.** A clean checkout has no
+  `design_handoff_generated_plugin_faces/`; the four `.dc.html` faces are Step 6's
+  contact-sheet targets, and losing the bundle loses that check's reference. Committing it
+  (or a distilled `docs/` version) before Step 6 is worth considering.
+- `PF-052` (`Kind::Meter` has no pool slot) remains a prerequisite for a meter component
+  actually rendering — unchanged, not closed here.
+- `theme.density` sits inside the `theme` block (per the handoff's JSON shape) though it
+  is a Step-4 layout concern, not a Step-2/3 one. Minor; recorded so it is not read as a
+  bug.
+- Revisit if: the LLM cannot produce a contrast-valid, complete IR within the prompt
+  budget (Step 5 falls back permanently; Steps 2–4 still stand on heuristic themes), or an
+  archetype layout proves worse than the flat grid on a real corpus patch — the same
+  failure mode ADR-024's `<4 controls` suppression threshold was added to catch.
+
+**Status note**
+Step 1 landed ahead of this ADR's acceptance because it is inert: a schema field and a
+persisted attribute with no consumer, verifiable in full by `check.sh` with no design
+judgement involved. Steps 2–6 are **Proposed** — this entry authorizes the direction for
+the human to accept or redirect, not the implementation.
