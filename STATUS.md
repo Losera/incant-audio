@@ -1,4 +1,4 @@
-# PluginForge — Status  (2026-09-01)
+# PluginForge — Status  (2026-09-02)
 
 Rewritten each session per COLLABORATION.md §5. Single writer, no merge conflicts.
 Narrative history lives in git and in `docs/sessions/`.
@@ -90,6 +90,18 @@ provider-precedence rule; §3–§5 hygiene) were applied, plus the two 2026-09-
 `onRecommendationInvalidated`) and two dead-branch removals (`target_mismatch` off the plain
 `generate()` path; the `request.get("budget")` fallback). `check.sh full` + CI green.
 
+**Landed 2026-09-02:** PR #49 (`e35ff58`, `bench/fidelity_gate.py` + test — the compile-only
+half of the issue-#26 A/B; retracted the unwarranted temp-0 determinism claim and disclosed
+the arm-A-vs-faust-rs wrapper confound); PR #50 (`778003e`, `bench/corpora/README.md` dataset
+card, corpus relicensed CC-BY-4.0); PR #53 (`6d790bd`, **issue-#26 repro package
+handoff-ready for GRAME** — root `LICENSE` gains an EXCEPTIONS section (corpus CC-BY-4.0,
+harness MIT); `verify.py` grows `verify_fidelity()` + `expected.json` `"fidelity"` block;
+README mechanism numbers restated on single denominators + the 9/15→8/15 C++-location
+errata; new `METHODOLOGY.md`, `.dockerignore`, Dockerfile version assertion, cold-clone
+quickstart, CI runs `verify.py`). The GRAME reply is drafted (`~/issue26-reply.md`), links
+`6d790bd`, and is **waiting on a human to post** (below). `check.sh full`-equivalent + CI
+green on all three.
+
 **Landed 2026-09-01:** PR #39 (`8ebfb43`, ADR-033 pre-generation recommendations — above);
 PR #45 (`ee11db6`, PF-065 install-layout half — `install_release.sh` writes a venv + seeded
 `.env` + a merged `config.json`; plugin gains `python_path` config + `resolvePythonExe()` +
@@ -103,7 +115,8 @@ issue-#26 repair-loop A/B harness + **PF-076**), PR #42 (ADR-032 v1 backend, abo
 **Landed 2026-08-29:** PR #34 (`/recap` skill), PR #35 (PF-069/PF-070 efficacy-harness
 fixes), PR #36 (session-017 WP6 closeout). The faust-rs evaluation was written up as a reply
 to GRAME issue #26 (`faust-rs 0.8.0`: 51/51 accept–reject agreement with the C++ compiler,
-source location 15/15 vs 9/15, stable error code 15/15 vs 0/15); the **loop-level** follow-up
+source location 15/15 vs 9/15 — *re-derived 2026-08-30 as 8/15, erratum carried in the
+2026-09-02 reply* — stable error code 15/15 vs 0/15); the **loop-level** follow-up
 is PF-076 — feeding those diagnostics back to the repair model made it *worse* (75%→44%
 repaired-within-2 on `qwen2.5-coder:3b`). Caveat: all of it is small models on CPU.
 
@@ -219,13 +232,15 @@ clock — no host transport in Standalone).
 
 ## Waiting on you
 
-1. **Merge PR #46** (the `google-genai` installer fix; carries its own `docs/BUGS.md` row).
-   One commit: `requirements.txt` gains `google-genai` so the
-   installer's seeded-default provider (`gemini`) actually runs on a clean install. `check.sh`
-   green, CI green, `check.sh full` covered. Optional companion decision: change
-   `.env.example`'s `PLUGINFORGE_PROVIDER=gemini` default to `ollama` (the only zero-credential
-   provider) so a fresh install works with no key at all — deferred, your call on quality vs.
-   friction.
+1. **Post the GRAME reply.** `~/issue26-reply.md` — full draft, answers Stéphane Letz's
+   "does the better error shorten the loop" question (no, and the mechanism), corrects the
+   two published claims (9/15→8/15; the fidelity comparison), and hands over the repro
+   package pinned to `6d790bd`. Every link resolves anonymously; a cold clone at that SHA
+   runs `verify.py` green. COLLABORATION.md §2 — **a human reviews the wording and posts it**
+   (Claude must not `gh issue comment`). Delete the draft after. Then (deferred to a later
+   session): cut a NEW tag `issue-26-repro-2` at `6d790bd` + a fresh release, and edit the
+   old `issue-26-repro` release body to point forward. **Do not move the existing tag**
+   (`f50daa8`).
 2. **A listening pass on the interactive-session patches.** COLLABORATION.md §1 — whether a
    generated plugin *sounds like what was asked for* has no instrument and is not delegable.
    The render oracle proved the WP6 patches were not broken; it cannot tell you they were
