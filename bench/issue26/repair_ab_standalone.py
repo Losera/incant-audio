@@ -60,7 +60,7 @@ DETERMINISM
     the earlier claim that it "is deterministic when warm" had no artifact and
     is retracted; docs/BUGS.md records ~20% run-to-run output flips for ollama
     at temp 0 on a related measurement, and a proper audit is pre-registered as
-    WP5 of the issue-#26 methodology plan. A hosted model is definitely NOT bit
+    WP5 in bench/issue26/METHODOLOGY.md. A hosted model is definitely NOT bit
     deterministic at temp 0 — use --samples K (K>=5) and score the per-cell
     majority / median. --samples writes K records per (program, arm) tagged with
     `sample_index`; score_repair_ab.py treats them as independent, so for K>1

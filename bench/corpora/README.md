@@ -103,15 +103,16 @@ newer faust-rs changes arms B/C without the corpus being rebuilt.
 
 ## Licence and attribution
 
-`repair_corpus_20260830.json` — the dataset file — is released under
-**[Creative Commons Attribution 4.0 International (CC-BY-4.0)](https://creativecommons.org/licenses/by/4.0/)**.
-You may share and adapt it, including commercially, provided you give
-attribution.
+`repair_corpus_20260830.json` and the field dictionary `../issue26/SCHEMA.md`
+are released under **[CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/)** —
+share and adapt freely, including commercially, with attribution. Full terms:
+[`LICENSE`](LICENSE) in this directory (and the repository-root
+[`/LICENSE`](../../LICENSE), exception (a)).
 
-This licence covers **only** `repair_corpus_20260830.json` and the field
-documentation in `../issue26/SCHEMA.md`. The rest of the PluginForge repository
-remains proprietary (`LICENSE` — "All rights reserved"); the harness scripts
-referenced here are provided for reproduction of issue #26, not relicensed.
+This is the **only** dataset in the repository under an open licence. The
+issue-#26 reproduction harness is separately under the MIT License
+(`/LICENSE` exception (b), and [`../issue26/LICENSE`](../issue26/LICENSE));
+everything else remains proprietary ("All rights reserved").
 
 The dataset embeds LLM-generated Faust source and natural-language prompts
 authored for this project; it contains no third-party copyrighted material.

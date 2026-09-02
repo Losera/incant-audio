@@ -30,11 +30,19 @@
 #     --arms A,B --samples 5 --out /out/run.json
 
 # Arch matches the machine the corpus was generated on; `faust` in the Arch repo
-# is currently the pinned 2.85.9. If Arch moves ahead, override at build time
-# with --build-arg or fall back to building Faust from source (not done here to
-# keep the image lean — the C++ arm only needs the front end, not the JIT).
+# is currently the pinned 2.85.9. The base image (archlinux:base-devel) is a
+# rolling tag and is NOT digest-pinned — a digest-pinned old base running
+# `pacman -Syu` against current mirrors is the classic partial-upgrade break, so
+# it would make this image LESS reproducible, not more. Instead the two compiler
+# versions are asserted below: if Arch moves `faust` past FAUST_VERSION the build
+# fails loudly rather than silently swapping the accept/reject oracle. Override
+# with `--build-arg FAUST_VERSION=...` if you deliberately want a different one.
+#
+# Platform: archlinux publishes no arm64 image. On Apple Silicon build with
+# `--platform linux/amd64` (emulated — fine for `verify`, slow for a full replay).
 FROM archlinux:base-devel
 
+ARG FAUST_VERSION=2.85.9
 ARG FAUST_RS_REF=0.8.0
 ARG FAUST_RS_REPO=https://github.com/grame-cncm/faust-rs
 # Provenance — the Makefile fills these from `git`; harmless if built by hand.
@@ -50,7 +58,18 @@ RUN pacman -Syu --noconfirm \
 # (crates/compiler/Cargo.toml at tag 0.8.0). Pinned to the tag the corpus used.
 RUN cargo install --git "${FAUST_RS_REPO}" --tag "${FAUST_RS_REF}" --locked \
         --root /usr/local compiler
-RUN faust --version && faust-rs --version
+
+# Assert both compilers are the versions the published corpus was measured with.
+# A mismatch here means the numbers in the README no longer describe this image,
+# so fail the build rather than let the oracle drift silently.
+RUN set -eu; \
+    faust --version; faust-rs --version; \
+    if ! faust --version | grep -qF "${FAUST_VERSION}"; then \
+        echo "FATAL: faust is not ${FAUST_VERSION} (Arch moved ahead — see Dockerfile header)" >&2; exit 1; \
+    fi; \
+    if ! faust-rs --version | grep -qF "${FAUST_RS_REF}"; then \
+        echo "FATAL: faust-rs is not ${FAUST_RS_REF}" >&2; exit 1; \
+    fi
 
 # The reproduction package + the shared modules it imports. Copied, not cloned,
 # so the image is built from exactly the tree you build it in.

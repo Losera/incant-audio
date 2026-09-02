@@ -1,0 +1,30 @@
+# The only Docker build in this repo is bench/issue26/Dockerfile (the issue-#26
+# reproduction image — see docs/decisions.md ADR-034). Its build context is the
+# repo root so the shared bench/ and llm/ modules are in scope, but it COPYs only
+# a handful of files. Everything below is large build output or local-only state
+# that is never needed by that image; excluding it keeps the context small
+# (tens of MB instead of gigabytes) and keeps secrets out of the build.
+
+.git
+**/.venv
+**/__pycache__
+**/*.pyc
+
+# C++ / JUCE build trees — gigabytes, never needed by the issue-#26 image
+host/build
+host/build-release
+host/JUCE
+/build
+/build-ci
+/build-release
+cmake-build-*
+
+# release + local capture output
+/dist
+/artifacts
+
+# local env / secrets — must never enter an image
+.env
+**/.env
+*.pem
+*.key

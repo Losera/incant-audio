@@ -7,6 +7,13 @@ Re-derives, from bench/corpora/ and bench/results/repair_ab/ :
   * the corpus shape          — 202 distinct C++-rejected programs, class mix
   * each headline A/B cell     — repaired-within-2 counts, McNemar / Wilcoxon p,
                                 mean attempts-to-green
+  * the fidelity claim         — the per-arm shrink/primitive-loss summary in the
+                                committed *_fidelity.json sidecars, plus the
+                                paired "both A and B repaired" figures the
+                                README/reply cite. A checksum of the sidecars
+                                (which bench/fidelity_gate.py produced — that
+                                script pulls in the wider product harness), not
+                                a re-run of the gate.
 
 and diffs them against bench/issue26/expected.json. Integer counts must match
 exactly; p-values must sit under the recorded bound. Exit 0 = reproduced.
@@ -88,12 +95,59 @@ def verify_cell(cell: dict) -> None:
     _check(f"{tag} arm A repaired more", s["a_green"] > s["b_green"], True)
 
 
+def verify_fidelity() -> None:
+    """Check the fidelity numbers the README/reply publish against the committed
+    *_fidelity.json sidecars — a checksum, plus the one paired recompute."""
+    fid = EXPECTED.get("fidelity")
+    if not fid:
+        return
+    print("\n=== fidelity (committed sidecars) ===")
+
+    for sc in fid["sidecars"]:
+        summ = json.loads((_ROOT / sc["file"]).read_text())["summary"]
+        name = Path(sc["file"]).name
+        for arm, want in sc["summary"].items():
+            for k, wv in want.items():
+                _check(f"{name} {arm} {k}", summ[arm][k], wv)
+
+    p = fid["paired_both_won"]
+    records = json.loads((_ROOT / p["result_file"]).read_text())
+    cells = json.loads((_ROOT / p["fidelity_file"]).read_text())["cells"]
+    by_sha: dict[str, dict[str, dict]] = {}
+    for r in records:
+        by_sha.setdefault(r["code_sha"], {})[r["arm"]] = r
+    ctrl, treat = p["control"], p["treatment"]
+    both = [v for v in by_sha.values()
+            if ctrl in v and treat in v
+            and v[ctrl]["repaired"] and v[treat]["repaired"]]
+
+    def _cell(sha: str, arm: str) -> dict:
+        return cells[f"{sha}::{arm}"]
+
+    got = {
+        "n": len(both),
+        f"{ctrl.lower()}_shrank": sum(_cell(v[ctrl]["code_sha"], ctrl)["shrank"] for v in both),
+        f"{treat.lower()}_shrank": sum(_cell(v[treat]["code_sha"], treat)["shrank"] for v in both),
+        f"{ctrl.lower()}_primitive_lost": sum(
+            1 for v in both if _cell(v[ctrl]["code_sha"], ctrl)["primitive_lost"]),
+        f"{treat.lower()}_primitive_lost": sum(
+            1 for v in both if _cell(v[treat]["code_sha"], treat)["primitive_lost"]),
+        f"{ctrl.lower()}_primitives_determinable": sum(
+            1 for v in both if _cell(v[ctrl]["code_sha"], ctrl)["primitives_expected"] is not None),
+        f"{treat.lower()}_primitives_determinable": sum(
+            1 for v in both if _cell(v[treat]["code_sha"], treat)["primitives_expected"] is not None),
+    }
+    for k, v in got.items():
+        _check(f"paired {ctrl}-vs-{treat} {k}", v, p[k])
+
+
 def main() -> int:
     print("issue #26 — reproducing the published repair-loop A/B from committed data")
     print(EXPECTED["headline"])
     verify_corpus()
     for cell in EXPECTED["cells"]:
         verify_cell(cell)
+    verify_fidelity()
 
     print("\n" + "=" * 64)
     if _fails:

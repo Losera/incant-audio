@@ -717,12 +717,21 @@ A/B design had no artifact and are withdrawn: (1) `bench/build_repair_corpus.py`
 "deterministic at temperature=0 (measured 2026-08-30: 3/3 byte-identical)" — `git log -S`
 shows the only commit touching that string *added the comment*; the closest real measurement
 is the ~20% ollama temp-0 output-flip rate two sections above (`:659-660`). n=1 per cell is
-now flagged as an unaudited limitation, with a determinism audit pre-registered as WP5 of
-the issue-#26 methodology plan. (2) The "~24% of arm A's wins shrink the program — arm A
-partly buys the compile with fidelity" line in `bench/issue26/README.md` reversed the
-comparison: recomputed paired (`bench/fidelity_gate.py`), arm B shrinks *more* (A 23%,
-B 40%, C 31% of wins on the 3b run). Shrinkage is a small-model-repair property, not an
-arm-A differentiator; the loop-level result above is unaffected.
+now flagged as an unaudited limitation, with a determinism audit pre-registered as WP5 in
+`bench/issue26/METHODOLOGY.md`. (2) The "~24% of arm A's wins shrink the program — arm A
+partly buys the compile with fidelity" line in `bench/issue26/README.md` compared each arm
+to its own (different) set of wins and reversed the sign. Recomputed paired on the **67
+programs both A and B repaired** (`bench/fidelity_gate.py`): arm A shrank 19/67 (28%),
+arm B 24/67 (36%); primitive-lost A 10/63, B 6/63. Arm A does not buy compiles with
+fidelity; the loop-level result above is unaffected.
+
+**Repro-package handoff (2026-09-02).** `bench/issue26/` + the harness are relicensed
+(MIT; corpus CC-BY-4.0 — `/LICENSE` exceptions, `bench/corpora/LICENSE`,
+`bench/issue26/LICENSE`); `verify.py` gains a `verify_fidelity()` checksum of the
+committed sidecars; `METHODOLOGY.md` collects the WP1–WP5 follow-up; the Dockerfile
+asserts the Faust/faust-rs versions; CI now runs `verify.py`. The GRAME reply links an
+immutable commit SHA, not the `issue-26-repro` tag (which is not moved — a new tag is cut
+alongside). See STATUS.md.
 
 **Caveat, unchanged:** the diagnostic-quality half is the 7B on CPU. groq's 120B is barely
 sampled (a 2026-08-28 probe sweep got 4 PF-024 syntax classes clean on groq — no
