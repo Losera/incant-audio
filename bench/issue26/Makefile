@@ -6,14 +6,18 @@
 #   make replay        run the paired A/B with your own model (see vars below)
 #   make test          the unit tests for the shared loop
 #   make docker        build the pinned repro image
-#   make docker-verify / docker-replay   the same, in the container
+#   make docker-verify           verify, in the container
+#   make docker-replay           replay + score, in the container (LIMIT=N for a smoke run)
 #
 # replay / docker-replay knobs (override on the command line):
 #   BACKEND=ollama|openai      ENDPOINT=<url>      MODEL=<name>
 #   ARMS=A,B,C                 SAMPLES=1           OUT=<path>
 #   API_KEY_ENV=<env var>      (openai backend)
+#   LIMIT=<N>                  first N distinct programs — a smoke test
+#   STRATIFY=<N>               N programs, first-error-class proportional
 #   e.g.  make replay BACKEND=openai ENDPOINT=https://api.groq.com/openai/v1 \
 #           MODEL=llama-3.3-70b-versatile API_KEY_ENV=GROQ_API_KEY ARMS=A,B SAMPLES=5
+#   e.g.  make docker-replay LIMIT=20        # 20-program smoke run, then scores it
 
 ROOT       := $(shell git -C $(CURDIR) rev-parse --show-toplevel 2>/dev/null || echo $(CURDIR)/../..)
 PYTHON     ?= python
@@ -25,9 +29,12 @@ ARMS       ?= A,B,C
 SAMPLES    ?= 1
 OUT        ?= repair_ab_standalone.json
 API_KEY_ENV ?=
+LIMIT      ?=
+STRATIFY   ?=
 IMAGE      ?= incant-issue26
 
 _KEYENV := $(if $(API_KEY_ENV),--api-key-env $(API_KEY_ENV),)
+_SUBSET := $(if $(LIMIT),--limit $(LIMIT),) $(if $(STRATIFY),--stratify $(STRATIFY),)
 
 .PHONY: verify rederive replay test docker docker-verify docker-replay clean
 
@@ -41,7 +48,7 @@ rederive:
 replay:
 	$(PYTHON) $(CURDIR)/repair_ab_standalone.py \
 	  --corpus $(CORPUS) --backend $(BACKEND) --endpoint $(ENDPOINT) \
-	  --model $(MODEL) --arms $(ARMS) --samples $(SAMPLES) $(_KEYENV) --out $(OUT)
+	  --model $(MODEL) --arms $(ARMS) --samples $(SAMPLES) $(_KEYENV) $(_SUBSET) --out $(OUT)
 	$(PYTHON) $(ROOT)/bench/score_repair_ab.py $(OUT)
 
 test:
@@ -59,10 +66,11 @@ docker-verify:
 
 docker-replay:
 	mkdir -p $(CURDIR)/out
-	docker run --rm --add-host host.docker.internal:host-gateway \
+	docker run --rm --user $$(id -u):$$(id -g) --add-host host.docker.internal:host-gateway \
 	  $(if $(API_KEY_ENV),-e $(API_KEY_ENV),) -v $(CURDIR)/out:/out $(IMAGE) replay \
 	  --backend $(BACKEND) --endpoint $(ENDPOINT) --model $(MODEL) \
-	  --arms $(ARMS) --samples $(SAMPLES) $(_KEYENV) --out /out/$(notdir $(OUT))
+	  --arms $(ARMS) --samples $(SAMPLES) $(_KEYENV) $(_SUBSET) --out /out/$(notdir $(OUT))
+	docker run --rm --user $$(id -u):$$(id -g) -v $(CURDIR)/out:/out $(IMAGE) score /out/$(notdir $(OUT))
 
 clean:
 	rm -f $(CURDIR)/repair_ab_standalone*.json

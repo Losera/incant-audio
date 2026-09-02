@@ -86,6 +86,7 @@ ollama:
 
 ```bash
 # local ollama, the 3B the published run used
+# (add --limit 20 for a quick smoke test before the full ~1h corpus)
 python bench/issue26/repair_ab_standalone.py \
   --corpus bench/corpora/repair_corpus_20260830.json \
   --arms A,B,C --backend ollama --model qwen2.5-coder:3b \
@@ -115,12 +116,14 @@ does both, pinned; the LLM stays outside it.
 ```bash
 make -C bench/issue26 docker
 make -C bench/issue26 docker-verify
-# replay against a host ollama:
+# 20-program smoke run against a host ollama, then scored:
 make -C bench/issue26 docker-replay BACKEND=ollama \
-  ENDPOINT=http://host.docker.internal:11434 MODEL=qwen2.5-coder:3b ARMS=A,B,C
+  ENDPOINT=http://host.docker.internal:11434 MODEL=qwen2.5-coder:3b ARMS=A,B,C LIMIT=20
+# drop LIMIT for the full 202-program corpus (a few hours on a CPU 3B)
 ```
 
-See `Makefile` for all knobs.
+`docker-replay` runs the A/B and then `score_repair_ab.py` on the result
+(written to `bench/issue26/out/`). See `Makefile` for all knobs.
 
 ---
 
