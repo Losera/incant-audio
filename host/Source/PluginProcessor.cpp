@@ -768,6 +768,18 @@ void PluginForgeProcessor::loadFaustCode(const juce::String& faustCode,
 // setStateInformation's `version >= 3` gate (below) falls back to the
 // build-target default (PF_IS_SYNTH) with source "legacy_default" -- the same
 // behaviour those blobs were always saved under.
+//
+// ADDED 2026-09-01 (generated-plugin faces, Step 1) -- `uiIr` root attribute,
+// NOT a schemaVersion bump. Same argument as `uiStyle` above: the value is the
+// per-plugin UiIr::Layout (schema 3: sections + components + a theme block)
+// serialised to a JSON string with UiIr::toVar()/juce::JSON. A v1/v2/pre-2026-09
+// blob simply lacks the attribute; getProperty returns "", which UiIr::parse()
+// resolves to UiIr::empty() (schema 0) -- the un-themed "no IR" state every
+// patch persisted before this. No LLM-authored IR exists in the wild yet and
+// the restored value drives no rendering (the editor re-derives the layout on
+// the restore recompile), so there is nothing an old blob is missing and
+// nothing to migrate. Written unconditionally, mirroring toVar()'s own
+// always-on components/theme blocks.
 // ─────────────────────────────────────────────────────────────────────────────
 
 static const juce::Identifier kStateRootTag    ("PluginForgeState");
@@ -781,6 +793,9 @@ static const juce::Identifier kFamilySourceId  ("familySource");
 // getProperty's default supplies "faithful", which is the behaviour those blobs
 // were saved under anyway. Nothing has to migrate.
 static const juce::Identifier kUiStyleId       ("uiStyle");
+// Added 2026-09-01. A v3 AMENDMENT, not a schema bump -- see the "generated-
+// plugin faces" paragraph in the format block above. Absent => UiIr::empty().
+static const juce::Identifier kUiIrId          ("uiIr");
 // schemaVersion 2 (2026-08-02). The slot -> ParamIdentity map, and the derivation
 // scheme that produced it. See getStateInformation for the format and
 // setStateInformation for what a v1 blob (which has none of this) does instead.
@@ -816,6 +831,18 @@ void PluginForgeProcessor::setUiStyle(const juce::String& styleName)
         onUiStyleChanged(styleName);
 }
 
+UiIr::Layout PluginForgeProcessor::uiIr() const
+{
+    std::lock_guard<std::mutex> lock(metaMutex);
+    return currentUiIr;
+}
+
+void PluginForgeProcessor::setUiIr(const UiIr::Layout& layout)
+{
+    std::lock_guard<std::mutex> lock(metaMutex);
+    currentUiIr = layout;
+}
+
 void PluginForgeProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
     juce::ValueTree root(kStateRootTag);
@@ -828,6 +855,14 @@ void PluginForgeProcessor::getStateInformation(juce::MemoryBlock& destData)
         root.setProperty(kGenerationFamilyId, currentGenerationFamily, nullptr);
         root.setProperty(kFamilySourceId, currentGenerationFamilySource, nullptr);
         root.setProperty(kUiStyleId,     currentUiStyle,     nullptr);
+        // UiIr schema 3 (Step 1). Serialised as a JSON string attribute; always
+        // written, like the components block inside toVar() itself. A default
+        // (schema 0) Layout round-trips as {"schema":0,...} and restores to the
+        // same "no IR" state, so an editor that never pushed an IR costs one
+        // short attribute and no behaviour.
+        root.setProperty(kUiIrId,
+                         juce::JSON::toString(UiIr::toVar(currentUiIr), true),
+                         nullptr);
 
         // ── The slot -> identity map (schemaVersion 2) ──────────────────────
         // Without this, a restore knows every knob's VALUE and nothing about
@@ -992,6 +1027,15 @@ void PluginForgeProcessor::setStateInformation(const void* data, int sizeInBytes
     // were saved under, so an old session reopens looking exactly as it did.
     const juce::String style  = root.getProperty(kUiStyleId,     "faithful");
 
+    // UiIr schema 3 (Step 1). Absent in a v1/v2/pre-2026-09 blob: getProperty
+    // returns "", juce::JSON::parse("") yields a void var, and UiIr::parse()
+    // maps that to UiIr::empty() (schema 0) -- the "no IR" state those blobs
+    // were saved in. A malformed or newer-schema string lands on the same
+    // fallback. Restored but not yet consumed for rendering (see uiIr()'s
+    // header): the editor re-derives on the restore recompile.
+    const UiIr::Layout uiIrLayout =
+        UiIr::parse(juce::JSON::parse(root.getProperty(kUiIrId, juce::String()).toString()));
+
     {
         std::lock_guard<std::mutex> lock(metaMutex);
         currentFaustSource = source;
@@ -999,6 +1043,7 @@ void PluginForgeProcessor::setStateInformation(const void* data, int sizeInBytes
         currentGenerationFamily = family;
         currentGenerationFamilySource = familySource;
         currentUiStyle     = style;
+        currentUiIr        = uiIrLayout;
     }
 
     // Tell any open editor before the restore recompile below: the compile will

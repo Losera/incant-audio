@@ -147,7 +147,7 @@ level_full() {
               PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim \
               OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery \
               ParamIdentityTest NoteRingTest NoteRingTsanTest ValidationGateTest \
-              SoundfetchClientTest GenerationProfilesAutoTest \
+              SoundfetchClientTest GenerationProfilesAutoTest UiIrTest \
               PromptPanelPathResolutionTest
 
     # ── Three harnesses that existed and ran nowhere ─────────────────────────
@@ -196,10 +196,14 @@ level_full() {
     # REAPER). Same source/link set as StatePersistenceTest beside it, but no
     # message loop, no display, no JIT -- exercises resolveGenerateScript()
     # (PromptPanel.cpp) directly against scratch directories.
+    # UiIrTest joined 2026-09-01, in the commit that created it (generated-plugin
+    # faces, Step 1). UiIr schema 3 makes UiIr::parse()/toVar() a real
+    # production path -- the state blob persists the IR as JSON -- and neither
+    # had a direct test before. Pure juce_data_structures, no display.
     local pure
     for pure in OutputGuardTest ParamMapTest StatePersistenceTest ParamIdentityTest \
                 NoteRingTest ValidationGateTest SoundfetchClientTest \
-                GenerationProfilesAutoTest PromptPanelPathResolutionTest; do
+                GenerationProfilesAutoTest UiIrTest PromptPanelPathResolutionTest; do
       local bin
       bin="$(find host/build -type f -name "$pure" 2>/dev/null | head -n1)"
       if [[ -n "$bin" ]]; then

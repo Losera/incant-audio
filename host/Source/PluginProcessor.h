@@ -4,6 +4,7 @@
 #include "ParamPool.h"
 #include "OutputGuard.h"
 #include "NoteRing.h"
+#include "UiIr.h"
 #include <atomic>
 #include <mutex>
 
@@ -120,6 +121,12 @@ public:
     // response to each is independently "restore with the empty/default value",
     // the same do-nothing fallback the v1-ParamMap case established -- neither
     // needs the other present to fall back correctly.
+    //
+    // 2026-09-01 added the `uiIr` root attribute (the per-plugin UiIr::Layout,
+    // schema 3) as a v3 AMENDMENT -- NOT a bump. A blob without it parses to
+    // UiIr::empty(), the "no IR" state every patch had before, and nothing
+    // consumes the restored value for rendering yet. See the `uiIr` paragraph in
+    // the format block above getStateInformation() in the .cpp.
     static constexpr int kStateSchemaVersion = 3;
 
     // How a newly loaded patch treats the macro values already in the APVTS.
@@ -317,6 +324,30 @@ public:
     // they were written. Prefer currentSource() in new code.
     juce::String currentSourceForTest() const { return currentSource(); }
 
+    // ── UI IR (UiIr schema 3 — generated-plugin faces, Step 1) ───────────────
+    // The per-plugin layout + theme description. Editor-owned, same relationship
+    // as uiStyle()/setUiStyle() and promptHistory: ParamGridPanel derives the
+    // Layout (deriveLayoutFromGroups today; a post-compile LLM call in a later
+    // step) and hands the whole thing here after each successful compile. The
+    // processor's only job is to PERSIST it — getStateInformation() writes it as
+    // the `uiIr` root attribute of the state blob, setStateInformation() reads
+    // it back here.
+    //
+    // This is a v3 AMENDMENT, not a schemaVersion bump: a blob without the
+    // attribute yields UiIr::empty() (schema 0), which is exactly what an
+    // un-themed patch has today. Nothing consumes the restored IR for rendering
+    // yet — the editor re-derives the layout on the restore recompile
+    // (PluginEditor.cpp) — so restoring it changes no behaviour. The plumbing
+    // lands now; a later step gates the editor on the stored IR.
+    //
+    // Message-thread / non-audio only, metaMutex-guarded like the rest of the
+    // meta block.
+    UiIr::Layout uiIr() const;
+    void         setUiIr(const UiIr::Layout& layout);
+
+    // Test-only alias, same pattern as currentSourceForTest().
+    UiIr::Layout uiIrForTest() const { return uiIr(); }
+
     // Test-only. The live slot->label map. This used to be observable only by
     // serialising a blob and counting <SlotLabels> children; that node was
     // dropped from the persisted format (see getStateInformation), so the tests
@@ -434,6 +465,12 @@ private:
     // explicit callback cannot rot that way.
     juce::String       currentUiStyle { "faithful" };
     juce::StringArray  currentLabels;
+
+    // The per-plugin UI IR (UiIr schema 3). Pushed here by the editor after each
+    // successful compile; serialised verbatim by getStateInformation() and
+    // restored by setStateInformation(). Default schema 0 == "no IR", the state
+    // every patch was in before this field existed. Not read by the audio path.
+    UiIr::Layout       currentUiIr;
 
     // Slot -> ParamIdentity id for the live patch, POOL_SIZE entries, empty
     // string for a free slot. Written in the compile callback beside

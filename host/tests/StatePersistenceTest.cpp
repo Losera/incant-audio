@@ -137,6 +137,25 @@ int main()
         // C6: prompt history is now part of the persisted state.
         a.setPromptHistory({ "a warm lowpass", "add a chorus" });
 
+        // UiIr schema 3 (generated-plugin faces, Step 1): the per-plugin layout
+        // + theme rides the blob too. Editor-pushed in the real app; set here
+        // directly, the same way setPromptHistory() is.
+        {
+            UiIr::Layout ir;
+            ir.schema = 3;
+            ir.archetype = "tape-unit";
+            ir.tokens = "echo-plate";
+            ir.components.sampleBrowser = true;
+            ir.theme.accent = "#f0a63c";
+            ir.theme.knob = "pointer";
+            UiIr::Section s;
+            s.id = "mix";
+            s.title = "MIX";
+            s.controls.push_back({ "Mix", "slider", "md" });
+            ir.sections.push_back(s);
+            a.setUiIr(ir);
+        }
+
         a.getStateInformation(blob);
         check(blob.getSize() > 0, "getStateInformation produced a non-empty blob");
     }
@@ -160,6 +179,8 @@ int main()
                   "family resolution source is persisted");
             check(! root.getChildWithName("SlotLabels").isValid(),
                   "no SlotLabels node — dropped from v1 2026-07-27");
+            check(root.hasProperty("uiIr"),
+                  "uiIr attribute present (v3 amendment, 2026-09-01)");
 
             // v2 (2026-08-02) added the slot -> ParamIdentity map; v3 (2026-08-12,
             // C6) adds prompt history. The count assertion is kept rather than
@@ -205,6 +226,17 @@ int main()
 
         check(b.currentFamily() == "granular_effect", "generation family restored");
         check(b.currentFamilySource() == "explicit", "family resolution source restored");
+
+        const auto ir = b.uiIrForTest();
+        check(ir.schema == 3, "uiIr: schema 3 restored");
+        check(ir.archetype == "tape-unit", "uiIr: archetype restored");
+        check(ir.tokens == "echo-plate", "uiIr: tokens restored");
+        check(ir.components.sampleBrowser, "uiIr: components restored");
+        check(ir.theme.accent == "#f0a63c", "uiIr: theme.accent restored");
+        check(ir.theme.knob == "pointer", "uiIr: theme.knob restored");
+        check(ir.theme.surface == "#0c0c0c", "uiIr: unset theme token is the Ember default");
+        check(ir.sections.size() == 1 && ir.sections[0].id == "mix",
+              "uiIr: section restored");
     }
 
     // ── v2 BACK-COMPAT: a blob saved before prompt history still restores ────

@@ -252,9 +252,14 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
             // "render the flat grid" path (ADR-029 §4 -- see that function's
             // comment for why this moved off ir.schema != 1), so an ungrouped
             // or sparse patch is unaffected byte-for-byte.
-            safeThis->paramGridPanel.applyUiIr(
-                ParamGridPanel::deriveLayoutFromGroups(
-                    params, safeThis->processor.isInstrumentForTest()));
+            const auto derivedLayout = ParamGridPanel::deriveLayoutFromGroups(
+                params, safeThis->processor.isInstrumentForTest());
+            safeThis->paramGridPanel.applyUiIr(derivedLayout);
+            // Hand the layout to the processor so it rides the state blob
+            // (UiIr schema 3, Step 1). Persistence only -- the restore path
+            // does not feed this back into applyUiIr() yet; this callback
+            // re-derives from `params` on every compile, restore included.
+            safeThis->processor.setUiIr(derivedLayout);
             // The source of record is committed in the same success branch that
             // fires this callback (PluginProcessor.cpp:180-181), so by the time
             // this message-thread hop runs, currentSource() is the patch that
