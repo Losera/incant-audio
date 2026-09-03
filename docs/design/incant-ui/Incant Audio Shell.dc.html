@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><meta name="design_doc_mode" content="canvas"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Pirata+One&family=Big+Shoulders+Display:wght@600&family=Work+Sans:wght@400;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet"><style>body{margin:0;background:#f0eee9;font-family:"Work Sans",system-ui,sans-serif}a{color:#c2410c}a:hover{color:#7c2d12}</style></helmet>
+<section style="padding:40px 44px 44px;border-bottom:1px solid rgba(0,0,0,.1);display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;align-items:baseline;gap:10px">
+<a href="#t2" style="font:600 10px ui-monospace,Menlo,monospace;padding:3px 7px;background:#1a1a1a;color:#fff;border-radius:4px;text-decoration:none">2</a>
+<span style="font:600 13px/1.2 system-ui,sans-serif;color:#1a1a1a">Shell redesign — two directions, each at 1160px and at the 700px minimum</span>
+</div>
+<p style="margin:0 0 10px;max-width:860px;font:400 12px/1.6 'Work Sans',sans-serif;color:rgba(0,0,0,.55)">Same Ember Console tokens, unchanged. What changes is where the space goes. Today the prompt column is a fixed 35% of the split, so at the 700px minimum it computes to 232px and PromptPanel's own button row drops widgets to 0px — that is the collision. Both directions below take the prompt off the width budget so nothing depends on a percentage, and both replace the fixed 95px sqrt grid with a lattice that reflows.</p>
+
+<div style="display:flex;flex-wrap:wrap;gap:34px;align-items:flex-start">
+
+<div id="2a" style="flex:none;display:flex;flex-direction:column;gap:9px">
+<div style="display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 system-ui,sans-serif;color:rgba(0,0,0,.55)"><a href="#2a" style="font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none">2a</a>Command Bar — prompt is a full-width bar, grid owns the window</div>
+
+<div style="width:1160px;height:640px;background:#050505;box-shadow:0 8px 30px rgba(0,0,0,.35);display:flex;flex-direction:column;overflow:hidden">
+<div style="height:44px;flex:none;display:flex;align-items:center;gap:14px;padding:0 14px;border-bottom:1px solid #383838">
+<span style="font-family:'Pirata One',serif;font-size:19px;color:#f5f0e6">Incant</span>
+<span style="width:1px;height:18px;background:#383838"></span>
+<span style="font:600 13px 'Big Shoulders Display',sans-serif;letter-spacing:.1em;color:#f5f0e6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1">CORAL INSTRUMENT</span>
+<span style="font:400 10px 'JetBrains Mono',monospace;color:#8a8378">18 params · synth</span>
+<div style="display:flex;gap:5px">
+<div style="width:30px;height:30px;border:1px solid #383838;display:flex;align-items:center;justify-content:center;font:400 11px 'JetBrains Mono',monospace;color:#8a8378">{ }</div>
+<div style="width:30px;height:30px;border:1px solid #ff7a45;display:flex;align-items:center;justify-content:center;font:400 12px 'JetBrains Mono',monospace;color:#ff7a45">◎</div>
+<div style="width:30px;height:30px;border:1px solid #383838;display:flex;align-items:center;justify-content:center;font:400 12px 'JetBrains Mono',monospace;color:#8a8378">⋯</div>
+</div>
+</div>
+
+<div style="flex:1;min-height:0;overflow:hidden;display:grid;grid-template-columns:repeat(5,1fr);align-content:start;border-left:1px solid #383838">
+<div style="grid-column:1/-1;height:27px;display:flex;align-items:center;gap:10px;padding:0 14px;background:#0c0c0c;border-bottom:1px solid #383838;border-right:1px solid #383838"><span style="font:400 9px 'JetBrains Mono',monospace;color:#ff7a45">01</span><span style="font:600 11px 'Big Shoulders Display',sans-serif;letter-spacing:.22em;color:#8a8378">OSCILLATOR</span></div>
+<div style="grid-column:span 2"><dc-import name="ShellCell" label="Detune" text="+7.2 cents" value="0.55" big="true" accent="#ff7a45" hint-size="100%,104px"></dc-import></div>
+<dc-import name="ShellCell" label="Shape" text="0.34" value="0.34" accent="#ff7a45" hint-size="100%,104px"></dc-import>
+<dc-import name="ShellCell" label="Sub" text="−9.0 dB" value="0.22" accent="#ff7a45" hint-size="100%,104px"></dc-import>
+<dc-import name="ShellCell" label="Spread" text="41 %" value="0.41" accent="#ff7a45" hint-size="100%,104px"></dc-import>
+
+<div style="grid-column:1/-1;height:27px;display:flex;align-items:center;gap:10px;padding:0 14px;background:#0c0c0c;border-bottom:1px solid #383838;border-right:1px solid #383838"><span style="font:400 9px 'JetBrains Mono',monospace;color:#ff7a45">02</span><span style="font:600 11px 'Big Shoulders Display',sans-serif;letter-spacing:.22em;color:#8a8378">FILTER</span></div>
+<div style="grid-column:span 2"><dc-import name="ShellCell" label="Cutoff" text="4.80 kHz" value="0.72" big="true" accent="#ff7a45" hint-size="100%,104px"></dc-import></div>
+<dc-import name="ShellCell" label="Resonance" text="0.28" value="0.28" accent="#ff7a45" hint-size="100%,104px"></dc-import>
+<dc-import name="ShellCell" label="Env Amount" text="+62 %" value="0.62" accent="#ff7a45" hint-size="100%,104px"></dc-import>
+<dc-import name="ShellCell" label="Keytrack" text="50 %" value="0.5" accent="#ff7a45" hint-size="100%,104px"></dc-import>
+
+<div style="grid-column:1/-1;height:27px;display:flex;align-items:center;gap:10px;padding:0 14px;background:#0c0c0c;border-bottom:1px solid #383838;border-right:1px solid #383838"><span style="font:400 9px 'JetBrains Mono',monospace;color:#ff7a45">03</span><span style="font:600 11px 'Big Shoulders Display',sans-serif;letter-spacing:.22em;color:#8a8378">ENVELOPE</span></div>
+<dc-import name="ShellCell" label="Attack" text="18 ms" value="0.12" accent="#ff7a45" hint-size="100%,76px"></dc-import>
+<dc-import name="ShellCell" label="Decay" text="240 ms" value="0.42" accent="#ff7a45" hint-size="100%,76px"></dc-import>
+<dc-import name="ShellCell" label="Sustain" text="0.66" value="0.66" accent="#ff7a45" hint-size="100%,76px"></dc-import>
+<dc-import name="ShellCell" label="Release" text="1.20 s" value="0.8" accent="#ff7a45" hint-size="100%,76px"></dc-import>
+<dc-import name="ShellCell" label="Velocity" text="34 %" value="0.34" accent="#ff7a45" hint-size="100%,76px"></dc-import>
+</div>
+
+<div style="height:30px;flex:none;display:flex;align-items:center;gap:10px;padding:0 14px;border-top:1px solid #383838;background:#0c0c0c">
+<span style="font:600 10px 'Big Shoulders Display',sans-serif;letter-spacing:.2em;color:#8a8378">SAMPLES</span>
+<span style="flex:1;font:400 11px 'JetBrains Mono',monospace;color:#f5f0e6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">amen_break_full.wav · 6.9 s · looping</span>
+<span style="font:400 10px 'JetBrains Mono',monospace;color:#8a8378">freesound</span>
+<span style="width:26px;height:20px;border:1px solid #383838;display:flex;align-items:center;justify-content:center;font:400 10px 'JetBrains Mono',monospace;color:#8a8378">▾</span>
+</div>
+
+<div style="height:74px;flex:none;border-top:1px solid #383838;background:#0c0c0c;padding:11px 14px;display:flex;flex-direction:column;gap:9px">
+<div style="display:flex;gap:9px;align-items:stretch">
+<div style="flex:1;min-width:0;background:#050505;border:1px solid #383838;padding:0 11px;display:flex;align-items:center;font:400 12px 'Work Sans',sans-serif;color:#f5f0e6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">a two-oscillator poly pad with a soft filter sweep</div>
+<div style="width:96px;flex:none;border:1px solid #383838;display:flex;align-items:center;justify-content:space-between;padding:0 9px;font:400 11px 'Work Sans',sans-serif;color:#f5f0e6">Synth<span style="color:#8a8378">▾</span></div>
+<div style="width:78px;flex:none;border:1px solid #383838;display:flex;align-items:center;justify-content:space-between;padding:0 9px;font:400 11px 'Work Sans',sans-serif;color:#f5f0e6">New<span style="color:#8a8378">▾</span></div>
+<div style="width:112px;flex:none;background:#ff4b1f;display:flex;align-items:center;justify-content:center;font:600 13px 'Big Shoulders Display',sans-serif;letter-spacing:.16em;color:#050505">GENERATE</div>
+</div>
+<div style="height:16px;display:flex;align-items:center;gap:12px">
+<span style="font:400 11px 'Work Sans',sans-serif;color:#f5f0e6;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Ready — DSP live, 18 params mapped.</span>
+<span style="font:400 10px 'JetBrains Mono',monospace;color:#8a8378">groq · llama-3.3-70b</span>
+<div style="width:150px;height:5px;background:#000"><div style="height:100%;width:63%;background:linear-gradient(90deg,#ff4b1f,#ff8f4d)"></div></div>
+</div>
+</div>
+
+<div style="height:66px;flex:none;border-top:1px solid #383838;display:flex;align-items:stretch">
+<div style="width:96px;flex:none;border-right:1px solid #383838;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px">
+<span style="font:600 9px 'Big Shoulders Display',sans-serif;letter-spacing:.2em;color:#8a8378">OCTAVE</span>
+<div style="display:flex;align-items:center;gap:7px"><span style="width:20px;height:18px;border:1px solid #383838;display:flex;align-items:center;justify-content:center;font:400 10px 'JetBrains Mono',monospace;color:#f5f0e6">−</span><span style="font:400 11px 'JetBrains Mono',monospace;color:#f5f0e6">4</span><span style="width:20px;height:18px;border:1px solid #383838;display:flex;align-items:center;justify-content:center;font:400 10px 'JetBrains Mono',monospace;color:#f5f0e6">+</span></div>
+</div>
+<div style="flex:1;position:relative">{{ piano2a }}</div>
+</div>
+</div>
+<div style="width:1160px;font:400 10px/1.6 'JetBrains Mono',monospace;color:rgba(0,0,0,.42)">grid repeat(auto-fit, minmax(180px, 1fr)) · section header spans 1/-1 · UiIr span=2 becomes the wide cell · prompt bar is full-width, never a fraction</div>
+</div>
+
+<div id="2b" style="flex:none;display:flex;flex-direction:column;gap:9px">
+<div style="display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 system-ui,sans-serif;color:rgba(0,0,0,.55)"><a href="#2b" style="font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none">2b</a>Rail + Dock — mode rail, user-draggable prompt dock</div>
+
+<div style="width:1160px;height:640px;background:#050505;box-shadow:0 8px 30px rgba(0,0,0,.35);display:flex;overflow:hidden">
+<div style="width:52px;flex:none;border-right:1px solid #383838;display:flex;flex-direction:column;align-items:center;padding:9px 0;gap:5px">
+<div style="width:34px;height:34px;background:#ff4b1f;display:flex;align-items:center;justify-content:center;font:400 13px 'JetBrains Mono',monospace;color:#050505">◎</div>
+<div style="width:34px;height:34px;border:1px solid #383838;display:flex;align-items:center;justify-content:center;font:400 11px 'JetBrains Mono',monospace;color:#8a8378">{ }</div>
+<div style="width:34px;height:34px;border:1px solid #383838;display:flex;align-items:center;justify-content:center;font:400 12px 'JetBrains Mono',monospace;color:#8a8378">≋</div>
+<div style="width:34px;height:34px;border:1px solid #383838;display:flex;align-items:center;justify-content:center;font:400 12px 'JetBrains Mono',monospace;color:#8a8378">⟲</div>
+<div style="flex:1"></div>
+<div style="width:34px;height:34px;border:1px solid #383838;display:flex;align-items:center;justify-content:center;font:400 12px 'JetBrains Mono',monospace;color:#8a8378">⋯</div>
+</div>
+
+<div style="flex:1;min-width:0;display:flex;flex-direction:column">
+<div style="height:44px;flex:none;display:flex;align-items:center;gap:12px;padding:0 14px;border-bottom:1px solid #383838">
+<span style="font-family:'Pirata One',serif;font-size:19px;color:#f5f0e6">Incant</span>
+<span style="width:1px;height:18px;background:#383838"></span>
+<span style="font:600 13px 'Big Shoulders Display',sans-serif;letter-spacing:.1em;color:#f5f0e6;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">CORAL INSTRUMENT</span>
+<span style="font:400 10px 'JetBrains Mono',monospace;color:#8a8378">18 params</span>
+</div>
+<div style="flex:1;min-height:0;overflow:hidden;display:grid;grid-template-columns:repeat(4,1fr);align-content:start;border-left:1px solid #383838">
+<div style="grid-column:1/-1;height:27px;display:flex;align-items:center;gap:10px;padding:0 14px;background:#0c0c0c;border-bottom:1px solid #383838;border-right:1px solid #383838"><span style="font:400 9px 'JetBrains Mono',monospace;color:#ff7a45">01</span><span style="font:600 11px 'Big Shoulders Display',sans-serif;letter-spacing:.22em;color:#8a8378">OSCILLATOR</span></div>
+<div style="grid-column:span 2"><dc-import name="ShellCell" label="Detune" text="+7.2 cents" value="0.55" big="true" accent="#ff7a45" hint-size="100%,104px"></dc-import></div>
+<dc-import name="ShellCell" label="Shape" text="0.34" value="0.34" accent="#ff7a45" hint-size="100%,104px"></dc-import>
+<dc-import name="ShellCell" label="Sub" text="−9.0 dB" value="0.22" accent="#ff7a45" hint-size="100%,104px"></dc-import>
+<div style="grid-column:1/-1;height:27px;display:flex;align-items:center;gap:10px;padding:0 14px;background:#0c0c0c;border-bottom:1px solid #383838;border-right:1px solid #383838"><span style="font:400 9px 'JetBrains Mono',monospace;color:#ff7a45">02</span><span style="font:600 11px 'Big Shoulders Display',sans-serif;letter-spacing:.22em;color:#8a8378">FILTER</span></div>
+<div style="grid-column:span 2"><dc-import name="ShellCell" label="Cutoff" text="4.80 kHz" value="0.72" big="true" accent="#ff7a45" hint-size="100%,104px"></dc-import></div>
+<dc-import name="ShellCell" label="Resonance" text="0.28" value="0.28" accent="#ff7a45" hint-size="100%,104px"></dc-import>
+<dc-import name="ShellCell" label="Env Amount" text="+62 %" value="0.62" accent="#ff7a45" hint-size="100%,104px"></dc-import>
+<div style="grid-column:1/-1;height:27px;display:flex;align-items:center;gap:10px;padding:0 14px;background:#0c0c0c;border-bottom:1px solid #383838;border-right:1px solid #383838"><span style="font:400 9px 'JetBrains Mono',monospace;color:#ff7a45">03</span><span style="font:600 11px 'Big Shoulders Display',sans-serif;letter-spacing:.22em;color:#8a8378">ENVELOPE</span></div>
+<dc-import name="ShellCell" label="Attack" text="18 ms" value="0.12" accent="#ff7a45" hint-size="100%,76px"></dc-import>
+<dc-import name="ShellCell" label="Decay" text="240 ms" value="0.42" accent="#ff7a45" hint-size="100%,76px"></dc-import>
+<dc-import name="ShellCell" label="Sustain" text="0.66" value="0.66" accent="#ff7a45" hint-size="100%,76px"></dc-import>
+<dc-import name="ShellCell" label="Release" text="1.20 s" value="0.8" accent="#ff7a45" hint-size="100%,76px"></dc-import>
+</div>
+<div style="height:60px;flex:none;border-top:1px solid #383838;display:flex;align-items:stretch">
+<div style="width:88px;flex:none;border-right:1px solid #383838;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px">
+<span style="font:600 9px 'Big Shoulders Display',sans-serif;letter-spacing:.2em;color:#8a8378">OCTAVE</span>
+<div style="display:flex;align-items:center;gap:6px"><span style="width:18px;height:16px;border:1px solid #383838;display:flex;align-items:center;justify-content:center;font:400 9px 'JetBrains Mono',monospace;color:#f5f0e6">−</span><span style="font:400 11px 'JetBrains Mono',monospace;color:#f5f0e6">4</span><span style="width:18px;height:16px;border:1px solid #383838;display:flex;align-items:center;justify-content:center;font:400 9px 'JetBrains Mono',monospace;color:#f5f0e6">+</span></div>
+</div>
+<div style="flex:1;position:relative">{{ piano2b }}</div>
+</div>
+<div style="height:26px;flex:none;border-top:1px solid #383838;background:#0c0c0c;display:flex;align-items:center;gap:12px;padding:0 14px">
+<span style="width:6px;height:6px;border-radius:50%;background:#ff7a45;flex:none"></span>
+<span style="font:400 11px 'Work Sans',sans-serif;color:#f5f0e6;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Ready — DSP live, 18 params mapped.</span>
+<span style="font:400 10px 'JetBrains Mono',monospace;color:#8a8378">amen_break_full.wav</span>
+<div style="width:130px;height:5px;background:#000;flex:none"><div style="height:100%;width:63%;background:linear-gradient(90deg,#ff4b1f,#ff8f4d)"></div></div>
+</div>
+</div>
+
+<div style="width:7px;flex:none;background:#0c0c0c;border-left:1px solid #383838;border-right:1px solid #383838;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px">
+<span style="width:3px;height:3px;background:#8a8378;display:block"></span>
+<span style="width:3px;height:3px;background:#8a8378;display:block"></span>
+<span style="width:3px;height:3px;background:#8a8378;display:block"></span>
+<span style="width:3px;height:3px;background:#8a8378;display:block"></span>
+</div>
+
+<div style="width:326px;flex:none;display:flex;flex-direction:column;padding:12px;gap:9px;box-sizing:border-box">
+<div style="display:flex;align-items:center;gap:8px">
+<span style="font:600 11px 'Big Shoulders Display',sans-serif;letter-spacing:.22em;color:#8a8378;flex:1">PROMPT</span>
+<span style="font:400 10px 'JetBrains Mono',monospace;color:#8a8378">groq</span>
+<span style="width:22px;height:20px;border:1px solid #383838;display:flex;align-items:center;justify-content:center;font:400 10px 'JetBrains Mono',monospace;color:#8a8378">⋯</span>
+</div>
+<div style="height:92px;flex:none;background:#0c0c0c;border:1px solid #383838;padding:9px 10px;box-sizing:border-box;font:400 12px/1.5 'Work Sans',sans-serif;color:#f5f0e6">a two-oscillator poly pad with a soft filter sweep</div>
+<div style="display:flex;gap:7px">
+<div style="flex:1;height:30px;border:1px solid #383838;display:flex;align-items:center;justify-content:space-between;padding:0 9px;font:400 11px 'Work Sans',sans-serif;color:#f5f0e6">Synth<span style="color:#8a8378">▾</span></div>
+<div style="flex:1;height:30px;border:1px solid #383838;display:flex;align-items:center;justify-content:space-between;padding:0 9px;font:400 11px 'Work Sans',sans-serif;color:#f5f0e6">New<span style="color:#8a8378">▾</span></div>
+</div>
+<div style="height:36px;flex:none;background:#ff4b1f;display:flex;align-items:center;justify-content:center;font:600 14px 'Big Shoulders Display',sans-serif;letter-spacing:.18em;color:#050505">GENERATE</div>
+<div style="height:4px;flex:none;background:#000"><div style="height:100%;width:100%;background:#ff7a45"></div></div>
+<div style="flex:1;min-height:0;background:#0c0c0c;border:1px solid #383838;padding:9px 10px;box-sizing:border-box;overflow:hidden">
+<div style="font:600 10px 'Big Shoulders Display',sans-serif;letter-spacing:.2em;color:#8a8378;margin-bottom:6px">HISTORY</div>
+<div style="display:flex;flex-direction:column;gap:7px">
+<div style="font:400 11px/1.4 'Work Sans',sans-serif;color:#f5f0e6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">a warm tape saturator with drive and wow</div>
+<div style="font:400 11px/1.4 'Work Sans',sans-serif;color:#8a8378;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">plucky FM bell with a long tail</div>
+<div style="font:400 11px/1.4 'Work Sans',sans-serif;color:#8a8378;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">bus glue compressor, slow attack</div>
+</div>
+</div>
+</div>
+</div>
+<div style="width:1160px;font:400 10px/1.6 'JetBrains Mono',monospace;color:rgba(0,0,0,.42)">dock width is a persisted user drag (min 280, max 40% of window), not kLeftFraction · rail replaces the title-bar disclosure cluster · one status bar absorbs meter + sample line</div>
+</div>
+
+<div id="2c" style="flex:none;display:flex;flex-direction:column;gap:9px">
+<div style="display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 system-ui,sans-serif;color:rgba(0,0,0,.55)"><a href="#2c" style="font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none">2c</a>Both at the 700×500 minimum — where today's build collides</div>
+<div style="display:flex;gap:22px;align-items:flex-start">
+
+<div style="display:flex;flex-direction:column;gap:7px">
+<div style="width:700px;height:500px;background:#050505;box-shadow:0 8px 30px rgba(0,0,0,.35);display:flex;flex-direction:column;overflow:hidden">
+<div style="height:40px;flex:none;display:flex;align-items:center;gap:10px;padding:0 12px;border-bottom:1px solid #383838">
+<span style="font-family:'Pirata One',serif;font-size:17px;color:#f5f0e6">Incant</span>
+<span style="font:600 12px 'Big Shoulders Display',sans-serif;letter-spacing:.08em;color:#f5f0e6;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">CORAL INSTR…</span>
+<div style="display:flex;gap:4px">
+<div style="width:26px;height:26px;border:1px solid #383838;display:flex;align-items:center;justify-content:center;font:400 10px 'JetBrains Mono',monospace;color:#8a8378">{ }</div>
+<div style="width:26px;height:26px;border:1px solid #ff7a45;display:flex;align-items:center;justify-content:center;font:400 11px 'JetBrains Mono',monospace;color:#ff7a45">◎</div>
+<div style="width:26px;height:26px;border:1px solid #383838;display:flex;align-items:center;justify-content:center;font:400 11px 'JetBrains Mono',monospace;color:#8a8378">⋯</div>
+</div>
+</div>
+<div style="flex:1;min-height:0;display:flex">
+<div style="flex:1;min-width:0;overflow:hidden;display:grid;grid-template-columns:repeat(3,1fr);align-content:start;border-left:1px solid #383838">
+<div style="grid-column:1/-1;height:25px;display:flex;align-items:center;gap:9px;padding:0 12px;background:#0c0c0c;border-bottom:1px solid #383838;border-right:1px solid #383838"><span style="font:400 9px 'JetBrains Mono',monospace;color:#ff7a45">01</span><span style="font:600 10px 'Big Shoulders Display',sans-serif;letter-spacing:.22em;color:#8a8378">OSCILLATOR</span></div>
+<div style="grid-column:span 2"><dc-import name="ShellCell" label="Detune" text="+7.2 cents" value="0.55" big="true" accent="#ff7a45" hint-size="100%,104px"></dc-import></div>
+<dc-import name="ShellCell" label="Shape" text="0.34" value="0.34" accent="#ff7a45" hint-size="100%,104px"></dc-import>
+<div style="grid-column:1/-1;height:25px;display:flex;align-items:center;gap:9px;padding:0 12px;background:#0c0c0c;border-bottom:1px solid #383838;border-right:1px solid #383838"><span style="font:400 9px 'JetBrains Mono',monospace;color:#ff7a45">02</span><span style="font:600 10px 'Big Shoulders Display',sans-serif;letter-spacing:.22em;color:#8a8378">FILTER</span></div>
+<div style="grid-column:span 2"><dc-import name="ShellCell" label="Cutoff" text="4.80 kHz" value="0.72" big="true" accent="#ff7a45" hint-size="100%,104px"></dc-import></div>
+<dc-import name="ShellCell" label="Resonance" text="0.28" value="0.28" accent="#ff7a45" hint-size="100%,104px"></dc-import>
+<dc-import name="ShellCell" label="Env Amt" text="+62 %" value="0.62" accent="#ff7a45" hint-size="100%,76px"></dc-import>
+<dc-import name="ShellCell" label="Keytrack" text="50 %" value="0.5" accent="#ff7a45" hint-size="100%,76px"></dc-import>
+<dc-import name="ShellCell" label="Attack" text="18 ms" value="0.12" accent="#ff7a45" hint-size="100%,76px"></dc-import>
+</div>
+<div style="width:8px;flex:none;background:#050505;display:flex;justify-content:center;padding:2px 0;box-sizing:border-box"><div style="width:8px;border-radius:4px;background:rgba(245,240,230,.18);height:92%"></div></div>
+</div>
+<div style="height:66px;flex:none;border-top:1px solid #383838;background:#0c0c0c;padding:9px 12px;display:flex;flex-direction:column;gap:8px">
+<div style="display:flex;gap:7px;align-items:stretch">
+<div style="flex:1;min-width:0;background:#050505;border:1px solid #383838;padding:0 10px;display:flex;align-items:center;font:400 12px 'Work Sans',sans-serif;color:#f5f0e6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">a two-oscillator poly pad with a soft filter…</div>
+<div style="width:34px;flex:none;border:1px solid #383838;display:flex;align-items:center;justify-content:center;font:400 11px 'JetBrains Mono',monospace;color:#8a8378">⋯</div>
+<div style="width:92px;flex:none;background:#ff4b1f;display:flex;align-items:center;justify-content:center;font:600 12px 'Big Shoulders Display',sans-serif;letter-spacing:.14em;color:#050505">GENERATE</div>
+</div>
+<div style="height:15px;display:flex;align-items:center;gap:10px">
+<span style="font:400 11px 'Work Sans',sans-serif;color:#f5f0e6;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Ready — 18 params mapped.</span>
+<div style="width:96px;height:5px;background:#000;flex:none"><div style="height:100%;width:63%;background:linear-gradient(90deg,#ff4b1f,#ff8f4d)"></div></div>
+</div>
+</div>
+<div style="height:56px;flex:none;border-top:1px solid #383838;position:relative">{{ piano2c }}</div>
+</div>
+<div style="width:700px;font:400 10px/1.6 'JetBrains Mono',monospace;color:rgba(0,0,0,.42)">2a at minimum — grid drops to 3 columns, family/refine collapse behind ⋯, Generate keeps its full hit target</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:7px">
+<div style="width:700px;height:500px;background:#050505;box-shadow:0 8px 30px rgba(0,0,0,.35);display:flex;overflow:hidden">
+<div style="width:46px;flex:none;border-right:1px solid #383838;display:flex;flex-direction:column;align-items:center;padding:7px 0;gap:4px">
+<div style="width:30px;height:30px;background:#ff4b1f;display:flex;align-items:center;justify-content:center;font:400 12px 'JetBrains Mono',monospace;color:#050505">◎</div>
+<div style="width:30px;height:30px;border:1px solid #383838;display:flex;align-items:center;justify-content:center;font:400 10px 'JetBrains Mono',monospace;color:#8a8378">{ }</div>
+<div style="width:30px;height:30px;border:1px solid #383838;display:flex;align-items:center;justify-content:center;font:400 11px 'JetBrains Mono',monospace;color:#8a8378">≋</div>
+<div style="flex:1"></div>
+<div style="width:30px;height:30px;border:1px solid #383838;display:flex;align-items:center;justify-content:center;font:400 11px 'JetBrains Mono',monospace;color:#8a8378">⋯</div>
+</div>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column">
+<div style="height:40px;flex:none;display:flex;align-items:center;gap:10px;padding:0 12px;border-bottom:1px solid #383838">
+<span style="font-family:'Pirata One',serif;font-size:17px;color:#f5f0e6">Incant</span>
+<span style="font:600 12px 'Big Shoulders Display',sans-serif;letter-spacing:.08em;color:#f5f0e6;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">CORAL INSTRUMENT</span>
+</div>
+<div style="flex:1;min-height:0;overflow:hidden;display:grid;grid-template-columns:repeat(3,1fr);align-content:start;border-left:1px solid #383838">
+<div style="grid-column:1/-1;height:25px;display:flex;align-items:center;gap:9px;padding:0 12px;background:#0c0c0c;border-bottom:1px solid #383838;border-right:1px solid #383838"><span style="font:400 9px 'JetBrains Mono',monospace;color:#ff7a45">01</span><span style="font:600 10px 'Big Shoulders Display',sans-serif;letter-spacing:.22em;color:#8a8378">OSCILLATOR</span></div>
+<div style="grid-column:span 2"><dc-import name="ShellCell" label="Detune" text="+7.2 cents" value="0.55" big="true" accent="#ff7a45" hint-size="100%,104px"></dc-import></div>
+<dc-import name="ShellCell" label="Shape" text="0.34" value="0.34" accent="#ff7a45" hint-size="100%,104px"></dc-import>
+<div style="grid-column:1/-1;height:25px;display:flex;align-items:center;gap:9px;padding:0 12px;background:#0c0c0c;border-bottom:1px solid #383838;border-right:1px solid #383838"><span style="font:400 9px 'JetBrains Mono',monospace;color:#ff7a45">02</span><span style="font:600 10px 'Big Shoulders Display',sans-serif;letter-spacing:.22em;color:#8a8378">FILTER</span></div>
+<div style="grid-column:span 2"><dc-import name="ShellCell" label="Cutoff" text="4.80 kHz" value="0.72" big="true" accent="#ff7a45" hint-size="100%,104px"></dc-import></div>
+<dc-import name="ShellCell" label="Resonance" text="0.28" value="0.28" accent="#ff7a45" hint-size="100%,104px"></dc-import>
+<dc-import name="ShellCell" label="Env Amt" text="+62 %" value="0.62" accent="#ff7a45" hint-size="100%,76px"></dc-import>
+<dc-import name="ShellCell" label="Attack" text="18 ms" value="0.12" accent="#ff7a45" hint-size="100%,76px"></dc-import>
+<dc-import name="ShellCell" label="Release" text="1.20 s" value="0.8" accent="#ff7a45" hint-size="100%,76px"></dc-import>
+</div>
+<div style="height:54px;flex:none;border-top:1px solid #383838;position:relative">{{ piano2d }}</div>
+<div style="height:24px;flex:none;border-top:1px solid #383838;background:#0c0c0c;display:flex;align-items:center;gap:10px;padding:0 12px">
+<span style="width:6px;height:6px;border-radius:50%;background:#ff7a45;flex:none"></span>
+<span style="font:400 11px 'Work Sans',sans-serif;color:#f5f0e6;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Ready — 18 params mapped.</span>
+<div style="width:88px;height:5px;background:#000;flex:none"><div style="height:100%;width:63%;background:linear-gradient(90deg,#ff4b1f,#ff8f4d)"></div></div>
+</div>
+</div>
+<div style="width:30px;flex:none;border-left:1px solid #383838;background:#0c0c0c;display:flex;align-items:center;justify-content:center">
+<span style="font:600 10px 'Big Shoulders Display',sans-serif;letter-spacing:.28em;color:#8a8378;writing-mode:vertical-rl;transform:rotate(180deg)">PROMPT</span>
+</div>
+</div>
+<div style="width:700px;font:400 10px/1.6 'JetBrains Mono',monospace;color:rgba(0,0,0,.42)">2b at minimum — the dock auto-collapses to a 30px tab below its 280px floor; the grid takes the width back</div>
+</div>
+
+</div>
+</div>
+
+</div>
+<p style="margin:20px 0 0;font:400 12px/1.5 system-ui,sans-serif;color:rgba(0,0,0,.5)">Try next: "build out <a href="#2a" style="font:600 10.5px ui-monospace,Menlo,monospace;padding:2px 6px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none">2a</a>'s error and generating states" · "show the code view in <a href="#2b" style="font:600 10.5px ui-monospace,Menlo,monospace;padding:2px 6px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none">2b</a>" · "merge the rail from 2b into 2a"</p>
+</section>
+
+<section id="t1" style="padding:40px 44px 48px;display:flex;flex-direction:column;gap:14px">
+<div style="display:flex;align-items:baseline;gap:10px">
+<span style="font:600 10px ui-monospace,Menlo,monospace;padding:3px 7px;background:#1a1a1a;color:#fff;border-radius:4px">R1</span>
+<span style="font:600 13px/1.2 system-ui,sans-serif;color:#1a1a1a">Recreation — current editor, effect patch loaded (900×500)</span>
+</div>
+<p style="margin:0 0 6px;max-width:760px;font:400 12px/1.55 'Work Sans',sans-serif;color:rgba(0,0,0,.55)">Rebuilt from <code>PluginEditor.cpp</code> resized()/paint(), <code>Theme.h</code> (Ember Console), <code>ForgeLookAndFeel.h</code>, <code>PromptPanel::resized()</code>, <code>ParamGridPanel::layoutControls()</code> and <code>SampleBrowserPanel::resized()</code>. Every band, gap and colour below is a value from those files.</p>
+
+<div style="width:900px;height:500px;background:#050505;position:relative;box-shadow:0 8px 30px rgba(0,0,0,.35);flex:none">
+<div style="position:absolute;left:16px;top:16px;right:16px;bottom:16px;display:flex;flex-direction:column">
+
+<div style="height:32px;display:flex;align-items:center;gap:6px;flex:none">
+<div style="flex:1;font-family:'Pirata One',serif;font-size:18px;color:#f5f0e6;line-height:32px">Amber Effect</div>
+<div style="width:120px;height:32px;border-radius:6px;background:#0c0c0c;border:1px solid #383838;display:flex;align-items:center;justify-content:center;font:600 12px 'Big Shoulders Display',sans-serif;color:#f5f0e6">Knobs: auto</div>
+<div style="width:110px;height:32px;border-radius:6px;background:#0c0c0c;border:1px solid #383838;display:flex;align-items:center;justify-content:center;font:600 12px 'Big Shoulders Display',sans-serif;color:#f5f0e6">Show code</div>
+</div>
+
+<div style="flex:1;display:flex;min-height:0">
+<div style="width:562px;position:relative">
+<div style="position:absolute;inset:0;display:grid;grid-template-columns:repeat(3,187px);grid-auto-rows:95px;align-content:start">
+<dc-import name="PFCell" label="Drive" value="0.62" text="+6.4 dB" accent="{{ accent }}" hint-size="187px,95px"></dc-import>
+<dc-import name="PFCell" label="Tone" value="0.44" text="2.10 kHz" accent="{{ accent }}" hint-size="187px,95px"></dc-import>
+<dc-import name="PFCell" label="Bias" value="0.30" text="0.30" accent="{{ accent }}" hint-size="187px,95px"></dc-import>
+<dc-import name="PFCell" label="Mix" value="0.85" text="85 %" accent="{{ accent }}" hint-size="187px,95px"></dc-import>
+<dc-import name="PFCell" label="Output" value="0.50" text="0.0 dB" accent="{{ accent }}" hint-size="187px,95px"></dc-import>
+<dc-import name="PFCell" label="Wow" value="0.18" text="0.62 Hz" accent="{{ accent }}" hint-size="187px,95px"></dc-import>
+</div>
+</div>
+<div style="width:4px;display:flex;justify-content:center"><div style="width:1px;background:#383838;height:100%"></div></div>
+
+<div style="width:302px;display:flex;flex-direction:column">
+<div style="height:254px;display:flex;flex-direction:column">
+<div style="height:60px;background:#0c0c0c;border:1px solid #383838;padding:4px 6px;box-sizing:border-box;font:400 12px/1.4 'Work Sans',sans-serif;color:#f5f0e6">a warm tape saturator with drive, tone and wow</div>
+<div style="height:6px;flex:none"></div>
+<div style="flex:1"></div>
+<div style="height:6px;flex:none"></div>
+<div style="height:28px;display:flex;gap:6px;flex:none">
+<div style="width:150px;height:28px;border-radius:6px;background:#0c0c0c;border:1px solid #383838;display:flex;align-items:center;padding:0 8px;box-sizing:border-box;font:400 12px 'Work Sans',sans-serif;color:#f5f0e6;justify-content:space-between">auto<span style="color:#8a8378">▾</span></div>
+<div style="flex:1;height:28px;border-radius:6px;background:#0c0c0c;border:1px solid #383838;display:flex;align-items:center;padding:0 8px;box-sizing:border-box;font:400 12px 'Work Sans',sans-serif;color:#8a8378;justify-content:space-between">model (blank = provider default)</div>
+</div>
+<div style="height:6px;flex:none"></div>
+<div style="height:28px;display:flex;gap:6px;flex:none">
+<div style="width:150px;height:28px;border-radius:6px;background:#0c0c0c;border:1px solid #383838;display:flex;align-items:center;padding:0 8px;box-sizing:border-box;font:400 12px 'Work Sans',sans-serif;color:#f5f0e6;justify-content:space-between">Auto -&gt; Effect<span style="color:#8a8378">▾</span></div>
+<div style="flex:1;height:28px;border-radius:6px;background:#0c0c0c;border:1px solid #383838;display:flex;align-items:center;padding:0 8px;box-sizing:border-box;font:400 12px 'Work Sans',sans-serif;color:#f5f0e6;justify-content:space-between">New<span style="color:#8a8378">▾</span></div>
+</div>
+<div style="height:6px;flex:none"></div>
+<div style="height:28px;display:flex;gap:6px;flex:none;align-items:center">
+<div style="width:110px;height:28px;border-radius:6px;background:#0c0c0c;border:1px solid #383838;display:flex;align-items:center;justify-content:center;font:600 12px 'Big Shoulders Display',sans-serif;color:#f5f0e6">Generate</div>
+<div style="width:90px;height:28px;border-radius:6px;background:#0c0c0c;border:1px solid #383838;display:flex;align-items:center;justify-content:center;font:600 12px 'Big Shoulders Display',sans-serif;color:#f5f0e6">History</div>
+<div style="flex:1"></div>
+<div style="width:72px;height:28px;border-radius:6px;background:#0c0c0c;border:1px solid #383838;display:flex;align-items:center;justify-content:center;font:600 12px 'Big Shoulders Display',sans-serif;color:#f5f0e6">Paths…</div>
+</div>
+<div style="height:18px;flex:none"></div>
+<div style="height:20px;flex:none;display:flex;align-items:center;font:400 12px 'Work Sans',sans-serif;color:#f5f0e6">Ready — DSP live, 6 params mapped.</div>
+</div>
+<div style="height:8px;flex:none"></div>
+<div style="height:14px;flex:none;border-radius:3px;background:#000;overflow:hidden"><div style="height:100%;width:47%;border-radius:3px;background:linear-gradient(90deg,#ff4b1f,#ff8f4d)"></div></div>
+</div>
+</div>
+
+<div style="height:8px;flex:none"></div>
+<dc-import name="PFSamples" hint-size="868px,64px"></dc-import>
+</div>
+</div>
+
+<div style="display:flex;align-items:baseline;gap:10px;margin-top:26px">
+<span style="font:600 10px ui-monospace,Menlo,monospace;padding:3px 7px;background:#1a1a1a;color:#fff;border-radius:4px">R2</span>
+<span style="font:600 13px/1.2 system-ui,sans-serif;color:#1a1a1a">Recreation — instrument patch, grouped sections + keyboard band (900×786)</span>
+</div>
+<p style="margin:0 0 6px;max-width:760px;font:400 12px/1.55 'Work Sans',sans-serif;color:rgba(0,0,0,.55)">Sectioned layout from <code>deriveLayoutFromGroups()</code>: heading 20px, one full-width-of-cell control per row at 95px, 4px section gap. Content is 642px against a 570px viewport (kMaxGridRows 6), so the grid scrolls. Keyboard band is laid out only when the patch declares a voice contract.</p>
+
+<div style="width:900px;height:786px;background:#050505;position:relative;box-shadow:0 8px 30px rgba(0,0,0,.35);flex:none">
+<div style="position:absolute;left:16px;top:16px;right:16px;bottom:16px;display:flex;flex-direction:column">
+<div style="height:32px;display:flex;align-items:center;gap:6px;flex:none">
+<div style="flex:1;font-family:'Pirata One',serif;font-size:18px;color:#f5f0e6;line-height:32px">Coral Instrument</div>
+<div style="width:120px;height:32px;border-radius:6px;background:#0c0c0c;border:1px solid #383838;display:flex;align-items:center;justify-content:center;font:600 12px 'Big Shoulders Display',sans-serif;color:#f5f0e6">Knobs: rotary</div>
+<div style="width:110px;height:32px;border-radius:6px;background:#0c0c0c;border:1px solid #383838;display:flex;align-items:center;justify-content:center;font:600 12px 'Big Shoulders Display',sans-serif;color:#f5f0e6">Show code</div>
+</div>
+
+<div style="flex:1;display:flex;min-height:0">
+<div style="width:562px;display:flex">
+<div style="width:554px;overflow:hidden">
+<dc-import name="PFSection" title="OSCILLATOR" hint-size="277px,20px"></dc-import>
+<dc-import name="PFRotary" label="Detune" value="0.55" text="+7.2 cents" accent="#ff7a45" hint-size="277px,95px"></dc-import>
+<dc-import name="PFRotary" label="Shape" value="0.34" text="0.34" accent="#ff7a45" hint-size="277px,95px"></dc-import>
+<div style="height:4px"></div>
+<dc-import name="PFSection" title="FILTER" hint-size="277px,20px"></dc-import>
+<dc-import name="PFRotary" label="Cutoff" value="0.71" text="4.80 kHz" accent="#ff7a45" hint-size="277px,95px"></dc-import>
+<dc-import name="PFRotary" label="Resonance" value="0.28" text="0.28" accent="#ff7a45" hint-size="277px,95px"></dc-import>
+<div style="height:4px"></div>
+<dc-import name="PFSection" title="ENV" hint-size="277px,20px"></dc-import>
+<dc-import name="PFRotary" label="Attack" value="0.12" text="18 ms" accent="#ff7a45" hint-size="277px,95px"></dc-import>
+</div>
+<div style="width:8px;background:#050505;display:flex;justify-content:center;padding-top:2px"><div style="width:8px;height:480px;border-radius:4px;background:rgba(245,240,230,.18)"></div></div>
+</div>
+<div style="width:4px;display:flex;justify-content:center"><div style="width:1px;background:#383838;height:100%"></div></div>
+
+<div style="width:302px;display:flex;flex-direction:column">
+<div style="height:254px;display:flex;flex-direction:column">
+<div style="height:60px;background:#0c0c0c;border:1px solid #383838;padding:4px 6px;box-sizing:border-box;font:400 12px/1.4 'Work Sans',sans-serif;color:#f5f0e6">a two-oscillator poly pad with a soft filter sweep</div>
+<div style="height:6px"></div>
+<div style="flex:1;background:#0c0c0c;border:1px solid #383838;box-sizing:border-box;padding:4px 6px;font:400 11px/1.45 'JetBrains Mono',monospace;color:#ec3b52;overflow:hidden">dsp:14 : ERROR : syntax error,<br>unexpected ENDDEF</div>
+<div style="height:6px"></div>
+<div style="height:28px;display:flex;gap:6px;flex:none">
+<div style="width:150px;height:28px;border-radius:6px;background:#0c0c0c;border:1px solid #383838;display:flex;align-items:center;padding:0 8px;box-sizing:border-box;font:400 12px 'Work Sans',sans-serif;color:#f5f0e6;justify-content:space-between">groq<span style="color:#8a8378">▾</span></div>
+<div style="flex:1;height:28px;border-radius:6px;background:#0c0c0c;border:1px solid #383838;display:flex;align-items:center;padding:0 8px;box-sizing:border-box;font:400 12px 'Work Sans',sans-serif;color:#8a8378;justify-content:space-between">model (blank = provider default)</div>
+</div>
+<div style="height:6px"></div>
+<div style="height:28px;display:flex;gap:6px;flex:none">
+<div style="width:150px;height:28px;border-radius:6px;background:#0c0c0c;border:1px solid #383838;display:flex;align-items:center;padding:0 8px;box-sizing:border-box;font:400 12px 'Work Sans',sans-serif;color:#f5f0e6;justify-content:space-between">Auto -&gt; Synth<span style="color:#8a8378">▾</span></div>
+<div style="flex:1;height:28px;border-radius:6px;background:#0c0c0c;border:1px solid #383838;display:flex;align-items:center;padding:0 8px;box-sizing:border-box;font:400 12px 'Work Sans',sans-serif;color:#f5f0e6;justify-content:space-between">Add<span style="color:#8a8378">▾</span></div>
+</div>
+<div style="height:6px"></div>
+<div style="height:28px;display:flex;gap:6px;flex:none;align-items:center">
+<div style="width:110px;height:28px;border-radius:6px;background:#0c0c0c;border:1px solid #383838;display:flex;align-items:center;justify-content:center;font:600 12px 'Big Shoulders Display',sans-serif;color:#f5f0e6">Generate</div>
+<div style="width:90px;height:28px;border-radius:6px;background:#0c0c0c;border:1px solid #383838;display:flex;align-items:center;justify-content:center;font:600 12px 'Big Shoulders Display',sans-serif;color:#f5f0e6">History</div>
+<div style="flex:1"></div>
+<div style="width:72px;height:28px;border-radius:6px;background:#0c0c0c;border:1px solid #383838;display:flex;align-items:center;justify-content:center;font:600 12px 'Big Shoulders Display',sans-serif;color:#f5f0e6">Paths…</div>
+</div>
+<div style="height:18px;flex:none;display:flex;align-items:center;font:400 12px 'Work Sans',sans-serif;color:#ffb03d">Working… 12s</div>
+<div style="height:20px;flex:none;display:flex;align-items:center;font:400 12px 'Work Sans',sans-serif;color:#f5f0e6">Ready — DSP live, 6 params mapped.</div>
+</div>
+<div style="height:8px;flex:none"></div>
+<div style="height:14px;flex:none;border-radius:3px;background:#000;overflow:hidden"><div style="height:100%;width:63%;border-radius:3px;background:linear-gradient(90deg,#ff4b1f,#ff8f4d)"></div></div>
+</div>
+</div>
+
+<div style="height:8px;flex:none"></div>
+<dc-import name="PFSamples" hint-size="868px,64px"></dc-import>
+<div style="height:8px;flex:none"></div>
+<div style="height:72px;flex:none;display:flex;flex-direction:column">
+<div style="height:24px;display:flex;align-items:center;gap:0;padding-left:4px;box-sizing:border-box">
+<div style="width:24px;height:22px;border-radius:6px;background:#0c0c0c;border:1px solid #383838;display:flex;align-items:center;justify-content:center;font:600 12px 'Big Shoulders Display',sans-serif;color:#f5f0e6">&lt;</div>
+<div style="width:48px;text-align:center;font:400 11px 'Work Sans',sans-serif;color:#8a8378">Oct: 4</div>
+<div style="width:24px;height:22px;border-radius:6px;background:#0c0c0c;border:1px solid #383838;display:flex;align-items:center;justify-content:center;font:600 12px 'Big Shoulders Display',sans-serif;color:#f5f0e6">&gt;</div>
+</div>
+<div style="flex:1;position:relative">{{ piano }}</div>
+</div>
+</div>
+</div>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#ffb03d&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;options&quot;:[&quot;#ff4b1f&quot;,&quot;#ffb03d&quot;,&quot;#d9542b&quot;,&quot;#ff7a45&quot;]}}">
+class Component extends DCLogic {
+  renderVals() {
+    const accent = this.props.accent ?? "#ffb03d";
+    // 61-key MidiKeyboardComponent, C2..C7 (36..96). White keys tile; black keys overlay.
+    const whitePattern = [0,2,4,5,7,9,11];
+    const whites = [], blacks = [];
+    for (let n = 36; n <= 96; n++) {
+      const pc = n % 12;
+      if (whitePattern.includes(pc)) whites.push(n);
+    }
+    const wCount = whites.length;
+    whites.forEach((n, i) => {
+      const pc = n % 12;
+      if ([0,2,5,7,9].includes(pc) && n < 96) blacks.push({ n: n + 1, left: (i + 1) / wCount });
+    });
+    const held = new Set([60, 64, 67]);
+    const piano = React.createElement("div", { style: { position: "absolute", inset: 0, background: "#050505" } },
+      React.createElement("div", { style: { position: "absolute", inset: 0, display: "flex" } },
+        whites.map((n) => React.createElement("div", {
+          key: n,
+          style: {
+            flex: 1, background: held.has(n) ? "#ff7a45" : "#f5f0e6",
+            borderRight: "1px solid #383838", boxSizing: "border-box",
+            display: "flex", alignItems: "flex-end", justifyContent: "center",
+            font: "400 8px 'Work Sans',sans-serif", color: "#8a8378", paddingBottom: "1px"
+          }
+        }, n % 12 === 0 ? "C" + (Math.floor(n / 12) - 1) : ""))
+      ),
+      React.createElement("div", { style: { position: "absolute", inset: 0 } },
+        blacks.map((b) => React.createElement("div", {
+          key: b.n,
+          style: {
+            position: "absolute", top: 0, height: "62%", width: "1.1%",
+            left: `calc(${(b.left * 100).toFixed(3)}% - 0.55%)`,
+            background: held.has(b.n) ? "#ff7a45" : "#000",
+            border: "1px solid #383838", boxSizing: "border-box"
+          }
+        }))
+      )
+    );
+    const mk = (lo, hi, keyW, blackH) => {
+      const ws = [], bs = [];
+      for (let n = lo; n <= hi; n++) if (whitePattern.includes(n % 12)) ws.push(n);
+      ws.forEach((n, i) => {
+        if ([0, 2, 5, 7, 9].includes(n % 12) && n < hi) bs.push({ n: n + 1, left: (i + 1) / ws.length });
+      });
+      return React.createElement("div", { style: { position: "absolute", inset: 0, background: "#050505" } },
+        React.createElement("div", { style: { position: "absolute", inset: 0, display: "flex" } },
+          ws.map((n) => React.createElement("div", {
+            key: n,
+            style: {
+              flex: 1, background: held.has(n) ? "#ff7a45" : "#f5f0e6",
+              borderRight: "1px solid #383838", boxSizing: "border-box",
+              display: "flex", alignItems: "flex-end", justifyContent: "center",
+              font: "400 8px 'JetBrains Mono',monospace", color: "#8a8378", paddingBottom: "2px"
+            }
+          }, n % 12 === 0 ? "C" + (Math.floor(n / 12) - 1) : ""))
+        ),
+        React.createElement("div", { style: { position: "absolute", inset: 0 } },
+          bs.map((b) => React.createElement("div", {
+            key: b.n,
+            style: {
+              position: "absolute", top: 0, height: blackH, width: keyW,
+              left: `calc(${(b.left * 100).toFixed(3)}% - ${keyW / 2}%)`,
+              background: held.has(b.n) ? "#ff7a45" : "#0c0c0c",
+              border: "1px solid #383838", boxSizing: "border-box"
+            }
+          }))
+        )
+      );
+    };
+    return { accent, piano, piano2a: mk(36, 96, 1.15, "60%"), piano2b: mk(36, 96, 1.15, "60%"),
+             piano2c: mk(48, 84, 1.9, "60%"), piano2d: mk(48, 84, 1.9, "60%") };
+  }
+}
+</script>
+</body>
+</html>
