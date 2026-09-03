@@ -1,62 +1,78 @@
 
 ========================================================================
-qwen2.5-coder:3b   arm A vs arm B (faust-rs full)   —   202 paired programs
+qwen2.5-coder:3b   arm A vs arm B (faust-rs full)   —   192 paired programs
 ========================================================================
 REPAIRED WITHIN 2 CORRECTIVE ATTEMPTS
-  arm A (C++ stderr) : 151/202  (75%)
-  arm B (faust-rs full): 88/202  (44%)
-  discordant pairs   : B-only 21, A-only 84
-  McNemar exact p    : 0.0000
+  arm A (C++ stderr) : 143/192  (74%)
+  arm B (faust-rs full): 82/192  (43%)
+  discordant pairs   : B-only 20, A-only 81
+  McNemar exact p    : 6.931e-10
 
 ATTEMPTS TO GREEN  (never-green scored as 3)
-  arm A mean : 1.75
-  arm B mean : 2.23
-  Wilcoxon signed-rank p : 0.0000  (stat=2040.0)
-  both green: B fewer attempts 10, A fewer 10, tied 47
+  arm A mean : 1.77
+  arm B mean : 2.25
+  Wilcoxon signed-rank p : 1.669e-06  (stat=1899.0) — not independent of McNemar (same discordant pairs, 3-valued censored score); for reference only
+  both green: B fewer attempts 10, A fewer 10, tied 42
 
-BY FIRST-ERROR CLASS  (n | A green | B green | B-only | A-only)
-  routing_arity         81 |  57 |  26 |  7 | 38
-  syntax                61 |  51 |  27 |  3 | 27
-  hallucinated_symbol   25 |  20 |   8 |  1 | 13
-  unclassified          17 |  10 |  14 |  6 |  2
-  duplicate_symbol      15 |  10 |  10 |  4 |  4
-  delay_range            2 |   2 |   2 |  0 |  0
-  recursion_cycle        1 |   1 |   1 |  0 |  0
+FIRST vs SECOND CORRECTIVE ATTEMPT
+  arm A: won on attempt 1 94; still broken after 1 88; rescued on attempt 2 49/88 (56%); no program produced 10
+  arm B: won on attempt 1 62; still broken after 1 126; rescued on attempt 2 20/126 (16%); no program produced 4
+
+BY FIRST-ERROR CLASS  (n | A green | B green | B-only | A-only | McNemar p)
+  routing_arity         80 |  56 |  26 |  7 | 37 | 5.30e-06
+  syntax                52 |  44 |  21 |  2 | 25 | 5.65e-06
+  hallucinated_symbol   25 |  20 |   8 |  1 | 13 | 1.83e-03
+  unclassified          17 |  10 |  14 |  6 |  2 | 2.89e-01
+  duplicate_symbol      15 |  10 |  10 |  4 |  4 | 1.00e+00
+  delay_range            2 |   2 |   2 |  0 |  0 | 1.00e+00
+  recursion_cycle        1 |   1 |   1 |  0 |  0 | 1.00e+00
+
+ARM-A STDERR CAP (500 chars) — stratified
+  uncapped  n=158  A 118/158 (75%)  B 71/158 (45%)  McNemar p=3.04e-07
+  capped    n= 34  A 25/34 (74%)  B 11/34 (32%)  McNemar p=5.19e-04
 
 SECOND-ERROR IDENTITY  (of repairs that FAILED, was attempt 1's error the same class as the start?)
-  arm A: 51 failed — same class 21, new class 18
-  arm B: 114 failed — same class 85, new class 25
+  arm A: 49 failed — same class 21, new class 18, no corrective attempt 10
+  arm B: 110 failed — same class 83, new class 23, no corrective attempt 4
 
->>> NO — C++ stderr repaired 63 MORE than arm B (faust-rs full) (McNemar p=0.000).
+>>> NO — C++ stderr repaired 61 MORE than arm B (faust-rs full) (McNemar p=6.93e-10).
 
 
 ========================================================================
-qwen2.5-coder:3b   arm A vs arm C (faust-rs core)   —   202 paired programs
+qwen2.5-coder:3b   arm A vs arm C (faust-rs core)   —   192 paired programs
 ========================================================================
 REPAIRED WITHIN 2 CORRECTIVE ATTEMPTS
-  arm A (C++ stderr) : 151/202  (75%)
-  arm C (faust-rs core): 86/202  (43%)
-  discordant pairs   : C-only 20, A-only 85
-  McNemar exact p    : 0.0000
+  arm A (C++ stderr) : 143/192  (74%)
+  arm C (faust-rs core): 80/192  (42%)
+  discordant pairs   : C-only 19, A-only 82
+  McNemar exact p    : 1.659e-10
 
 ATTEMPTS TO GREEN  (never-green scored as 3)
-  arm A mean : 1.75
-  arm C mean : 2.22
-  Wilcoxon signed-rank p : 0.0000  (stat=2039.0)
-  both green: C fewer attempts 13, A fewer 9, tied 44
+  arm A mean : 1.77
+  arm C mean : 2.24
+  Wilcoxon signed-rank p : 1.118e-06  (stat=1944.0) — not independent of McNemar (same discordant pairs, 3-valued censored score); for reference only
+  both green: C fewer attempts 13, A fewer 9, tied 39
 
-BY FIRST-ERROR CLASS  (n | A green | C green | C-only | A-only)
-  routing_arity         81 |  57 |  23 |  7 | 41
-  syntax                61 |  51 |  25 |  3 | 29
-  hallucinated_symbol   25 |  20 |  10 |  1 | 11
-  unclassified          17 |  10 |  14 |  5 |  1
-  duplicate_symbol      15 |  10 |  12 |  4 |  2
-  delay_range            2 |   2 |   1 |  0 |  1
-  recursion_cycle        1 |   1 |   1 |  0 |  0
+FIRST vs SECOND CORRECTIVE ATTEMPT
+  arm A: won on attempt 1 94; still broken after 1 88; rescued on attempt 2 49/88 (56%); no program produced 10
+  arm C: won on attempt 1 66; still broken after 1 121; rescued on attempt 2 14/121 (12%); no program produced 5
+
+BY FIRST-ERROR CLASS  (n | A green | C green | C-only | A-only | McNemar p)
+  routing_arity         80 |  56 |  23 |  7 | 40 | 1.07e-06
+  syntax                52 |  44 |  19 |  2 | 27 | 1.62e-06
+  hallucinated_symbol   25 |  20 |  10 |  1 | 11 | 6.35e-03
+  unclassified          17 |  10 |  14 |  5 |  1 | 2.19e-01
+  duplicate_symbol      15 |  10 |  12 |  4 |  2 | 6.88e-01
+  delay_range            2 |   2 |   1 |  0 |  1 | 1.00e+00
+  recursion_cycle        1 |   1 |   1 |  0 |  0 | 1.00e+00
+
+ARM-A STDERR CAP (500 chars) — stratified
+  uncapped  n=158  A 118/158 (75%)  C 71/158 (45%)  McNemar p=2.11e-07
+  capped    n= 34  A 25/34 (74%)  C 9/34 (26%)  McNemar p=1.45e-04
 
 SECOND-ERROR IDENTITY  (of repairs that FAILED, was attempt 1's error the same class as the start?)
-  arm A: 51 failed — same class 21, new class 18
-  arm C: 116 failed — same class 84, new class 27
+  arm A: 49 failed — same class 21, new class 18, no corrective attempt 10
+  arm C: 112 failed — same class 81, new class 26, no corrective attempt 5
 
->>> NO — C++ stderr repaired 65 MORE than arm C (faust-rs core) (McNemar p=0.000).
+>>> NO — C++ stderr repaired 63 MORE than arm C (faust-rs core) (McNemar p=1.66e-10).
 

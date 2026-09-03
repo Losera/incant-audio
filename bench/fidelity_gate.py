@@ -42,11 +42,20 @@ _BENCH_DIR = Path(__file__).resolve().parent
 if str(_BENCH_DIR) not in sys.path:
     sys.path.insert(0, str(_BENCH_DIR))
 
-# reuse the exact any-of substring rule the efficacy scorer uses (score_efficacy.py:190)
-from score_efficacy import matches_expected_primitives  # noqa: E402
-
 DEFAULT_CORPUS = _BENCH_DIR / "corpora" / "repair_corpus_20260830.json"
 DEFAULT_PROMPTS = _BENCH_DIR / "prompts" / "tiered_prompts.json"
+# vendored, MIT — effect_id -> expected_primitives, used when tiered_prompts.json
+# (proprietary, full repo only) is absent. Keeps this module standalone so the
+# issue-#26 container and repair_ab_standalone.py can import it.
+VENDORED_PRIMITIVES = _BENCH_DIR / "issue26" / "expected_primitives.json"
+
+
+def matches_expected_primitives(code: str, expected_primitives: list) -> bool:
+    """Any-of substring match (the rule score_efficacy.py uses). Inlined here so
+    fidelity_gate.py imports nothing outside stdlib."""
+    if not expected_primitives:
+        return False
+    return any(p in (code or "") for p in expected_primitives)
 
 # A repair whose non-blank line count fell below this fraction of the original
 # "shrank": it bought the compile by deleting the program rather than fixing it.
@@ -77,8 +86,18 @@ def load_corpus_by_sha(path: Path) -> dict[str, dict]:
 
 
 def load_primitives(path: Path) -> dict[str, list[str]]:
-    """effect_id -> expected_primitives (any-of substring list)."""
-    data = json.loads(Path(path).read_text())
+    """effect_id -> expected_primitives (any-of substring list).
+
+    Reads tiered_prompts.json when present; falls back to the vendored
+    issue26/expected_primitives.json (a plain effect_id -> list map) so this
+    runs from the reproduction package alone.
+    """
+    p = Path(path)
+    if not p.exists() and VENDORED_PRIMITIVES.exists():
+        p = VENDORED_PRIMITIVES
+    data = json.loads(p.read_text())
+    if isinstance(data, dict) and "effects" not in data:
+        return {k: list(v) for k, v in data.items()}
     return {e["effect_id"]: e.get("expected_primitives", []) for e in data["effects"]}
 
 
@@ -174,7 +193,7 @@ def summarise(cells: list[dict]) -> dict:
 
 
 def build_report(result_path: Path, corpus_path: Path,
-                 prompts_path: Path) -> dict:
+                 prompts_path: Path, screen_path: Path | None = None) -> dict:
     records = json.loads(Path(result_path).read_text())
     by_sha = load_corpus_by_sha(corpus_path)
     primitives = load_primitives(prompts_path)
@@ -194,10 +213,10 @@ def build_report(result_path: Path, corpus_path: Path,
     # (44 such collisions in the frozen 3b file).
     cell_map = {f"{c['code_sha']}::{c['arm']}": c for c in cells}
 
-    return {
+    report = {
         "meta": {
             "tool": "bench/fidelity_gate.py",
-            "schema": 1,
+            "schema": 2,
             "tiers": ["shrink", "primitives"],
             "result_file": str(Path(result_path).name),
             "corpus_file": str(Path(corpus_path).name),
@@ -210,6 +229,16 @@ def build_report(result_path: Path, corpus_path: Path,
         "summary": summarise(cells),
         "cells": cell_map,
     }
+
+    if screen_path is not None:
+        from corpus_screen import included_shas
+        keep = included_shas(screen_path)
+        report["meta"]["screen_file"] = str(Path(screen_path).name)
+        report["meta"]["screened_programs"] = len(keep)
+        report["summary_screened"] = summarise(
+            [c for c in cells if c["code_sha"] in keep])
+
+    return report
 
 
 def print_report(report: dict) -> None:
@@ -243,12 +272,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("result", type=Path, help="a repair-A/B result JSON")
     ap.add_argument("--corpus", type=Path, default=DEFAULT_CORPUS)
     ap.add_argument("--prompts", type=Path, default=DEFAULT_PROMPTS)
+    ap.add_argument("--screen", type=Path, metavar="CORPUS", default=None,
+                    help="also emit summary_screened over corpus_screen.included_shas")
     ap.add_argument("--out", type=Path, default=None,
                     help="sidecar path (default: <result-stem>_fidelity.json)")
     ap.add_argument("--quiet", action="store_true", help="don't print the table")
     args = ap.parse_args(argv)
 
-    report = build_report(args.result, args.corpus, args.prompts)
+    report = build_report(args.result, args.corpus, args.prompts, args.screen)
 
     out = args.out or args.result.with_name(args.result.stem + "_fidelity.json")
     out.write_text(json.dumps(report, indent=2) + "\n")

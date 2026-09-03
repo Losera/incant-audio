@@ -3,132 +3,222 @@
     "model": "qwen2.5-coder:7b-instruct-q3_K_S",
     "treatment": "B",
     "treatment_label": "faust-rs full",
-    "n": 120,
-    "a_green": 87,
-    "b_green": 60,
-    "b_only": 9,
+    "n": 115,
+    "a_green": 84,
+    "b_green": 56,
+    "b_only": 8,
     "a_only": 36,
-    "mcnemar_p": 6.57466324582856e-05,
-    "a_mean_attempts": 1.7083333333333333,
-    "b_mean_attempts": 2.091666666666667,
-    "wilcoxon_p": 0.00029277458888454224,
+    "mcnemar_p": 2.5448598648836196e-05,
+    "a_mean_attempts": 1.7043478260869565,
+    "b_mean_attempts": 2.1130434782608694,
+    "wilcoxon_p": 0.00014753929380945007,
     "per_class": {
       "routing_arity": {
-        "n": 30,
+        "n": 29,
         "a_green": 17,
         "b_green": 10,
         "b_only": 2,
-        "a_only": 9
+        "a_only": 9,
+        "mcnemar_p": 0.0654296875
       },
       "syntax": {
-        "n": 30,
-        "a_green": 20,
-        "b_green": 9,
-        "b_only": 1,
-        "a_only": 12
+        "n": 26,
+        "a_green": 17,
+        "b_green": 5,
+        "b_only": 0,
+        "a_only": 12,
+        "mcnemar_p": 0.00048828125
       },
       "hallucinated_symbol": {
         "n": 25,
         "a_green": 23,
         "b_green": 14,
         "b_only": 0,
-        "a_only": 9
+        "a_only": 9,
+        "mcnemar_p": 0.00390625
       },
       "unclassified": {
         "n": 17,
         "a_green": 15,
         "b_green": 14,
         "b_only": 2,
-        "a_only": 3
+        "a_only": 3,
+        "mcnemar_p": 1.0
       },
       "duplicate_symbol": {
         "n": 15,
         "a_green": 9,
         "b_green": 12,
         "b_only": 4,
-        "a_only": 1
+        "a_only": 1,
+        "mcnemar_p": 0.375
       },
       "delay_range": {
         "n": 2,
         "a_green": 2,
         "b_green": 1,
         "b_only": 0,
-        "a_only": 1
+        "a_only": 1,
+        "mcnemar_p": 1.0
       },
       "recursion_cycle": {
         "n": 1,
         "a_green": 1,
         "b_green": 0,
         "b_only": 0,
-        "a_only": 1
+        "a_only": 1,
+        "mcnemar_p": 1.0
       }
     },
-    "verdict": "NO \u2014 C++ stderr repaired 27 MORE than arm B (faust-rs full) (McNemar p=0.000)."
+    "rescue": {
+      "A": {
+        "n": 115,
+        "won_at_1": 65,
+        "still_broken": 50,
+        "rescued_at_2": 19,
+        "no_program": 0
+      },
+      "B": {
+        "n": 115,
+        "won_at_1": 46,
+        "still_broken": 69,
+        "rescued_at_2": 10,
+        "no_program": 0
+      }
+    },
+    "by_arm_a_truncation": {
+      "capped": {
+        "n": 16,
+        "a_green": 9,
+        "b_green": 9,
+        "b_only": 3,
+        "a_only": 3,
+        "mcnemar_p": 1.0
+      },
+      "uncapped": {
+        "n": 99,
+        "a_green": 75,
+        "b_green": 47,
+        "b_only": 5,
+        "a_only": 33,
+        "mcnemar_p": 4.255962267052382e-06
+      }
+    },
+    "terminal": {
+      "A": {},
+      "B": {}
+    },
+    "verdict": "NO \u2014 C++ stderr repaired 28 MORE than arm B (faust-rs full) (McNemar p=2.54e-05)."
   },
   {
     "model": "qwen2.5-coder:7b-instruct-q3_K_S",
     "treatment": "C",
     "treatment_label": "faust-rs core",
-    "n": 120,
-    "a_green": 87,
-    "b_green": 57,
-    "b_only": 13,
+    "n": 115,
+    "a_green": 84,
+    "b_green": 53,
+    "b_only": 12,
     "a_only": 43,
-    "mcnemar_p": 7.333218396948782e-05,
-    "a_mean_attempts": 1.7083333333333333,
-    "b_mean_attempts": 2.1166666666666667,
-    "wilcoxon_p": 0.00021668697143176576,
+    "mcnemar_p": 3.3053764732060564e-05,
+    "a_mean_attempts": 1.7043478260869565,
+    "b_mean_attempts": 2.1478260869565218,
+    "wilcoxon_p": 0.0001001987002183189,
     "per_class": {
       "routing_arity": {
-        "n": 30,
+        "n": 29,
         "a_green": 17,
         "b_green": 11,
         "b_only": 3,
-        "a_only": 9
+        "a_only": 9,
+        "mcnemar_p": 0.14599609375
       },
       "syntax": {
-        "n": 30,
-        "a_green": 20,
-        "b_green": 9,
-        "b_only": 2,
-        "a_only": 13
+        "n": 26,
+        "a_green": 17,
+        "b_green": 5,
+        "b_only": 1,
+        "a_only": 13,
+        "mcnemar_p": 0.0018310546875
       },
       "hallucinated_symbol": {
         "n": 25,
         "a_green": 23,
         "b_green": 11,
         "b_only": 0,
-        "a_only": 12
+        "a_only": 12,
+        "mcnemar_p": 0.00048828125
       },
       "unclassified": {
         "n": 17,
         "a_green": 15,
         "b_green": 12,
         "b_only": 2,
-        "a_only": 5
+        "a_only": 5,
+        "mcnemar_p": 0.453125
       },
       "duplicate_symbol": {
         "n": 15,
         "a_green": 9,
         "b_green": 12,
         "b_only": 6,
-        "a_only": 3
+        "a_only": 3,
+        "mcnemar_p": 0.5078125
       },
       "delay_range": {
         "n": 2,
         "a_green": 2,
         "b_green": 2,
         "b_only": 0,
-        "a_only": 0
+        "a_only": 0,
+        "mcnemar_p": 1.0
       },
       "recursion_cycle": {
         "n": 1,
         "a_green": 1,
         "b_green": 0,
         "b_only": 0,
-        "a_only": 1
+        "a_only": 1,
+        "mcnemar_p": 1.0
       }
     },
-    "verdict": "NO \u2014 C++ stderr repaired 30 MORE than arm C (faust-rs core) (McNemar p=0.000)."
+    "rescue": {
+      "A": {
+        "n": 115,
+        "won_at_1": 65,
+        "still_broken": 50,
+        "rescued_at_2": 19,
+        "no_program": 0
+      },
+      "C": {
+        "n": 115,
+        "won_at_1": 45,
+        "still_broken": 70,
+        "rescued_at_2": 8,
+        "no_program": 0
+      }
+    },
+    "by_arm_a_truncation": {
+      "capped": {
+        "n": 16,
+        "a_green": 9,
+        "b_green": 8,
+        "b_only": 4,
+        "a_only": 5,
+        "mcnemar_p": 1.0
+      },
+      "uncapped": {
+        "n": 99,
+        "a_green": 75,
+        "b_green": 45,
+        "b_only": 8,
+        "a_only": 38,
+        "mcnemar_p": 9.24769992138863e-06
+      }
+    },
+    "terminal": {
+      "A": {},
+      "C": {}
+    },
+    "verdict": "NO \u2014 C++ stderr repaired 31 MORE than arm C (faust-rs core) (McNemar p=3.31e-05)."
   }
 ]

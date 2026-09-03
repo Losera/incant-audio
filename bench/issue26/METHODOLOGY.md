@@ -1,21 +1,28 @@
 # issue #26 — methodology, limitations, and planned follow-up
 
 The headline result (feeding faust-rs `--check` diagnostics into a small-model
-repair loop *lowers* fix-within-2-attempts: 75%→44% on `qwen2.5-coder:3b`,
-72%→50% on `7b`) is a real, paired, significant effect on this corpus. It is
-**not** the last word, and this file is the honest list of what would have to
-be tightened to make it one. Each item names the concrete work package that
-addresses it.
+repair loop *lowers* fix-within-2-attempts: on the program-screened corpus,
+**74%→43%** on `qwen2.5-coder:3b`, **73%→49%** on `7b`) is a real, paired,
+significant effect on this corpus (McNemar exact *p* < 1e-8 on every 3B headline
+cell). It is **not** the last word, and this file is the honest list of what
+would have to be tightened to make it one. Each item names the concrete work
+package that addresses it. `verify.py` checks every number here that is
+derivable from the committed data.
 
 ## What the result does and does not say
 
-- **Does:** on 202 distinct C++-rejected programs from a weak generator, a weak
-  repair model recovers *more often* from raw C++ stderr than from faust-rs's
-  localised diagnostic, and the difference is concentrated in the error classes
-  where the caret is most precise (`routing_arity`, `syntax`,
-  `hallucinated_symbol`). Mechanism, from the trajectories: precise localisation
-  → the model edits at the caret and re-breaks the same spot; vague stderr →
-  broader rewrite that compiles.
+- **Does:** on 192 program-screened C++-rejected programs from a weak generator,
+  a weak repair model recovers *more often* from raw (capped) C++ stderr than
+  from faust-rs's localised diagnostic, and the difference is concentrated in
+  the error classes where the caret is most precise — `routing_arity`
+  (McNemar *p* ≈ 5e-6), `syntax` (≈ 6e-6), `hallucinated_symbol` (≈ 2e-3). The
+  one class where faust-rs is nominally *better* is `unclassified` (n=17,
+  *p* = 0.29), where C++ stderr carries no location. Mechanism, from the
+  trajectories: precise localisation → the model edits at the caret and
+  re-breaks the same spot (same-class recidivism 78% under faust-rs vs 54% under
+  C++ stderr); vague stderr → broader rewrite that compiles. The split is on the
+  *second* corrective attempt: rescue-after-attempt-1-failed is 49/87 (56%) for
+  arm A vs 20/126 (16%) for arm B.
 - **Does not:** say anything about a frontier repair model; say faust-rs's
   diagnostics are worse *for a human* (they are unambiguously better — 15/15
   source locations vs C++ 8/15, 15/15 stable codes vs 0/15); rule out that the
@@ -26,23 +33,29 @@ addresses it.
 
 | # | limitation | status | WP |
 |---|---|---|---|
-| L1 | `score_repair_ab.py`'s `load_pairs` overwrites samples (`by_sha[sha][arm] = r`), so `--samples K` silently keeps 1 of K. Latent on the committed data (0 duplicate triples). | open | **WP1** |
-| L2 | A generator exception (`RateLimited`, output-token cap) is scored as a failed repair and marked "done" in the resume set. On the 3B run this hit arm A 13×, arms B/C 5× each — so the 151/202 headline is if anything *conservative* for arm A. | open | **WP2** |
+| L1 | `score_repair_ab.py`'s `load_pairs` overwrites samples (`by_sha[sha][arm] = r`), so `--samples K` silently keeps 1 of K. Latent on the committed data (0 duplicate triples); `tests/test_score_repair_ab.py` pins it as known behaviour. `repair_ab_standalone.py`'s end-of-run summary uses a strict per-cell majority instead. | open | **WP1** |
+| L2 | When the generator raises before producing a program, the loop aborts. On the committed **local ollama** runs all 23 such aborts were `OutputTruncated` (the model hit the 4096-token cap): 3B arm A 12, B 4, C 5; 7B 0/0/0 — so the 3B headline is if anything *conservative* for arm A. A hosted run adds `RateLimited` to this class, and arm B's ~6× longer prompt makes it more exposed. **Fixed in `repair_ab_standalone.py` (P5/WP2):** such records carry `terminal_reason` and `score_repair_ab.py` excludes them from the arm comparison; `--resume` retries them; a run that aborts ≥25% exits non-zero. `bench/run_repair_ab.py` (the in-repo harness) still needs the same treatment. | fixed for the standalone; open for `run_repair_ab.py` | **WP2** |
 | L3 | Arm A vs arms B/C differ in three ways, not one: error payload, a `"The Faust compiler rejected your program."` header, and a closing `"Fix this and re-emit the complete program."` directive (both from `frs_check.render`). Median feedback length 97 / 637 / 262 chars (A/B/C) — though arm C behaving like B is evidence against verbosity as the cause. | open | **WP3** |
 | L4 | "Fidelity" is checked with two cheap tiers only (non-blank-line shrink, expected-primitive retention). No render-level check (silence / NaN / DC / spectral match). | partial (`fidelity_gate.py` ships the two cheap tiers) | **WP4** |
 | L5 | n = 1 per (program, arm). Run-to-run determinism at temperature 0 for the local stack is **not** audited; `docs/BUGS.md` records ~20% output flips on a related measurement. | open | **WP5** |
-| L6 | Only 2 corrective attempts (the product loop's budget). Can't see whether faust-rs converges slower-but-better. | accepted (product constraint) | — |
-| L7 | 3B ran 202 programs, 7B only 120, and the 7B is Q3 vs the 3B's Q4. | accepted for now | WP6 (removes the quant confound) |
+| L6 | **Arm A's C++ stderr is truncated at 500 chars** (`bench/run_benchmark.py:246`, mirroring the product loop); arms B/C's faust-rs output is uncapped. The cap fires on 39 of 202 programs, 35 of them `routing_arity`, where it cuts the tail of Faust's box-expression dump. It **handicaps** arm A, and it is not driving the result: on the 158 programs where arm A's stderr was never truncated, arm A repairs 118/158 (75%) vs arm B 71/158 (45%), McNemar *p* ≈ 3e-7 (`verify.py` checks both strata). Making arm B symmetric would need a model re-run. | disclosed + stratified | **WP3** (matched wrappers) |
+| L7 | Arms B/C silently fall back to arm A's text if `frs_check.check()` returns `None` or `ok` mid-run — a missing binary, a crash, a timeout, or faust-rs *accepting* a program C++ rejects (a real divergence). The harnesses guard binary presence at t=0 only; after that the fallback is silent and the record's `feedback_code` is `None`, indistinguishable from "faust-rs rejected it but gave no code". Fired **once** in the committed 3B run (1/327). | open | — |
+| L8 | Only 2 corrective attempts (the product loop's budget). Can't see whether faust-rs converges slower-but-better. | accepted (product constraint) | — |
+| L9 | 3B ran 202 programs (192 screened), 7B only 120 (115 screened), and the 7B is Q3 vs the 3B's Q4. | accepted for now | WP6 (removes the quant confound) |
+| L10 | 10 of the 202 distinct C++-rejected rows are not Faust programs (9 prose, 1 truncated). `bench/corpus_screen.py` drops them mechanically (no top-level `process`, or a literal `...`); everything published is the screened view, and `--no-screen` reproduces the raw 202 (75/44/43 — same finding). | fixed | — |
 
 ## Work packages
 
 - **WP1 — real per-cell aggregation.** Replace the `load_pairs` overwrite with a
   `(code_sha, arm)` → K-samples grouping; majority-green / median-attempts per
   cell; K=1 a strict no-op (the committed numbers must not move).
-- **WP2 — honest transport failures.** Classify generator exceptions
-  (`terminal_reason ∈ {compiled, compile_failed, rate_limited, timeout,
-  transport_error}`); a transport failure is dropped from the cell, not scored
-  as a failed repair; the resume set skips it rather than marking it done.
+- **WP2 — honest transport failures.** *(Done for `repair_ab_standalone.py` +
+  `score_repair_ab.py`; `bench/run_repair_ab.py` still to do.)* Generator
+  exceptions set `terminal_reason` (`rate_limited` | `truncated` | `timeout` |
+  `empty_response` | `transport_error`), classified by exception class name so
+  `repair_ab_core.py` keeps its leaf-import guarantee. Such records are excluded
+  from the arm comparison, retried on `--resume`, and a run that aborts ≥25%
+  exits non-zero instead of printing a clean null.
 - **WP3 — matched wrapper.** A `framing=False` kwarg on
   `frs_check.render{,_minimal}` that drops the header and the closing directive;
   new arms A2/B2/C2 that share one wrapper so the *only* difference is the error
