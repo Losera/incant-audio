@@ -95,6 +95,11 @@ def repair_loop(entry: dict, arm: str, generate: GenerateFn,
     attempt_log: list[dict] = []
     repaired = False
     attempts_to_green: int | None = None
+    # None once a program is produced; otherwise names why the loop aborted with
+    # no repaired program — a transport/infra failure, NOT a repair failure.
+    # Classified by exception class name so this module keeps its leaf-import
+    # guarantee (no `import providers`). See METHODOLOGY.md L2.
+    terminal_reason: str | None = None
 
     for n in range(1, CORRECTIVE_ATTEMPTS + 1):
         feedback_text, frs_code = feedback_for(arm, code, cpp_stderr)
@@ -106,6 +111,7 @@ def repair_loop(entry: dict, arm: str, generate: GenerateFn,
             new_code = generate(user_message)
         except Exception as exc:  # noqa: BLE001
             attempt_log.append({"n": n, "error": f"{type(exc).__name__}: {exc}"[:300]})
+            terminal_reason = _classify_terminal(exc)
             break
         ok, err = validate_faust(new_code)
         attempt_log.append({
@@ -143,9 +149,25 @@ def repair_loop(entry: dict, arm: str, generate: GenerateFn,
         "second_error_class": second_class,
         "second_error_same_as_first": (
             (second_class == first_class) if second_class else None),
+        "terminal_reason": terminal_reason,
         "attempt_log": attempt_log,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+
+
+def _classify_terminal(exc: Exception) -> str:
+    """Map a generator exception to a coarse terminal_reason, by class NAME so
+    this leaf module never imports the provider stack."""
+    name = type(exc).__name__
+    if name in ("RateLimited", "BudgetExhausted", "TooManyRequests"):
+        return "rate_limited"
+    if name in ("OutputTruncated", "IncompleteRead"):
+        return "truncated"
+    if name in ("TimeoutExpired", "ReadTimeout", "Timeout"):
+        return "timeout"
+    if name in ("EmptyResponse", "MalformedResponse"):
+        return "empty_response"
+    return "transport_error"
 
 
 def stratified_sample(entries: list[dict], n: int) -> list[dict]:
