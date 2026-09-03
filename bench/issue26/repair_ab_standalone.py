@@ -124,7 +124,11 @@ except ModuleNotFoundError as exc:  # pragma: no cover
     sys.exit(f"[!] cannot import {exc.name} — set PLUGINFORGE_ROOT to a checkout, "
              f"or run from bench/issue26/ inside one.")
 
-DEFAULT_SYSTEM_PROMPT = _ROOT / "llm" / "prompts" / "system_prompt.txt"
+# the system prompt the corpus was built with. Full repo: llm/prompts/. Repro
+# package: the vendored MIT snapshot (byte-identical to c1e9370, sha a2d909565e3c2fd2).
+_VENDORED_PROMPT = Path(__file__).resolve().parent / "system_prompt.txt"
+_REPO_PROMPT = _ROOT / "llm" / "prompts" / "system_prompt.txt"
+DEFAULT_SYSTEM_PROMPT = _REPO_PROMPT if _REPO_PROMPT.is_file() else _VENDORED_PROMPT
 FAUST_VALIDATE_TIMEOUT_S = 30.0
 
 
