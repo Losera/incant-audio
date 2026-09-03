@@ -1,4 +1,4 @@
-# PluginForge — Status  (2026-09-02)
+# PluginForge — Status  (2026-09-03)
 
 Rewritten each session per COLLABORATION.md §5. Single writer, no merge conflicts.
 Narrative history lives in git and in `docs/sessions/`.
@@ -89,6 +89,31 @@ provider-precedence rule; §3–§5 hygiene) were applied, plus the two 2026-09-
 (re-arm the accept button after `markStale()`; wire the provider picker to
 `onRecommendationInvalidated`) and two dead-branch removals (`target_mismatch` off the plain
 `generate()` path; the `request.get("budget")` fallback). `check.sh full` + CI green.
+
+**Landed 2026-09-03:** PR #51 (`2c7c5bb`, **UiIr schema 3** — `host/Source/UiIr.h` gains a
+`theme` block on `Layout`: seven colour-string tokens + four enum tokens
+(`display`/`readout`/`knob`/`density`), each defaulting to its Ember Console value, so a
+schema 0/1/2 layout is byte-unaffected. `parse()` degrades a missing/blank colour or an
+unrecognised enum **per-token** to the default, never rejecting the layout (the ADR-022 §3
+bone-swatch lesson); the ceiling moved 2→3. The IR is now persisted in the state blob as a
+`uiIr` root attribute — a v3 **amendment**, not a `kStateSchemaVersion` bump: a blob without
+it parses to `UiIr::empty()`, the un-themed state every patch already had. **Inert** —
+nothing renders the theme yet, and the editor re-derives the layout on the restore
+recompile, so no behaviour changed. New `host/tests/UiIrTest.cpp` (41/0, wired into
+`check.sh full` + CI); `StatePersistenceTest` +9; `check.sh full` all green. **ADR-035**
+records the six-step "generated-plugin faces" direction — Steps 2–6 (host-side WCAG theme
+validation, a `paramGridPanel`-scoped `LookAndFeel`, archetype layouts, a post-compile LLM
+call that emits the IR, a verification loop) are **Proposed**; Step 3 is flagged as new UI
+architecture that still needs its own review. Design bundle
+`design_handoff_generated_plugin_faces/` is kept untracked by decision.). PR #52 (`0eefe50`,
+**`.claude/hooks/session_collision_guard.py`** — a `SessionStart` hook that warns when this
+checkout may be shared with another session: `.claude/HANDOFF.md` recorded on a different
+branch, a working tree already dirty before the session acted, or another transcript in
+this project written in the last 8 min. Cannot block a start, never silent — same
+discipline as `handoff_injector.py`. Motivated by a real 2026-09-02 collision: the
+issue-#26 and UI sessions both ran in the primary checkout and one `/handoff` overwrote the
+other effort's still-owed handoff. `test_control_wiring.py` +10 incl. a verified-failing red
+case; `COLLABORATION.md` §7 hook-table row; `check.sh full` + CI green).
 
 **Landed 2026-09-02:** PR #49 (`e35ff58`, `bench/fidelity_gate.py` + test — the compile-only
 half of the issue-#26 A/B; retracted the unwarranted temp-0 determinism claim and disclosed
@@ -260,6 +285,9 @@ clock — no host transport in Standalone).
    the 2026-09-01 branch sweep — commit, stash, or discard it. `design/ember-console` +
    `origin/fix/ember-console-palette` also kept pending your triage (Ember Console repaint).
 7. **Untracked personal files left alone**, as always — the two notes at the repo root,
-   the unshipped brief skill, and the product-architecture draft under bench/. Named in
-   `.claude/HANDOFF.md`; not cited here as paths because they are not in the tree and the
-   live-doc path check (correctly) rejects that.
+   the unshipped brief skill, the product-architecture draft under bench/, and the
+   `design_handoff_generated_plugin_faces/` bundle (kept untracked by decision 2026-09-03;
+   it is the reference-render target for the ADR-035 faces work — worth committing a
+   distilled `docs/` version before that work's Step 6). Named in `.claude/HANDOFF.md`; not
+   cited here as paths because they are not in the tree and the live-doc path check
+   (correctly) rejects that.
