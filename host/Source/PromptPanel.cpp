@@ -68,6 +68,10 @@ static juce::String statusForReason(const juce::String& reason, double retryAfte
         return "The plugin was too large to finish — try asking for something simpler.";
     if (reason == "no_credentials")
         return "No API key for the selected provider (see errors below).";
+    if (reason == "provider_unavailable")
+        return "Provider unavailable after retries - choose another provider.";
+    if (reason == "provider_not_allowed")
+        return "Provider is not allowed by the current paid-provider policy.";
     return "LLM error (see errors below).";
 }
 
@@ -206,6 +210,28 @@ PromptPanel::PromptPanel(PluginForgeProcessor& p)
         "Redo: regenerate with the current patch as context - may restructure freely.");
     addAndMakeVisible(refineSelector);
 
+    providerSelector.addItem("Provider: Configured", 1);
+    providerSelector.addItem("Groq", 2);
+    providerSelector.addItem("Gemini", 3);
+    providerSelector.addItem("OpenRouter", 4);
+    providerSelector.addItem("Ollama (local)", 5);
+    providerSelector.addItem("Anthropic (paid)", 6);
+    providerSelector.setSelectedId(1, juce::dontSendNotification);
+    providerSelector.setTooltip(
+        "Configured uses PLUGINFORGE_PROVIDER from .env. API keys remain in .env; "
+        "they are never stored in plugin or DAW state.");
+    addAndMakeVisible(providerSelector);
+
+    fallbackSelector.addItem("Fallback: Off", 1);
+    fallbackSelector.addItem("Fallback: Configured", 2);
+    fallbackSelector.addItem("Fallback: Local", 3);
+    fallbackSelector.setSelectedId(1, juce::dontSendNotification);
+    fallbackSelector.setTooltip(
+        "Off keeps this generation on one provider. Configured uses the explicit "
+        "PLUGINFORGE_FALLBACK_PROVIDERS chain. Local permits fallback to Ollama. "
+        "Fallback occurs only for provider failures, never invalid DSP.");
+    addAndMakeVisible(fallbackSelector);
+
     addAndMakeVisible(statusLabel);
     statusLabel.setText("Ready.", juce::dontSendNotification);
     statusLabel.setJustificationType(juce::Justification::centredLeft);
@@ -294,6 +320,8 @@ void PromptPanel::submitPrompt()
     // republishes them on success.
     lastPriorSourceDropped = false;
     lastPriorSourceRefused = false;
+    lastProviderUsed.clear();
+    lastFallbackUsed = false;
 
     // Prevent double-submit. Re-enabled once the subprocess returns.
     generateButton.setEnabled(false);
@@ -333,6 +361,8 @@ void PromptPanel::submitPrompt()
         }
         pendingKind = PF_IS_SYNTH != 0 ? "instrument" : "effect";
         pendingFamily = selectedFamilyId();
+        pendingProvider = providerForTest();
+        pendingFallbackMode = fallbackSelector.getSelectedId();
         // Stamp and job published under ONE lock — see the SUBTLE note on
         // `generation` in the header for why re-reading the atomic at pickup was
         // a race that made a run discard itself.
@@ -396,6 +426,29 @@ void PromptPanel::setFamilyForTest(const juce::String& family)
     }
 }
 
+juce::String PromptPanel::providerForTest() const
+{
+    switch (providerSelector.getSelectedId())
+    {
+        case 2: return "groq";
+        case 3: return "gemini";
+        case 4: return "openrouter";
+        case 5: return "ollama";
+        case 6: return "anthropic";
+        default: return {};
+    }
+}
+
+void PromptPanel::setProviderForTest(const juce::String& provider)
+{
+    if (provider == "groq") providerSelector.setSelectedId(2);
+    else if (provider == "gemini") providerSelector.setSelectedId(3);
+    else if (provider == "openrouter") providerSelector.setSelectedId(4);
+    else if (provider == "ollama") providerSelector.setSelectedId(5);
+    else if (provider == "anthropic") providerSelector.setSelectedId(6);
+    else providerSelector.setSelectedId(1);
+}
+
 void PromptPanel::updateAutoFamilyLabel()
 {
     const auto displayName = juce::String(
@@ -414,6 +467,8 @@ void PromptPanel::workerLoop()
         juce::String priorSource;
         juce::String kind;
         juce::String family;
+        juce::String provider;
+        int fallbackMode = 1;
         {
             std::unique_lock<std::mutex> lock(jobMutex);
             jobCv.wait(lock, [this] { return hasJob || stopping; });
@@ -425,10 +480,13 @@ void PromptPanel::workerLoop()
             priorSource  = pendingPriorSource;
             kind         = pendingKind;
             family       = pendingFamily;
+            provider     = pendingProvider;
+            fallbackMode = pendingFallbackMode;
             hasJob       = false;
         }
 
-        runGeneration(prompt, myGeneration, mode, priorSource, kind, family);
+        runGeneration(prompt, myGeneration, mode, priorSource, kind, family,
+                      provider, fallbackMode);
     }
 }
 
@@ -436,7 +494,9 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
                                 PluginForgeProcessor::LoadMode mode,
                                 const juce::String& priorSource,
                                 const juce::String& kind,
-                                const juce::String& family)
+                                const juce::String& family,
+                                const juce::String& provider,
+                                int fallbackMode)
 {
     // Superseded, or shutting down: nothing this run produces is wanted any more.
     // Checked before touching the processor and again before publishing.
@@ -543,6 +603,18 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
             obj->setProperty("kind", kind);
             obj->setProperty("family", family);
             obj->setProperty("refine_mode", refineModeStr);
+            if (provider.isNotEmpty())
+                obj->setProperty("provider", provider);
+            if (fallbackMode != 1)
+            {
+                obj->setProperty("allow_fallback", true);
+                if (fallbackMode == 3)
+                {
+                    juce::Array<juce::var> fallbacks;
+                    fallbacks.add("ollama");
+                    obj->setProperty("fallback_providers", juce::var(fallbacks));
+                }
+            }
             // Forced "\n": juce_File.h:781-784's replaceWithText defaults
             // lineEndings to "\r\n", a trap host/tests/FakeGenerator.h already
             // paid for once (PromptPanelThreadingTest). generate.py's json.loads
@@ -691,7 +763,8 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
         auto faustCode = parsed.getProperty("faust_code", juce::String()).toString();
         auto errorMsg  = parsed.getProperty("error", juce::String()).toString();
         // ADR-011 `reason` (added with PF-019): ok | invalid_faust | timeout |
-        // rate_limited | no_credentials | error. Absent on responses from an older
+        // rate_limited | provider_unavailable | no_credentials |
+        // provider_not_allowed | error. Absent on responses from an older
         // generate.py, which is why the default is empty and statusForReason()
         // falls back to the generic text rather than asserting.
         auto reason = parsed.getProperty("reason", juce::String()).toString();
@@ -699,6 +772,7 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
         // per generate.py's _failure(). 0.0 on any older generate.py or any
         // other reason -- statusForReason() falls back to generic wording.
         const double retryAfterSeconds = parsed.getProperty("retry_after", 0.0);
+        const auto quotaScope = parsed.getProperty("quota_scope", juce::String()).toString();
         auto resolvedFamily = parsed.getProperty("family", family).toString();
         auto familySource = parsed.getProperty("family_source", "explicit").toString();
         // generate.py:381-386: the user asked to carry the prior source (Refine on)
@@ -707,6 +781,8 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
         // user deserves to know "refine" silently became "start over". Absent on
         // older generate.py — default false, no warning.
         const bool priorSourceDropped = parsed.getProperty("prior_source_dropped", false);
+        const bool fallbackUsed = parsed.getProperty("fallback_used", false);
+        const auto actualProvider = parsed.getProperty("provider", provider).toString();
 
         // generate.py surgical (Add) mode hard-fail (llm/generate.py's
         // _prior_source_refused_response): the prior source was too large for
@@ -721,7 +797,9 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
 
         if (! success || faustCode.isEmpty())
         {
-            juce::MessageManager::callAsync([safeThis, errorMsg, reason, exitCode, priorSourceRefused, retryAfterSeconds]
+            juce::MessageManager::callAsync([safeThis, errorMsg, reason, exitCode,
+                                             priorSourceRefused, retryAfterSeconds,
+                                             quotaScope]
             {
                 if (safeThis == nullptr) return;
                 safeThis->stopWorking();
@@ -751,6 +829,9 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
                 safeThis->statusLabel.setText(
                     priorSourceRefused
                         ? "Prior patch too large for Add - choose Redo, or simplify the patch."
+                        : quotaScope == "daily"
+                        ? "Daily provider quota exhausted - choose another provider or wait "
+                          + juce::String(juce::roundToInt(retryAfterSeconds)) + "s."
                         : statusForReason(reason, retryAfterSeconds),
                     juce::dontSendNotification);
                 safeThis->generateButton.setEnabled(true);
@@ -779,7 +860,8 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
         // UI components must only be touched on the message thread. lastPriorSourceDropped
         // is also a message-thread member: it is written HERE, inside the callAsync, and
         // read by the shell on the same thread (priorSourceDroppedForTest()).
-        juce::MessageManager::callAsync([safeThis, faustCode, priorSourceDropped]
+        juce::MessageManager::callAsync([safeThis, faustCode, priorSourceDropped,
+                                         fallbackUsed, actualProvider]
         {
             if (safeThis == nullptr) return;
             // generateButton re-enables here, when the subprocess returns; the JIT
@@ -790,7 +872,12 @@ void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myG
             safeThis->stopWorking();
             safeThis->generateButton.setEnabled(true);
             safeThis->lastPriorSourceDropped = priorSourceDropped;
-            safeThis->statusLabel.setText("JIT compiling: " +
+            safeThis->lastProviderUsed = actualProvider;
+            safeThis->lastFallbackUsed = fallbackUsed;
+            const auto providerNote = actualProvider.isNotEmpty()
+                ? " via " + actualProvider + (fallbackUsed ? " (fallback)" : "")
+                : juce::String();
+            safeThis->statusLabel.setText("JIT compiling" + providerNote + ": " +
                 faustCode.substring(0, 40) + "...", juce::dontSendNotification);
         });
     }   // `child` (and its registration) go out of scope here
@@ -975,6 +1062,8 @@ void PromptPanel::resized()
     area.removeFromBottom(gap);
     auto genRow = area.removeFromBottom(buttonH);       // familySelector, refineSelector
     area.removeFromBottom(gap);
+    auto providerRow = area.removeFromBottom(buttonH);  // provider + fallback policy
+    area.removeFromBottom(gap);
 
     // Remaining top area splits between the prompt (min 60px per Prompt B, growing
     // to ~half the slack) and the error region (everything left over).
@@ -1001,6 +1090,13 @@ void PromptPanel::resized()
     // Takes whatever is left rather than a fixed width, so the selector simply
     // disappears in a band too narrow for it instead of overlapping familySelector.
     refineSelector.setBounds(genRow);
+
+    // Provider policy gets its own row: provider selection and fallback consent
+    // must remain visible without crowding generation-family semantics.
+    const int providerW = juce::jmax(0, (providerRow.getWidth() - gap) / 2);
+    providerSelector.setBounds(providerRow.removeFromLeft(providerW));
+    providerRow.removeFromLeft(gap);
+    fallbackSelector.setBounds(providerRow);
 
     progressLabel.setBounds(progressR);
     statusLabel.setBounds(statusR);

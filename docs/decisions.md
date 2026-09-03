@@ -1160,3 +1160,59 @@ unattended runs against, which is the actual, still-live cost of ADR-021's defer
   beyond bench pilots) becomes an actual project goal — that changes the cost/benefit
   calculus Decision §1 rests on, since there would then be a live consumer with no human
   refine loop available to fall back on.
+
+---
+
+## ADR-028 — Interactive provider resilience: explicit deterministic fallback, no workflow framework
+
+| | |
+|---|---|
+| **Status** | Accepted |
+| **Date** | 2026-08-18 |
+
+**Context**
+The configured Groq `openai/gpt-oss-120b` allocation reached 199,939 of its
+200,000-token daily limit during an interactive generation. Groq requested a 3,353-second
+wait while the product had 140 seconds of generation budget. The existing budget correctly
+refused the sleep and returned `rate_limited`, but the provider registry selected only one
+provider per request, leaving a configured Gemini/OpenRouter/Ollama installation unusable as
+a recovery path. Bench and interactive traffic also drew from the same configured provider.
+
+**Decision**
+- Keep orchestration in `llm/generate.py` as a deterministic loop; do not add LangGraph or
+  another dependency for a bounded provider chain.
+- Fallback is off by default and requires per-request user consent. The host offers the
+  configured chain or local-Ollama-only fallback. API keys remain environment configuration,
+  never plugin/DAW state.
+- Switch only for provider failures (`rate_limited`, `no_credentials`,
+  `provider_unavailable`). Invalid Faust, output truncation, profile failures, and compiler
+  repair remain on the selected model.
+- Every provider in the chain shares one wall-clock budget. Paid providers remain blocked
+  unless `PLUGINFORGE_ALLOW_PAID=1`.
+- Add provider/model/attempt provenance to interactive responses and prompt logs.
+  Benchmark callers do not opt into fallback and remain pinned for reproducibility.
+- Classify explicitly daily quota errors and fail immediately rather than honoring an
+  hours-long Retry-After value.
+
+**Alternatives considered**
+- **LangGraph:** useful if generation becomes a durable graph with parallel candidates,
+  human approval nodes, and resumable evaluation. It adds no value to this bounded linear
+  policy today.
+- **Silent local fallback:** quota-free but rejected because local model quality and latency
+  are not equivalent. A 2026-08-18 smoke run of the installed
+  `qwen2.5-coder:7b-16k` on the reported granular-synth prompt did not finish inside a useful
+  interactive observation window and was interrupted without a result.
+- **Raise the generation timeout to the provider reset:** rejected; it would make the plugin
+  appear hung and turn a provider allocation failure into a host-availability failure.
+
+**Consequences**
+- A user can recover from an exhausted cloud provider without editing `.env` or rebuilding,
+  while still seeing that a provider transition occurred.
+- Results from fallback providers are not model-comparable; provenance is therefore part of
+  the live result and log.
+- Local fallback is available but remains opt-in and experimentally unqualified. Promotion
+  to a default requires a corpus measurement of compile rate, semantic fidelity, latency,
+  and memory use—not a successful smoke test.
+- Revisit LangGraph only if at least two of these become real requirements: parallel
+  candidates, durable cross-session checkpoints, human approval nodes, specialized model
+  roles, or non-linear evaluation/repair.

@@ -173,11 +173,20 @@ public:
     }
     juce::String familyForTest() const;
     void setFamilyForTest(const juce::String& family);
+    juce::String providerForTest() const;
+    void setProviderForTest(const juce::String& provider);
+    int fallbackModeForTest() const { return fallbackSelector.getSelectedId(); }
+    void setFallbackModeForTest(int id)
+    {
+        fallbackSelector.setSelectedId(id, juce::dontSendNotification);
+    }
 
     // Test-only. True if the last successful generation reported that the prior
     // source was dropped due to token-budget overflow (generate.py's
     // prior_source_dropped flag, generate.py:381-386).
     bool priorSourceDroppedForTest() const { return lastPriorSourceDropped; }
+    juce::String providerUsedForTest() const { return lastProviderUsed; }
+    bool fallbackUsedForTest() const { return lastFallbackUsed; }
 
     // Test-only. Number of entries currently in the in-session history list --
     // used to check the persisted-state round trip (C6) without depending on
@@ -229,6 +238,8 @@ private:
     juce::TextButton  historyButton  { "History" };
     juce::ComboBox    familySelector;
     juce::ComboBox    refineSelector;
+    juce::ComboBox    providerSelector;
+    juce::ComboBox    fallbackSelector;
     juce::Label       statusLabel;
     juce::Label       progressLabel;
     juce::TextEditor  errorBox;
@@ -288,6 +299,8 @@ private:
     // prior_source_refused flag). Read by the shell to surface an error.
     // Reset on every new generation.
     bool        lastPriorSourceRefused = false;
+    juce::String lastProviderUsed;
+    bool         lastFallbackUsed = false;
 
     // ── Generation worker (PF-006) ──────────────────────────────────────────
     // Mirrors FaustEngine's compile worker (FaustEngine.h "Compile worker",
@@ -299,7 +312,9 @@ private:
                        PluginForgeProcessor::LoadMode mode,
                        const juce::String& priorSource,
                        const juce::String& kind,
-                       const juce::String& family);
+                       const juce::String& family,
+                       const juce::String& provider,
+                       int fallbackMode);
     void shutdownWorker();
 
     std::thread             worker;
@@ -327,6 +342,8 @@ private:
     // pendingPriorSource: read on message thread, published with the job.
     juce::String            pendingKind;              // guarded by jobMutex
     juce::String            pendingFamily;            // guarded by jobMutex
+    juce::String            pendingProvider;          // guarded by jobMutex
+    int                     pendingFallbackMode = 1;  // guarded by jobMutex
     bool                    hasJob   = false;
     bool                    stopping = false;   // guarded by jobMutex
 

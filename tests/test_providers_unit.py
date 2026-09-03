@@ -355,7 +355,7 @@ class TestPostBackoff:
         responses = [_status_response(429)] * providers._MAX_BACKOFF_TRIES
         with patch.object(providers.httpx, "post", side_effect=responses), \
              patch.object(providers.time, "sleep"):
-            with pytest.raises(RuntimeError, match="failed after"):
+            with pytest.raises(providers.RateLimited, match="HTTP 429"):
                 providers._post_with_backoff("http://x/chat/completions", {}, {})
 
     def test_client_errors_are_not_retried(self):
@@ -366,6 +366,25 @@ class TestPostBackoff:
             with pytest.raises(RuntimeError):
                 providers._post_with_backoff("http://x/chat/completions", {}, {})
         assert post.call_count == 1
+
+    def test_daily_quota_is_classified_without_sleeping(self):
+        response = _status_response(429, retry_after="3353")
+        response.text = "tokens per day (TPD): Limit 200000, Used 199939"
+        with patch.object(providers.httpx, "post", return_value=response) as post, \
+             patch.object(providers.time, "sleep") as sleep:
+            with pytest.raises(providers.QuotaExhausted) as caught:
+                providers._post_with_backoff("http://x/chat/completions", {}, {})
+        assert caught.value.scope == "daily"
+        assert caught.value.retry_after == 3353.0
+        assert post.call_count == 1
+        assert not sleep.called
+
+    def test_server_outage_becomes_typed_after_backoff(self):
+        responses = [_status_response(503)] * providers._MAX_BACKOFF_TRIES
+        with patch.object(providers.httpx, "post", side_effect=responses), \
+             patch.object(providers.time, "sleep"):
+            with pytest.raises(providers.ProviderUnavailable):
+                providers._post_with_backoff("http://x/chat/completions", {}, {})
 
 
 class TestSdkRetryWrapper:
@@ -406,7 +425,7 @@ class TestSdkRetryWrapper:
     def test_gives_up_after_the_retry_budget(self):
         call = MagicMock(side_effect=RuntimeError("429 RESOURCE_EXHAUSTED"))
         with patch.object(providers.time, "sleep"):
-            with pytest.raises(RuntimeError):
+            with pytest.raises(providers.ProviderUnavailable):
                 providers._call_with_retry(call)()
         assert call.call_count == providers._MAX_BACKOFF_TRIES
 
@@ -452,7 +471,7 @@ class TestIsRetryable:
         call = MagicMock(side_effect=RuntimeError(
             "429 RESOURCE_EXHAUSTED GenerateRequestsPerDayPerProjectPerModel-FreeTier"))
         with patch.object(providers.time, "sleep") as sleep:
-            with pytest.raises(RuntimeError):
+            with pytest.raises(providers.QuotaExhausted):
                 providers._call_with_retry(call)()
         assert call.call_count == 1
         assert not sleep.called

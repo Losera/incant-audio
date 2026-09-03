@@ -645,6 +645,15 @@ class TestSubprocessModeMissingApiKey:
             # fails whenever the response shape changes, which is the point. The
             # `error` string above is still asserted character-for-character.
             "reason": "no_credentials",
+            "provider": "anthropic",
+            "model": generate.DEFAULT_MODEL,
+            "provider_attempts": [{
+                "provider": "anthropic", "model": generate.DEFAULT_MODEL,
+                "reason": "no_credentials",
+                "error": "ANTHROPIC_API_KEY is not set. Add it to PluginForge/.env or "
+                         "the plugin's environment.",
+            }],
+            "fallback_used": False,
         }
 
     def test_empty_key_treated_as_missing(self, monkeypatch, capsys):
@@ -661,12 +670,69 @@ class TestSubprocessModeMissingApiKey:
         assert len(lines) == 1
         assert lines[0].startswith("{")
 
-    def test_missing_key_never_calls_build_request(self, monkeypatch, capsys):
+    def test_request_is_read_before_provider_aware_key_check(self, monkeypatch, capsys):
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         calls = []
-        generate._run_subprocess_mode(lambda: calls.append(1))
+        generate._run_subprocess_mode(lambda: calls.append(1) or {"prompt": "x"})
         capsys.readouterr()
-        assert calls == []
+        assert calls == [1]
+
+
+class TestProviderFallback:
+    def test_fallback_is_off_by_default(self):
+        failure = generate._failure(1, "rate_limited", "daily quota", retry_after=3000)
+        with patch.object(generate, "_generate_json_one", return_value=failure) as call, \
+             patch.object(generate.providers, "check_credentials", return_value=None):
+            result = generate.generate_json({"prompt": "x", "provider": "groq"})
+        assert call.call_count == 1
+        assert result["reason"] == "rate_limited"
+        assert "provider_attempts" not in result
+
+    def test_approved_fallback_uses_next_provider_and_records_provenance(self):
+        failure = generate._failure(1, "rate_limited", "daily quota", retry_after=3000)
+        failure["quota_scope"] = "daily"
+        success = {"success": True, "faust_code": VALID_FAUST, "attempts": 1,
+                   "error": None, "reason": "ok", "kind": "effect",
+                   "family": "effect", "family_source": "auto"}
+        budget = generate.providers.Budget(total=140)
+        with patch.object(generate, "_generate_json_one",
+                          side_effect=[failure, success]) as call, \
+             patch.object(generate.providers, "check_credentials", return_value=None), \
+             patch.object(generate.providers, "assert_free"):
+            result = generate.generate_json({
+                "prompt": "x", "provider": "groq", "allow_fallback": True,
+                "fallback_providers": ["ollama"], "budget": budget})
+        assert call.call_count == 2
+        assert call.call_args_list[0].args[0]["budget"] is budget
+        assert call.call_args_list[1].args[0]["budget"] is budget
+        assert result["success"] is True
+        assert result["provider"] == "ollama"
+        assert result["fallback_used"] is True
+        assert [a["provider"] for a in result["provider_attempts"]] == ["groq", "ollama"]
+        assert result["provider_attempts"][0]["quota_scope"] == "daily"
+
+    def test_model_failure_does_not_switch_provider(self):
+        failure = generate._failure(3, "invalid_faust", "bad symbol")
+        with patch.object(generate, "_generate_json_one", return_value=failure) as call, \
+             patch.object(generate.providers, "check_credentials", return_value=None):
+            result = generate.generate_json({
+                "prompt": "x", "provider": "groq", "allow_fallback": True,
+                "fallback_providers": ["ollama"]})
+        assert call.call_count == 1
+        assert result["reason"] == "invalid_faust"
+        assert result["fallback_used"] is False
+
+    def test_fallback_provider_requires_its_own_credentials(self):
+        failure = generate._failure(1, "rate_limited", "daily quota")
+        with patch.object(generate, "_generate_json_one", return_value=failure) as call, \
+             patch.object(generate.providers, "check_credentials",
+                          side_effect=[None, "GOOGLE_API_KEY is not set"]):
+            result = generate.generate_json({
+                "prompt": "x", "provider": "groq", "allow_fallback": True,
+                "fallback_providers": ["gemini"]})
+        assert call.call_count == 1
+        assert result["reason"] == "no_credentials"
+        assert result["provider"] == "gemini"
 
 
 class TestSubprocessModeUnexpectedException:

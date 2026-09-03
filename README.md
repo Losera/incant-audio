@@ -77,6 +77,13 @@ cp .env.example .env
 ```
 Supported free-tier providers: **Gemini**, **Groq**, **OpenRouter**, or local **Ollama** (`llama3`, `deepseek-r1`). Paid providers (Anthropic Claude) are supported and gated behind `PLUGINFORGE_ALLOW_PAID=1`.
 
+The generation panel can override the configured primary provider for one run.
+Fallback is off by default. Choose **Fallback: Local** to permit only Ollama, or
+configure `PLUGINFORGE_FALLBACK_PROVIDERS` and choose **Fallback: Configured**.
+Provider switching is limited to provider failures; invalid generated DSP stays
+with the selected model's compiler-feedback repair loop. API keys remain in
+`.env` and are never stored in plugin or DAW state.
+
 ### 3. Build the JUCE Host Plugin
 ```bash
 cd host

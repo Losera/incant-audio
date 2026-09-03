@@ -168,6 +168,10 @@ public:
     void         setKindForTest(const juce::String& kind) { promptPanel.setKindForTest(kind); }
     juce::String familyForTest() const { return promptPanel.familyForTest(); }
     void         setFamilyForTest(const juce::String& family) { promptPanel.setFamilyForTest(family); }
+    juce::String providerForTest() const { return promptPanel.providerForTest(); }
+    void         setProviderForTest(const juce::String& provider) { promptPanel.setProviderForTest(provider); }
+    int          fallbackModeForTest() const { return promptPanel.fallbackModeForTest(); }
+    void         setFallbackModeForTest(int id) { promptPanel.setFallbackModeForTest(id); }
     bool         priorSourceDroppedForTest() const { return promptPanel.priorSourceDroppedForTest(); }
     // Dev-cockpit state export — OFF by default. Nothing is written anywhere
     // until a caller (the Standalone app or the /cockpit skill) opts in via

@@ -189,6 +189,11 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
             // compile-success callback hops to the message thread.
             if (safeThis->promptPanel.priorSourceDroppedForTest())
                 status += "  (prior source dropped — refine became a fresh generation)";
+            const auto provider = safeThis->promptPanel.providerUsedForTest();
+            if (provider.isNotEmpty())
+                status += "  Provider: " + provider
+                       + (safeThis->promptPanel.fallbackUsedForTest()
+                              ? " (fallback)." : ".");
             safeThis->promptPanel.setStatus(status);
             safeThis->paramGridPanel.refreshParamKnobs(params);
             // ADR-022 Track 1.2: derive a sectioned layout purely from Faust

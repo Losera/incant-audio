@@ -364,17 +364,18 @@ class TestIncrementalWrite:
         response.text = '{"error":"daily quota"}'
         sleeps = []
 
-        # Legacy benchmark behavior: budget=None accepts every server delay,
-        # retries five times, and asks to sleep four full days in aggregate.
+        # Daily exhaustion is terminal even without an interactive wall-clock
+        # budget. Retrying a quota whose scope is explicitly daily cannot make
+        # progress and used to request four days of aggregate sleep here.
         with patch.object(efs.providers.httpx, "post", return_value=response) as post, \
              patch.object(efs.providers.time, "sleep", side_effect=sleeps.append):
-            with pytest.raises(RuntimeError, match="failed after 5 attempts"):
+            with pytest.raises(efs.providers.QuotaExhausted,
+                               match="daily quota is exhausted"):
                 efs.providers._post_with_backoff(
                     "https://example.invalid", {}, {}, budget=None)
 
-        assert post.call_count == 5
-        assert sleeps == [86400.0] * 4
-        assert sum(sleeps) == 345600.0
+        assert post.call_count == 1
+        assert sleeps == []
 
         # Proposed behavior is covered by the preceding end-to-end harness
         # test: one request, zero sleeps, one durable checkpoint, no next cell.

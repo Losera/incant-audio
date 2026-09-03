@@ -479,7 +479,7 @@ def generate_with_retry(user_prompt: str, max_retries: int = 3,
     raise RuntimeError("Failed to generate valid Faust after retries.")
 
 
-def generate_json(request: dict) -> dict:
+def _generate_json_one(request: dict) -> dict:
     """
     JSON wire-mode entry point called by the C++ host via subprocess.
     Accepts the locked ADR-011 request schema; returns the response schema.
@@ -489,7 +489,8 @@ def generate_json(request: dict) -> dict:
         {"success": bool, "faust_code": str|None, "attempts": int,
          "error": str|None, "reason": str}
 
-    `reason` is one of ok | invalid_faust | truncated | timeout | rate_limited | error.
+    `reason` is one of ok | invalid_faust | truncated | timeout | rate_limited |
+    provider_unavailable | no_credentials | provider_not_allowed | error.
 
     `truncated` means the model ran out of output budget mid-program on every
     attempt. It is deliberately distinct from invalid_faust: the code never reached
@@ -504,7 +505,7 @@ def generate_json(request: dict) -> dict:
     meaning, and both sides move in this commit.
     """
     prompt = request["prompt"]
-    provider = request.get("provider", DEFAULT_PROVIDER)
+    provider = providers.resolve_provider(request.get("provider", DEFAULT_PROVIDER))
     # None → providers.resolve_model() picks the selected provider's default, so a
     # request naming a provider but no model can't inherit another provider's model.
     model = request.get("model")
@@ -581,8 +582,15 @@ def generate_json(request: dict) -> dict:
                                   prior_source=prior_source,
                                   refine_mode=refine_mode,
                                   system_prompt=system_prompt)
+        except providers.QuotaExhausted as exc:
+            response = _failure(attempt, "rate_limited", str(exc),
+                                retry_after=exc.retry_after)
+            response["quota_scope"] = exc.scope
+            return response
         except providers.RateLimited as exc:
             return _failure(attempt, "rate_limited", str(exc), retry_after=exc.retry_after)
+        except providers.ProviderUnavailable as exc:
+            return _failure(attempt, "provider_unavailable", str(exc))
         except providers.BudgetExhausted as exc:
             return _failure(attempt, "timeout", str(exc))
         except providers.OutputTruncated as exc:
@@ -628,6 +636,105 @@ def generate_json(request: dict) -> dict:
                             f"Last compiler error:\n{error_ctx}")
 
     return _failure(max_retries, "invalid_faust", error_ctx)
+
+
+_FALLBACK_REASONS = {"rate_limited", "no_credentials", "provider_unavailable",
+                     "provider_not_allowed"}
+
+
+def _fallback_names(request: dict, primary: str) -> list[str]:
+    """Resolve the explicitly approved provider chain, excluding the primary.
+
+    Fallback is off unless the request says ``allow_fallback: true``. The chain may
+    be supplied by the host as ``fallback_providers`` or configured in .env as a
+    comma-separated list. Bench callers send neither and therefore remain pinned.
+    """
+    if request.get("allow_fallback") is not True:
+        return []
+    raw = request.get("fallback_providers")
+    if raw is None:
+        raw = [name.strip() for name in
+               os.environ.get("PLUGINFORGE_FALLBACK_PROVIDERS", "").split(",")
+               if name.strip()]
+    if not isinstance(raw, list) or not all(isinstance(name, str) for name in raw):
+        raise ValueError("fallback_providers must be a JSON array of provider names")
+    result = []
+    for name in raw:
+        resolved = providers.resolve_provider(name)
+        if resolved != primary and resolved not in result:
+            result.append(resolved)
+    return result
+
+
+def _provider_failure(provider: str, message: str, reason: str) -> dict:
+    response = _failure(0, reason, message)
+    response["provider"] = provider
+    response["model"] = providers.get_spec(provider).default_model
+    return response
+
+
+def generate_json(request: dict) -> dict:
+    """Generate through one provider or an explicitly approved fallback chain.
+
+    Provider transitions occur only for provider-level failures. Invalid Faust,
+    truncation, semantic/profile failures, and exhausted total time remain with the
+    selected model: switching those silently would change the meaning of the repair
+    loop. All providers share one wall-clock Budget.
+    """
+    primary = providers.resolve_provider(request.get("provider", DEFAULT_PROVIDER))
+    chain = [primary, *_fallback_names(request, primary)]
+    shared_budget = request.get("budget") or generation_budget()
+    include_provenance = len(chain) > 1
+    ledger = []
+    final = None
+
+    for index, provider in enumerate(chain):
+        model = (request.get("model") if index == 0 else None)
+        resolved_model = (providers.resolve_model(provider, model) if index == 0
+                          else providers.get_spec(provider).default_model)
+        if index > 0 or len(chain) > 1:
+            credential_error = providers.check_credentials(provider)
+            if credential_error:
+                current = _provider_failure(provider, credential_error, "no_credentials")
+            else:
+                if index > 0:
+                    try:
+                        providers.assert_free(provider)
+                    except providers.PaidProviderError as exc:
+                        current = _provider_failure(provider, str(exc),
+                                                    "provider_not_allowed")
+                    else:
+                        current = None
+                else:
+                    current = None
+        else:
+            current = None
+
+        if current is None:
+            provider_request = dict(request, provider=provider, model=resolved_model,
+                                    budget=shared_budget)
+            current = _generate_json_one(provider_request)
+            if include_provenance:
+                current["provider"] = provider
+                current["model"] = resolved_model
+
+        entry = {"provider": provider, "model": resolved_model,
+                 "reason": current.get("reason", "error")}
+        for key in ("error", "retry_after", "quota_scope"):
+            if current.get(key) is not None:
+                entry[key] = current[key]
+        ledger.append(entry)
+        final = current
+        if current.get("success") or current.get("reason") not in _FALLBACK_REASONS:
+            break
+        if index + 1 >= len(chain) or shared_budget.expired():
+            break
+
+    assert final is not None
+    if include_provenance:
+        final["provider_attempts"] = ledger
+        final["fallback_used"] = len(ledger) > 1
+    return final
 
 
 def _failure(attempts: int, reason: str, error: str,
@@ -688,6 +795,8 @@ def _exception_response(exc: BaseException) -> dict:
     reason = "error"
     if isinstance(exc, providers.RateLimited):
         reason = "rate_limited"
+    elif isinstance(exc, providers.ProviderUnavailable):
+        reason = "provider_unavailable"
     elif isinstance(exc, providers.BudgetExhausted):
         reason = "timeout"
     return {"success": False, "faust_code": None, "attempts": 0,
@@ -733,8 +842,11 @@ def log_user_prompt(request: dict, response: dict) -> None:
             "ts": datetime.datetime.now(datetime.timezone.utc)
                           .isoformat(timespec="seconds").replace("+00:00", "Z"),
             "prompt": request.get("prompt", ""),
-            "provider": request.get("provider", DEFAULT_PROVIDER),
-            "model": request.get("model") or DEFAULT_MODEL,
+            "requested_provider": request.get("provider", DEFAULT_PROVIDER),
+            "provider": response.get("provider", request.get("provider", DEFAULT_PROVIDER)),
+            "model": response.get("model", request.get("model") or DEFAULT_MODEL),
+            "fallback_used": bool(response.get("fallback_used")),
+            "provider_attempts": response.get("provider_attempts", []),
             "success": bool(response.get("success")),
             "reason": response.get("reason", "error"),
             "attempts": response.get("attempts", 0),
@@ -755,7 +867,7 @@ def _read_request_file(path: str) -> dict:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
-def _run_subprocess_mode(build_request):
+def _run_subprocess_mode(build_request, enforce_paid: bool = False):
     """
     Shared body for the --json and --prompt ADR-011 subprocess entry points.
 
@@ -769,17 +881,32 @@ def _run_subprocess_mode(build_request):
     exit would mask the structured error the JSON already carries. All
     diagnostics/tracebacks go to stderr, never stdout.
     """
-    # Provider-aware precheck: names whichever credential the selected provider
-    # actually needs, and is skipped entirely for local ollama (which needs none).
-    credential_error = providers.check_credentials(DEFAULT_PROVIDER)
-    if credential_error:
-        legacy_text = DEFAULT_PROVIDER == "anthropic"
-        print(json.dumps(_missing_api_key_response(None if legacy_text else credential_error)))
-        return
     request = None
     try:
         request = build_request()
-        response = generate_json(request)
+        selected = providers.resolve_provider(request.get("provider", DEFAULT_PROVIDER))
+        credential_error = providers.check_credentials(selected)
+        if credential_error and request.get("allow_fallback") is not True:
+            legacy_text = selected == "anthropic"
+            response = _missing_api_key_response(None if legacy_text else credential_error)
+            response["provider"] = selected
+            response["model"] = providers.resolve_model(selected, request.get("model"))
+            response["provider_attempts"] = [{
+                "provider": response["provider"], "model": response["model"],
+                "reason": "no_credentials", "error": response["error"]}]
+            response["fallback_used"] = False
+        else:
+            if enforce_paid:
+                providers.assert_free(selected)
+            response = generate_json(request)
+            if "provider" not in response:
+                response["provider"] = selected
+                response["model"] = providers.resolve_model(selected, request.get("model"))
+                response["provider_attempts"] = [{
+                    "provider": response["provider"], "model": response["model"],
+                    "reason": response.get("reason", "error"),
+                    **({"error": response["error"]} if response.get("error") else {})}]
+                response["fallback_used"] = False
         log_user_prompt(request, response)          # PF-014
         print(json.dumps(response))
     except Exception as exc:  # noqa: BLE001 - convert to ADR-011 JSON, never a stdout traceback
@@ -799,27 +926,23 @@ if __name__ == "__main__":
     # directly with a mocked transport. See llm/providers.py.
     _subprocess_mode = ("--json" in sys.argv or "--prompt" in sys.argv
                         or "--request-file" in sys.argv)
-    try:
-        providers.assert_free(DEFAULT_PROVIDER)
-    except providers.PaidProviderError as exc:
-        if _subprocess_mode:
-            # ADR-011: exactly one JSON line on stdout, exit 0 — the host reads the
-            # structured error and shows it as a status label.
-            print(json.dumps(_exception_response(exc)))
-            sys.exit(0)
-        print(f"[!] {exc}", file=sys.stderr)
-        sys.exit(1)
+    if not _subprocess_mode:
+        try:
+            providers.assert_free(DEFAULT_PROVIDER)
+        except providers.PaidProviderError as exc:
+            print(f"[!] {exc}", file=sys.stderr)
+            sys.exit(1)
 
     if "--json" in sys.argv:
-        _run_subprocess_mode(lambda: json.loads(sys.stdin.read()))
+        _run_subprocess_mode(lambda: json.loads(sys.stdin.read()), enforce_paid=True)
     elif "--prompt" in sys.argv:
         idx = sys.argv.index("--prompt")
         prompt_arg = sys.argv[idx + 1] if idx + 1 < len(sys.argv) else ""
-        _run_subprocess_mode(lambda: {"prompt": prompt_arg})
+        _run_subprocess_mode(lambda: {"prompt": prompt_arg}, enforce_paid=True)
     elif "--request-file" in sys.argv:
         idx = sys.argv.index("--request-file")
         path_arg = sys.argv[idx + 1] if idx + 1 < len(sys.argv) else ""
-        _run_subprocess_mode(lambda: _read_request_file(path_arg))
+        _run_subprocess_mode(lambda: _read_request_file(path_arg), enforce_paid=True)
     else:
         prompt = " ".join(a for a in sys.argv[1:] if not a.startswith("-")) \
                  or "a warm analog chorus with rate and depth controls"

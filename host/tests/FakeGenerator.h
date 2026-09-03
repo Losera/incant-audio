@@ -97,7 +97,8 @@ inline juce::File writeSuccess(const juce::File& dir, const juce::String& name,
 
 // success:false — the LLM-side failure the panel surfaces into the error region.
 // `reason` is an ADR-011 reason: invalid_faust | truncated | timeout |
-// rate_limited | no_credentials | error. `errorText` is raw, newlines and all.
+// rate_limited | provider_unavailable | no_credentials | provider_not_allowed |
+// error. `errorText` is raw, newlines and all.
 //
 // `priorSourceRefused` mirrors generate.py's _prior_source_refused_response
 // (llm/generate.py): surgical (Add) mode's preflight hard-fail. When true,
@@ -161,7 +162,9 @@ inline juce::File writeGarbage(const juce::File& dir, const juce::String& name)
 // Otherwise behaves like writeSuccess(): always returns success:true with the
 // given RAW Faust source.
 inline juce::File writeSuccessCapturing(const juce::File& dir, const juce::String& name,
-                                        const juce::String& faustCode)
+                                        const juce::String& faustCode,
+                                        const juce::String& provider = {},
+                                        bool fallbackUsed = false)
 {
     auto argvFile     = dir.getChildFile(name + "_argv.txt");
     auto requestFile  = dir.getChildFile(name + "_request.json");
@@ -173,6 +176,10 @@ inline juce::File writeSuccessCapturing(const juce::File& dir, const juce::Strin
     obj->setProperty("attempts", 1);
     obj->setProperty("error", juce::var());
     obj->setProperty("reason", "ok");
+    if (provider.isNotEmpty())
+        obj->setProperty("provider", provider);
+    if (fallbackUsed)
+        obj->setProperty("fallback_used", true);
     // allOnOneLine=true -- see writeSuccess() above for why that's required, not
     // cosmetic (PromptPanel scans for "the last line starting with {").
     responseFile.replaceWithText(

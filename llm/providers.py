@@ -262,6 +262,24 @@ class RateLimited(RuntimeError):
         self.retry_after = retry_after
 
 
+class QuotaExhausted(RateLimited):
+    """A provider quota whose reset is materially longer than an interactive retry.
+
+    This is a RateLimited subtype so old callers keep their existing handling, while
+    the product path can distinguish a daily allocation from a short RPM throttle and
+    select an explicitly-approved fallback immediately.
+    """
+
+    def __init__(self, message: str, retry_after: float | None = None,
+                 scope: str = "daily"):
+        super().__init__(message, retry_after)
+        self.scope = scope
+
+
+class ProviderUnavailable(RuntimeError):
+    """A retryable transport/server failure that survived bounded backoff."""
+
+
 class OutputTruncated(RuntimeError):
     """The model hit its output cap mid-program. Maps to reason="truncated".
 
@@ -846,8 +864,16 @@ def _call_with_retry(call, budget=None):
             try:
                 return call(*args, **kwargs)
             except Exception as exc:  # noqa: BLE001 — re-raised below if not retryable
-                if attempt == _MAX_BACKOFF_TRIES - 1 or not _is_retryable(exc):
+                if _is_daily_quota(exc):
+                    hint = _RETRY_HINT_RE.search(str(exc))
+                    delay = float(hint.group(1)) + 1.0 if hint else None
+                    raise QuotaExhausted(str(exc), retry_after=delay) from exc
+                if not _is_retryable(exc):
                     raise
+                if attempt == _MAX_BACKOFF_TRIES - 1:
+                    raise ProviderUnavailable(
+                        f"provider remained unavailable after {_MAX_BACKOFF_TRIES} attempts: "
+                        f"{exc}") from exc
                 hint = _RETRY_HINT_RE.search(str(exc))
                 # +1s: the server's own hint is the earliest permissible moment.
                 delay = float(hint.group(1)) + 1.0 if hint else min(2.0 ** attempt, 60.0)
@@ -897,6 +923,13 @@ def _post_with_backoff(url: str, headers: dict, payload: dict, budget=None) -> d
         if response.status_code == 429 or response.status_code >= 500:
             if attempt < _MAX_BACKOFF_TRIES - 1:
                 delay = _retry_after_seconds(response, attempt)
+                if response.status_code == 429 and _is_daily_quota(
+                        RuntimeError(response.text)):
+                    raise QuotaExhausted(
+                        f"provider daily quota is exhausted; reset in about "
+                        f"{delay:.0f}s — {last_error}",
+                        retry_after=delay,
+                    )
                 if budget is not None and not budget.can_sleep(delay):
                     # Distinguish throttling from a stall: the advice differs.
                     # RateLimited takes retry_after too, BudgetExhausted's
@@ -912,9 +945,19 @@ def _post_with_backoff(url: str, headers: dict, payload: dict, budget=None) -> d
                     raise BudgetExhausted(message)
                 time.sleep(delay)
                 continue
+            if response.status_code == 429:
+                raise RateLimited(last_error,
+                                  retry_after=_retry_after_seconds(response, attempt))
+            raise ProviderUnavailable(
+                f"provider remained unavailable after {_MAX_BACKOFF_TRIES} attempts — "
+                f"{last_error}")
         break
 
-    raise RuntimeError(f"Request to {url} failed after {_MAX_BACKOFF_TRIES} attempts — {last_error}")
+    if last_error.startswith(("Connect", "Read", "Write", "Pool", "Network")):
+        raise ProviderUnavailable(
+            f"provider transport remained unavailable after {_MAX_BACKOFF_TRIES} attempts — "
+            f"{last_error}")
+    raise RuntimeError(f"Request to {url} failed — {last_error}")
 
 
 # ── The seam every call site uses ─────────────────────────────────────────────

@@ -1794,7 +1794,8 @@ void scenario23_kindSelectorReachesRequest(const juce::File& tmp)
              "generate.py's existing kind field");
 
     FakeGenerator::install(
-        FakeGenerator::writeSuccessCapturing(tmp, "gen23", kTinyPatch));
+        FakeGenerator::writeSuccessCapturing(tmp, "gen23", kTinyPatch,
+                                             "ollama", true));
 
     Session s;
 
@@ -1804,12 +1805,17 @@ void scenario23_kindSelectorReachesRequest(const juce::File& tmp)
     const juce::String chosen = PF_IS_SYNTH ? "drum_synth" : "granular_effect";
     s.editor.setFamilyForTest(chosen);
     check(s.editor.familyForTest() == chosen, "family selector accepts a compatible profile");
+    s.editor.setProviderForTest("groq");
+    s.editor.setFallbackModeForTest(3); // explicitly permit local Ollama fallback
+    check(s.editor.providerForTest() == "groq", "provider selector accepts Groq");
 
     s.editor.submitPromptForTest("a small patch, kind must ride along");
     const bool live = pumpUntil([&] {
         return s.editor.statusTextForTest().contains("DSP live");
     });
     check(live, "the kind-carrying generation reached DSP live");
+    check(s.editor.statusTextForTest().contains("Provider: ollama (fallback)"),
+          "the final ready status keeps the actual fallback provider visible");
 
     // Parse the request rather than substring-match, so the assertion survives
     // any juce::JSON whitespace choice.
@@ -1821,6 +1827,14 @@ void scenario23_kindSelectorReachesRequest(const juce::File& tmp)
           "the request JSON carries the build-fixed host role");
     check(parsed.getProperty("family", "").toString() == chosen,
           "the request JSON carries the selected generation family");
+    check(parsed.getProperty("provider", "").toString() == "groq",
+          "the request JSON carries the selected primary provider");
+    check(static_cast<bool>(parsed.getProperty("allow_fallback", false)),
+          "the request JSON carries explicit fallback consent");
+    const auto* fallbackArray = parsed.getProperty("fallback_providers", {}).getArray();
+    check(fallbackArray != nullptr && fallbackArray->size() == 1
+              && (*fallbackArray)[0].toString() == "ollama",
+          "local fallback consent is scoped to Ollama");
 
     snapshot(s.editor, "23_kind_selector_reaches_request");
 }

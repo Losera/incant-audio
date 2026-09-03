@@ -30,7 +30,7 @@ functions stay drivable by tests with a mocked transport.
 | Provider | Key | Free-tier shape (measured 2026-07-21) |
 |---|---|---|
 | `gemini` | `GOOGLE_API_KEY` | no card; **5 requests/minute per model** |
-| `groq` | `GROQ_API_KEY` | no card; ~14,400 requests/day — the volume option |
+| `groq` | `GROQ_API_KEY` | no card; measured 200,000 tokens/day and 8,000 tokens/minute |
 | `openrouter` | `OPENROUTER_API_KEY` | `:free` models; ~50/day until $10 spent |
 | `ollama` | *none* | fully local, no quota, offline |
 | `anthropic` | `ANTHROPIC_API_KEY` | **PAID** — needs `PLUGINFORGE_ALLOW_PAID=1` |
@@ -39,6 +39,14 @@ Select with `PLUGINFORGE_PROVIDER` in `PluginForge/.env`. `generate.py` calls `l
 import and `juce::ChildProcess` inherits the environment, so the plugin picks up a provider
 change **with no C++ change and no rebuild**. Optional: `PLUGINFORGE_MODEL`,
 `PLUGINFORGE_MIN_INTERVAL` (seconds between calls, for per-minute caps).
+
+Interactive requests may opt into a comma-separated fallback chain with
+`PLUGINFORGE_FALLBACK_PROVIDERS`. The plugin keeps fallback **Off** by default and
+requires the user to select either **Configured** or **Local** for that request.
+All attempts share one wall-clock deadline and the JSON result records
+`provider`, `model`, `provider_attempts`, and `fallback_used`. Daily quota
+exhaustion is terminal for that provider—PluginForge does not sleep for hours.
+Benchmark entry points do not opt in, preserving single-provider reproducibility.
 
 Check everything at once — costs nothing, model-list endpoints aren't billed generations:
 
