@@ -1899,9 +1899,9 @@ this entry and deleted.
 
 | | |
 |---|---|
-| **Status** | Proposed (2026-09-02). Step 1 (schema 3 + state persistence) implemented and in review as PR #51; Steps 2–6 await acceptance. |
-| **Date** | 2026-09-02 |
-| **Relates to** | ADR-024 (extends its versioned `UiIr` schema), ADR-029 (schema 2 / components — same deterministic post-compile pattern), ADR-022 §3 (per-generation accent — narrowed, not reopened), ADR-019 (no WebView — unchanged) |
+| **Status** | **Accepted — 2026-09-03, by explicit user decision.** Step 1 (schema 3 + state persistence) landed 2026-09-03 (PR #51). Steps 2–6 authorized as direction; each still lands on its own change report + Tier-2 / semantic-diff review — Step 3 (a second `LookAndFeel`) especially. |
+| **Date** | 2026-09-02 (accepted 2026-09-03) |
+| **Relates to** | ADR-024 (extends its versioned `UiIr` schema), ADR-029 (schema 2 / components — same deterministic post-compile pattern), ADR-022 §3 (per-generation accent — narrowed, not reopened), ADR-019 (no WebView — unchanged), ADR-036 (the shell redesign around these faces — shares `ArchetypeLayout.h`) |
 
 **Context**
 Every generated patch renders with one shell look: `ForgeLookAndFeel` + Ember Console
@@ -2008,5 +2008,157 @@ adding a parallel one:
 **Status note**
 Step 1 landed ahead of this ADR's acceptance because it is inert: a schema field and a
 persisted attribute with no consumer, verifiable in full by `check.sh` with no design
-judgement involved. Steps 2–6 are **Proposed** — this entry authorizes the direction for
+judgement involved. Steps 2–6 were **Proposed** — this entry authorized the direction for
 the human to accept or redirect, not the implementation.
+
+**Status note (2026-09-03 — accepted)**
+Accepted as direction by explicit user decision. Two grounding updates from the refreshed
+design bundle (zip 2, 2026-09-03):
+
+- **`GENERATION_PLAN.md` supersedes the Decision section's 1–6 step numbering.** It
+  re-grounds the work against `main` into five dependency-ordered gaps and moves the
+  **producer earliest** (`llm/ui_face.py` + a `ui_face` action in `generate.py`), because
+  the host currently ignores its output (`ParamGridPanel::applyUiIr` reads
+  `archetype`/`tokens`/`components`/`sections` but not `ir.theme`) — it is the cheapest,
+  least risky piece. Build order:
+  1. `host/Source/ThemeValidate.h` — WCAG contrast, per-token Ember fallback. Pure, no UI.
+  2. `llm/ui_face.py` + a `ui_face` action — modelled on `llm/recommendation.py`. Host
+     still ignores the output.
+  3. `host/Source/GeneratedFaceLookAndFeel.h` wired into `applyUiIr` — faces get their
+     colours; layout unchanged.
+  4. `host/Source/ArchetypeLayout.h` + `host/tests/ParamGridLayoutTest.cpp` — faces get
+     their geometry; the sectioned list becomes archetype columns.
+  5. Cache the face in the state blob keyed on the source hash; extend the cockpit export
+     with archetype + theme; `tools/ui_iterate.sh` contact sheet vs the committed
+     `screenshots/`.
+
+- **The "design bundle is untracked" consequence is resolved.** A distilled copy lives at
+  `docs/design/incant-ui/` (README, GENERATION_PLAN, `ui_ir_system_prompt.md`,
+  `github.md` screen-map, the nine `screenshots/*.png`, and the `.dc.html`
+  source-of-record files). It is a **dated, read-only point-in-time record** per
+  COLLABORATION.md §8 — superseded by a new dated bundle, never edited in place.
+  `support.js` (the browser harness) is not committed. The full working bundle no longer
+  lives at the repo root.
+
+- **Open detail for gap 1:** `Theme.h`'s contrast table measures against `background`
+  `#050505` (`Theme.h:47-53`: textPrimary 17.94:1, textSecondary 5.43:1, accent 6.09:1,
+  progress 11.19:1), while `GENERATION_PLAN.md` / the bundle README say "against
+  `surface`". Pin which reference colour `ThemeValidate.h` uses before implementing it;
+  the measured numbers are the fixture either way, and the historical bone `#f5f0e6`
+  accent (`Theme.h`'s RESOLVED RISK note) is the negative case.
+
+The multi-session build order and per-gap traps are written up in
+`docs/sessions/018-incant-ui-faces-and-shell.md`.
+
+---
+
+## ADR-036 — Incant shell redesign: prototype two directions, keep a code/compile region
+
+| | |
+|---|---|
+| **Status** | Proposed (2026-09-03). Prototyping authorized; the final pick between the two directions is a second decision. |
+| **Date** | 2026-09-03 |
+| **Relates to** | ADR-035 (shares `ArchetypeLayout.h` and the single content-height function), ADR-024 / ADR-029 (`UiIr` — `span` drives the lattice), ADR-022 §3 (Ember tokens — unchanged), ADR-019 (no WebView — unchanged), `docs/ui_design_plan.md` (prior UI-layout analysis), `docs/sessions/010-alpha-ui-architecture.md` |
+
+**Context**
+
+`PluginEditor` splits its width at a fixed `kLeftFraction = 0.65` (`PluginEditor.h:384`).
+At `kMinWindowW = 700` the right column computes to ~232px, and `PromptPanel`'s own
+control row drops widgets to 0px — `Chrome::promptH`'s comment (`PluginEditor.cpp:678-692`)
+records `refineSelector` already hitting 0px at the **900px default**, not only the
+minimum. The prompt is on the width budget and collides with itself.
+
+Separately, the user wants the param grid to read as a panel rather than a half-width
+list, to be genuinely resize-aware, and to stop objects colliding — the same
+`layoutSectioned()` one-control-per-row problem ADR-035 gap 4 addresses.
+
+The refreshed design bundle carries two worked directions for the chrome, both on the
+**unchanged** Ember Console tokens (`Theme.h`), in `Incant Audio Shell.dc.html` with 2×
+screenshots (`docs/design/incant-ui/screenshots/`):
+
+- **2a Command Bar** (`2a-command-bar-1160.png`) — the prompt becomes a full-width bottom
+  bar; the grid owns everything above it as a hairline lattice
+  (`repeat(auto-fit, minmax(180px,1fr))`, shared 1px `#383838` borders, section headers
+  spanning `1/-1` with an accent rank number); a `UiIr` `span: 2` section renders a
+  double-width cell with a 62px knob. Title-bar disclosures become fixed 30px squares so
+  the **title** truncates under pressure, not the buttons.
+- **2b Rail + Dock** (`2b-rail-dock-1160.png`) — a 52px left mode rail replaces the
+  disclosure cluster; the prompt column becomes a user-dragged dock (persisted width,
+  280px floor, 40% ceiling — not `kLeftFraction`); one 26px status bar absorbs the meter,
+  the status line and the sample-browser line.
+- **Both at 700×500** (`2c-both-at-700-minimum.png`) — 2a → 3 columns, family/refine
+  behind `⋯`, Generate keeps its full hit target, grid scrolls with a visible 8px thumb;
+  2b → dock auto-collapses to a 30px tab, grid takes the width back.
+
+Both take the prompt off the width budget, so no band depends on a percentage.
+
+**Decision**
+
+1. **Prototype both directions and pick from the real build.** A shared prep commit does
+   the direction-neutral work: extract `ArchetypeLayout.h` (the same free functions
+   ADR-035 gap 4 introduces — the lattice's width-driven column count wants them), keep
+   `contentHeightForSections()` as the single height function that both
+   `layoutSectioned()` and `contentHeightForCurrentMode()` call (`ParamGridPanel.h:51-57`),
+   and make the disclosure buttons fixed 30px squares (a strict improvement, valid under
+   either direction). Then **two task branches off that base** —
+   `feat/shell-command-bar`, `feat/shell-rail-dock` — each a full `resized()`
+   implementation. Render both through `tools/ui_iterate.sh`, evaluate on the running
+   Standalone, **pick one, merge it, delete the other branch.** No dead layout ships
+   behind a preference flag.
+
+2. **2a keeps a dedicated right-hand code/compile region.** `Incant Audio Shell.dc.html`
+   left this open ("decide where a 20-line Faust error goes in 2a before building it").
+   Resolved: the bottom command bar takes only the **prompt** off the width budget; a
+   right-side region hosts `CodeEditorPanel`, showing the attempted Faust source with the
+   highlighted error line (`PluginEditor.cpp:210-211`) and the full stderr (today also
+   routed to `PromptPanel::setError`). Today `codeEditorPanel` is a hidden bottom-dock
+   child (`PluginEditor.cpp:103, 733-735`); 2a promotes it to a first-class right column —
+   persistent or toggled via the `{ }` title-bar square, decided in the prototype. 2b
+   already has a persistent right dock, so this constraint is 2a-specific.
+
+3. **Ember tokens are unchanged.** This is a `Component::resized()` change, not a repaint.
+   The bundle's R1/R2 recreation (`screenshots/shell-effect-900x500.png`,
+   `shell-instrument-900x786.png`) is the before-picture and the "did not move the chrome"
+   regression check.
+
+**Alternatives considered**
+
+1. **Just make the divider draggable with a minimum right-column width (2b-lite).** The
+   smallest fix for the collision. Kept as the **floor** — if both full directions stall
+   on the real build, ship this. Rejected as the *only* change because it does not deliver
+   the width-driven lattice or the resize-awareness the user asked for.
+2. **Ship 2a-only or 2b-only without prototyping.** Rejected — the user's explicit call is
+   to judge on the running build, and the two differ most in ways a screenshot understates
+   (drag feel, a rail vs. a bottom bar under a DAW's own chrome).
+3. **Carry both layouts permanently behind a user preference.** Rejected — a little-used
+   layout rots undetected (CLAUDE.md's signature defect) and doubles the `resized()`
+   maintenance surface for every future panel.
+4. **A WebView shell.** Rejected — ADR-019 stands, unreopened.
+
+**Reasons**
+
+- The prep commit's deliverables (`ArchetypeLayout.h`, the single height function, the
+  30px buttons) are needed by ADR-035 gap 4 regardless of which shell direction wins, so
+  the two ADRs converge on one piece of code rather than forking it.
+- Prototyping on branches, not behind a flag, keeps exactly one shell in the tree at all
+  times and makes the loser's deletion a `git branch -D`, not a refactor.
+- Keeping `CodeEditorPanel` first-class in 2a preserves the iterate-on-the-Faust
+  workflow, which is the product's core loop — the prompt bar is for starting over, the
+  code panel is for fixing what compiled wrong.
+
+**Consequences**
+
+- **This is new UI architecture.** The `resized()` rewrite, the sqrt-grid formula
+  (`cols = clamp(ceil(sqrt(N)), 2, 6)`) giving way to a width-driven column count, and the
+  `CodeEditorPanel` promotion each land on their own change report + Tier-2 /
+  semantic-diff review — ADR acceptance authorizes the direction only (AGENTS.md §4).
+- **Sequenced after ADR-035 gap 4**, or the prep commit lands `ArchetypeLayout.h` first
+  and both tracks consume it. The lattice is not built twice.
+- `kMinWindowW` / `kMinWindowH` may change — 2c is drawn at 700×500, today's minimum is
+  700×400 (`PluginEditor.h:417, 424`). A `setResizeLimits` change is Tier-2, not §2-gated.
+- The persisted dock width (2b) is a new state-blob attribute — additive, same policy as
+  `uiStyle` / `uiIr`, no `kStateSchemaVersion` bump.
+- A `setDefaultLookAndFeel` denylist guard for `host/Source/` becomes worth adding once
+  ADR-035 gap 3 lands (hand to `invariant-hook-writer` then, not before).
+- Revisit if: neither direction beats the draggable-divider floor on the real build, or
+  the lattice proves worse than the sectioned columns on a real corpus patch.
