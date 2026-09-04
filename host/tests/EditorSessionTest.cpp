@@ -3577,6 +3577,20 @@ void scenario50_generatedFaceScopedToParamGrid()
     check(shellFill == juce::Colour(Theme::accent),
           "the shell's own fill colour is untouched (still Ember accent)");
 
+    // A3d fix. gridFaceColourForTest() above asks the LookAndFeel OBJECT what
+    // it resolves for `fillId` -- it says nothing about what an actual
+    // Slider paints, because applyPresentation() (ParamGridPanel.cpp)
+    // hardcodes thumb/track/rotarySliderFill directly on every widget at
+    // build time, and a component's own explicit colour always wins over its
+    // LookAndFeel's. That gap is exactly how this defect shipped undetected
+    // in A3a: every prior assertion here would still pass today even if
+    // setFaceAccent() were deleted. controlWidgetColourForTest() asks the
+    // WIDGET instead (Component::findColour), which is the only query that
+    // can actually fail if the fix regresses.
+    check(s.editor.gridControlWidgetColourForTest(0, fillId) == gridFill,
+          "a live widget's fill colour matches the face's accent, not just "
+          "the LookAndFeel scheme");
+
     // A LIGHT face (Iron Strip): GeneratedFaceLookAndFeel picks highlightedText
     // (button-text-on-accent) as whichever of surface / text reads better on the
     // accent, rather than assuming a dark ground the way ForgeLookAndFeel can.
@@ -3597,6 +3611,14 @@ void scenario50_generatedFaceScopedToParamGrid()
           "the Ember-default theme detaches the face");
     check(s.editor.gridFaceColourForTest(fillId) == s.editor.shellColourForTest(fillId),
           "after detach the grid resolves the shell colour again");
+    // A3d fix: the live widget must revert to the ADR-022 HEURISTIC accent
+    // (whichever of the four swatches this patch's derivePalette() picked),
+    // not to Theme::accent or any other fixed literal -- currentPalette can
+    // land on amber/rust/coral just as easily as ember, and a detach that
+    // silently reset every patch to plain Ember orange would itself be a
+    // regression this assertion would not have caught before A3d.
+    check(s.editor.gridControlWidgetColourForTest(0, fillId) == s.editor.gridPaletteForTest(),
+          "after detach, the live widget reverts to the heuristic accent");
 
     // Re-attach and let Session fall out of scope: ~PluginForgeEditor detaches
     // paramGridPanel before `faceLnf` is destroyed. A leak here fails the run
@@ -3604,6 +3626,50 @@ void scenario50_generatedFaceScopedToParamGrid()
     s.editor.applyGeneratedFace(velvet);
     check(s.editor.gridFaceActiveForTest(), "re-attached before teardown");
     snapshot(s.editor, "session_50_generated_face");
+
+    // A3d (ADR-035 Step 3 cont'd, docs/design/incant-ui/GKnob.dc.html): the
+    // arc-knob geometry override only actually paints while the grid is in
+    // Rotary style (scenario 13's `cycle` proves the style flip itself
+    // already works) -- everything above this point exercised only colour,
+    // via a Faithful-style grid where kFourParamPatch's continuous params
+    // render as horizontal sliders (drawLinearSlider, not touched by A3d).
+    // Flipping to Rotary here is what actually calls
+    // GeneratedFaceLookAndFeel::drawRotarySlider for the first time in this
+    // suite, with the Velvet Drift face still attached from the re-attach
+    // above.
+    //
+    // NOT VERIFIED BY THIS CHECK: pixel-exact arc geometry against
+    // GKnob.dc.html (angle, stroke width, pointer position) -- this suite has
+    // no pixel-level image assertion anywhere, for this or any other visual
+    // element, and this scenario does not invent one. What this DOES prove,
+    // mechanically: the override runs to completion (no crash/assert) against
+    // a real Slider under a real GeneratedFaceLookAndFeel, at multiple
+    // control sizes (kFourParamPatch's four continuous params), with the
+    // panel left in a state a human can actually look at afterwards --
+    // COLLABORATION.md §1's listening/looking pass still applies and is not
+    // replaced by this.
+    s.processor.setUiStyle("rotary");
+    check(pumpUntil([&] { return s.editor.controlStyleForTest() == juce::String("rotary"); }),
+          "the panel reached rotary style with the face still attached");
+    check(s.editor.gridFaceActiveForTest(),
+          "the face survived the style flip (style and face are independent state)");
+    // A3d fix, the regression this exact assertion caught during development:
+    // setControlStyle() re-invokes applyPresentation() per control WITHOUT
+    // going through setFaceAccent() again (ParamGridPanel.h's ControlStyle
+    // comment: widgets "stay alive across every style change -- setControlStyle
+    // only restyles and relayouts them"). Before faceAccentActive/
+    // faceAccentColour were persisted as members applyPresentation() itself
+    // reads, this style flip silently repainted every knob back to the
+    // ADR-022 heuristic (visually confirmed: the exported snapshot showed the
+    // Ember-swatch orange, not Velvet Drift's mint, immediately after this
+    // exact setUiStyle("rotary") call) even though gridFaceActiveForTest()
+    // above still correctly reported the face as attached -- style and face
+    // being independent STATE (checked above) does not by itself guarantee
+    // they independently drive rendering.
+    check(s.editor.gridControlWidgetColourForTest(0, fillId) == gridFill,
+          "a live rotary widget's fill colour still matches the face's accent "
+          "after a style flip, not the heuristic it silently fell back to");
+    snapshot(s.editor, "session_50b_generated_face_rotary");
 }
 
 // 48 — PF-065: the "Paths…" callout writes generate_script_path + python_path

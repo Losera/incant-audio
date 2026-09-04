@@ -2,6 +2,7 @@
 #include "ForgeLookAndFeel.h"
 #include "ThemeValidate.h"
 #include "UiIr.h"
+#include <cmath>
 
 // ── GeneratedFaceLookAndFeel ─────────────────────────────────────────────────
 // ADR-035 Step 3 (docs/design/incant-ui/GENERATION_PLAN.md "Gaps 2 + 3",
@@ -93,9 +94,131 @@ public:
             accent,    // highlightedFill  -- slider track + rotary fill
             text       // menuText
         });
+
+        // A3d: the rotary TRACK cannot be a ColourScheme slot -- see
+        // drawRotarySlider's own comment below for why -- so it is computed
+        // and stored here instead, from the same validated `text` ink this
+        // constructor already resolved. README.md:253's "hairlines at 7-10%
+        // ink alpha" is the rule; 10% is GKnob.dc.html's own default
+        // (`rgba(255,255,255,.10)` on its dark reference, `text` there being
+        // near-white) and is used uniformly for both dark and light themes
+        // rather than the two distinct literals the mockups hand-tuned per
+        // face (Iron Strip: `rgba(28,27,24,.18)`) -- an 18% light-theme value
+        // is not derivable from "text at some alpha" without a second
+        // per-theme constant, so this is a deliberate simplification, not an
+        // oversight; a light face's track will read slightly fainter than its
+        // own mockup until that is revisited.
+        trackColour = text.withAlpha(0.10f);
+    }
+
+    // The SAME validated accent this constructor just built its ColourScheme
+    // from, exposed statically so a caller that does not (yet) have a
+    // GeneratedFaceLookAndFeel instance can still know what accent one WOULD
+    // resolve to. Exists for ParamGridPanel::setFaceAccent(), called from
+    // PluginEditor::applyGeneratedFace() to re-colour already-built slider
+    // widgets to match -- see that function's own comment for why a second,
+    // separate colour source is needed at all. `theme == UiIr::Theme{}`
+    // (the detach sentinel) is a caller concern, not this function's; it
+    // still returns a real (Ember) colour for that input, same as the
+    // constructor would.
+    static juce::Colour resolvedAccent(const UiIr::Theme& raw)
+    {
+        return toColour(ThemeValidate::validate(raw).theme.accent, Theme::accent);
+    }
+
+    // A3d (ADR-035 Step 3 cont'd): the arc-knob GEOMETRY, per
+    // docs/design/incant-ui/GKnob.dc.html -- the exact SVG this class's own
+    // header comment named as "a separate step" when A3a shipped colour only.
+    // Ported formula-for-formula from that file's renderVals(): angle 0 is
+    // top-centre, increasing clockwise (GKnob's own
+    // `pt(a,r) = (cx + r*sin(a), cy - r*cos(a))`), which is the SAME
+    // convention juce::Path::addCentredArc documents (JUCE 7.0.9,
+    // juce_Path.h:462-464: "0 is the top-centre of the ellipse... clockwise"),
+    // so `rotaryStartAngle`/`rotaryEndAngle` need no rotation offset to reuse
+    // directly -- they already arrive in this convention from
+    // ParamGridPanel.cpp's `setRotaryParameters(pi*1.2f, pi*2.8f)` call,
+    // confirmed by reading that call site rather than assumed.
+    //
+    // WHY THIS CANNOT BE setColourScheme() ALONE, unlike every other widget
+    // this file touches only through colour: LookAndFeel_V4's own
+    // initialiseColours() (juce_LookAndFeel_V4.cpp:1401,
+    // `Slider::rotarySliderOutlineColourId` <- `ColourScheme::widgetBackground`)
+    // wires the TRACK to the same slot this class fills with `surface` -- the
+    // panel's own fill. The default drawRotarySlider (juce_LookAndFeel_V4.cpp
+    // :1064-1112) would therefore paint every rotary's track in the exact
+    // colour of the panel behind it: invisible by construction, on both
+    // ForgeLookAndFeel and this class, until this override exists. There is
+    // no UIColour slot for "ink at reduced alpha" (trackColour above), so
+    // recolouring alone cannot reach the mockups' faint-but-visible hairline
+    // track (README.md:253).
+    //
+    // The default implementation also draws the thumb as a filled ELLIPSE at
+    // the value angle (`g.fillEllipse`, juce_LookAndFeel_V4.cpp:1110-1111);
+    // GKnob draws a 2px LINE from 34% radius to just inside the arc instead.
+    // That geometry difference, not only the missing track colour, is why
+    // this overrides the whole method rather than layering a recolour on top
+    // of the inherited one.
+    void drawRotarySlider(juce::Graphics& g, int x, int y, int width, int height,
+                          float sliderPos, float rotaryStartAngle, float rotaryEndAngle,
+                          juce::Slider& slider) override
+    {
+        // Same 10px inset the default implementation uses
+        // (juce_LookAndFeel_V4.cpp:1070) -- kept so a face knob occupies the
+        // same footprint inside its cell as an un-faced one did.
+        const auto bounds = juce::Rectangle<int>(x, y, width, height).toFloat().reduced(10.0f);
+        const float diameter = juce::jmin(bounds.getWidth(), bounds.getHeight());
+        const float cx = bounds.getCentreX();
+        const float cy = bounds.getCentreY();
+
+        // GKnob.dc.html's own words: "stroke 4px at 52px diameter, scale with
+        // size" -- thickness is a proportion of diameter (4/52), not a fixed
+        // 4px regardless of the control's own sm/md/lg size, clamped to a
+        // sane range so a very small or very large knob never gets a
+        // hairline-thin or track-swallowing stroke.
+        const float strokeW = juce::jlimit(2.0f, 6.0f, diameter * (4.0f / 52.0f));
+        const float r = diameter / 2.0f - strokeW / 2.0f - 1.0f;
+
+        const float toAngle = rotaryStartAngle + sliderPos * (rotaryEndAngle - rotaryStartAngle);
+
+        juce::Path track;
+        track.addCentredArc(cx, cy, r, r, 0.0f, rotaryStartAngle, rotaryEndAngle, true);
+        g.setColour(trackColour);
+        g.strokePath(track, juce::PathStrokeType(strokeW, juce::PathStrokeType::curved,
+                                                  juce::PathStrokeType::rounded));
+
+        if (slider.isEnabled())
+        {
+            const auto fill = slider.findColour(juce::Slider::rotarySliderFillColourId);
+
+            // GKnob's own guard ("v > 0.004"): a near-zero arc renders as
+            // visible noise at the rounded cap, not as "no value yet".
+            if (sliderPos > 0.004f)
+            {
+                juce::Path value;
+                value.addCentredArc(cx, cy, r, r, 0.0f, rotaryStartAngle, toAngle, true);
+                g.setColour(fill);
+                g.strokePath(value, juce::PathStrokeType(strokeW, juce::PathStrokeType::curved,
+                                                          juce::PathStrokeType::rounded));
+            }
+
+            // Pointer: a 2px line from 34% radius to just inside the arc
+            // (GKnob.dc.html: `pt(a, r*0.34)` to `pt(a, r - w - 1)`).
+            const auto atRadius = [&](float radius)
+            {
+                return juce::Point<float>(cx + radius * std::sin(toAngle),
+                                          cy - radius * std::cos(toAngle));
+            };
+            g.setColour(fill);
+            g.drawLine(juce::Line<float>(atRadius(r * 0.34f), atRadius(r - strokeW - 1.0f)), 2.0f);
+        }
     }
 
 private:
+    // A3d: see drawRotarySlider() above. Not a ColourScheme UIColour --
+    // computed once in the constructor, reused on every paint of every
+    // rotary this LookAndFeel draws.
+    juce::Colour trackColour = Theme::outline;
+
     // ThemeValidate returns colour strings and no juce type by design (its test
     // links nothing a UiIr round-trip does not). This is the one place a
     // validated string becomes a juce::Colour.

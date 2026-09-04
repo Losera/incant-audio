@@ -133,6 +133,11 @@ public:
     juce::String gridControlOrientationForTest(int i) const;
     double       gridControlValueForTest(int i) const;
     juce::String gridControlTextForTest(int i) const;
+    // A3d fix: the colour a live grid widget itself resolves for `colourId` --
+    // see ParamGridPanel::controlWidgetColourForTest's own header comment for
+    // why this is a different, and stricter, question than
+    // gridFaceColourForTest() below asks.
+    juce::Colour gridControlWidgetColourForTest(int i, int colourId) const;
     // T1 (ADR-022 Track 1.2): the sectioned layout applyUiIr() is currently
     // holding, if any. Forwarded rather than exposing paramGridPanel itself,
     // same rule as every accessor above.
