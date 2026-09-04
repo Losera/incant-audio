@@ -148,7 +148,7 @@ level_full() {
               OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery \
               ParamIdentityTest NoteRingTest NoteRingTsanTest ValidationGateTest \
               SoundfetchClientTest GenerationProfilesAutoTest UiIrTest \
-              PromptPanelPathResolutionTest
+              ThemeValidateTest PromptPanelPathResolutionTest
 
     # ── Three harnesses that existed and ran nowhere ─────────────────────────
     # Found 2026-07-30 while surveying the measurement surface: OutputGuardTest
@@ -200,10 +200,16 @@ level_full() {
     # faces, Step 1). UiIr schema 3 makes UiIr::parse()/toVar() a real
     # production path -- the state blob persists the IR as JSON -- and neither
     # had a direct test before. Pure juce_data_structures, no display.
+    # ThemeValidateTest joined with ADR-035 Step 2, in the commit that created
+    # it. ThemeValidate::validate() is the contrast gate a generated face passes
+    # before a LookAndFeel is built from it -- a hand-authored or LLM-produced or
+    # stale-cached Theme all reach it. Pure arithmetic on parsed RGB, links only
+    # what UiIrTest does, no display.
     local pure
     for pure in OutputGuardTest ParamMapTest StatePersistenceTest ParamIdentityTest \
                 NoteRingTest ValidationGateTest SoundfetchClientTest \
-                GenerationProfilesAutoTest UiIrTest PromptPanelPathResolutionTest; do
+                GenerationProfilesAutoTest UiIrTest ThemeValidateTest \
+                PromptPanelPathResolutionTest; do
       local bin
       bin="$(find host/build -type f -name "$pure" 2>/dev/null | head -n1)"
       if [[ -n "$bin" ]]; then
