@@ -71,8 +71,9 @@ for completeness, not as independent evidence).
 
 ### Does the 500-char cap cause the effect? No — it handicaps arm A.
 
-The cap binds on **39 of 202** programs (35 `routing_arity`, where it cuts the
-tail of Faust's box-expression dump). Stratified (`verify.py` checks both):
+The cap binds on **34 of the 192** screened programs (39 of the raw 202; mostly
+`routing_arity`, where it cuts the tail of Faust's box-expression dump).
+Stratified (`verify.py` checks both):
 
 | 3B | n | A repaired | B repaired | McNemar p |
 |---|--:|--:|--:|--:|
@@ -85,23 +86,39 @@ and is WP3 in [`METHODOLOGY.md`](METHODOLOGY.md).
 
 ### Why (mechanism, from reading the repair trajectories)
 
-faust-rs pins the failure to an exact token with a caret. The small model edits
-**at that spot** and re-breaks it the same way; terse, unlocalised C++ stderr
-provokes a **broader rewrite** — often "simplify / delete the broken
-sub-expression" — that compiles more often. Three signatures, all from the
+faust-rs pins the failure to an exact token and **quotes the offending source
+line back** under a caret. A small model shown that line tends to treat it as
+fixed and edit *around* it; the terse, unlocalised C++ stderr instead makes the
+model **discard and rewrite** — often "simplify / delete the broken
+sub-expression" — which compiles more often. Four signatures, all from the
 committed 3B run, all checked by `verify.py`:
 
-- **Second-attempt rescue.** The arms are close on the first corrective attempt
-  (arm A wins 94/192, arm B 62). They split on the second: of the programs still
-  broken after attempt 1, arm A repairs **49 / 87 (56%)** on attempt 2, arm B
-  **20 / 126 (16%)**, arm C **14 / 121 (12%)**.
+- **Caret-line preservation.** Of the 161 programs where the faust-rs feedback
+  quoted a source line, that exact line survived **verbatim** into attempt 1 in
+  **94 / 161 (58%)** of arm-B rewrites — against **7 / 161 (4%)** of arm A's
+  (McNemar exact *p* ≈ 2e-22; discordant 91 vs 4). It replicates on the 7B
+  (53 / 99 vs 4 / 99, *p* ≈ 2e-12). Arm **C** — faust-rs's caret with *no* prose
+  notes — behaves like arm B (91 / 161, 57%), so it is the quoted line, not the
+  verbosity, that anchors the model.
 - **Same-class recidivism.** Of arm A's 49 failed repairs, 21 (**54%** of the 39
   that got a corrective attempt) ended on the same error class they started on;
   arm B 83 / 106 (**78%**), arm C 81 / 107 (**76%**).
+- **Second-attempt rescue.** Arm A leads from the first corrective attempt
+  (94 / 192 wins vs arm B 62) and the gap **widens** on the second: of the
+  programs still broken after attempt 1, arm A repairs **49 / 88 (56%)** on
+  attempt 2, arm B **20 / 126 (16%)**, arm C **14 / 121 (12%)**.
 - **Where it lives.** Significant exactly where the caret is most informative —
   `routing_arity` (McNemar *p* ≈ 5e-6), `syntax` (≈ 6e-6), `hallucinated_symbol`
   (≈ 2e-3) — and the one class where faust-rs is nominally *better* is
   `unclassified` (n = 17, *p* = 0.29), where C++ stderr carries no location.
+
+**Caveats on the preservation reading.** Both arms mostly re-emit the whole
+program — the preserved line sits inside an otherwise-rewritten patch — so this
+is a *tendency*, not a clean patch-vs-rewrite dichotomy. And the two arms'
+correction templates differ in wording (arm A appends "…fix it:"; arms B/C end
+"Fix this and re-emit the complete program."), an uncontrolled difference that
+bears directly on a *preservation* claim; closing it needs a model re-run
+(**WP3** in [`METHODOLOGY.md`](METHODOLOGY.md)).
 
 ### What this does *not* claim
 
@@ -138,7 +155,8 @@ python3 bench/issue26/verify.py
 Re-derives, from the committed data: the corpus shape + class mix; that every
 stored `cpp_error_class` still matches the classifier; the program screen (10
 excluded, 192 pass); every headline cell (counts, exact McNemar, mean attempts,
-per-class McNemar, the rescue split, the stderr-cap strata); and the fidelity
+per-class McNemar, the rescue split, the second-error identity, caret-line
+preservation, the stderr-cap strata); and the fidelity
 figures, recomputed from the `*_fidelity.json` `cells` dict under the screen.
 Diffs against `expected.json`; asserts it ran exactly `checks_expected` checks.
 Only needs `scipy`. `python3 bench/issue26/verify.py --freeze` re-emits
@@ -295,7 +313,8 @@ Full list, with the planned follow-up for each, is in
    text (METHODOLOGY L7) — fired once in the committed run.
 6. **The A vs faust-rs prompt wrappers are not byte-matched** — arm A carries
    "…fix it:", arms B/C carry faust-rs's own "The Faust compiler rejected your
-   program." + "…re-emit the complete program." Median feedback length is
-   97 / 637 / 262 chars (A/B/C); arm C at 262 still behaves like B, which is
-   evidence against verbosity. WP3.
+   program." + "…re-emit the complete program." Arm C behaving like B rules out
+   *verbosity*, but not the wrapper wording — and the "re-emit the complete
+   program" instruction bears directly on the caret-line-preservation reading.
+   Median feedback length is 97 / 637 / 262 chars (A/B/C). WP3.
 7. **n=1 per cell, determinism unaudited** (WP5).

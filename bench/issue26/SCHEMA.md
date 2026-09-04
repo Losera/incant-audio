@@ -119,6 +119,17 @@ records; the committed 7B file is a 120-program stratified subset (360 records).
   pairs McNemar uses and is not independent evidence.
 - **rescue**: `won_at_1` / `still_broken` (= n − won_at_1 − no_program) /
   `rescued_at_2`, per arm.
+- **second_error**: per arm, of the repairs that FAILED — `failed`,
+  `same_class` / `new_class` (attempt-1 error class vs the start), and
+  `no_attempt` (never produced a corrective program). `same + new + no_attempt
+  == failed`.
+- **caret_preservation**: paired. Of the pairs where the treatment arm's
+  attempt-1 feedback quoted a source line under its caret AND both arms produced
+  an attempt-1 program (`n`) — how often that exact line survived, stripped-equal,
+  into each arm's rewrite (`a_preserved` / `b_preserved`), with the discordant
+  split (`b_only` / `a_only`) and an exact McNemar `mcnemar_p`. The mechanism
+  measurement for issue #26: a precise caret anchors the model to the flagged
+  line; a contentless C++ error makes it rewrite.
 - **by_arm_a_truncation**: the headline split on whether arm A's attempt-1
   feedback hit the 500-char cap.
 - A pair is dropped if either arm is missing, or (with `--drop-transport`) if
