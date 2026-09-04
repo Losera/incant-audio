@@ -488,6 +488,19 @@ private:
     // resetting this, and ~PluginForgeEditor detaches before anything unwinds.
     std::unique_ptr<GeneratedFaceLookAndFeel> faceLnf;
 
+    // ADR-035 §5/A3b. The Components block (keyboard/sampleBrowser/meter) for
+    // whichever compile most recently fired a ui_face request -- read back
+    // when promptPanel.onUiFaceResult fires, since that callback is
+    // persistent (set once in the constructor) and cannot itself capture a
+    // per-compile value the way a per-request lambda could. Safe to read
+    // unconditionally when the callback fires: a ui_face job in flight is
+    // ALWAYS for the compile that most recently updated this field --
+    // PromptPanel::requestUiFace()'s header comment is the proof (a real
+    // generate/recommend job always preempts an in-flight ui_face job before
+    // producing a newer compile, so an older callback can only ever arrive
+    // for the compile whose components are still the ones sitting here).
+    UiIr::Components lastDerivedComponentsForUiFace;
+
     // T5/T3.4: there was no juce::TooltipWindow anywhere in host/ -- confirmed by
     // grep before adding this -- so the two existing setTooltip() calls
     // (PromptPanel.cpp: familySelector, and the Add/Redo mode explainer) were

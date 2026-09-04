@@ -623,6 +623,7 @@ void PromptPanel::shutdownWorker()
             return;                     // idempotent
         stopping = true;
         hasJob   = false;               // drop anything queued but not started
+        hasUiFaceJob = false;           // ditto for a pending ui_face job
     }
 
     // Bump first, so a run that is mid-flight discards its result rather than
@@ -753,6 +754,12 @@ void PromptPanel::queueRequest(const juce::String& action, const juce::var& desi
         // a race that made a run discard itself.
         pendingGeneration = generation.fetch_add(1, std::memory_order_acq_rel) + 1;
         hasJob            = true;
+        // ADR-035 §5/A3b: a real job always wins over a merely-pending
+        // (not yet started) ui_face job -- see requestUiFace()'s header
+        // comment. It would be stale by the time it ran: THIS job is about
+        // to produce its own newer compile and its own newer ui_face
+        // request anyway.
+        hasUiFaceJob      = false;
 
         if (! worker.joinable())        // started lazily, on first use
             worker = std::thread([this] { workerLoop(); });
@@ -764,6 +771,38 @@ void PromptPanel::queueRequest(const juce::String& action, const juce::var& desi
             activeChild->kill();
     }
 
+    jobCv.notify_one();
+}
+
+// ADR-035 §5/A3b. See the header comment for the priority rules against a
+// real generate/recommend job. Deliberately does NOT touch statusLabel,
+// generateButton, startWorking()/stopWorking(), or clearError() — none of
+// PromptPanel's user-facing "a generation is in flight" state, which is the
+// whole point of this being invisible when it works and silent when it
+// doesn't.
+void PromptPanel::requestUiFace(const juce::var& requestBody)
+{
+    if (! generateScript.existsAsFile())
+        return;   // same silent-fallback contract as any other failure path
+
+    {
+        std::lock_guard<std::mutex> lock(jobMutex);
+        if (stopping)
+            return;                     // tearing down: drop the request
+        pendingUiFaceBody = requestBody;
+        hasUiFaceJob      = true;
+
+        if (! worker.joinable())        // started lazily, same as queueRequest
+            worker = std::thread([this] { workerLoop(); });
+    }
+
+    // Deliberately NO activeChild->kill() here. Unlike queueRequest() above,
+    // a ui_face request must never preempt whatever is currently running —
+    // if that is a real generate/recommend job, it always wins (nothing to
+    // do); if it is an OLDER ui_face job, letting it finish naturally
+    // (bounded by its own timeout) is simpler than adding a second kill path
+    // and costs nothing observable, since only the LATEST pendingUiFaceBody
+    // survives to run next regardless.
     jobCv.notify_one();
 }
 
@@ -881,28 +920,210 @@ void PromptPanel::workerLoop()
         juce::String family;
         juce::String refineMode, action, provider, model;
         juce::var designPlan;
+        juce::var uiFaceBody;
+        bool runReal = false;
         {
             std::unique_lock<std::mutex> lock(jobMutex);
-            jobCv.wait(lock, [this] { return hasJob || stopping; });
+            // ADR-035 §5/A3b: a ui_face job alone is also enough to wake this
+            // loop, but a real job (checked first below) always takes
+            // priority — see requestUiFace()'s header comment.
+            jobCv.wait(lock, [this] { return hasJob || hasUiFaceJob || stopping; });
             if (stopping)
                 return;
-            prompt       = pendingPrompt;
-            myGeneration = pendingGeneration;
-            mode         = pendingMode;
-            priorSource  = pendingPriorSource;
-            kind         = pendingKind;
-            family       = pendingFamily;
-            refineMode   = pendingRefineMode;
-            action       = pendingAction;
-            designPlan   = pendingDesignPlan;
-            provider     = pendingProvider;
-            model        = pendingModel;
-            hasJob       = false;
+
+            if (hasJob)
+            {
+                prompt       = pendingPrompt;
+                myGeneration = pendingGeneration;
+                mode         = pendingMode;
+                priorSource  = pendingPriorSource;
+                kind         = pendingKind;
+                family       = pendingFamily;
+                refineMode   = pendingRefineMode;
+                action       = pendingAction;
+                designPlan   = pendingDesignPlan;
+                provider     = pendingProvider;
+                model        = pendingModel;
+                hasJob       = false;
+                runReal      = true;
+            }
+            else
+            {
+                uiFaceBody   = pendingUiFaceBody;
+                hasUiFaceJob = false;
+            }
         }
 
-        runGeneration(prompt, myGeneration, mode, priorSource, kind, family,
-                      refineMode, action, designPlan, provider, model);
+        if (runReal)
+            runGeneration(prompt, myGeneration, mode, priorSource, kind, family,
+                          refineMode, action, designPlan, provider, model);
+        else
+            runUiFace(uiFaceBody);
     }
+}
+
+// ADR-035 §5/A3b. Same subprocess mechanics as runGeneration below —
+// request-file encoding, register-before-start, bounded wait+kill, "last
+// line starting with {" extraction — deliberately kept on THIS worker
+// instead of a second independent thread: a second thread calling
+// ChildProcess::start() concurrently with this one wedged EditorSessionTest
+// under `check.sh full`'s ASAN/UBSAN build (JUCE Assertion failures in
+// juce_TemporaryFile.cpp and juce_Component.cpp, then a hang) — reproduced,
+// then confirmed gone by routing here instead, where this worker is now the
+// ONLY thread in the process that ever forks a subprocess, full stop.
+//
+// No staleness stamp (contrast runGeneration's `generation`/stale()): this
+// worker runs at most one job at a time, so by the time ANY ui_face job is
+// picked up here, a newer one is either what got coalesced into
+// pendingUiFaceBody (nothing to invalidate — it hasn't run yet) or is still
+// queued behind it. The one case that matters — a real generate/recommend
+// job preempting a RUNNING ui_face subprocess — is handled by
+// queueRequest()'s existing unconditional activeChild->kill(), which this
+// function's own bounded wait already treats as an ordinary early return
+// (empty/partial output -> onUiFaceResult delivers a harmless non-object
+// var, same as any other failure).
+void PromptPanel::runUiFace(const juce::var& requestBody)
+{
+    juce::Component::SafePointer<PromptPanel> safeThis(this);
+
+    const auto deliver = [safeThis](juce::var result)
+    {
+        juce::MessageManager::callAsync([safeThis, result]
+        {
+            if (safeThis == nullptr) return;
+            if (safeThis->onUiFaceResult) safeThis->onUiFaceResult(result);
+        });
+    };
+
+    // A4-style request file (see runGeneration below): one JSON escaping
+    // layer via juce::JSON::toString, not a hand-assembled payload — the
+    // params array can contain arbitrary Faust label text.
+    juce::TemporaryFile requestFile(".json");
+    // Forced "\n" — juce_File.h:781-784's replaceWithText defaults to
+    // "\r\n"; every write in this codebase avoids it (PromptPanelThreadingTest
+    // paid for this trap once, host/tests/FakeGenerator.h's header comment).
+    const bool wroteRequest = requestFile.getFile().replaceWithText(
+        juce::JSON::toString(requestBody, /* allOnOneLine */ true), false, false, "\n");
+
+    if (! wroteRequest)
+    {
+        deliver(juce::var());
+        return;
+    }
+
+    juce::ChildProcess child;
+
+    // Same RAII shape as runGeneration's ChildRegistration below — a stale
+    // activeChild pointer would be a use-after-free of its own once `child`
+    // leaves scope.
+    struct ChildRegistration
+    {
+        PromptPanel& panel;
+        ~ChildRegistration()
+        {
+            std::lock_guard<std::mutex> lock(panel.childMutex);
+            panel.activeChild = nullptr;
+        }
+    } registration { *this };
+
+    {
+        std::lock_guard<std::mutex> lock(childMutex);
+        activeChild = &child;
+    }
+
+    // FOUND THE HARD WAY (a real, reproduced bug, not a hypothetical): a real
+    // generate/recommend job that arrives WHILE this function is still
+    // between "picked up by workerLoop" and "activeChild registered above"
+    // is invisible to queueRequest()'s activeChild->kill() -- killing a
+    // null activeChild is a documented no-op (juce_ChildProcess.cpp:39).
+    // Without this check, the ui_face subprocess starts anyway and the real
+    // job sits behind it for as long as this one takes to finish (up to
+    // kUiFaceTimeoutMs) -- caught by EditorSessionTest scenario 9's 30s-sleep
+    // teardown probe timing out at ~30s instead of returning promptly.
+    // runGeneration below closes the exact same window the exact same way:
+    // register activeChild FIRST (so a kill reaching it once it registers
+    // can still succeed), THEN check "am I still wanted" before start().
+    // hasJob is the read that matters (a real job always wins -- see
+    // requestUiFace()'s header comment); `stopping` covers teardown.
+    {
+        std::lock_guard<std::mutex> lock(jobMutex);
+        if (hasJob || stopping)
+        {
+            deliver(juce::var());
+            return;
+        }
+    }
+
+    const auto pythonExeCopy = this->pythonExe;
+    juce::StringArray argv { pythonExeCopy, generateScript.getFullPathName(),
+                             "--request-file", requestFile.getFile().getFullPathName() };
+
+    const bool started = child.start(
+        argv, juce::ChildProcess::wantStdOut | juce::ChildProcess::wantStdErr);
+
+    if (! started)
+    {
+        deliver(juce::var());
+        return;
+    }
+
+    // Bounded wait, kill on expiry — same reasoning as runGeneration's own
+    // 180s cap, sized down: one bounded LLM call (llm/ui_face.py:
+    // max_tokens=1100, no compile-retry loop), not up to three attempts
+    // through a compile loop.
+    static constexpr int kUiFaceTimeoutMs = 45 * 1000;
+    if (! child.waitForProcessToFinish(kUiFaceTimeoutMs))
+    {
+        child.kill();
+        deliver(juce::var());
+        return;
+    }
+
+    // FOUND THE HARD WAY, same investigation as the pre-start() check above:
+    // a real job's queueRequest() may have killed THIS child while we were
+    // waiting — waitForProcessToFinish() then returns true (a killed process
+    // is not running) and this looks like an ordinary fast exit. But
+    // ChildProcess::kill() is SIGKILL to the direct child ONLY
+    // (juce_SharedCode_posix.h's killProcess()); it does not reach a
+    // grandchild the direct child had not yet reaped — e.g. `/bin/sh`
+    // running `sleep 30; cat …` forks `sleep` as a separate process, and
+    // killing `/bin/sh` orphans it. The orphan keeps its inherited copy of
+    // the pipe's write end open for however long IT still has left, so
+    // readAllProcessOutput() below would block on it regardless of the
+    // direct child already being dead. runGeneration below hits this exact
+    // shape (EditorSessionTest scenario 9's 30s-sleep teardown probe) and
+    // avoids it with the identical check, in the identical place, for the
+    // identical reason — confirmed by reproducing scenario 9's ~30s teardown
+    // stall with this check absent, and a clean, prompt teardown with it
+    // present (full EditorSessionTest run: 428/0 in ~60s, down from
+    // 4-5 minutes with recurring stalls before this and the pre-start()
+    // check above both existed).
+    {
+        std::lock_guard<std::mutex> lock(jobMutex);
+        if (hasJob || stopping)
+        {
+            deliver(juce::var());
+            return;
+        }
+    }
+
+    const auto raw = child.readAllProcessOutput();
+
+    juce::String jsonLine;
+    for (auto& line : juce::StringArray::fromLines(raw))
+    {
+        auto trimmed = line.trim();
+        if (trimmed.startsWith("{"))
+            jsonLine = trimmed;
+    }
+
+    if (jsonLine.isEmpty())
+    {
+        deliver(juce::var());
+        return;
+    }
+
+    deliver(juce::JSON::parse(jsonLine));
 }
 
 void PromptPanel::runGeneration(const juce::String& promptText, juce::uint64 myGeneration,

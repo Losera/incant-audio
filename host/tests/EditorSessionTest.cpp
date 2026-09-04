@@ -3606,6 +3606,95 @@ void scenario50_generatedFaceScopedToParamGrid()
     snapshot(s.editor, "session_50_generated_face");
 }
 
+// 51 — ADR-035 §5/A3b. The compile-success callback's own ui_face request,
+// end to end: a REAL compile through the fake generator, followed by the
+// host's OWN background subprocess call for a face, both landing on the SAME
+// resolved script (FakeGenerator::install's env vars, resolved independently
+// by PromptPanel and UiFaceClient via the same resolveGenerateScript() /
+// resolvePythonExe() functions — production shape). Where scenario 50 called
+// applyGeneratedFace() directly because "the compile path cannot exercise a
+// non-default face yet", this scenario is what closes that gap.
+void scenario51_uiFaceRequestAppliesGeneratedFace(const juce::File& tmp)
+{
+    scenario("51. the post-compile ui_face request applies a generated face",
+             "ADR-035 §5/A3b: a real compile's success callback fires a background "
+             "ui_face request; a valid schema-3 answer attaches a face; a declined "
+             "or failed one leaves the deterministic Ember layout untouched.");
+
+    const int fillId = juce::Slider::rotarySliderFillColourId;
+
+    // ── A valid face answer attaches ──────────────────────────────────────
+    {
+        FakeGenerator::install(FakeGenerator::writeSuccessThenFace(
+            tmp, "gen51", kFourParamPatch,
+            "#0e0f13" /* surface */, "#eef2ee" /* text */, "#8fe3c1" /* accent */));
+
+        Session s;
+        s.editor.submitPromptForTest("a face-worthy patch");
+        const bool live = pumpUntil([&] {
+            return s.editor.statusTextForTest().contains("DSP live");
+        });
+        check(live, "the compile itself reached DSP live");
+
+        // Right after the compile settles, the deterministic layout
+        // (deriveLayoutFromGroups(), always the Ember default) is what is
+        // live -- the ui_face round trip is still an independent background
+        // subprocess call at this point.
+        check(! s.editor.gridFaceActiveForTest(),
+              "immediately after compile: still the deterministic Ember default");
+
+        const bool faceApplied = pumpUntil([&] {
+            return s.editor.gridFaceActiveForTest();
+        });
+        check(faceApplied, "the background ui_face request's answer attached a face");
+
+        const auto gridFill = s.editor.gridFaceColourForTest(fillId);
+        check(gridFill.getRed() < 190 && gridFill.getGreen() > 200 && gridFill.getBlue() > 150,
+              "the attached face reads as the mint theme from the fake answer, not Ember orange");
+    }
+
+    // ── A schema-0 decline leaves the deterministic layout in place ───────
+    {
+        auto* decline = new juce::DynamicObject();
+        decline->setProperty("schema", 0);
+        auto* response = new juce::DynamicObject();
+        response->setProperty("success", true);
+        response->setProperty("action", "ui_face");
+        response->setProperty("reason", "ok");
+        response->setProperty("face", juce::var(decline));
+        tmp.getChildFile("gen51decline_face.json").replaceWithText(
+            juce::JSON::toString(juce::var(response), true), false, false, "\n");
+        FakeGenerator::writeSuccess(tmp, "gen51decline_generate", kFourParamPatch);
+        auto script = tmp.getChildFile("gen51decline");
+        script.replaceWithText(
+            juce::String("#!/bin/sh\n")
+            + "if [ \"$1\" = '--request-file' ] && grep -q '\"action\".*\"ui_face\"' \"$2\"; then\n"
+            + "  cat '" + tmp.getChildFile("gen51decline_face.json").getFullPathName() + "'\n"
+            + "else\n"
+            + "  cat '" + tmp.getChildFile("gen51decline_generate.json").getFullPathName() + "'\n"
+            + "fi\n",
+            false, false, "\n");
+        script.setExecutePermission(true);
+        FakeGenerator::install(script);
+
+        Session s;
+        s.editor.submitPromptForTest("a patch whose face producer declines");
+        const bool live = pumpUntil([&] {
+            return s.editor.statusTextForTest().contains("DSP live");
+        });
+        check(live, "the compile reached DSP live even though the face producer will decline");
+
+        // Give the background request a real chance to land (it always
+        // does — the fake script has no sleep), then confirm it did NOT
+        // attach anything. There is no positive event to pumpUntil() for a
+        // decline, so this pumps the message loop directly instead of
+        // asserting on an unbounded negative.
+        pumpUntil([&] { return false; }, 500);
+        check(! s.editor.gridFaceActiveForTest(),
+              "a schema-0 decline leaves the deterministic Ember default attached");
+    }
+}
+
 // 48 — PF-065: the "Paths…" callout writes generate_script_path + python_path
 // into config.json (merge, not overwrite) and re-resolves the runtime live.
 // Numbered 48 to sit after PR #39's scenarios 45-47; renumber on rebase if that
@@ -3751,6 +3840,7 @@ int main()
     scenario48_runtimePathsCallout(tmp);
     scenario49_generateButtonRoutesByRefineMode(tmp);
     scenario50_generatedFaceScopedToParamGrid();
+    scenario51_uiFaceRequestAppliesGeneratedFace(tmp);
 
     tmp.deleteRecursively();
 
