@@ -287,7 +287,7 @@ void ParamGridPanel::applyPresentation(Control& c)
     // updateText() re-renders it now (juce_Slider.h:844).
     sl->updateText();
 
-    // ── Accent (ADR-022 §3 / T7) ────────────────────────────────────────────
+    // ── Accent (ADR-022 §3 / T7; face-aware since the A3d fix) ──────────────
     // Applied here, not in refreshParamKnobs(), because applyPresentation()
     // already "owns every styling decision" (header comment) and re-runs on
     // every setControlStyle() restyle -- so a style change can never leave a
@@ -302,9 +302,21 @@ void ParamGridPanel::applyPresentation(Control& c)
     // (juce_LookAndFeel_V4.cpp:1342), so a toggle was never going to pick this
     // up regardless, and Control's early return above already keeps this
     // whole block unreachable for one anyway.
-    sl->setColour(juce::Slider::thumbColourId, currentPalette);
-    sl->setColour(juce::Slider::trackColourId, currentPalette);
-    sl->setColour(juce::Slider::rotarySliderFillColourId, currentPalette);
+    //
+    // faceAccentActive/faceAccentColour (A3d fix): a face's theme accent is
+    // not known at the moment a control is first built -- PluginEditor's
+    // compile-success callback calls applyGeneratedFace() AFTER
+    // refreshParamKnobs()/applyUiIr() -- so this cannot simply always use
+    // currentPalette. Both members are set by setFaceAccent(), called
+    // whenever a face attaches, changes, or detaches; reading them HERE
+    // (rather than only re-colouring existing widgets from setFaceAccent()
+    // itself) is what keeps a later setControlStyle() restyle from silently
+    // reverting an attached face's accent back to the heuristic -- see this
+    // member's own declaration in the header for the reproduction.
+    const auto accent = faceAccentActive ? faceAccentColour : currentPalette;
+    sl->setColour(juce::Slider::thumbColourId, accent);
+    sl->setColour(juce::Slider::trackColourId, accent);
+    sl->setColour(juce::Slider::rotarySliderFillColourId, accent);
 
     // ── Style override ──────────────────────────────────────────────────────
     // Rotary and Horizontal are user view choices and win over the Faust Kind.
@@ -1012,6 +1024,45 @@ juce::String ParamGridPanel::controlTextForTest(int index) const
     if (auto* tb = dynamic_cast<juce::ToggleButton*>(w))
         return tb->getToggleState() ? "On" : "Off";
     return {};
+}
+
+juce::Colour ParamGridPanel::controlWidgetColourForTest(int index, int colourId) const
+{
+    if (index < 0 || index >= static_cast<int>(controls.size()))
+        return {};
+    // Component::findColour, not the LookAndFeel's -- see the header comment
+    // on why that distinction is the entire point of this accessor.
+    return controls[static_cast<size_t>(index)].widget->findColour(colourId);
+}
+
+// A3d fix (see ParamGridPanel.h's header comment on this method, and on the
+// faceAccentActive/faceAccentColour members, for the full story). Two jobs,
+// both necessary:
+//   1. Persist the decision so a LATER applyPresentation() call (e.g. from
+//      setControlStyle()) keeps using it, not just the controls that exist
+//      right now.
+//   2. Re-colour the controls that already exist, immediately -- a face
+//      attaching does not by itself trigger a fresh applyPresentation() pass
+//      over anything, so without this loop the fix would only take effect on
+//      the NEXT compile, not the one that just requested this face.
+// Skips anything that is not a Slider by the same dynamic_cast guard
+// applyPresentation() itself uses -- a toggle-kind control was never touched
+// by the original colours either.
+void ParamGridPanel::setFaceAccent(bool faceActive, juce::Colour faceAccent)
+{
+    faceAccentActive = faceActive;
+    faceAccentColour = faceAccent;
+
+    const auto accent = faceAccentActive ? faceAccentColour : currentPalette;
+    for (auto& c : controls)
+    {
+        auto* sl = dynamic_cast<juce::Slider*>(c.widget.get());
+        if (sl == nullptr)
+            continue;
+        sl->setColour(juce::Slider::thumbColourId, accent);
+        sl->setColour(juce::Slider::trackColourId, accent);
+        sl->setColour(juce::Slider::rotarySliderFillColourId, accent);
+    }
 }
 
 const char* ParamGridPanel::widgetKindName(WidgetKind k)

@@ -122,6 +122,25 @@ public:
     // Called from the shell after refreshParamKnobs, on the message thread.
     void applyUiIr(const UiIr::Layout& ir);
 
+    // A3d fix: applyPresentation() sets each slider's accent-bearing colours
+    // (thumb/track/rotarySliderFill) directly on the widget the moment it is
+    // built, from `currentPalette` (the ADR-022 heuristic) -- see that
+    // function's own comment for why a per-widget colour, not the shared
+    // LookAndFeel's scheme, was chosen. That happens INSIDE
+    // refreshParamKnobs(), which always runs before PluginEditor learns this
+    // compile's face (applyGeneratedFace() is called after applyUiIr(), which
+    // is called after refreshParamKnobs() -- PluginEditor.cpp's compile-
+    // success callback). So a face's theme accent, however correctly it
+    // themes GeneratedFaceLookAndFeel's ColourScheme, never reaches an actual
+    // Slider without a second pass over already-built controls: a JUCE
+    // component's own explicit colour always wins over its LookAndFeel's
+    // (juce_Component.h's findColour walks the component's own map first).
+    // This IS that second pass. `faceActive == false` reverts every slider to
+    // `currentPalette` -- NOT to `Theme::accent` or any other fixed value,
+    // since the ADR-022 heuristic can land on any of four swatches and a
+    // detach must restore whichever one this compile actually picked.
+    void setFaceAccent(bool faceActive, juce::Colour faceAccent);
+
     // Heuristic IR derivation (ADR-022 Track 1.2): builds a UiIr::Layout purely
     // from Faust group nesting already present in `params` -- no prompt change,
     // no LLM involvement, zero headroom cost. Returns UiIr::empty() (schema 0)
@@ -229,6 +248,16 @@ public:
     // construction and prove nothing — the claim under test is precisely that
     // the panel's lambda, not JUCE's default, is the one installed (PF-037).
     juce::String controlTextForTest(int index) const;
+    // A3d fix: the colour the WIDGET itself resolves for `colourId` --
+    // juce::Component::findColour, which checks the component's own explicit
+    // colour map before ever consulting a LookAndFeel. This is deliberately
+    // NOT the same query gridFaceColourForTest() (PluginEditor.h) makes
+    // (`getLookAndFeel().findColour()`, which reads the LookAndFeel object
+    // directly and cannot see a per-widget override) -- that gap is exactly
+    // how the accent-shadowing defect this accessor exists to catch went
+    // undetected: every prior face test asserted the LookAndFeel's scheme was
+    // right without ever asking a live widget what colour it actually paints.
+    juce::Colour controlWidgetColourForTest(int index, int colourId) const;
     static const char* widgetKindName(WidgetKind k);
 
 private:
@@ -340,6 +369,21 @@ private:
     // to the first swatch (== Theme::accent) so a panel that has never
     // compiled anything still has a defined colour rather than black.
     juce::Colour currentPalette = Theme::GeneratedAccent::swatches[0];
+
+    // A3d fix: what the last setFaceAccent() call established, persisted
+    // (not just applied once) so applyPresentation() can honour it on every
+    // FUTURE call too -- not only the pass setFaceAccent() itself makes over
+    // the controls that exist at the moment it runs. setControlStyle()
+    // re-invokes applyPresentation() per control without going through
+    // setFaceAccent() again (this class's own ControlStyle comment: "the
+    // Slider... stay[s] alive across every style change -- setControlStyle
+    // only restyles and relayouts them"), so without this, a style flip
+    // AFTER a face attaches silently reverted every control back to the
+    // ADR-022 heuristic -- reproduced live: scenario 50's rotary-style
+    // snapshot showed the Ember heuristic swatch, not the attached Velvet
+    // Drift mint, before this member existed.
+    bool faceAccentActive = false;
+    juce::Colour faceAccentColour = Theme::accent;
 
     // ADR-029 §5: this compile's derived title, computed alongside
     // currentPalette from the same hash so the two always agree once a real

@@ -419,11 +419,26 @@ void PluginForgeEditor::applyGeneratedFace(const UiIr::Theme& theme)
     paramGridPanel.setLookAndFeel(nullptr);
     faceLnf.reset();
 
-    if (theme != UiIr::Theme {})
+    const bool active = (theme != UiIr::Theme {});
+    if (active)
     {
         faceLnf = std::make_unique<GeneratedFaceLookAndFeel>(theme);
         paramGridPanel.setLookAndFeel(faceLnf.get());
     }
+
+    // A3d fix: applyPresentation() (ParamGridPanel.cpp) hardcodes each
+    // slider's accent-bearing colours at BUILD time, before this compile's
+    // face -- if any -- is known (this function runs after
+    // refreshParamKnobs()/applyUiIr() in the compile-success callback above).
+    // Without this call a real face's accent themes the LookAndFeel's scheme
+    // correctly but never reaches an actual widget, silently shadowed by the
+    // older ADR-022 heuristic. GeneratedFaceLookAndFeel::resolvedAccent() runs
+    // the SAME validation the LookAndFeel constructor above just used, so the
+    // colour handed to the grid always matches what it just themed itself
+    // with. On detach (`active == false`) the second argument is unused --
+    // setFaceAccent() reverts to the panel's own currentPalette instead.
+    paramGridPanel.setFaceAccent(
+        active, active ? GeneratedFaceLookAndFeel::resolvedAccent(theme) : juce::Colour());
 }
 
 // ── Test-only forwarders ────────────────────────────────────────────────────
@@ -486,6 +501,11 @@ double PluginForgeEditor::gridControlValueForTest(int i) const
 juce::String PluginForgeEditor::gridControlTextForTest(int i) const
 {
     return paramGridPanel.controlTextForTest(i);
+}
+
+juce::Colour PluginForgeEditor::gridControlWidgetColourForTest(int i, int colourId) const
+{
+    return paramGridPanel.controlWidgetColourForTest(i, colourId);
 }
 
 void PluginForgeEditor::timerCallback()
