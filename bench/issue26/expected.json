@@ -154,6 +154,30 @@
             "le": 0.01
           }
         }
+      },
+      "second_error": {
+        "A": {
+          "failed": 49,
+          "same_class": 21,
+          "new_class": 18,
+          "no_attempt": 10
+        },
+        "B": {
+          "failed": 110,
+          "same_class": 83,
+          "new_class": 23,
+          "no_attempt": 4
+        }
+      },
+      "caret_preservation": {
+        "n": 161,
+        "a_preserved": 7,
+        "b_preserved": 94,
+        "b_only": 91,
+        "a_only": 4,
+        "mcnemar_p": {
+          "le": 1e-20
+        }
       }
     },
     {
@@ -277,6 +301,30 @@
           "mcnemar_p": {
             "le": 0.01
           }
+        }
+      },
+      "second_error": {
+        "A": {
+          "failed": 49,
+          "same_class": 21,
+          "new_class": 18,
+          "no_attempt": 10
+        },
+        "C": {
+          "failed": 112,
+          "same_class": 81,
+          "new_class": 26,
+          "no_attempt": 5
+        }
+      },
+      "caret_preservation": {
+        "n": 161,
+        "a_preserved": 7,
+        "b_preserved": 91,
+        "b_only": 87,
+        "a_only": 3,
+        "mcnemar_p": {
+          "le": 1e-20
         }
       }
     },
@@ -402,6 +450,30 @@
             "ge": 0.05
           }
         }
+      },
+      "second_error": {
+        "A": {
+          "failed": 31,
+          "same_class": 17,
+          "new_class": 14,
+          "no_attempt": 0
+        },
+        "B": {
+          "failed": 59,
+          "same_class": 43,
+          "new_class": 16,
+          "no_attempt": 0
+        }
+      },
+      "caret_preservation": {
+        "n": 99,
+        "a_preserved": 4,
+        "b_preserved": 53,
+        "b_only": 52,
+        "a_only": 3,
+        "mcnemar_p": {
+          "le": 1e-10
+        }
       }
     },
     {
@@ -526,6 +598,30 @@
             "ge": 0.05
           }
         }
+      },
+      "second_error": {
+        "A": {
+          "failed": 31,
+          "same_class": 17,
+          "new_class": 14,
+          "no_attempt": 0
+        },
+        "C": {
+          "failed": 62,
+          "same_class": 48,
+          "new_class": 14,
+          "no_attempt": 0
+        }
+      },
+      "caret_preservation": {
+        "n": 99,
+        "a_preserved": 4,
+        "b_preserved": 45,
+        "b_only": 43,
+        "a_only": 2,
+        "mcnemar_p": {
+          "le": 1e-09
+        }
       }
     }
   ],
@@ -593,5 +689,5 @@
   "_schema": 2,
   "_comment": "Frozen expectations for bench/issue26/verify.py. Regenerate with `verify.py --freeze` ONLY when the committed corpus / result JSONs are deliberately changed, and say why in the commit. p-value fields are {le: x} (p must stay <= x) or {ge: 0.05} (claim is deliberately NOT significant).",
   "headline": "faust-rs feedback fed verbatim into the repair loop LOWERS repaired-within-2. Program screen (bench/corpus_screen.py) -> 3B 143/192 (A) -> 82 (B) / 80 (C); 7B-Q3 84/115 (A) -> 56 (B) / 53 (C). McNemar exact p < 1e-8 every headline cell; arm A also fewer attempts-to-green. On the programs where arm A's stderr was never truncated the gap is the same; see METHODOLOGY.md for the full limitations list.",
-  "checks_expected": 311
+  "checks_expected": 367
 }
