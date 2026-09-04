@@ -71,6 +71,20 @@ struct Theme
     std::string readout   = "mono";      // numeric-readout typeface family
     std::string knob      = "arc";       // rotary-control style
     std::string density   = "standard";  // layout spacing scale
+
+    // Field-wise equality. Its one caller (PluginForgeEditor::applyGeneratedFace,
+    // ADR-035 Step 3) asks a single question: "is this the untouched Ember
+    // default?" -- `theme == UiIr::Theme{}` -- to decide between attaching a
+    // GeneratedFaceLookAndFeel and leaving the shell's ForgeLookAndFeel in
+    // place. Written out rather than defaulted: this file is C++17.
+    friend bool operator== (const Theme& a, const Theme& b)
+    {
+        return a.surface == b.surface && a.panel == b.panel && a.line == b.line
+            && a.text == b.text && a.textDim == b.textDim && a.accent == b.accent
+            && a.accentAlt == b.accentAlt && a.display == b.display
+            && a.readout == b.readout && a.knob == b.knob && a.density == b.density;
+    }
+    friend bool operator!= (const Theme& a, const Theme& b) { return ! (a == b); }
 };
 
 // ADR-029 §4: which fixed UI bands this generated plugin has, decided by the

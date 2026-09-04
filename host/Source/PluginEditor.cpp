@@ -255,6 +255,12 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
             const auto derivedLayout = ParamGridPanel::deriveLayoutFromGroups(
                 params, safeThis->processor.isInstrumentForTest());
             safeThis->paramGridPanel.applyUiIr(derivedLayout);
+            // ADR-035 Step 3: dress paramGridPanel in the layout's theme. Today
+            // deriveLayoutFromGroups() only ever produces the Ember default, so
+            // this is a no-op detach in production until the ui_face producer
+            // (#59) feeds a real theme in here; the machinery and its
+            // EditorSessionTest scenario are what this step lands.
+            safeThis->applyGeneratedFace(derivedLayout.theme);
             // Hand the layout to the processor so it rides the state blob
             // (UiIr schema 3, Step 1). Persistence only -- the restore path
             // does not feed this back into applyUiIr() yet; this callback
@@ -393,7 +399,31 @@ PluginForgeEditor::~PluginForgeEditor()
     // MUST be first: ~LookAndFeel() asserts if any Component still points at
     // it, and this editor's own children still do until this line runs
     // (session 002 Part B, item B2; docs/sessions/002-handoff-README.md).
+    //
+    // paramGridPanel points at `faceLnf` (not `lnf`) whenever a generated face
+    // is active — detach it here too. `faceLnf` is declared before
+    // `paramGridPanel` so reverse-order destruction would tear the panel down
+    // first regardless, but the panel also gets `setLookAndFeel(&*faceLnf)`
+    // mid-life in applyGeneratedFace(), and being explicit at both ends keeps
+    // the one contract in one shape (ADR-035 Step 3).
+    paramGridPanel.setLookAndFeel(nullptr);
     setLookAndFeel(nullptr);
+}
+
+// ADR-035 Step 3. See the header for the contract; the lifetime reasoning is in
+// GeneratedFaceLookAndFeel.h. Detach-then-rebuild order matters: the panel must
+// never hold a WeakReference to a GeneratedFaceLookAndFeel that is about to be
+// freed, so setLookAndFeel(nullptr) precedes faceLnf.reset() every time.
+void PluginForgeEditor::applyGeneratedFace(const UiIr::Theme& theme)
+{
+    paramGridPanel.setLookAndFeel(nullptr);
+    faceLnf.reset();
+
+    if (theme != UiIr::Theme {})
+    {
+        faceLnf = std::make_unique<GeneratedFaceLookAndFeel>(theme);
+        paramGridPanel.setLookAndFeel(faceLnf.get());
+    }
 }
 
 // ── Test-only forwarders ────────────────────────────────────────────────────

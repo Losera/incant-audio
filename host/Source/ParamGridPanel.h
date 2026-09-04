@@ -183,6 +183,11 @@ public:
     // components if applyUiIr() has never run.
     UiIr::Components activeComponentsForTest() const { return activeComponents; }
 
+    // UiIr schema 3 / ADR-035 §3: the theme block applyUiIr() last received --
+    // the Ember default (UiIr::Theme{}) until a producer emits one. What
+    // PluginForgeEditor::applyGeneratedFace() turns into a scoped LookAndFeel.
+    const UiIr::Theme& currentThemeForTest() const { return activeTheme; }
+
     // Test-only: the palette currently applied to this compile's controls.
     juce::Colour currentPaletteForTest() const { return currentPalette; }
 
@@ -353,6 +358,7 @@ private:
     juce::String activeArchetype;
     juce::String activeTokens;
     UiIr::Components activeComponents;   // ADR-029 §4, set by applyUiIr() below
+    UiIr::Theme activeTheme;             // UiIr schema 3 / ADR-035 §3, set by applyUiIr()
     void layoutSectioned();
 
     // Lookup from IR control label → the actual widget Control pointer.

@@ -3529,6 +3529,83 @@ void scenario49_generateButtonRoutesByRefineMode(const juce::File& tmp)
     }
 }
 
+// 50 — ADR-035 Step 3. A generated face's theme becomes a LookAndFeel scoped to
+// paramGridPanel: the grid's resolved colours change, the shell's do not, the
+// Ember-default theme detaches, and teardown with a face attached leaves the
+// ~LookAndFeel assert / JUCE leak detector quiet (the lifetime contract in
+// GeneratedFaceLookAndFeel.h / PluginEditor.h).
+//
+// The theme is applied directly via editor.applyGeneratedFace() rather than
+// through a compile: deriveLayoutFromGroups() only ever emits the Ember default
+// until the ui_face producer is wired to the callback (a later step), so the
+// compile path cannot exercise a non-default face yet.
+void scenario50_generatedFaceScopedToParamGrid()
+{
+    scenario("50. a generated face themes the param grid only",
+             "applyGeneratedFace attaches a GeneratedFaceLookAndFeel to "
+             "paramGridPanel; the shell keeps ForgeLookAndFeel; detach + teardown are clean.");
+
+    Session s;
+    check(loadAndSettle(s, kFourParamPatch, 4), "a 4-param patch compiled");
+
+    // V4 wires Slider::rotarySliderFillColourId from the scheme's highlightedFill
+    // slot (ForgeLookAndFeel.h cites juce_LookAndFeel_V4.cpp:1399-1401), which
+    // both LookAndFeels fill with their accent — so this id is where a themed
+    // face and the shell must disagree.
+    const int fillId = juce::Slider::rotarySliderFillColourId;
+
+    check(! s.editor.gridFaceActiveForTest(),
+          "no face is attached after a plain compile (Ember-default theme)");
+    check(s.editor.gridFaceColourForTest(fillId) == s.editor.shellColourForTest(fillId),
+          "with no face, the grid resolves the same fill colour as the shell");
+
+    // Velvet Drift: a dark cool surface with a mint accent — nothing like Ember.
+    UiIr::Theme velvet;
+    velvet.surface = "#0e0f13";
+    velvet.text    = "#eef2ee";
+    velvet.accent  = "#8fe3c1";
+    s.editor.applyGeneratedFace(velvet);
+
+    check(s.editor.gridFaceActiveForTest(),
+          "a non-default theme attaches a face");
+    const auto gridFill  = s.editor.gridFaceColourForTest(fillId);
+    const auto shellFill = s.editor.shellColourForTest(fillId);
+    check(gridFill != shellFill,
+          "the grid's fill colour now differs from the shell's");
+    check(gridFill.getRed() < 190 && gridFill.getGreen() > 200 && gridFill.getBlue() > 150,
+          "the grid's fill colour reads as the mint theme accent, not Ember orange");
+    check(shellFill == juce::Colour(Theme::accent),
+          "the shell's own fill colour is untouched (still Ember accent)");
+
+    // A LIGHT face (Iron Strip): GeneratedFaceLookAndFeel picks highlightedText
+    // (button-text-on-accent) as whichever of surface / text reads better on the
+    // accent, rather than assuming a dark ground the way ForgeLookAndFeel can.
+    // Here the surface is near-white and the accent is a dark red, so the
+    // light surface is the correct on-accent colour.
+    UiIr::Theme iron;
+    iron.surface = "#d7d3c9";
+    iron.text    = "#1c1b18";
+    iron.accent  = "#b4402f";
+    s.editor.applyGeneratedFace(iron);
+    const auto onAccent = s.editor.gridFaceColourForTest(juce::TextButton::textColourOnId);
+    check(onAccent.getPerceivedBrightness() > 0.6f,
+          "light face: on-accent text resolves to the light surface, not the dark ink");
+
+    // The Ember default detaches — the grid goes back to the shell look.
+    s.editor.applyGeneratedFace(UiIr::Theme {});
+    check(! s.editor.gridFaceActiveForTest(),
+          "the Ember-default theme detaches the face");
+    check(s.editor.gridFaceColourForTest(fillId) == s.editor.shellColourForTest(fillId),
+          "after detach the grid resolves the shell colour again");
+
+    // Re-attach and let Session fall out of scope: ~PluginForgeEditor detaches
+    // paramGridPanel before `faceLnf` is destroyed. A leak here fails the run
+    // via getLeakedObjectClassName (matched against leak:libfaust only).
+    s.editor.applyGeneratedFace(velvet);
+    check(s.editor.gridFaceActiveForTest(), "re-attached before teardown");
+    snapshot(s.editor, "session_50_generated_face");
+}
+
 // 48 — PF-065: the "Paths…" callout writes generate_script_path + python_path
 // into config.json (merge, not overwrite) and re-resolves the runtime live.
 // Numbered 48 to sit after PR #39's scenarios 45-47; renumber on rebase if that
@@ -3609,7 +3686,7 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInit;
 
     std::printf("EditorSessionTest -- a simulated human session against the real editor\n");
-    std::printf("  49 scenarios, no network, no quota, snapshots to artifacts/images/\n");
+    std::printf("  50 scenarios, no network, no quota, snapshots to artifacts/images/\n");
 
     auto tmp = juce::File::getSpecialLocation(juce::File::tempDirectory)
                    .getChildFile("pluginforge_editor_session");
@@ -3673,6 +3750,7 @@ int main()
     scenario47_defaultPathIsDirectGenerate(tmp);
     scenario48_runtimePathsCallout(tmp);
     scenario49_generateButtonRoutesByRefineMode(tmp);
+    scenario50_generatedFaceScopedToParamGrid();
 
     tmp.deleteRecursively();
 

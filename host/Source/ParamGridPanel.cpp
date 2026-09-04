@@ -752,6 +752,11 @@ void ParamGridPanel::applyUiIr(const UiIr::Layout& ir)
     activeArchetype = juce::String(ir.archetype);
     activeTokens = juce::String(ir.tokens);
     activeComponents = ir.components;
+    // UiIr schema 3 (ADR-035 Step 3). Stored for observability and for
+    // resized()/paint() consumers that will follow (the arc-knob geometry,
+    // A3d); the LookAndFeel swap this theme drives is owned by
+    // PluginForgeEditor::applyGeneratedFace(), which reads the same Layout.
+    activeTheme = ir.theme;
 
     // ADR-029 §4: checks ir.sections directly rather than ir.schema != 1, so a
     // schema-2 Layout with components but no sections (deriveLayoutFromGroups'
