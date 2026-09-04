@@ -90,6 +90,37 @@ provider-precedence rule; §3–§5 hygiene) were applied, plus the two 2026-09-
 `onRecommendationInvalidated`) and two dead-branch removals (`target_mismatch` off the plain
 `generate()` path; the `request.get("budget")` fallback). `check.sh full` + CI green.
 
+**Landed 2026-09-03 (later):** PR #55 (`78fb9db`, **issue-#26 integrity pass before the
+GRAME handoff**) — the A/B evidence made defensible before a public reply:
+`bench/corpus_screen.py` applies two outcome-blind syntactic rules (no top-level `process`
+binding; a literal `...` in the source) and drops **10 of the 202** C++-rejected corpus rows
+that are not programs — 9 English refusals, one mid-token truncation; screened headline (3B)
+A 143/192 (74%) / B 82 (43%) / C 80 (42%), raw 202 gives 75/44/43, same finding. The arm-A
+500-char stderr cap (the product's real feedback) is now **disclosed and stratified**: on the
+158 programs where arm A's attempt-1 stderr was never truncated, arm A still repairs 75% vs
+faust-rs 45%, p≈3e-7 — the cap handicaps arm A, it is not the effect. Mechanism numbers moved
+onto fixed script-backed denominators (rescue 49/87 not 50/101; recidivism 21/39 not 21/51)
+and the second-error identity now prints "no corrective attempt N" so `same + new + no_attempt
+== failed`. `verify.py` rewritten around `observe()`/`freeze()` with a **checks-expected
+N-guard** (311 checks; a stale harness vs a newer `expected.json` now fails loudly instead of
+printing REPRODUCED over a subset — the exact failure that let a stale container pass 44/75
+last week). WP2 transport robustness in `repair_ab_standalone.py` (retry/backoff on 429/5xx,
+`EmptyResponse`/`OutputTruncated` excluded from the arm comparison, strict per-cell majority,
+≥25% aborted → exit 3). MIT harness made self-contained (vendored `system_prompt.txt` snapshot
+`a2d90956` + `frs_rederive_cells.json`, proprietary `COPY` dropped from the Dockerfile). First
+`tests/test_score_repair_ab.py` (13 cases) + `tests/test_corpus_screen.py` (frozen excluded
+SHAs). `check.sh full`-equiv + CI green (8 commits; §4 report given per commit in-session).
+PR #54 (`90c7733`, README showcase `<img>` tags pointed into gitignored `artifacts/` — moved
+two current-UI harness renders to tracked `docs/img/` and repointed; a real showcase pass
+still waits on interactive captures). PR #56 (`3767978`, **ADR-035 Accepted** by explicit
+user decision — per-plugin generated faces; a status note records that `GENERATION_PLAN.md`'s
+5-gap order supersedes the 1–6 step numbering and flags the unresolved contrast-reference
+colour. **ADR-036 Proposed** — shell redesign: the fixed `kLeftFraction=0.65` collides at the
+900px default (PromptPanel widgets hit 0px), fix is a direction-neutral prep commit then
+prototype Command-Bar vs Rail+Dock on two branches and delete the loser. `docs/design/incant-ui/`
+is the distilled read-only design record; `docs/sessions/018` the multi-session build plan.
+`check.sh fast` green, `test_control_wiring.py` 122 passed).
+
 **Landed 2026-09-03:** PR #51 (`2c7c5bb`, **UiIr schema 3** — `host/Source/UiIr.h` gains a
 `theme` block on `Layout`: seven colour-string tokens + four enum tokens
 (`display`/`readout`/`knob`/`density`), each defaulting to its Ember Console value, so a
@@ -260,12 +291,14 @@ clock — no host transport in Standalone).
 1. **Post the GRAME reply.** `~/issue26-reply.md` — full draft, answers Stéphane Letz's
    "does the better error shorten the loop" question (no, and the mechanism), corrects the
    two published claims (9/15→8/15; the fidelity comparison), and hands over the repro
-   package pinned to `6d790bd`. Every link resolves anonymously; a cold clone at that SHA
-   runs `verify.py` green. COLLABORATION.md §2 — **a human reviews the wording and posts it**
-   (Claude must not `gh issue comment`). Delete the draft after. Then (deferred to a later
-   session): cut a NEW tag `issue-26-repro-2` at `6d790bd` + a fresh release, and edit the
-   old `issue-26-repro` release body to point forward. **Do not move the existing tag**
-   (`f50daa8`).
+   package pinned to `78fb9db` (PR #55, the integrity pass — the screen and the cap
+   stratification the reply describes landed there; the draft links a tree at that SHA, not
+   the older `6d790bd`). Every link resolves anonymously; a cold clone at that SHA runs
+   `verify.py` green (311 checks). COLLABORATION.md §2 — **a human reviews the wording and
+   posts it** (Claude must not `gh issue comment`). Delete the draft after. Then (deferred to
+   a later session): edit the existing `issue-26-repro` release body **in place** to mark it
+   superseded and repoint its Method link at `78fb9db`; optionally cut a new non-prerelease
+   `issue-26-repro-v2` at `78fb9db`. **Do not move the existing tag** (`f50daa8`).
 2. **A listening pass on the interactive-session patches.** COLLABORATION.md §1 — whether a
    generated plugin *sounds like what was asked for* has no instrument and is not delegable.
    The render oracle proved the WP6 patches were not broken; it cannot tell you they were
