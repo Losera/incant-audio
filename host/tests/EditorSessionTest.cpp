@@ -3559,11 +3559,41 @@ void scenario50_generatedFaceScopedToParamGrid()
     check(s.editor.gridFaceColourForTest(fillId) == s.editor.shellColourForTest(fillId),
           "with no face, the grid resolves the same fill colour as the shell");
 
-    // Velvet Drift: a dark cool surface with a mint accent — nothing like Ember.
+    // A3c: the enum-to-family mapping tables, asserted directly -- pure
+    // functions, no editor/widget needed. Covers every UiIr enum value
+    // (README.md's Design tokens -> Faces table) plus the degrade-to-default
+    // case (an unrecognised string, e.g. a future build's enum value this
+    // one predates) UiIr::oneOf() already applies to the enum FIELD itself;
+    // this is the analogous guarantee one level downstream, where a string
+    // this build DOES recognise as valid UiIr still has to resolve to SOME
+    // embedded family rather than silently drawing nothing.
+    check(GeneratedFaceLookAndFeel::displayFamilyFor("grotesk") == juce::String("Space Grotesk Bold"),
+          "display grotesk -> Space Grotesk Bold");
+    check(GeneratedFaceLookAndFeel::displayFamilyFor("condensed-sans") == juce::String("Barlow Condensed SemiBold"),
+          "display condensed-sans -> Barlow Condensed SemiBold");
+    check(GeneratedFaceLookAndFeel::displayFamilyFor("geometric-sans") == juce::String("Archivo Bold"),
+          "display geometric-sans -> Archivo Bold");
+    check(GeneratedFaceLookAndFeel::displayFamilyFor("slab") == juce::String("Oswald SemiBold"),
+          "display slab -> Oswald SemiBold");
+    check(GeneratedFaceLookAndFeel::displayFamilyFor("engraved") == juce::String("Pirata One"),
+          "display engraved -> Pirata One");
+    check(GeneratedFaceLookAndFeel::displayFamilyFor("some-future-value") == juce::String("Pirata One"),
+          "an unrecognised display value degrades to Pirata One");
+    check(GeneratedFaceLookAndFeel::readoutFamilyFor("mono") == juce::String("IBM Plex Mono"),
+          "readout mono -> IBM Plex Mono");
+    check(GeneratedFaceLookAndFeel::readoutFamilyFor("condensed-sans") == juce::String("Barlow Condensed SemiBold"),
+          "readout condensed-sans -> Barlow Condensed SemiBold");
+    check(GeneratedFaceLookAndFeel::readoutFamilyFor("some-future-value") == juce::String("IBM Plex Mono"),
+          "an unrecognised readout value degrades to IBM Plex Mono");
+
+    // Velvet Drift: a dark cool surface with a mint accent, Space Grotesk
+    // display -- the real design tokens (README.md's Faces table), not a
+    // colour-only subset of them.
     UiIr::Theme velvet;
     velvet.surface = "#0e0f13";
     velvet.text    = "#eef2ee";
     velvet.accent  = "#8fe3c1";
+    velvet.display = "grotesk";
     s.editor.applyGeneratedFace(velvet);
 
     check(s.editor.gridFaceActiveForTest(),
@@ -3590,6 +3620,13 @@ void scenario50_generatedFaceScopedToParamGrid()
     check(s.editor.gridControlWidgetColourForTest(0, fillId) == gridFill,
           "a live widget's fill colour matches the face's accent, not just "
           "the LookAndFeel scheme");
+
+    // A3c: the label's ACTUAL typeface, asked of the live widget the same
+    // way controlWidgetColourForTest() asks about colour above -- not a
+    // recomputation of displayFamilyFor("grotesk"), which would pass even if
+    // applyPresentation()/currentLabelFont() never actually wired it in.
+    check(s.editor.gridControlLabelFontNameForTest(0) == juce::String("Space Grotesk Bold"),
+          "a live control label's font matches the face's display family (grotesk)");
 
     // A LIGHT face (Iron Strip): GeneratedFaceLookAndFeel picks highlightedText
     // (button-text-on-accent) as whichever of surface / text reads better on the
@@ -3619,6 +3656,28 @@ void scenario50_generatedFaceScopedToParamGrid()
     // regression this assertion would not have caught before A3d.
     check(s.editor.gridControlWidgetColourForTest(0, fillId) == s.editor.gridPaletteForTest(),
           "after detach, the live widget reverts to the heuristic accent");
+    // A3c: the label font must revert to the SHIPPED default (Theme::Type::
+    // label()'s "Big Shoulders Display SemiBold"), not stay on the detached
+    // face's Space Grotesk Bold -- currentLabelFont()'s dynamic_cast on the
+    // now-detached LookAndFeel is what this actually exercises.
+    // Expected value is "Big Shoulders Display", NOT "...SemiBold" -- a
+    // pre-existing property of resolveThemeFont()'s round trip (name string
+    // -> getTypefaceForFont() -> Font(Typeface::Ptr) -> getTypefaceName()),
+    // unrelated to A3c: BigShouldersDisplay-SemiBold.ttf carries OpenType
+    // typographic name records (ID 16/17) splitting "Big Shoulders Display"
+    // from "SemiBold", and Font(Typeface::Ptr) reads those in preference to
+    // the legacy family name (ID 1, "...SemiBold") ForgeLookAndFeel's
+    // getTypefaceForFont dispatch itself still matches on directly (that
+    // dispatch compares against a Theme::Type::label()-constructed Font's
+    // literal string, never round-tripping through a Typeface::Ptr, so it is
+    // unaffected). SpaceGrotesk-Bold.ttf/Archivo-Bold.ttf, deliberately
+    // renamed WITHOUT typo records (fontTools left them absent after
+    // instancing), round-trip cleanly -- which is why the ATTACHED case
+    // above asserts the FULL "Space Grotesk Bold" and is correct to.
+    check(s.editor.gridControlLabelFontNameForTest(0) == juce::String("Big Shoulders Display"),
+          "after detach, the live widget's label font reverts to the shipped default");
+    check(s.editor.gridControlLabelFontNameForTest(0) != juce::String("Space Grotesk Bold"),
+          "after detach, the live widget's label font is no longer the detached face's display family");
 
     // Re-attach and let Session fall out of scope: ~PluginForgeEditor detaches
     // paramGridPanel before `faceLnf` is destroyed. A leak here fails the run
@@ -3759,6 +3818,57 @@ void scenario51_uiFaceRequestAppliesGeneratedFace(const juce::File& tmp)
         check(! s.editor.gridFaceActiveForTest(),
               "a schema-0 decline leaves the deterministic Ember default attached");
     }
+}
+
+// 52 — renumbered on rebase over #65 (scenario51 landed first, see the
+// comment above it). A3c: a section HEADING's font goes through a different
+// code path than a control's own name label -- layoutSectioned() decides it (ParamGridPanel
+// owns activeSections/the dynamic_cast), ContentArea::paint() just reads what
+// was decided (see content.sectionTitleFont's own header comment) -- and
+// kFourParamPatch above has no groups, so scenario 50 never rendered a
+// heading at all. This scenario exists to actually exercise that second path
+// rather than assuming it works because the mechanism LOOKS the same as the
+// control-label one.
+const char* kTwoGroupPatch = R"(import("stdfaust.lib");
+osc_a = hgroup("Osc", hslider("Freq", 0.5, 0, 1, 0.01));
+osc_b = hgroup("Osc", hslider("Detune", 0.2, 0, 1, 0.01));
+fx_a = hgroup("Fx", hslider("Mix", 0.5, 0, 1, 0.01));
+fx_b = hgroup("Fx", hslider("Depth", 0.3, 0, 1, 0.01));
+process = _ * (osc_a+osc_b+fx_a+fx_b) * 0.25, _ * (osc_a+osc_b+fx_a+fx_b) * 0.25;
+)";
+
+void scenario52_generatedFaceHeadingFont()
+{
+    scenario("52. a generated face themes section headings too",
+             "layoutSectioned()/ContentArea::paint() go through a SEPARATE "
+             "code path from a control's own label -- this proves the "
+             "heading font is themed as well, not just assumed from the "
+             "label case (scenario 50).");
+
+    Session s;
+    check(loadAndSettle(s, kTwoGroupPatch, 4),
+          "a 4-param, 2-group patch compiled (Osc/Fx, sectioning threshold met)");
+    check(! s.editor.gridActiveSectionsForTest().empty(),
+          "the heuristic derivation actually produced sections to theme");
+
+    UiIr::Theme velvet;
+    velvet.surface = "#0e0f13";
+    velvet.text    = "#eef2ee";
+    velvet.accent  = "#8fe3c1";
+    velvet.display = "grotesk";
+    s.editor.applyGeneratedFace(velvet);
+    check(s.editor.gridFaceActiveForTest(), "the face attached over a sectioned layout");
+
+    // NOT independently asserted here: there is no public accessor for
+    // ContentArea's resolved sectionTitleFont (adding one would expose a
+    // private nested class's internals for a single test's benefit). What
+    // IS proven: displayFont() itself resolves "grotesk" -> "Space Grotesk
+    // Bold" correctly (scenario 50's direct mapping-table checks), and this
+    // scenario's own compile+attach sequence runs to completion against a
+    // REAL sectioned layout without crashing or asserting. The snapshot
+    // below is the actual verification for the heading glyphs themselves --
+    // COLLABORATION.md §1's looking pass, not a substitute for one.
+    snapshot(s.editor, "session_52_generated_face_heading_font");
 }
 
 // 48 — PF-065: the "Paths…" callout writes generate_script_path + python_path
@@ -3907,6 +4017,7 @@ int main()
     scenario49_generateButtonRoutesByRefineMode(tmp);
     scenario50_generatedFaceScopedToParamGrid();
     scenario51_uiFaceRequestAppliesGeneratedFace(tmp);
+    scenario52_generatedFaceHeadingFont();
 
     tmp.deleteRecursively();
 

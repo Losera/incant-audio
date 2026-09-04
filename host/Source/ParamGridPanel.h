@@ -258,6 +258,12 @@ public:
     // undetected: every prior face test asserted the LookAndFeel's scheme was
     // right without ever asking a live widget what colour it actually paints.
     juce::Colour controlWidgetColourForTest(int index, int colourId) const;
+    // A3c: the ACTUAL typeface name a control's name label resolves to right
+    // now -- juce::Font::getTypefaceName() on the label's own live getFont(),
+    // not a recomputation of what it SHOULD be. Same "ask the widget, not the
+    // decision logic" principle controlWidgetColourForTest() above applies to
+    // colour, applied to the label font A3c made theme-aware.
+    juce::String controlLabelFontNameForTest(int index) const;
     static const char* widgetKindName(WidgetKind k);
 
 private:
@@ -307,6 +313,15 @@ private:
     // later edit to a boolean can undo the promise.
     void applyPresentation(Control& c);
 
+    // A3c: the font a control's own name label should use RIGHT NOW --
+    // theme.display via the attached GeneratedFaceLookAndFeel if one is
+    // attached, else the shipped Theme::Type::label(). Shared by
+    // applyPresentation() (every control, at build time and on every
+    // setControlStyle() restyle) and setFaceAccent()'s re-application pass
+    // (below) so the two can never independently decide two different fonts
+    // for the same theme state.
+    juce::Font currentLabelFont() const;
+
     // The single height computation, shared by layoutControls() and
     // preferredContentHeight(). Two independent versions of this is the same defect
     // shape as the old kChromeHeight (see PluginEditor.h) — do not split it.
@@ -349,6 +364,14 @@ private:
 
         struct Heading { juce::Rectangle<int> bounds; juce::String title; };
         std::vector<Heading> headings;
+
+        // A3c: computed once per layoutSectioned() pass (which recomputes
+        // `headings` above in the same pass) rather than re-derived inside
+        // paint() itself -- same "decide once, paint reads" split `headings`
+        // already establishes, extended to the font the headings are drawn
+        // in. Defaults to the shipped Theme::Type::sectionTitle() so a panel
+        // that has never run a sectioned layout still has a defined font.
+        juce::Font sectionTitleFont { Theme::Type::sectionTitle() };
     };
 
     // The grid lives inside a Viewport so N can exceed what the window shows.

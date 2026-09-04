@@ -4,6 +4,7 @@
 #include "ParamMap.h"
 #include "Theme.h"
 #include "ForgeLookAndFeel.h"   // resolveThemeFont -- see its header comment
+#include "GeneratedFaceLookAndFeel.h"   // A3c -- displayFont/readoutFont dispatch
 #include <algorithm>   // find_if, stable_sort, count_if — deriveLayoutFromGroups + applyUiIr
 #include <functional>  // std::hash — derivePalette
 #include <set>         // canonical sorted group names — derivePalette
@@ -221,14 +222,13 @@ void ParamGridPanel::refreshParamKnobs(const FaustEngine::ParamList& params)
 
         c.label = std::make_unique<juce::Label>();
         c.label->setJustificationType(juce::Justification::centred);
-        // resolveThemeFont anchored on `content`, not `*c.label` -- the label
-        // isn't addAndMakeVisible()'d until the next line, so its own
-        // parentComponent is still null here and would resolve against the
-        // process default instead. `content` has been part of the editor's
-        // fully-wired tree since construction; refreshParamKnobs() only ever
-        // runs after a successful compile, well after that, so anchoring on
-        // it resolves correctly regardless of *c.label's own wiring state.
-        c.label->setFont(resolveThemeFont(content, Theme::Type::label()));
+        // Font is set by applyPresentation() below (called once per control,
+        // right after this loop), not here -- A3c made the label font
+        // theme-aware (activeTheme.display), and activeTheme is not settled
+        // for THIS compile until applyUiIr() runs, which happens after
+        // refreshParamKnobs() returns. Setting it twice (a stale value here,
+        // the real one moments later in applyPresentation) would be dead
+        // code, not a correctness issue, but is worth not writing anyway.
         c.label->setText(juce::String(p.label), juce::dontSendNotification);
         content.addAndMakeVisible(*c.label);
 
@@ -277,9 +277,17 @@ void ParamGridPanel::applyPresentation(Control& c)
     // BEFORE the Slider early-return -- a toggle in Horizontal style needs its
     // label left-aligned too.
     if (c.label != nullptr)
+    {
         c.label->setJustificationType(style == ControlStyle::Horizontal
                                           ? juce::Justification::centredLeft
                                           : juce::Justification::centred);
+        // A3c: theme-aware label font. Re-read every call (build time AND
+        // every setControlStyle() restyle) rather than cached anywhere, same
+        // reasoning as the accent lines further down this function --
+        // currentLabelFont()'s own header comment explains why a single
+        // shared decision point matters here.
+        c.label->setFont(currentLabelFont());
+    }
 
     // Anything that is not a Slider has no style to apply. A ToggleButton returns
     // here, which is why no rotary code below can ever reach a toggle-kind param.
@@ -905,6 +913,23 @@ void ParamGridPanel::layoutSectioned()
     if (fullW == 0)
         return;
 
+    // A3c: computed once per pass and handed to `content` as plain data,
+    // same "decide once, paint reads" split `content.headings` itself
+    // already uses -- kept consistent with that sibling field even though
+    // ContentArea::paint() could now make this same dynamic_cast call
+    // itself (displayFont() no longer needs an enum argument only
+    // ParamGridPanel had -- see GeneratedFaceLookAndFeel.h's
+    // themeDisplayEnum for why that changed). Computed BEFORE the archetype
+    // dispatch below (merge note: A4 landed on main while this branch was in
+    // flight) so it applies uniformly whichever geometry path -- the
+    // ArchetypeLayout early-return or the grid fallback -- actually places
+    // this pass's headings.
+    if (auto* faceLnf = dynamic_cast<GeneratedFaceLookAndFeel*>(&content.getLookAndFeel()))
+        content.sectionTitleFont =
+            faceLnf->displayFont(Theme::Type::sectionTitle().getHeight());
+    else
+        content.sectionTitleFont = resolveThemeFont(content, Theme::Type::sectionTitle());
+
     // ADR-035 gap 4 / session 018 A4: a supported archetype gets real
     // per-section geometry (columns/regions) via ArchetypeLayout.h. Anything
     // else -- "pedal", "utility", "", or a name this build predates -- falls
@@ -985,9 +1010,10 @@ void ParamGridPanel::layoutSectioned()
 
 void ParamGridPanel::ContentArea::paint(juce::Graphics& g)
 {
-    // Safe unresolved-name-free: paint() only ever runs once this component
-    // is fully wired into the editor's tree.
-    g.setFont(resolveThemeFont(*this, Theme::Type::sectionTitle()));
+    // A3c: sectionTitleFont is decided by layoutSectioned() (ParamGridPanel
+    // has activeTheme in scope; this class does not), not re-derived here --
+    // see that member's own header comment.
+    g.setFont(sectionTitleFont);
     for (const auto& h : headings)
     {
         g.setColour(Theme::textSecondary);
@@ -1113,6 +1139,14 @@ juce::Colour ParamGridPanel::controlWidgetColourForTest(int index, int colourId)
     return controls[static_cast<size_t>(index)].widget->findColour(colourId);
 }
 
+juce::String ParamGridPanel::controlLabelFontNameForTest(int index) const
+{
+    if (index < 0 || index >= static_cast<int>(controls.size())
+        || controls[static_cast<size_t>(index)].label == nullptr)
+        return {};
+    return controls[static_cast<size_t>(index)].label->getFont().getTypefaceName();
+}
+
 // A3d fix (see ParamGridPanel.h's header comment on this method, and on the
 // faceAccentActive/faceAccentColour members, for the full story). Two jobs,
 // both necessary:
@@ -1126,21 +1160,37 @@ juce::Colour ParamGridPanel::controlWidgetColourForTest(int index, int colourId)
 // Skips anything that is not a Slider by the same dynamic_cast guard
 // applyPresentation() itself uses -- a toggle-kind control was never touched
 // by the original colours either.
+// A3c: theme-aware label font -- theme.display via the attached
+// GeneratedFaceLookAndFeel if one is attached (content's own LookAndFeel,
+// walked via the normal parent-chain lookup resolveThemeFont already relies
+// on elsewhere in this file), else the shipped Theme::Type::label(). A
+// dynamic_cast, not a stored bool, because "is a face attached" and "which
+// LookAndFeel is actually walking the tree right now" must never be able to
+// disagree -- the two are the same fact asked two different ways.
+juce::Font ParamGridPanel::currentLabelFont() const
+{
+    if (auto* faceLnf = dynamic_cast<GeneratedFaceLookAndFeel*>(&content.getLookAndFeel()))
+        return faceLnf->displayFont(Theme::Type::label().getHeight());
+    return resolveThemeFont(content, Theme::Type::label());
+}
+
+// A3d fix, extended by A3c. Re-applies applyPresentation() to every control
+// rather than a bespoke colour-only loop (which is what this function used to
+// be) -- applyPresentation() already "owns every styling decision"
+// (its own header comment), so calling it again is the SAME operation
+// setControlStyle() already relies on being idempotent, just triggered by a
+// different event (a face attaching/detaching/changing rather than a style
+// button). This is what makes the A3c label font AND the A3d accent both
+// take effect together, from one call, the moment PluginEditor::
+// applyGeneratedFace() invokes this -- neither can drift out of sync with
+// the other because both are read from the SAME re-application pass.
 void ParamGridPanel::setFaceAccent(bool faceActive, juce::Colour faceAccent)
 {
     faceAccentActive = faceActive;
     faceAccentColour = faceAccent;
 
-    const auto accent = faceAccentActive ? faceAccentColour : currentPalette;
     for (auto& c : controls)
-    {
-        auto* sl = dynamic_cast<juce::Slider*>(c.widget.get());
-        if (sl == nullptr)
-            continue;
-        sl->setColour(juce::Slider::thumbColourId, accent);
-        sl->setColour(juce::Slider::trackColourId, accent);
-        sl->setColour(juce::Slider::rotarySliderFillColourId, accent);
-    }
+        applyPresentation(c);
 }
 
 const char* ParamGridPanel::widgetKindName(WidgetKind k)

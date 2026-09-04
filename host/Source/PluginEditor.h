@@ -138,6 +138,8 @@ public:
     // why this is a different, and stricter, question than
     // gridFaceColourForTest() below asks.
     juce::Colour gridControlWidgetColourForTest(int i, int colourId) const;
+    // A3c: the ACTUAL typeface name a control's name label resolves to.
+    juce::String gridControlLabelFontNameForTest(int i) const;
     // T1 (ADR-022 Track 1.2): the sectioned layout applyUiIr() is currently
     // holding, if any. Forwarded rather than exposing paramGridPanel itself,
     // same rule as every accessor above.
