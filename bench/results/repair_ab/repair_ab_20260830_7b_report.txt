@@ -35,6 +35,11 @@ SECOND-ERROR IDENTITY  (of repairs that FAILED, was attempt 1's error the same c
   arm A: 31 failed — same class 17, new class 14, no corrective attempt 0
   arm B: 59 failed — same class 43, new class 16, no corrective attempt 0
 
+CARET-LINE PRESERVATION  (faust-rs quotes the offending source line; did it survive verbatim into attempt 1?)
+  arm A: 4/99 (4%)
+  arm B: 53/99 (54%)
+  discordant: B-kept/A-edited 52, A-kept/B-edited 3  McNemar p=1.54e-12
+
 >>> NO — C++ stderr repaired 28 MORE than arm B (faust-rs full) (McNemar p=2.54e-05).
 
 
@@ -73,6 +78,11 @@ ARM-A STDERR CAP (500 chars) — stratified
 SECOND-ERROR IDENTITY  (of repairs that FAILED, was attempt 1's error the same class as the start?)
   arm A: 31 failed — same class 17, new class 14, no corrective attempt 0
   arm C: 62 failed — same class 48, new class 14, no corrective attempt 0
+
+CARET-LINE PRESERVATION  (faust-rs quotes the offending source line; did it survive verbatim into attempt 1?)
+  arm A: 4/99 (4%)
+  arm C: 45/99 (45%)
+  discordant: C-kept/A-edited 43, A-kept/C-edited 2  McNemar p=5.89e-11
 
 >>> NO — C++ stderr repaired 31 MORE than arm C (faust-rs core) (McNemar p=3.31e-05).
 

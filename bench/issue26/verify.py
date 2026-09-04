@@ -12,7 +12,10 @@ What it re-derives, from bench/corpora/ and bench/results/repair_ab/ :
   * each headline A/B cell      — repaired-within-2 counts, exact McNemar,
                                  mean attempts-to-green, per-class McNemar,
                                  the first-vs-second-attempt (rescue) split,
-                                 and the arm-A 500-char stderr-cap strata
+                                 the arm-A 500-char stderr-cap strata, the
+                                 second-error identity (same class vs new), and
+                                 caret-line preservation (does faust-rs's quoted
+                                 source line survive verbatim into attempt 1)
   * the fidelity claim          — recomputed from the *_fidelity.json `cells`
                                  dict under the screen (a derivation, not a
                                  checksum), incl. the paired "both A and B
@@ -161,6 +164,8 @@ def _cell_observation(result_file: str, model: str, treatment: str,
             k: {kk: s["by_arm_a_truncation"][k][kk]
                 for kk in ("n", "a_green", "b_green", "mcnemar_p")}
             for k in ("uncapped", "capped")},
+        "second_error": s["second_error"],
+        "caret_preservation": s["caret_preservation"],
     }
 
 
@@ -220,6 +225,8 @@ def freeze(obs: dict) -> dict:
             d["mcnemar_p"] = _p_bound(d["mcnemar_p"])
         for d in cell["by_arm_a_truncation"].values():
             d["mcnemar_p"] = _p_bound(d["mcnemar_p"])
+        cell["caret_preservation"]["mcnemar_p"] = _p_bound(
+            cell["caret_preservation"]["mcnemar_p"])
     exp["_schema"] = 2
     exp["_comment"] = (
         "Frozen expectations for bench/issue26/verify.py. Regenerate with "
@@ -290,6 +297,15 @@ def _compare(obs: dict, exp: dict) -> None:
             for k in ("won_at_1", "still_broken", "rescued_at_2", "no_program"):
                 _check(f"{tag} rescue[{arm}] {k}", og["rescue"][arm][k],
                        eg["rescue"][arm][k])
+        for arm in ("A", eg["treatment"]):
+            for k in ("failed", "same_class", "new_class", "no_attempt"):
+                _check(f"{tag} second_error[{arm}] {k}",
+                       og["second_error"][arm][k], eg["second_error"][arm][k])
+        cp_o, cp_e = og["caret_preservation"], eg["caret_preservation"]
+        for k in ("n", "a_preserved", "b_preserved", "b_only", "a_only"):
+            _check(f"{tag} caret_preservation {k}", cp_o[k], cp_e[k])
+        _check_p(f"{tag} caret_preservation McNemar p",
+                 cp_o["mcnemar_p"], cp_e["mcnemar_p"])
         for strat in ("uncapped", "capped"):
             od, ed = og["by_arm_a_truncation"][strat], eg["by_arm_a_truncation"][strat]
             for k in ("n", "a_green", "b_green"):

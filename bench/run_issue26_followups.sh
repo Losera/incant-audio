@@ -39,11 +39,11 @@ python3 bench/run_repair_ab.py --corpus "$CORPUS" --out "$AB7B" --resume \
     --arms A,B,C --repair-model qwen2.5-coder:7b-instruct-q3_K_S --sample 120 \
     || { say "7B run exited $? — stopping"; exit 1; }
 
-say "3/3 — score"
-python3 bench/score_repair_ab.py "$AB3B" \
+say "3/3 — score (--screen: the committed reports are the program-screened view)"
+python3 bench/score_repair_ab.py "$AB3B" --screen "$CORPUS" \
     --json-out "bench/results/repair_ab/repair_ab_${DATE}_summary.json" \
     | tee "bench/results/repair_ab/repair_ab_${DATE}_report.txt"
-python3 bench/score_repair_ab.py "$AB7B" \
+python3 bench/score_repair_ab.py "$AB7B" --screen "$CORPUS" \
     --json-out "bench/results/repair_ab/repair_ab_${DATE}_7b_summary.json" \
     | tee "bench/results/repair_ab/repair_ab_${DATE}_7b_report.txt"
 

@@ -108,6 +108,28 @@
       "A": {},
       "B": {}
     },
+    "second_error": {
+      "A": {
+        "failed": 49,
+        "same_class": 21,
+        "new_class": 18,
+        "no_attempt": 10
+      },
+      "B": {
+        "failed": 110,
+        "same_class": 83,
+        "new_class": 23,
+        "no_attempt": 4
+      }
+    },
+    "caret_preservation": {
+      "n": 161,
+      "a_preserved": 7,
+      "b_preserved": 94,
+      "b_only": 91,
+      "a_only": 4,
+      "mcnemar_p": 1.6794639150698915e-22
+    },
     "verdict": "NO \u2014 C++ stderr repaired 61 MORE than arm B (faust-rs full) (McNemar p=6.93e-10)."
   },
   {
@@ -218,6 +240,28 @@
     "terminal": {
       "A": {},
       "C": {}
+    },
+    "second_error": {
+      "A": {
+        "failed": 49,
+        "same_class": 21,
+        "new_class": 18,
+        "no_attempt": 10
+      },
+      "C": {
+        "failed": 112,
+        "same_class": 81,
+        "new_class": 26,
+        "no_attempt": 5
+      }
+    },
+    "caret_preservation": {
+      "n": 161,
+      "a_preserved": 7,
+      "b_preserved": 91,
+      "b_only": 87,
+      "a_only": 3,
+      "mcnemar_p": 1.9641662139013065e-22
     },
     "verdict": "NO \u2014 C++ stderr repaired 63 MORE than arm C (faust-rs core) (McNemar p=1.66e-10)."
   }

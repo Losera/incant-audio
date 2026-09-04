@@ -158,6 +158,88 @@ def test_report_keeps_the_nine_keys_verify_reads():
     assert "per_class" in s and "rescue" in s and "by_arm_a_truncation" in s
 
 
+# ── caret-line preservation ─────────────────────────────────────────────────
+
+def test_quoted_source_line_extracts_the_caret_line():
+    fb = ("The Faust compiler rejected your program. [FRS-PARSE-0001] Parsing error\n"
+          "  at line 5, column 15\n"
+          "     5 | process = cut ? _ : _;\n"
+          "       |               ^\n"
+          "Fix this and re-emit the complete program.")
+    assert sr.quoted_source_line(fb) == "process = cut ? _ : _;"
+
+
+def test_quoted_source_line_none_for_plain_cpp_stderr():
+    assert sr.quoted_source_line(
+        "/tmp/x.dsp:5 : ERROR : syntax error, unexpected EXTRA") is None
+    assert sr.quoted_source_line("") is None
+
+
+def test_quoted_source_line_rejects_trivial_lines():
+    assert sr.quoted_source_line("     3 | };") is None
+    assert sr.quoted_source_line("     3 | _") is None
+
+
+def test_line_survives_is_per_line_whitespace_insensitive():
+    src = 'import("stdfaust.lib");\nprocess = cut ? _ : _;'
+    assert sr._line_survives(src, "process = cut ? _ : _;")
+    assert sr._line_survives("   process = cut ? _ : _;  \n", "process = cut ? _ : _;")
+    assert not sr._line_survives("process = cut : _;", "process = cut ? _ : _;")
+
+
+def _caret_rec(sha, arm, *, code, feedback_line=None, repaired=False):
+    fb = "raw compiler error, no caret"
+    if feedback_line is not None:
+        fb = f"  at line 5\n     5 | {feedback_line}\n       | ^\nFix this."
+    return {
+        "code_sha": sha, "arm": arm, "repair_model": "m",
+        "repaired": repaired, "attempts_to_green": 1 if repaired else None,
+        "first_error_class": "syntax", "second_error_same_as_first": None,
+        "terminal_reason": None,
+        "attempt_log": [{"n": 1, "code": code, "feedback_text": fb, "cpp_ok": repaired}],
+    }
+
+
+def test_caret_preservation_counts_paired_survival():
+    line = "process = cut ? _ : _;"
+    pairs = [
+        (_caret_rec("1", "A", code="process = _ <: _, _;"),
+         _caret_rec("1", "B", code=f'import("stdfaust.lib");\n{line}',
+                    feedback_line=line)),
+        (_caret_rec("2", "A", code=line),
+         _caret_rec("2", "B", code=line, feedback_line=line)),
+        # B feedback carries no caret line -> pair is outside the denominator
+        (_caret_rec("3", "A", code="process = _;"),
+         _caret_rec("3", "B", code="process = _;")),
+    ]
+    cp = sr._caret_preservation(pairs, "B")
+    assert cp["n"] == 2
+    assert (cp["b_preserved"], cp["a_preserved"]) == (2, 1)
+    assert (cp["b_only"], cp["a_only"]) == (1, 0)
+
+
+def test_caret_preservation_excludes_transport_aborts():
+    line = "process = cut ? _ : _;"
+    a = _caret_rec("1", "A", code=line)
+    b = {"code_sha": "1", "arm": "B", "repair_model": "m", "repaired": False,
+         "attempts_to_green": None, "first_error_class": "syntax",
+         "second_error_same_as_first": None, "terminal_reason": "truncated",
+         "attempt_log": [{"n": 1, "error": "OutputTruncated: cap"}]}
+    assert sr._caret_preservation([(a, b)], "B")["n"] == 0
+
+
+def test_report_exposes_caret_preservation_and_second_error():
+    pairs = _pairs(("1", dict(repaired=True, attempts=1),
+                    dict(repaired=False, n_attempts=2, second_same=True)))
+    s = _report_dict(pairs)
+    assert set(s["caret_preservation"]) >= {
+        "n", "a_preserved", "b_preserved", "b_only", "a_only", "mcnemar_p"}
+    assert set(s["second_error"]["A"]) == {
+        "failed", "same_class", "new_class", "no_attempt"}
+    assert set(s["second_error"]["B"]) == {
+        "failed", "same_class", "new_class", "no_attempt"}
+
+
 # ── verdict ─────────────────────────────────────────────────────────────────
 
 def test_verdict_branches():
