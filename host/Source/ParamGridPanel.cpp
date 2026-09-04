@@ -1,4 +1,5 @@
 #include "ParamGridPanel.h"
+#include "ArchetypeLayout.h"
 #include "ParamGridLayout.h"
 #include "ParamMap.h"
 #include "Theme.h"
@@ -60,6 +61,37 @@ int ParamGridPanel::contentHeightForCurrentMode() const
 
 int ParamGridPanel::contentHeightForSections() const
 {
+    // ADR-035 gap 4 / session 018 A4: a supported archetype ("synth-panel",
+    // "channel-strip", "tape-unit", "texture-field") lays sections out as
+    // columns/regions rather than one shared vertical list, so this function
+    // must go through the SAME geometry layoutSectioned() places by --
+    // ArchetypeLayout::layoutFor() -- rather than the flat sum below, which
+    // assumes every section shares one y stream (true only of the grid path).
+    // This is the "one height function" principle ParamGridPanel.h's header
+    // states, applied to the archetype dispatch: two independent formulas for
+    // the same Layout is the exact kChromeHeight defect shape.
+    //
+    // Passing viewport.getWidth() unconditionally is safe even when it is
+    // still 0 (this function is called from contentHeightForCurrentMode(),
+    // which feeds the shell's window-size REQUEST -- it can run before the
+    // shell has granted a width at all): none of the three supported
+    // archetypes' HEIGHT depends on width. Each stacks its own section's
+    // controls one per row inside its own column (ArchetypeLayout.h's
+    // stackColumn()), and a row's height never depends on that column's
+    // width -- only the Rect's `w` field does, which this function discards.
+    const auto archetype = activeArchetype.toStdString();
+    if (ArchetypeLayout::isSupported(archetype))
+    {
+        std::vector<ArchetypeLayout::SectionInput> inputs;
+        inputs.reserve(activeSections.size());
+        for (const auto& section : activeSections)
+            inputs.push_back({ static_cast<int>(section.controls.size()), section.span });
+
+        return ArchetypeLayout::layoutFor(archetype, inputs, viewport.getWidth(),
+                                           kCellH, kHeadingH, kSectionGapH)
+                   .contentHeight;
+    }
+
     int y = 0;
     for (const auto& section : activeSections)
         y += kHeadingH + static_cast<int>(section.controls.size()) * kCellH + kSectionGapH;
@@ -841,6 +873,17 @@ void ParamGridPanel::applyUiIr(const UiIr::Layout& ir)
 // cells per control, honouring the control's span. Column count derives from the
 // widest section rather than the global sqrt — a 12-param synth with a 2-wide
 // filter section reads as intended, not squashed.
+void ParamGridPanel::placeControlInCell(Control& c, juce::Rectangle<int> cell)
+{
+    c.label->setBounds(cell.removeFromTop(kLabelH));
+    auto body = cell.reduced(4);
+    if (c.buttonAtt != nullptr)
+        c.widget->setBounds(body.withSizeKeepingCentre(
+            juce::jmin(body.getWidth(), 90), juce::jmin(body.getHeight(), 28)));
+    else
+        c.widget->setBounds(body);
+}
+
 void ParamGridPanel::layoutSectioned()
 {
     if (controls.empty() || activeSections.empty())
@@ -849,6 +892,49 @@ void ParamGridPanel::layoutSectioned()
     const int fullW = viewport.getWidth();
     if (fullW == 0)
         return;
+
+    // ADR-035 gap 4 / session 018 A4: a supported archetype gets real
+    // per-section geometry (columns/regions) via ArchetypeLayout.h. Anything
+    // else -- "pedal", "utility", "", or a name this build predates -- falls
+    // through to the grid path below, UNCHANGED from what it has always been
+    // (deriveLayoutFromGroups() never sets .archetype, so every heuristically
+    // -derived Layout takes this branch today; only a hand-authored or
+    // ui_face-emitted IR can name a supported archetype).
+    const auto archetype = activeArchetype.toStdString();
+    if (ArchetypeLayout::isSupported(archetype))
+    {
+        std::vector<ArchetypeLayout::SectionInput> inputs;
+        inputs.reserve(activeSections.size());
+        for (const auto& section : activeSections)
+            inputs.push_back({ static_cast<int>(section.controls.size()), section.span });
+
+        const auto result = ArchetypeLayout::layoutFor(archetype, inputs, fullW,
+                                                         kCellH, kHeadingH, kSectionGapH);
+
+        // Same 4px inset the grid path below gives its own heading rects, so
+        // a section title reads identically under either archetype.
+        for (size_t s = 0; s < activeSections.size(); ++s)
+        {
+            const auto& h = result.headings[s];
+            auto heading = juce::Rectangle<int>(h.x + 4, h.y, juce::jmax(0, h.w - 8), h.h);
+            content.headings.push_back({ heading, juce::String(activeSections[s].title) });
+        }
+
+        for (const auto& pc : result.controls)
+        {
+            const auto& ref = activeSections[static_cast<size_t>(pc.section)]
+                                   .controls[static_cast<size_t>(pc.index)];
+            auto it = irLookup.find(ref.paramLabel);
+            if (it == irLookup.end())
+                continue;
+            placeControlInCell(*it->second,
+                                juce::Rectangle<int>(pc.bounds.x, pc.bounds.y, pc.bounds.w, pc.bounds.h));
+        }
+
+        content.setSize(fullW, juce::jmax(result.contentHeight, viewport.getHeight()));
+        content.repaint();   // headings were just (re)populated above
+        return;
+    }
 
     int cols = 2;
     for (const auto& section : activeSections)
@@ -873,17 +959,9 @@ void ParamGridPanel::layoutSectioned()
             auto it = irLookup.find(ref.paramLabel);
             if (it == irLookup.end())
                 continue;
-            auto* c = it->second;
             const int span = juce::jlimit(1, cols, ref.size == "lg" ? 2 : 1);
             const int w = cellW * span;
-            auto cell = juce::Rectangle<int>(0, y, w, kCellH);
-            c->label->setBounds(cell.removeFromTop(kLabelH));
-            auto body = cell.reduced(4);
-            if (c->buttonAtt != nullptr)
-                c->widget->setBounds(body.withSizeKeepingCentre(
-                    juce::jmin(body.getWidth(), 90), juce::jmin(body.getHeight(), 28)));
-            else
-                c->widget->setBounds(body);
+            placeControlInCell(*it->second, juce::Rectangle<int>(0, y, w, kCellH));
             y += kCellH;
         }
         y += kSectionGapH;

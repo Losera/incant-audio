@@ -470,6 +470,30 @@ target_compile_options(ParamIdentityTest PRIVATE -fsanitize=address,undefined -g
 target_link_options(ParamIdentityTest PRIVATE -fsanitize=address,undefined)
 
 # ---------------------------------------------------------------------------
+# ParamGridLayoutTest -- ArchetypeLayout.h's section/control placement
+# (host/Source/ArchetypeLayout.h, host/tests/ParamGridLayoutTest.cpp),
+# ADR-035 gap 4 / session 018 track A4.
+#
+# ParamGridLayout.h's own header has carried a warning since it was written
+# that this exact filename "has never existed" and asked whoever read it to
+# "either write it or delete the claim" -- this target is that write. Same
+# convention as ParamIdentityTest immediately above: a plain executable with
+# NO JUCE, NO libfaust and no plugin sources, because ArchetypeLayout.h is
+# pure section/rect arithmetic with no dependency on either, and it is
+# exactly the kind of layout-correctness claim ("no overlapping rects, every
+# control placed exactly once") that belongs at the rung that costs two
+# seconds to run.
+#
+# ASan/UBSan for the same reason every other header-only test here carries
+# them: the code under test does pointer/index arithmetic over
+# caller-supplied section and control counts.
+# ---------------------------------------------------------------------------
+add_executable(ParamGridLayoutTest tests/ParamGridLayoutTest.cpp)
+target_compile_features(ParamGridLayoutTest PRIVATE cxx_std_17)
+target_compile_options(ParamGridLayoutTest PRIVATE -fsanitize=address,undefined -g -O1)
+target_link_options(ParamGridLayoutTest PRIVATE -fsanitize=address,undefined)
+
+# ---------------------------------------------------------------------------
 # NoteRingTest / NoteRingTsanTest -- the message->audio note queue
 # (host/Source/NoteRing.h, host/tests/NoteRingTest.cpp).
 #
