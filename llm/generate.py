@@ -28,6 +28,7 @@ import providers  # noqa: E402
 import router  # noqa: E402
 import generation_profiles  # noqa: E402
 import recommendation  # noqa: E402
+import ui_face  # noqa: E402
 import error_classes  # noqa: E402
 import voice_contract  # noqa: E402
 
@@ -646,10 +647,12 @@ def generate_json(request: dict) -> dict:
 
 
 def process_json_request(request: dict) -> dict:
-    """Dispatch the additive recommendation action; absent action stays generation."""
+    """Dispatch the additive recommend / ui_face actions; absent action stays generation."""
     action = request.get("action", "generate")
     if action == "generate":
         return generate_json(request)
+    if action == "ui_face":
+        return _process_ui_face_request(request)
     if action != "recommend":
         return _failure(0, "error", f"unknown action: {action}")
 
@@ -679,6 +682,28 @@ def process_json_request(request: dict) -> dict:
     except ValueError as exc:
         response = _failure(0, "error", str(exc))
         response["action"] = "recommend"
+        return response
+
+
+def _process_ui_face_request(request: dict) -> dict:
+    """ADR-035 Step 5. Post-compile, metadata-to-metadata: the captured param
+    table in, a UiIr schema-3 face out. Additive and non-blocking — every
+    failure path returns `action: "ui_face"` and the host falls back to
+    `deriveLayoutFromGroups()`, never to a broken face and never to bad audio.
+
+    `invalid_face` is an action-specific reason, same precedent as
+    `invalid_recommendation` / `target_mismatch` above: ADR-011's closed enum
+    covers the generation path, and a distinct action carries its own.
+    """
+    try:
+        return ui_face.generate_face(dict(request), generation_budget())
+    except ui_face.InvalidFace as exc:
+        response = _failure(1, "invalid_face", str(exc))
+        response["action"] = "ui_face"
+        return response
+    except ValueError as exc:
+        response = _failure(0, "error", str(exc))
+        response["action"] = "ui_face"
         return response
 
 

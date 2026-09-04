@@ -26,6 +26,25 @@
   `success` is ever true — never merely "the model's last answer".
 - Diagnostics and tracebacks go to stderr only (:593), never stdout.
 
+## Actions (`process_json_request`, request key `action`)
+Absent / `"generate"` is the Faust path above. Two additive metadata-to-metadata
+actions ride the same one-JSON-line / always-exit-0 contract but never produce
+`faust_code`; each stamps its own name into the response `action` key on every
+path, and each carries an action-specific `reason` because ADR-011's `reason`
+enum is closed to the generation path.
+- `"recommend"` (ADR-033) — pre-generation design plan. Request adds `kind`,
+  `family`. Success: `recommendation` (the typed plan). Failure `reason`:
+  `invalid_recommendation` | `target_mismatch` (with `recommended_kind`) |
+  `error`.
+- `"ui_face"` (ADR-035 Step 5) — **post-compile** UI face. Request adds `params`
+  (required, non-empty: the captured table — `label`, `kind`, `group`, `min`,
+  `max`, `default`, `unit`), `is_instrument`. Success: `face` — a normalised
+  UiIr schema-3 object, or `{"schema": 0}` when the model declined. Failure
+  `reason`: `invalid_face` | `error`. The host re-validates the face and falls
+  back to `deriveLayoutFromGroups()` on anything it rejects — contrast
+  validation is C++ only (`ThemeValidate.h`), so a hand-written or stale-cached
+  IR is checked too. A slow or failed call must never delay the DSP going live.
+
 ## What it assumes about providers (llm/providers.py)
 - One dispatch point, `make_generator()`. Providers signal failure through
   three provider-agnostic exceptions — `RateLimited`, `BudgetExhausted`,
