@@ -258,7 +258,7 @@ jobs:
       # with CI green, and running it catches a fixture that will not compile
       # or a grid that never settles (see the "Run UiDesignGallery" step below).
       - name: Build behavioural test harnesses
-        run: cmake --build build-ci --target OfflineRenderTest OfflineSynthRenderTest PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery ParamIdentityTest NoteRingTest NoteRingTsanTest AuditionThreadingTest ValidationGateTest SoundfetchClientTest GenerationProfilesAutoTest UiIrTest PromptPanelPathResolutionTest
+        run: cmake --build build-ci --target OfflineRenderTest OfflineSynthRenderTest PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery ParamIdentityTest NoteRingTest NoteRingTsanTest AuditionThreadingTest ValidationGateTest SoundfetchClientTest GenerationProfilesAutoTest UiIrTest ThemeValidateTest PromptPanelPathResolutionTest
 
       # ── PF-036: pin the JIT's target CPU for every harness that JITs ────────
       # GitHub's hosted fleet mixes EPYC 7763 (Zen 3, no AVX-512), Xeon 8573C
@@ -334,9 +334,12 @@ jobs:
       # UiIrTest joined 2026-09-01 (generated-plugin faces, Step 1): UiIr schema 3
       # makes UiIr::parse()/toVar() a persisted production path (the state blob
       # carries the IR as JSON) and neither had a direct test. Pure and fast.
-      - name: Run the pure harnesses (OutputGuard, ParamMap, StatePersistence, ParamIdentity, NoteRing, ValidationGate, SoundfetchClient, GenerationProfilesAuto, UiIr, PromptPanelPathResolution)
+      # ThemeValidateTest joined with ADR-035 Step 2: ThemeValidate::validate()
+      # is the contrast gate every generated face passes before a LookAndFeel is
+      # built from it. Pure arithmetic on parsed RGB, no display.
+      - name: Run the pure harnesses (OutputGuard, ParamMap, StatePersistence, ParamIdentity, NoteRing, ValidationGate, SoundfetchClient, GenerationProfilesAuto, UiIr, ThemeValidate, PromptPanelPathResolution)
         run: |
-          for t in OutputGuardTest ParamMapTest StatePersistenceTest ParamIdentityTest NoteRingTest ValidationGateTest SoundfetchClientTest GenerationProfilesAutoTest UiIrTest PromptPanelPathResolutionTest; do
+          for t in OutputGuardTest ParamMapTest StatePersistenceTest ParamIdentityTest NoteRingTest ValidationGateTest SoundfetchClientTest GenerationProfilesAutoTest UiIrTest ThemeValidateTest PromptPanelPathResolutionTest; do
             BIN="$(find build-ci -type f -name "$t" | head -n 1)"
             if [ -z "$BIN" ]; then
               echo "$t binary not found" >&2

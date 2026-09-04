@@ -417,6 +417,38 @@ target_link_libraries(UiIrTest PRIVATE
 )
 
 # ---------------------------------------------------------------------------
+# ThemeValidateTest -- ThemeValidate::validate() (host/Source/ThemeValidate.h),
+# the contrast gate a generated-plugin face passes through before a LookAndFeel
+# is built from it (ADR-035 Step 2, docs/design/incant-ui/GENERATION_PLAN.md
+# "Gap 1"). Pure arithmetic on parsed RGB; ThemeValidate.h pulls in only UiIr.h,
+# so this links exactly what UiIrTest does -- juce_data_structures for the
+# UiIr::Theme type, nothing more. ASan/UBSan because the parser indexes into
+# author-supplied colour strings.
+juce_add_console_app(ThemeValidateTest
+    PRODUCT_NAME "ThemeValidate Test"
+)
+
+target_sources(ThemeValidateTest PRIVATE
+    tests/ThemeValidateTest.cpp
+)
+
+target_compile_features(ThemeValidateTest PRIVATE cxx_std_17)
+
+target_compile_definitions(ThemeValidateTest PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_VST3_CAN_REPLACE_VST2=0
+)
+
+target_compile_options(ThemeValidateTest PRIVATE -fsanitize=address,undefined -g -O1)
+target_link_options(ThemeValidateTest PRIVATE -fsanitize=address,undefined)
+
+target_link_libraries(ThemeValidateTest PRIVATE
+    juce::juce_data_structures
+    juce::juce_recommended_config_flags
+)
+
+# ---------------------------------------------------------------------------
 # ParamIdentityTest -- the parameter-identity derivation rule
 # (host/Source/ParamIdentity.h, host/tests/ParamIdentityTest.cpp).
 #
