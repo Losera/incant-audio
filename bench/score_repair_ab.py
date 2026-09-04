@@ -17,6 +17,7 @@ No LLM calls, no faust-rs — pure analysis. Safe to re-run.
 """
 import argparse
 import json
+import re
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -129,6 +130,70 @@ def _rescue(recs: list[dict]) -> dict:
             "rescued_at_2": rescued_at_2, "no_program": no_program}
 
 
+# ── caret-line preservation ─────────────────────────────────────────────────
+# faust-rs quotes the offending source line under its caret; frs_check._source_caret
+# emits it as "  {line:>4} | {text}". The mechanism question issue #26 raised: does
+# a precise caret make a small model edit AT that line (and re-break it), or edit
+# around it? Measured here, paired, from the committed attempt_log.
+
+_CARET_LINE_RE = re.compile(r"^ {2,}\d+ \| (.*)$", re.M)
+
+
+def quoted_source_line(feedback_text: str) -> str | None:
+    """The source line faust-rs spliced under its caret, stripped. None for arm A
+    (raw C++ stderr has no such line) or a render that carried no caret. A
+    trivial line (< 3 chars, or no alphanumeric) is treated as no line —
+    "preserving" `};` would say nothing about anchoring."""
+    m = _CARET_LINE_RE.search(feedback_text or "")
+    if not m:
+        return None
+    line = m.group(1).strip()
+    if len(line) < 3 or not any(ch.isalnum() for ch in line):
+        return None
+    return line
+
+
+def _attempt1(rec: dict) -> dict | None:
+    """attempt_log[0] iff it holds a produced program (not a transport abort)."""
+    log = rec.get("attempt_log") or []
+    return log[0] if log and "code" in log[0] else None
+
+
+def _line_survives(code: str, line: str) -> bool:
+    """`line` (already stripped) reappears verbatim as a stripped line of `code`."""
+    return any(ln.strip() == line for ln in code.splitlines())
+
+
+def _caret_preservation(pairs: list[tuple[dict, dict]], treatment: str) -> dict:
+    """Paired: of programs where the treatment arm's attempt-1 feedback quoted a
+    source line under its caret, how often did that exact line survive, verbatim,
+    into each arm's attempt-1 rewrite?
+
+    The reference line is the treatment feedback's (arm A never sees it) — for
+    arm A the question is whether its broader rewrite happened to keep the
+    construct faust-rs would have flagged. Denominator: pairs where the treatment
+    feedback has a caret line AND both arms produced an attempt-1 program.
+    """
+    n = a_keep = b_keep = b_only = a_only = 0
+    for a, b in pairs:
+        a1, b1 = _attempt1(a), _attempt1(b)
+        if a1 is None or b1 is None:
+            continue
+        line = quoted_source_line(b1.get("feedback_text", ""))
+        if line is None:
+            continue
+        n += 1
+        a_has = _line_survives(a1["code"], line)
+        b_has = _line_survives(b1["code"], line)
+        a_keep += a_has
+        b_keep += b_has
+        b_only += b_has and not a_has
+        a_only += a_has and not b_has
+    return {"n": n, "a_preserved": a_keep, "b_preserved": b_keep,
+            "b_only": b_only, "a_only": a_only,
+            "mcnemar_p": mcnemar_exact(b_only, a_only)}
+
+
 def report(pairs: list[tuple[dict, dict]], model: str, treatment: str) -> dict:
     tl = f"arm {treatment} ({ARM_LABEL[treatment]})"
     n = len(pairs)
@@ -202,11 +267,14 @@ def report(pairs: list[tuple[dict, dict]], model: str, treatment: str) -> dict:
     print("SECOND-ERROR IDENTITY  (of repairs that FAILED, was attempt 1's error"
           " the same class as the start?)")
     terminal = {}
+    second_error = {}
     for arm_idx, arm in ((0, "A"), (1, treatment)):
         failed = [p[arm_idx] for p in pairs if not p[arm_idx]["repaired"]]
         same = sum(1 for r in failed if r.get("second_error_same_as_first") is True)
         new = sum(1 for r in failed if r.get("second_error_same_as_first") is False)
         no_attempt = sum(1 for r in failed if produced_no_program(r))
+        second_error[arm] = {"failed": len(failed), "same_class": same,
+                             "new_class": new, "no_attempt": no_attempt}
         # explicit terminal_reason (post-P2 records) — absent on the frozen data
         tr = Counter(r.get("terminal_reason") for r in failed if r.get("terminal_reason"))
         terminal[arm] = dict(tr)
@@ -220,6 +288,18 @@ def report(pairs: list[tuple[dict, dict]], model: str, treatment: str) -> dict:
               f"(>5%) — the arm comparison may be contaminated; see --drop-transport",
               file=sys.stderr)
 
+    # ── caret-line preservation: does the caret anchor the model to the line? ─
+    caret = _caret_preservation(pairs, treatment)
+    print("\nCARET-LINE PRESERVATION  (faust-rs quotes the offending source line;"
+          " did it survive verbatim into attempt 1?)")
+    if caret["n"]:
+        for arm, k in (("A", "a_preserved"), (treatment, "b_preserved")):
+            print(f"  arm {arm}: {caret[k]}/{caret['n']} ({caret[k]/caret['n']:.0%})")
+        print(f"  discordant: {treatment}-kept/A-edited {caret['b_only']}, "
+              f"A-kept/{treatment}-edited {caret['a_only']}  McNemar p={caret['mcnemar_p']:.2e}")
+    else:
+        print("  (no treatment-arm feedback quoted a source line)")
+
     s = {
         "model": model, "treatment": treatment, "treatment_label": ARM_LABEL[treatment],
         "n": n, "a_green": a_green, "b_green": b_green,
@@ -227,6 +307,7 @@ def report(pairs: list[tuple[dict, dict]], model: str, treatment: str) -> dict:
         "a_mean_attempts": sum(a_scores) / n, "b_mean_attempts": sum(b_scores) / n,
         "wilcoxon_p": w_p, "per_class": per_class,
         "rescue": rescue, "by_arm_a_truncation": by_trunc, "terminal": terminal,
+        "second_error": second_error, "caret_preservation": caret,
     }
     s["verdict"] = verdict(s)
     print(f"\n>>> {s['verdict']}\n")
