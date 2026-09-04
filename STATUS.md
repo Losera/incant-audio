@@ -90,6 +90,46 @@ provider-precedence rule; §3–§5 hygiene) were applied, plus the two 2026-09-
 `onRecommendationInvalidated`) and two dead-branch removals (`target_mismatch` off the plain
 `generate()` path; the `request.get("budget")` fallback). `check.sh full` + CI green.
 
+**Open, not yet landed — PR #65** (`feat/ui-face-wire`, ADR-035 A3b): wires the ui_face
+producer (#59) into the compile-success callback so `GeneratedFaceLookAndFeel` (#61) sees a
+real theme instead of always the Ember default — `PluginEditor.cpp`'s compile callback
+builds the captured param table, calls `promptPanel.requestUiFace()`, applies the result via
+the existing `applyUiIr()`/`applyGeneratedFace()` when it's a valid schema-3 answer, falls
+back to the deterministic layout on any failure. **The redesign this PR actually is:** the
+first attempt gave `ui_face` its own independent subprocess-spawning thread
+(`UiFaceClient`), which reproduced a real `EditorSessionTest` hang (JUCE assertions in
+`juce_TemporaryFile.cpp`/`juce_Component.cpp`, then a stall) — root-caused via gdb thread
+dumps and `/proc/<pid>/task` inspection (ptrace was blocked in this sandbox; `wchan`/
+`anon_pipe_read` on the stuck thread was the actual evidence) to two lifecycle races only a
+**second thread** can create: (1) a real Generate arriving before a ui_face job's
+`ChildProcess` registers is invisible to `activeChild->kill()` — a documented no-op on
+null — so the subprocess started anyway and blocked the worker behind it; (2)
+`ChildProcess::kill()` is SIGKILL to the **direct child only**, so an orphaned grandchild
+(`sleep 30` under `/bin/sh`, exactly `EditorSessionTest` scenario 9's teardown probe) keeps
+the pipe open and `readAllProcessOutput()` blocks on it regardless of the direct child
+already being dead. **Fix:** route `ui_face` through `PromptPanel`'s existing, already-proven
+worker thread as a second, lower-priority job kind instead of a second thread — there is
+exactly one thread in the process that ever spawns a subprocess, same as before this
+session; `UiFaceClient.h/.cpp` and an intermediate `SubprocessForkLock.h` (a narrower,
+insufficient first fix attempt) are gone, not in the PR. Also fixed:
+`FakeGenerator.h`'s capture-based test doubles (`writeSuccessCapturing`,
+`writeRecommendation{,Failure}ThenSuccess`) were letting a background ui_face call clobber
+the `request.json`/`argv.txt` files ~20 pre-existing scenarios assert against, since it hits
+the same installed fake script — patched to bypass `action:"ui_face"` requests without
+touching the capture (a test-harness fix, not production). **Verified:** every `check.sh
+full` harness run directly (the wrapper itself kept getting killed by the sandbox on the
+rebuild step, so each of the ~20 binaries was run by hand with the same flags/env);
+`EditorSessionTest` 428/0 in ~60s (was hanging / 23-50 failures / 4-5 min before both race
+fixes); `PromptPanelThreadingTest` (the PF-006 regression test) 9/0, teardown 423ms;
+`ParamPoolTsanTest`/`AuditionThreadingTest`/`NoteRingTsanTest` clean under ThreadSanitizer;
+every other harness green. PR CI: `test` passed, `build-host` still running as of this
+write. **Not verified:** a real DAW/Standalone session with a live LLM provider —
+`EditorSessionTest`'s `FakeGenerator` is the evidence so far; `docs/sessions/018-incant-ui-faces-and-shell.md` and
+`docs/design/incant-ui/GENERATION_PLAN.md` still call this gap undifferentiated "A3", not
+updated. Tier 2
+(COLLABORATION.md §3, new threading surface) — **needs a human review before merge**, the
+same bar #61 got and didn't (below).
+
 **Landed 2026-09-03 (evening, after PR #57 below):** four PRs, in landing order — **PR #58**
 (`da5594d`, `host/Source/ThemeValidate.h` — WCAG contrast gate for a `UiIr::Theme`: `text` ≥
 7:1 / `textDim` ≥ 4.5:1 / `accent` ≥ 3:1 **against `surface`** (the B1 decision — the panel
@@ -369,11 +409,12 @@ clock — no host transport in Standalone).
    worktree removed. Still needs a review/merge decision, just not at risk of being lost.
    `design/ember-console` + `origin/fix/ember-console-palette` still kept pending your
    triage (Ember Console repaint) — unchanged.
-7. **A retroactive look at PR #61 would close a real gap.** ADR-035 flags Step 3
-   (`GeneratedFaceLookAndFeel`) as new UI architecture needing its own review
-   (AGENTS.md §4); it merged directly, with no GitHub review recorded. Not urgent — the
-   code is inert in production until A3b wires it up — but worth a deliberate look before
-   A3b makes it live.
+7. **PR #65 (A3b) needs a review before merge — this is now the pressing one.** ADR-035
+   flags this step as new UI architecture (AGENTS.md §4); #61 (A3a) merged directly with no
+   GitHub review recorded, and #65 is what actually makes that code live in production, so
+   the gap #61 left open now matters. `~/.worktrees/ui-face-wire` (branch
+   `feat/ui-face-wire`) holds the work; remove the worktree once #65 merges or is
+   abandoned.
 8. **Untracked personal files left alone**, as always — the two notes at the repo root, the
    unshipped brief skill, the product-architecture draft under bench/. The
    `design_handoff_generated_plugin_faces/` bundle from the last rewrite is **resolved,
