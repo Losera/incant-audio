@@ -118,7 +118,8 @@ user decision — per-plugin generated faces; a status note records that `GENERA
 colour. **ADR-036 Proposed** — shell redesign: the fixed `kLeftFraction=0.65` collides at the
 900px default (PromptPanel widgets hit 0px), fix is a direction-neutral prep commit then
 prototype Command-Bar vs Rail+Dock on two branches and delete the loser. `docs/design/incant-ui/`
-is the distilled read-only design record; `docs/sessions/018` the multi-session build plan.
+is the distilled read-only design record; `docs/sessions/018-incant-ui-faces-and-shell.md`
+the multi-session build plan.
 `check.sh fast` green, `test_control_wiring.py` 122 passed).
 
 **Landed 2026-09-03:** PR #51 (`2c7c5bb`, **UiIr schema 3** — `host/Source/UiIr.h` gains a
