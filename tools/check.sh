@@ -148,7 +148,7 @@ level_full() {
               OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery \
               ParamIdentityTest NoteRingTest NoteRingTsanTest ValidationGateTest \
               SoundfetchClientTest GenerationProfilesAutoTest UiIrTest \
-              ThemeValidateTest PromptPanelPathResolutionTest
+              ThemeValidateTest PromptPanelPathResolutionTest ParamGridLayoutTest
 
     # ── Three harnesses that existed and ran nowhere ─────────────────────────
     # Found 2026-07-30 while surveying the measurement surface: OutputGuardTest
@@ -205,11 +205,16 @@ level_full() {
     # before a LookAndFeel is built from it -- a hand-authored or LLM-produced or
     # stale-cached Theme all reach it. Pure arithmetic on parsed RGB, links only
     # what UiIrTest does, no display.
+    # ParamGridLayoutTest joined with ADR-035 gap 4 / session 018 track A4, in
+    # the commit that created it -- ParamGridLayout.h's own header had named
+    # this exact filename as never having existed since it was written; this is
+    # that filename. ArchetypeLayout.h (host/Source/) is pure section/rect
+    # arithmetic, same "no JUCE dependency" shape as ParamIdentityTest beside it.
     local pure
     for pure in OutputGuardTest ParamMapTest StatePersistenceTest ParamIdentityTest \
                 NoteRingTest ValidationGateTest SoundfetchClientTest \
                 GenerationProfilesAutoTest UiIrTest ThemeValidateTest \
-                PromptPanelPathResolutionTest; do
+                PromptPanelPathResolutionTest ParamGridLayoutTest; do
       local bin
       bin="$(find host/build -type f -name "$pure" 2>/dev/null | head -n1)"
       if [[ -n "$bin" ]]; then
