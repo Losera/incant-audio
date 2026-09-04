@@ -1,4 +1,4 @@
-# PluginForge — Status  (2026-09-03)
+# PluginForge — Status  (2026-09-04)
 
 Rewritten each session per COLLABORATION.md §5. Single writer, no merge conflicts.
 Narrative history lives in git and in `docs/sessions/`.
@@ -89,6 +89,49 @@ provider-precedence rule; §3–§5 hygiene) were applied, plus the two 2026-09-
 (re-arm the accept button after `markStale()`; wire the provider picker to
 `onRecommendationInvalidated`) and two dead-branch removals (`target_mismatch` off the plain
 `generate()` path; the `request.get("budget")` fallback). `check.sh full` + CI green.
+
+**Landed 2026-09-03 (evening, after PR #57 below):** four PRs, in landing order — **PR #58**
+(`da5594d`, `host/Source/ThemeValidate.h` — WCAG contrast gate for a `UiIr::Theme`: `text` ≥
+7:1 / `textDim` ≥ 4.5:1 / `accent` ≥ 3:1 **against `surface`** (the B1 decision — the panel
+fill the face paints on, not the window ground `#050505`), plus accent/accentAlt/text
+separation; per-token Ember fallback, never rejects the whole theme; 71-check
+`ThemeValidateTest`, wired into `check.sh` + CI. ADR-035 Step 2.) **PR #60** (`1ad968a`,
+**issue-#26 integrity pass 2** — found and corrected a **backwards mechanism claim** in the
+drafted GRAME reply before it was posted: the docs had said faust-rs's caret makes the model
+"edit at that spot and re-break it"; measured over the committed run it's the opposite — the
+quoted source line survives **verbatim** into attempt 1 in 94/161 (58%) of arm-B rewrites vs
+7/161 (4%) of arm A's, McNemar p≈2e-22, replicated on the 7B. The model treats the
+caret-quoted line as fixed and edits around it; the plain C++ error gives it nothing to hold
+onto, so it discards and rewrites, which compiles more often. Also corrected `README.md`
+number drift (rescue 49/87→49/88; a cap-percentage sentence sitting above the wrong table)
+and closed two hygiene gaps — the documented pipeline scripts were silently reverting six
+report artifacts to the pre-screen view for want of a `--screen` flag, plus an orphan
+pre-screen chart PNG. New `bench/score_repair_ab.py` caret-preservation metric + a
+`verify.py` check, `expected.json` checks_expected 311→367, new
+`tests/test_issue26_readme_numbers.py` pinning the README prose to `verify.observe()`.
+**`~/issue26-reply.md` was updated to match** — confirmed this session by reading the draft:
+it already cites `1ad968a` and the 58%/4% figures, not stale.) **PR #59** (`4508ac4`,
+`llm/ui_face.py` + a `ui_face` action in `generate.py` + `llm/prompts/ui_face_prompt.md` +
+`tests/test_ui_face.py` (25 checks) — post-compile: captured param table → schema-3 face
+JSON, mirroring `recommendation.py`'s shape. Host re-validates and is authoritative; the
+Python side is a lenient structural filter (drops unknown labels, dedupes, normalises theme
+enums, forces button-continuous-style to `""`, caps `lg` at 2) and raises `InvalidFace` only
+on the unrenderable. ADR-035 Step 5.) **PR #61** (`3e79739`, A3a:
+`host/Source/GeneratedFaceLookAndFeel.h` (`: public ForgeLookAndFeel`, one
+`setColourScheme()` from `ThemeValidate::validate(theme)`),
+`PluginForgeEditor::applyGeneratedFace()` (detach-then-rebuild from the compile callback),
+`UiIr::Theme::operator==`, `EditorSessionTest` scenario 50. **Still a no-op in production**
+— `deriveLayoutFromGroups()` only ever emits the Ember default, so the face never attaches
+until A3b wires PR #59's producer into the compile callback. ADR-035 flags this step as new
+UI architecture needing its own review (AGENTS.md §4); it was **merged directly by the
+human** — `gh pr view 61` shows no formal GitHub review submitted, so there is an informal
+review but no artifact of one beyond the merge itself.) `check.sh full` green locally
+pre-merge on #61 (fast suite, prompt grounding, build, TSan, `EditorSessionTest` 421 checks
+incl. scenario 50, `ThemeValidateTest`, `OfflineRenderTest`, `UiDesignGallery`); CI ran green
+on the combined head (`60d75c7`, covering #58+#60+#59) and again on `3e79739` (#61 on top) —
+**confirmed live this session** via `gh run list`. **Next:** A3b — wire the `ui_face`
+subprocess call into `PluginEditor.cpp`'s compile-success callback (non-blocking, falls back
+on any failure), which is what makes A3a visible.
 
 **Landed 2026-09-03 (later):** PR #55 (`78fb9db`, **issue-#26 integrity pass before the
 GRAME handoff**) — the A/B evidence made defensible before a public reply:
@@ -257,22 +300,29 @@ into PF-024's family-failure sampling, notes in `scratchpad/pf065-reaper-observa
 - **The efficacy tier gradient is unknown on the shipping model.** *(PF-011.)* The 125-cell
   grid ran once, on `ollama qwen2.5-coder:7b` (CPU) — compile rate tier-independent,
   fidelity monotonically declining. **Still assumed:** whether that gradient holds on
-  `groq`'s `openai/gpt-oss-120b`. A groq run **started 2026-08-31**, resumed 2026-09-01
-  (+3 cells, then the transport checkpoint fired again — quota still not clear), now at
-  **~29/125** (`bench/results/efficacy/efficacy_groq_20260831.json`). Retry-corrected
-  compile by tier: L4 6/6, L3 5/6, L2 6/6, L1 5/6, L0 5/5 — **flat, no tier gradient**, so
-  far consistent with the ollama run. Resume again next quota window. Also n=1 per cell
-  (PF-031's ≥3-run bar unmet), and the judge is a 7B grading a 7B.
+  `groq`'s `openai/gpt-oss-120b`. Progress since the last rewrite: 51 cells committed at
+  `HEAD` (up from ~29), and the run has advanced to **89/125 in the working tree, not yet
+  committed** — re-scored this session with `bench/score_efficacy.py` ($0, no quota spent):
+  retry-corrected compile by tier is L4 16/18 (89%), L3 17/18 (94%), L2 17/18 (94%), L1
+  15/18 (83%), L0 16/17 (94%) — noisier than "flat" but not a clean gradient either.
+  **The heuristic semantic-pass-rate proxy *does* now show a monotonic decline** — L4 94% →
+  L3 88% → L2 82% → L1 73% → L0 62% — consistent in shape with the ollama run's fidelity
+  finding, though it is a heuristic (`expected_primitives` any-of match), not the judged
+  score. Resume with `python bench/run_efficacy_study.py --provider groq --resume --out
+  bench/results/efficacy/efficacy_groq_20260831.json` next quota window; still n=1 per cell
+  (PF-031's ≥3-run bar unmet) and unjudged (`--judge` spends quota — defect #8).
 
 ---
 
 ## Next three things
 
-1. *(evidence)* **Resume the groq 125-cell efficacy run.** `python bench/run_efficacy_study.py
-   --provider groq --resume --out bench/results/efficacy/efficacy_groq_20260831.json` — at
-   ~29/125. Resumes when the daily quota permits; it checkpoints harmlessly if not. Moves
-   PF-011 out of Assumed, the one number this project steers by. Score with
-   `bench/score_efficacy.py` (compile rate first; `--judge` spends quota — defect #8).
+1. *(evidence)* **Resume and commit the groq 125-cell efficacy run.** Same command as
+   before — at **89/125 in the working tree, uncommitted** (51/125 is the last committed
+   checkpoint). Resumes when the daily quota permits; it checkpoints harmlessly if not.
+   Worth a `git add -p`/commit of the current progress before it resumes further, so a crash
+   doesn't lose the 38 uncommitted cells. Moves PF-011 out of Assumed, the one number this
+   project steers by. Score with `bench/score_efficacy.py` (compile rate first; `--judge`
+   spends quota — defect #8).
 2. **Capture repros for PF-072 and PF-074.** The two medium in-host findings are
    currently unactionable — each needs the triggering patch source and the action
    immediately before. Needs an interactive host session; until then they can only be
@@ -289,17 +339,16 @@ clock — no host transport in Standalone).
 
 ## Waiting on you
 
-1. **Post the GRAME reply.** `~/issue26-reply.md` — full draft, answers Stéphane Letz's
-   "does the better error shorten the loop" question (no, and the mechanism), corrects the
-   two published claims (9/15→8/15; the fidelity comparison), and hands over the repro
-   package pinned to `78fb9db` (PR #55, the integrity pass — the screen and the cap
-   stratification the reply describes landed there; the draft links a tree at that SHA, not
-   the older `6d790bd`). Every link resolves anonymously; a cold clone at that SHA runs
-   `verify.py` green (311 checks). COLLABORATION.md §2 — **a human reviews the wording and
-   posts it** (Claude must not `gh issue comment`). Delete the draft after. Then (deferred to
-   a later session): edit the existing `issue-26-repro` release body **in place** to mark it
-   superseded and repoint its Method link at `78fb9db`; optionally cut a new non-prerelease
-   `issue-26-repro-v2` at `78fb9db`. **Do not move the existing tag** (`f50daa8`).
+1. **Post the GRAME reply.** `~/issue26-reply.md` — read in full this session, current and
+   not stale: it cites `1ad968a` (PR #60, the *second* integrity pass — supersedes #55's
+   `78fb9db`) and the corrected 58%/4% caret-preservation mechanism, not the earlier "edit
+   at that spot and re-break it" framing #60 found backwards. Every link resolves
+   anonymously; a cold clone at `1ad968a` runs `verify.py` green (367 checks). COLLABORATION.md
+   §2 — **a human reviews the wording and posts it** (Claude must not `gh issue comment`).
+   Delete the draft after. Then (deferred to a later session): edit the existing
+   `issue-26-repro` release body **in place** to mark it superseded and repoint its Method
+   link at `1ad968a`; optionally cut a new non-prerelease `issue-26-repro-v2` at `1ad968a`.
+   **Do not move the existing tag** (`f50daa8`).
 2. **A listening pass on the interactive-session patches.** COLLABORATION.md §1 — whether a
    generated plugin *sounds like what was asked for* has no instrument and is not delegable.
    The render oracle proved the WP6 patches were not broken; it cannot tell you they were
@@ -314,14 +363,20 @@ clock — no host transport in Standalone).
    `phase3-pf024-invalid-generation-families.md`. Each leads with a re-measurement WP: the
    prompt already contains the fix text for all three, and the open question is whether the
    shipping model obeys it.
-6. **`bench/.worktrees/provider-resilience`** has 16 files of uncommitted provider-resilience
-   work (`llm/providers.py`, `llm/generate.py`, `PromptPanel.cpp`, tests). Left untouched in
-   the 2026-09-01 branch sweep — commit, stash, or discard it. `design/ember-console` +
-   `origin/fix/ember-console-palette` also kept pending your triage (Ember Console repaint).
-7. **Untracked personal files left alone**, as always — the two notes at the repo root,
-   the unshipped brief skill, the product-architecture draft under bench/, and the
-   `design_handoff_generated_plugin_faces/` bundle (kept untracked by decision 2026-09-03;
-   it is the reference-render target for the ADR-035 faces work — worth committing a
-   distilled `docs/` version before that work's Step 6). Named in `.claude/HANDOFF.md`; not
-   cited here as paths because they are not in the tree and the live-doc path check
-   (correctly) rejects that.
+6. **The provider-resilience work moved, corrected this session** — it is no longer an
+   uncommitted worktree. It was pushed as `origin/feat/provider-resilience` (`9f260a0`,
+   "WIP: interactive provider resilience (fallback chain) — UNREVIEWED SNAPSHOT") and the
+   worktree removed. Still needs a review/merge decision, just not at risk of being lost.
+   `design/ember-console` + `origin/fix/ember-console-palette` still kept pending your
+   triage (Ember Console repaint) — unchanged.
+7. **A retroactive look at PR #61 would close a real gap.** ADR-035 flags Step 3
+   (`GeneratedFaceLookAndFeel`) as new UI architecture needing its own review
+   (AGENTS.md §4); it merged directly, with no GitHub review recorded. Not urgent — the
+   code is inert in production until A3b wires it up — but worth a deliberate look before
+   A3b makes it live.
+8. **Untracked personal files left alone**, as always — the two notes at the repo root, the
+   unshipped brief skill, the product-architecture draft under bench/. The
+   `design_handoff_generated_plugin_faces/` bundle from the last rewrite is **resolved,
+   confirmed this session** — it was distilled into `docs/design/incant-ui/` in PR #56 (a
+   dated, read-only point-in-time record per COLLABORATION.md §8) and the original bundle
+   directory no longer exists on disk. Nothing left to commit there.
