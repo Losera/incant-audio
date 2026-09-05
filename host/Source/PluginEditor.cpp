@@ -1,5 +1,6 @@
 #include "PluginEditor.h"
 #include "Theme.h"
+#include "UiIr.h"
 
 namespace
 {
@@ -40,6 +41,27 @@ int parseFaustErrorLine(const juce::String& error)
         ++i;
     }
     return sawDigit ? line : 0;
+}
+
+// ADR-035 §5/A3b. llm/ui_face.py's kind_of map only special-cases two exact
+// lowercase strings -- "button" and "checkbutton" (PF-005: neither may render
+// continuous) -- and "meter" (never a control). Every other value is treated
+// as "continuous", so HSlider/VSlider/NumEntry share one string; there is
+// nothing for the producer to key on among them and inventing a distinction
+// here would be answering a question nobody asks. Verified against
+// llm/ui_face.py's `_TOGGLE_KINDS`/`_NON_CONTROL_KINDS` sets.
+juce::String kindToWireString(FaustEngine::Kind kind)
+{
+    switch (kind)
+    {
+        case FaustEngine::Kind::Button:      return "button";
+        case FaustEngine::Kind::CheckButton: return "checkbutton";
+        case FaustEngine::Kind::Meter:       return "meter";
+        case FaustEngine::Kind::HSlider:
+        case FaustEngine::Kind::VSlider:
+        case FaustEngine::Kind::NumEntry:
+        default:                              return "slider";
+    }
 }
 }
 
@@ -118,6 +140,33 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
     promptPanel.onRecommendationInvalidated = [safeThis = juce::Component::SafePointer<PluginForgeEditor>(this)]
     {
         if (safeThis != nullptr) safeThis->recommendationPanel.markStale();
+    };
+    // ADR-035 §5/A3b. Fires once per ui_face request, on the message thread,
+    // with a non-object `response` on any failure. lastDerivedComponentsForUiFace
+    // is set right before every requestUiFace() call, immediately above in
+    // the compile-success callback -- see its own header comment for why
+    // reading it back here is safe without a per-request stamp.
+    promptPanel.onUiFaceResult = [safeThis = juce::Component::SafePointer<PluginForgeEditor>(this)]
+        (juce::var response)
+    {
+        if (safeThis == nullptr)
+            return;
+        if (! response.isObject())
+            return;   // any failure: deterministic layout stays
+        if (! static_cast<bool>(response.getProperty("success", false)))
+            return;
+        auto face = UiIr::parse(response.getProperty("face", {}));
+        if (face.schema != 3)
+            return;   // an explicit decline or an unparseable answer
+        // Sections/theme/archetype come from the LLM; components stay
+        // derived, never LLM-chosen (GENERATION_PLAN.md "Gap 5"):
+        // Components::meter in particular is correct about a signal
+        // ui_face.py never sees -- PF-052 discards meters one layer
+        // upstream of the captured param table.
+        face.components = safeThis->lastDerivedComponentsForUiFace;
+        safeThis->paramGridPanel.applyUiIr(face);
+        safeThis->applyGeneratedFace(face.theme);
+        safeThis->processor.setUiIr(face);
     };
     recommendationPanel.onGenerate = [safeThis = juce::Component::SafePointer<PluginForgeEditor>(this)]
         (const juce::var& plan, const juce::String& provider, const juce::String& model)
@@ -255,17 +304,80 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
             const auto derivedLayout = ParamGridPanel::deriveLayoutFromGroups(
                 params, safeThis->processor.isInstrumentForTest());
             safeThis->paramGridPanel.applyUiIr(derivedLayout);
-            // ADR-035 Step 3: dress paramGridPanel in the layout's theme. Today
-            // deriveLayoutFromGroups() only ever produces the Ember default, so
-            // this is a no-op detach in production until the ui_face producer
-            // (#59) feeds a real theme in here; the machinery and its
-            // EditorSessionTest scenario are what this step lands.
+            // ADR-035 Step 3: dress paramGridPanel in the layout's theme.
+            // deriveLayoutFromGroups() only ever produces the Ember default,
+            // so this is always a no-op detach FROM THIS CALL -- the ui_face
+            // request below is what may later replace `derivedLayout` with a
+            // real theme, asynchronously, via the exact same two calls.
             safeThis->applyGeneratedFace(derivedLayout.theme);
             // Hand the layout to the processor so it rides the state blob
             // (UiIr schema 3, Step 1). Persistence only -- the restore path
             // does not feed this back into applyUiIr() yet; this callback
             // re-derives from `params` on every compile, restore included.
             safeThis->processor.setUiIr(derivedLayout);
+
+            // ADR-035 §5/A3b: post-compile UI face request, queued on
+            // PromptPanel's own worker (requestUiFace() -- see its header
+            // comment for why this rides the SAME thread generate/recommend
+            // already use rather than a second one). Bounded, additive,
+            // non-blocking -- the deterministic layout above is ALREADY live
+            // on screen by this point; this call can only improve on it
+            // later (if/when a result arrives via onUiFaceResult below),
+            // never regress what is showing right now. Every failure path
+            // (no script resolved, timeout, malformed JSON, an explicit
+            // schema-0 decline) leaves it exactly as applied above -- see
+            // llm/ui_face.py's "never a broken face, never bad audio".
+            {
+                juce::Array<juce::var> paramsJson;
+                for (const auto& p : params)
+                {
+                    if (p.zone == nullptr)
+                        continue;   // unoccupied slot, same skip as numParams above
+                    auto* obj = new juce::DynamicObject();
+                    obj->setProperty("label", juce::String(p.label));
+                    obj->setProperty("kind", kindToWireString(p.kind));
+                    obj->setProperty("group", juce::String(p.group));
+                    obj->setProperty("min", p.min);
+                    obj->setProperty("max", p.max);
+                    obj->setProperty("unit", juce::String(p.unit));
+                    paramsJson.add(juce::var(obj));
+                }
+
+                // Mirrors ui_face.py's own precondition (`not params` raises)
+                // and skips the call entirely rather than sending a request
+                // certain to be rejected -- a 6-param minimum-populated patch
+                // is also below MIN_SECTIONS=2's floor most of the time, but
+                // that judgment belongs to the producer/validator, not here.
+                // (Runtime resolution -- generate.py/python3 -- is now
+                // PromptPanel's own concern; requestUiFace() no-ops silently
+                // if it hasn't resolved, same as any other failure path.)
+                if (! paramsJson.isEmpty())
+                {
+                    auto* reqObj = new juce::DynamicObject();
+                    reqObj->setProperty("action", "ui_face");
+                    reqObj->setProperty("params", paramsJson);
+                    reqObj->setProperty("is_instrument", safeThis->processor.isInstrumentForTest());
+                    // Best-effort context for the LLM (archetype/tone cues),
+                    // not a validated or identity-bearing field -- ui_face.py
+                    // reads it as free text with a "" default and never
+                    // rejects on it, same treatment as generate.py's own
+                    // prompt field.
+                    reqObj->setProperty("prompt", safeThis->promptPanel.currentPromptText());
+                    const auto provider = safeThis->promptPanel.currentProvider();
+                    const auto model = safeThis->promptPanel.currentModel();
+                    // Omitted when empty -- an explicit "" would defeat
+                    // generate.py's request.get("provider", DEFAULT_PROVIDER)
+                    // fallback, same reasoning as PromptPanel.cpp:1021-1028.
+                    if (provider.isNotEmpty()) reqObj->setProperty("provider", provider);
+                    if (model.isNotEmpty())    reqObj->setProperty("model", model);
+
+                    // Read back by onUiFaceResult (set once in the
+                    // constructor) once the request completes -- see
+                    // lastDerivedComponentsForUiFace's header comment.
+                    safeThis->lastDerivedComponentsForUiFace = derivedLayout.components;
+                    safeThis->promptPanel.requestUiFace(juce::var(reqObj));
+                }
+            }
             // The source of record is committed in the same success branch that
             // fires this callback (PluginProcessor.cpp:180-181), so by the time
             // this message-thread hop runs, currentSource() is the patch that
