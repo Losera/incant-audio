@@ -23,6 +23,7 @@
 #include "../Source/ArchetypeLayout.h"
 
 #include <iostream>
+#include <map>
 #include <set>
 #include <string>
 #include <vector>
@@ -124,7 +125,7 @@ void expectFullCoverage(const Result& r, const std::vector<SectionInput>& sectio
 // Drive + Tone, three controls each).
 std::vector<SectionInput> sixParamEffect()
 {
-    return { SectionInput{ 3, 1 }, SectionInput{ 3, 1 } };
+    return { SectionInput{ 3, 1, {} }, SectionInput{ 3, 1, {} } };
 }
 
 // An 18-param synth: four sections of uneven size and span, modelled on the
@@ -133,10 +134,10 @@ std::vector<SectionInput> sixParamEffect()
 std::vector<SectionInput> eighteenParamSynth()
 {
     return {
-        SectionInput{ 4, 1 },   // Osc
-        SectionInput{ 4, 2 },   // Filter -- the wide "lg" cutoff column
-        SectionInput{ 5, 1 },   // Env
-        SectionInput{ 5, 1 },   // Fx
+        SectionInput{ 4, 1, {} },   // Osc
+        SectionInput{ 4, 2, {} },   // Filter -- the wide "lg" cutoff column
+        SectionInput{ 5, 1, {} },   // Env
+        SectionInput{ 5, 1, {} },   // Fx
     };
 }
 
@@ -145,18 +146,115 @@ constexpr int kHeadingH = 20; // ParamGridPanel::kHeadingH
 constexpr int kGapH = 4;     // ParamGridPanel::kSectionGapH
 constexpr int kWidth = 900;
 
-void testIsSupported()
+// CORRECTED (fix/pedal-layout-packing): isSupported() and the second,
+// ungeometried grid path it gated are both gone. layoutFor() is now TOTAL --
+// "pedal", "utility", "", and any archetype name this build predates all
+// resolve to row(), a real geometry, not a fallback a caller has to detect
+// and special-case. This is what a real 4-param "pedal" generation used to
+// hit: one section per parameter, x=0 for every control, a `size:"lg"`
+// control's centre landing at a different x than its siblings.
+void testLayoutForIsTotal()
 {
-    using ArchetypeLayout::isSupported;
-    expectTrue(isSupported("synth-panel"),   "synth-panel is a supported archetype");
-    expectTrue(isSupported("channel-strip"), "channel-strip is a supported archetype");
-    expectTrue(isSupported("tape-unit"),     "tape-unit is a supported archetype");
-    expectTrue(isSupported("texture-field"), "texture-field is a supported archetype");
-    expectTrue(! isSupported("pedal"),       "pedal falls through to the existing grid");
-    expectTrue(! isSupported("utility"),     "utility falls through to the existing grid");
-    expectTrue(! isSupported(""),            "the empty archetype falls through to the existing grid");
-    expectTrue(! isSupported("some-future-archetype"),
-               "an unrecognised name falls through, not crashes");
+    const auto sections = sixParamEffect();
+    for (const std::string& archetype :
+         { std::string("pedal"), std::string("utility"), std::string(""),
+           std::string("some-future-archetype") })
+    {
+        const std::string label = "layoutFor/" + (archetype.empty() ? std::string("<empty>") : archetype);
+        const auto r = ArchetypeLayout::layoutFor(archetype, sections, kWidth, kRowH, kHeadingH, kGapH);
+        expectNoOverlaps(r, label);
+        expectFullCoverage(r, sections, label);
+    }
+
+    // pedal (row -- sections stacked, one atop the other) and channel-strip
+    // (columns -- sections side by side) must be genuinely different
+    // geometries, not "pedal" silently aliasing onto columns(). For two
+    // equal-shaped sections, row() stacks their heights serially while
+    // columns() lets them share a y-origin side by side, so the two total
+    // heights necessarily differ here.
+    const auto viaPedal   = ArchetypeLayout::layoutFor("pedal", sections, kWidth, kRowH, kHeadingH, kGapH);
+    const auto viaChannel = ArchetypeLayout::layoutFor("channel-strip", sections, kWidth, kRowH, kHeadingH, kGapH);
+    expectTrue(viaPedal.contentHeight != viaChannel.contentHeight,
+               "pedal (row, stacked) and channel-strip (columns, side by side) are different geometries");
+}
+
+// Packing: more than one control per row inside a section, a PURE function
+// of controlCount/span (never of pixel width -- see ArchetypeLayout.h's
+// header comment on why). row() is the archetype that exercises this for
+// the common few-controls "pedal" case directly (no column/split/rail
+// region math in the way).
+void testRowPackingProperties()
+{
+    for (int n = 1; n <= 12; ++n)
+    {
+        std::vector<SectionInput> sections = { SectionInput{ n, 1, {} } };
+        const std::string label = "row/n=" + std::to_string(n);
+        const auto r = ArchetypeLayout::row(sections, kWidth, kRowH, kHeadingH, kGapH);
+        expectNoOverlaps(r, label);
+        expectFullCoverage(r, sections, label);
+
+        std::map<int, std::vector<const ArchetypeLayout::PlacedControl*>> byY;
+        for (const auto& c : r.controls)
+            byY[c.bounds.y].push_back(&c);
+        for (const auto& [y, rowControls] : byY)
+        {
+            const int w0 = rowControls.front()->bounds.w;
+            for (const auto* c : rowControls)
+            {
+                expectEq(c->bounds.w, w0, label + ": every control in one row shares its width");
+                expectEq(c->bounds.y, y, label + ": every control in one row shares its y");
+            }
+        }
+    }
+}
+
+// size:"lg" == SectionInput::large[i] now means "this control renders alone
+// on its own full-width row" -- replacing the old width-doubling
+// (`w = cellW * (size=="lg"?2:1)` at the SAME x=0) that caused a live
+// misalignment defect: JUCE centres a rotary slider within whatever bounds
+// it is given, so the old double-width `lg` control's visual centre landed
+// at a different x than every `md` sibling's.
+void testLargeControlGetsItsOwnRow()
+{
+    std::vector<SectionInput> sections = { SectionInput{ 4, 1, { false, true, false, false } } };
+    const auto r = ArchetypeLayout::row(sections, kWidth, kRowH, kHeadingH, kGapH);
+    expectNoOverlaps(r, "large-control");
+    expectFullCoverage(r, sections, "large-control");
+
+    const ArchetypeLayout::PlacedControl* solo = nullptr;
+    for (const auto& c : r.controls)
+        if (c.index == 1)
+            solo = &c;
+    expectTrue(solo != nullptr, "large-control: index 1 was placed");
+    if (solo != nullptr)
+    {
+        expectEq(solo->bounds.w, kWidth, "large-control: the lg control spans the full row width");
+        for (const auto& c : r.controls)
+            if (c.index != 1)
+                expectTrue(c.bounds.y != solo->bounds.y,
+                           "large-control: a packed control never shares the solo row's y");
+    }
+}
+
+// contentHeight must be identical regardless of the width layoutFor() is
+// called with -- contentHeightForSections() (ParamGridPanel.cpp) can call it
+// with width==0 before the shell has granted the panel a size yet, and its
+// answer has to match what the real width later produces. This is also the
+// property that rules out juce::FlexBox-style width-driven wrapping for the
+// packing above (see ArchetypeLayout.h's header comment).
+void testContentHeightIsWidthIndependent()
+{
+    const auto sections = eighteenParamSynth();
+    for (const std::string& archetype :
+         { std::string("synth-panel"), std::string("channel-strip"),
+           std::string("tape-unit"), std::string("texture-field"), std::string("pedal") })
+    {
+        const int h0    = ArchetypeLayout::layoutFor(archetype, sections, 0,    kRowH, kHeadingH, kGapH).contentHeight;
+        const int h400  = ArchetypeLayout::layoutFor(archetype, sections, 400,  kRowH, kHeadingH, kGapH).contentHeight;
+        const int h1200 = ArchetypeLayout::layoutFor(archetype, sections, 1200, kRowH, kHeadingH, kGapH).contentHeight;
+        expectEq(h400,  h0, archetype + ": contentHeight independent of width (0 vs 400)");
+        expectEq(h1200, h0, archetype + ": contentHeight independent of width (0 vs 1200)");
+    }
 }
 
 void testColumnsNoOverlapAndFullCoverage()
@@ -235,7 +333,7 @@ void testSpanWidensColumn()
     // span-2 section's column must be wider -- "a section's span widens its
     // column" (GENERATION_PLAN.md Gap 4) is the one property that
     // distinguishes columns() from a plain equal-width split.
-    std::vector<SectionInput> sections = { SectionInput{ 3, 1 }, SectionInput{ 3, 2 } };
+    std::vector<SectionInput> sections = { SectionInput{ 3, 1, {} }, SectionInput{ 3, 2, {} } };
     const auto r = ArchetypeLayout::columns(sections, 900, kRowH, kHeadingH, kGapH);
     expectTrue(r.headings[1].w > r.headings[0].w,
                "columns: a span-2 section's column is wider than a span-1 section's");
@@ -247,7 +345,8 @@ void testEmptySectionsDoesNotCrash()
 {
     std::vector<SectionInput> empty;
     for (const auto& archetype :
-         { std::string("synth-panel"), std::string("tape-unit"), std::string("texture-field") })
+         { std::string("synth-panel"), std::string("tape-unit"), std::string("texture-field"),
+           std::string("pedal") })
     {
         const auto r = ArchetypeLayout::layoutFor(archetype, empty, kWidth, kRowH, kHeadingH, kGapH);
         expectEq(static_cast<int>(r.headings.size()), 0, archetype + ": no sections, no headings");
@@ -262,7 +361,7 @@ void testNarrowWidthDegradesRailGracefully()
     // negative-width display region or an empty rail -- it takes the whole
     // width instead (the same "degrade, never crash or go negative" posture
     // UiIr::parse() takes for a malformed field).
-    std::vector<SectionInput> sections = { SectionInput{ 2, 1 } };
+    std::vector<SectionInput> sections = { SectionInput{ 2, 1, {} } };
     const auto r = ArchetypeLayout::rail(sections, 100, kRowH, kHeadingH, kGapH);
     expectNoOverlaps(r, "rail/narrow-width");
     expectFullCoverage(r, sections, "rail/narrow-width");
@@ -276,7 +375,7 @@ int main()
 {
     std::cout << "ParamGridLayoutTest — ArchetypeLayout.h (ADR-035 gap 4)\n";
 
-    testIsSupported();
+    testLayoutForIsTotal();
     testColumnsNoOverlapAndFullCoverage();
     testSplitNoOverlapAndFullCoverage();
     testRailNoOverlapAndFullCoverage();
@@ -284,6 +383,9 @@ int main()
     testSpanWidensColumn();
     testEmptySectionsDoesNotCrash();
     testNarrowWidthDegradesRailGracefully();
+    testRowPackingProperties();
+    testLargeControlGetsItsOwnRow();
+    testContentHeightIsWidthIndependent();
 
     std::cout << checks - failures << "/" << checks << " checks passed\n";
 

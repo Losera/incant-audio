@@ -33,6 +33,16 @@ MAX_SECTIONS = 6
 MAX_CONTROLS = 64          # the ParamPool slot budget; a face cannot exceed it
 MAX_LG_CONTROLS = 2        # "lg is what tells the user which knob the plugin is about"
 
+# Below this average controls-per-section, a heading per section reads as N
+# separate plugins stapled together, not one grouped panel -- the live defect
+# a real "warm analog tape saturation effect with input drive, tone, output
+# level, and a wet/dry mix" generation produced (4 sections, 1 knob each).
+# Merge, don't reject: every other degradation in this file keeps the face
+# rather than discarding it for one bad judgment call, and the deterministic
+# host-side fallback (ParamGridPanel::deriveLayoutFromGroups()) applies the
+# identical average-of-2 threshold for the same reason.
+MIN_CONTROLS_PER_SECTION = 2
+
 _LIMITS = {
     "tokens": 40,
     "id": 24,
@@ -188,7 +198,22 @@ def parse_and_validate_face(raw: str | dict[str, Any],
             sections.append({"id": section_id, "title": title,
                              "span": span, "controls": controls})
 
-    if not MIN_SECTIONS <= len(sections) <= MAX_SECTIONS:
+    # Too many sections that are each too thin -- merge into one rather than
+    # reject. `len(sections) > 1` guards this so a genuinely single-section
+    # response (already rejected below by MIN_SECTIONS, unchanged) does not
+    # take this path; this is specifically for the multi-thin-section shape.
+    merged_thin_sections = False
+    total_controls = sum(len(s["controls"]) for s in sections)
+    if len(sections) > 1 and total_controls // len(sections) < MIN_CONTROLS_PER_SECTION:
+        merged_controls: list[dict[str, str]] = []
+        for s in sections:
+            merged_controls.extend(s["controls"])
+        sections = [{"id": "controls", "title": "Controls", "span": 1,
+                     "controls": merged_controls}]
+        merged_thin_sections = True
+
+    min_sections = 1 if merged_thin_sections else MIN_SECTIONS
+    if not min_sections <= len(sections) <= MAX_SECTIONS:
         raise InvalidFace(
             f"a face needs {MIN_SECTIONS}-{MAX_SECTIONS} non-empty sections, got {len(sections)}")
     if len(seen_params) > MAX_CONTROLS:

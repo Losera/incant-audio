@@ -96,15 +96,18 @@ def test_a_meter_listed_as_a_control_is_fatal():
 
 
 def test_toggle_kind_never_keeps_a_continuous_style():
+    # Two controls per section (not one) so this stays isolated from the
+    # controls-per-section merge below -- that behaviour has its own tests.
     f = face(sections=[
-        {"id": "osc", "title": "OSC", "controls": [{"param": "detune"}]},
+        {"id": "osc", "title": "OSC", "controls": [{"param": "detune"}, {"param": "blend"}]},
         {"id": "filter", "title": "FILTER", "controls": [
+            {"param": "cutoff"},
             {"param": "bypass", "style": "arc-knob", "size": "lg"},
         ]},
     ])
     result = checked(f)
-    bypass = result["sections"][1]["controls"][0]
-    assert bypass["param"] == "bypass"
+    filter_controls = result["sections"][1]["controls"]
+    bypass = next(c for c in filter_controls if c["param"] == "bypass")
     assert bypass["style"] == ""          # PF-005 stays structural
 
 
@@ -123,10 +126,12 @@ def test_duplicate_param_reference_is_deduped_to_first_placement():
 
 
 def test_empty_sections_are_pruned():
+    # Two controls per surviving section so this stays isolated from the
+    # controls-per-section merge below -- that behaviour has its own tests.
     f = face(sections=[
-        {"id": "osc", "title": "OSC", "controls": [{"param": "detune"}]},
+        {"id": "osc", "title": "OSC", "controls": [{"param": "detune"}, {"param": "blend"}]},
         {"id": "dead", "title": "DEAD", "controls": [{"param": "ghost"}]},
-        {"id": "filter", "title": "FILTER", "controls": [{"param": "cutoff"}]},
+        {"id": "filter", "title": "FILTER", "controls": [{"param": "cutoff"}, {"param": "bypass"}]},
     ])
     result = checked(f)
     assert [s["id"] for s in result["sections"]] == ["osc", "filter"]
@@ -143,6 +148,41 @@ def test_empty_sections_are_pruned():
 def test_section_count_bounds(sections, message):
     with pytest.raises(ui_face.InvalidFace, match=message):
         checked(face(sections=sections))
+
+
+def test_many_thin_sections_merge_into_one():
+    """The live defect this covers: a real 4-param "warm analog tape
+    saturation effect with input drive, tone, output level, and a wet/dry
+    mix" generation produced 4 sections, 1 knob each -- a heading per
+    parameter, not one grouped panel. Below MIN_CONTROLS_PER_SECTION on
+    average, merge rather than reject (every other degradation in this file
+    keeps the face); order is preserved, nothing is dropped."""
+    sections = [
+        {"id": "a", "title": "A", "controls": [{"param": "detune"}]},
+        {"id": "b", "title": "B", "controls": [{"param": "blend"}]},
+        {"id": "c", "title": "C", "controls": [{"param": "cutoff"}]},
+        {"id": "d", "title": "D", "controls": [{"param": "bypass"}]},
+    ]
+    result = checked(face(sections=sections))
+    assert len(result["sections"]) == 1
+    merged = result["sections"][0]
+    assert merged["id"] == "controls"
+    assert merged["title"] == "Controls"
+    assert [c["param"] for c in merged["controls"]] == ["detune", "blend", "cutoff", "bypass"]
+
+
+def test_well_grouped_sections_are_not_merged():
+    """The merge threshold has a floor: two sections averaging exactly
+    MIN_CONTROLS_PER_SECTION each is real grouping, not one param wrapped
+    alone, and must stay separate -- otherwise the merge would swallow every
+    grouped face, not just thin ones."""
+    sections = [
+        {"id": "osc", "title": "OSC", "controls": [{"param": "detune"}, {"param": "blend"}]},
+        {"id": "filter", "title": "FILTER", "controls": [{"param": "cutoff"}, {"param": "bypass"}]},
+    ]
+    result = checked(face(sections=sections))
+    assert len(result["sections"]) == 2
+    assert [s["id"] for s in result["sections"]] == ["osc", "filter"]
 
 
 @pytest.mark.parametrize("archetype", ["", "cool-panel", None, "SYNTH-PANEL"])
@@ -189,9 +229,11 @@ def test_at_most_two_large_controls_the_rest_shrink():
 
 
 def test_span_is_clamped():
+    # Two controls per section (not one) so this stays isolated from the
+    # controls-per-section merge below -- that behaviour has its own tests.
     f = face(sections=[
-        {"id": "osc", "title": "OSC", "span": 9, "controls": [{"param": "detune"}]},
-        {"id": "filter", "title": "FILTER", "span": 0, "controls": [{"param": "cutoff"}]},
+        {"id": "osc", "title": "OSC", "span": 9, "controls": [{"param": "detune"}, {"param": "blend"}]},
+        {"id": "filter", "title": "FILTER", "span": 0, "controls": [{"param": "cutoff"}, {"param": "bypass"}]},
     ])
     result = checked(f)
     assert [s["span"] for s in result["sections"]] == [3, 1]

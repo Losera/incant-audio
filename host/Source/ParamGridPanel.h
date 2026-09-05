@@ -429,10 +429,10 @@ private:
     void layoutSectioned();
 
     // Carves one cell rect into a label row plus a widget body and applies
-    // both — the placement step shared by layoutSectioned()'s grid path and
-    // its ADR-035-gap-4 archetype path (ArchetypeLayout.h), so the two only
-    // ever differ in how a cell's RECTANGLE is computed, never in what
-    // happens once one exists.
+    // both — the placement step shared by layoutSectioned()'s sectioned path
+    // (every archetype, via ArchetypeLayout.h) and the unsectioned flat-grid
+    // path in layoutControls(), so the two only ever differ in how a cell's
+    // RECTANGLE is computed, never in what happens once one exists.
     void placeControlInCell(Control& c, juce::Rectangle<int> cell);
 
     // Lookup from IR control label → the actual widget Control pointer.

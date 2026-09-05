@@ -2626,11 +2626,21 @@ void scenario34_qwertyAfterGeneration(const juce::File& tmp)
 //      must render the ordinary flat grid, not a heading over a few knobs).
 void scenario35_sectionedLayoutOrdersAndSuppresses()
 {
-    scenario("35. sectioned layout: canonical group order, suppressed when sparse",
+    scenario("35. sectioned layout: canonical group order, merged when thin, suppressed when sparse",
              "deriveLayoutFromGroups ranks Osc before Filter before Env before Fx "
-             "-- the reverse of Faust's own alphabetical report -- and returns no "
-             "sections at all for <=1 non-empty group or <4 controls");
+             "-- the reverse of Faust's own alphabetical report -- merges into one "
+             "section when every group is too thin to read as real grouping, and "
+             "returns no sections at all for <=1 non-empty group or <4 controls");
 
+    // CORRECTED (fix/pedal-layout-packing): this used to assert 4 SEPARATE
+    // sections for this exact patch -- one knob per heading, the live defect
+    // a real "warm analog tape saturation effect with input drive, tone,
+    // output level, and a wet/dry mix" generation reproduced (see
+    // ArchetypeLayout.h's header comment and STATUS.md). Four groups of one
+    // control each is below the 2-controls-per-group merge threshold added
+    // this session, so it now collapses to ONE "Controls" section -- the
+    // deliberate, tested behaviour change, not a regression.
+    //
     // Four groups, one control each, declared (and therefore Faust-reported)
     // in ALPHABETICAL order: Env, Filter, Fx, Osc -- the exact case F4 names.
     const char* kFourGroupPatch = R"(import("stdfaust.lib");
@@ -2645,17 +2655,42 @@ process = _ * amt, _ * amt;
     Session s;
     check(loadAndSettle(s, kFourGroupPatch, 4), "the 4-group patch compiled");
 
-    const auto& sections = s.editor.gridActiveSectionsForTest();
-    check(sections.size() == 4,
-          juce::String("expected 4 sections, got ") + juce::String((int) sections.size()));
-    if (sections.size() == 4)
     {
-        const char* expected[] = { "Osc", "Filter", "Env", "Fx" };
-        for (int i = 0; i < 4; ++i)
-            check(juce::String(sections[(size_t) i].title) == expected[i],
-                  juce::String("section ") + juce::String(i) + " expected '" + expected[i]
-                      + "', got '" + juce::String(sections[(size_t) i].title) + "'");
+        const auto& sections = s.editor.gridActiveSectionsForTest();
+        check(sections.size() == 1,
+              juce::String("expected 1 merged section, got ") + juce::String((int) sections.size()));
+        if (sections.size() == 1)
+        {
+            check(juce::String(sections[0].title) == "Controls",
+                  juce::String("expected the merged section titled 'Controls', got '")
+                      + juce::String(sections[0].title) + "'");
+            check(sections[0].controls.size() == 4,
+                  "the merged section still carries all four controls, none dropped");
+            // Ranked order (Osc -> Filter -> Env -> Fx) survives the merge --
+            // the merge concatenates groups in their already-ranked order, it
+            // does not re-sort or reverse it.
+            const char* expected[] = { "Freq", "Cutoff", "Attack", "Mix" };
+            for (int i = 0; i < 4 && i < (int) sections[0].controls.size(); ++i)
+                check(sections[0].controls[(size_t) i].paramLabel == expected[i],
+                      juce::String("merged control ") + juce::String(i) + " expected '" + expected[i]
+                          + "', got '" + juce::String(sections[0].controls[(size_t) i].paramLabel) + "'");
+        }
     }
+
+    // The merge threshold has a floor: two groups of TWO controls each
+    // averages exactly 2 per group, which is real grouping, not one param
+    // wrapped alone -- this must still produce two separate sections, or the
+    // merge clause would have swallowed every grouped patch, not just thin
+    // ones.
+    const char* kTwoByTwoPatch = R"(import("stdfaust.lib");
+osc  = vgroup("Osc",    hslider("Freq", 0.5, 0, 1, 0.01) + hslider("Shape", 0.5, 0, 1, 0.01));
+filt = vgroup("Filter", hslider("Cutoff", 0.5, 0, 1, 0.01) + hslider("Reso", 0.5, 0, 1, 0.01));
+amt = (osc + filt) * 0.25;
+process = _ * amt, _ * amt;
+)";
+    check(loadAndSettle(s, kTwoByTwoPatch, 4), "the 2-groups-of-2 patch compiled");
+    check(s.editor.gridActiveSectionsForTest().size() == 2,
+          "two groups averaging exactly 2 controls each stay separate sections, not merged");
 
     // Threshold guard #1: kFourParamPatch (defined above, §2 in this file) has
     // FOUR controls but ZERO groups -- nonEmptyGroups == 0, under the <=1 cutoff.
