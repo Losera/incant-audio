@@ -23,6 +23,23 @@ juce_add_binary_data(PluginForgeAssets
         Resources/fonts/WorkSans-Regular.ttf
         Resources/fonts/WorkSans-SemiBold.ttf
         Resources/fonts/JetBrainsMono-Regular.ttf
+        # A3c (ADR-035 Step 3 cont'd, docs/design/incant-ui/README.md's Design
+        # tokens -> Faces table): one weight per generated-face display family,
+        # plus the shared mono readout. Sourced from google/fonts (OFL), static
+        # weight instances -- Space Grotesk/Oswald/Archivo ship only as
+        # variable [wght]/[wdth,wght] fonts upstream and were instanced with
+        # `fonttools varLib.instancer` to the weight the design calls for, then
+        # renamed (fontTools TTFont.name.setName) so the family name itself
+        # carries the weight and the subfamily reads "Regular" -- the SAME
+        # convention BigShouldersDisplay-SemiBold.ttf/WorkSans-SemiBold.ttf
+        # above already use, load-bearing because GeneratedFaceLookAndFeel's
+        # getTypefaceForFont dispatches on that literal family-name string.
+        # See host/Resources/fonts/licenses/OFL-*.txt for each family's license.
+        Resources/fonts/SpaceGrotesk-Bold.ttf
+        Resources/fonts/BarlowCondensed-SemiBold.ttf
+        Resources/fonts/Oswald-SemiBold.ttf
+        Resources/fonts/Archivo-Bold.ttf
+        Resources/fonts/IBMPlexMono-Regular.ttf
 )
 set_target_properties(PluginForgeAssets PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
 

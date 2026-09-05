@@ -620,6 +620,11 @@ juce::Colour PluginForgeEditor::gridControlWidgetColourForTest(int i, int colour
     return paramGridPanel.controlWidgetColourForTest(i, colourId);
 }
 
+juce::String PluginForgeEditor::gridControlLabelFontNameForTest(int i) const
+{
+    return paramGridPanel.controlLabelFontNameForTest(i);
+}
+
 void PluginForgeEditor::timerCallback()
 {
     // Instant attack, exponential release — the standard meter ballistics that

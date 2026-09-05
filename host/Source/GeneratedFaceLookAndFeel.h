@@ -25,8 +25,17 @@
 //
 // COST: the base constructor reloads the five typefaces, so an active face
 // holds a second copy of them (~1-2 MB) for as long as it is attached. Accepted
-// for A3a; A3c (the `theme.display`/`theme.readout` embedded face set) is where
-// the font ownership gets factored so this stops duplicating.
+// for A3a. A3c ADDS five more typefaces of its own (the theme.display/readout
+// embedded face set below) rather than factoring the shared ones out --
+// the "so this stops duplicating" refactor this comment used to promise A3c
+// would do is now itself DEFERRED, not delivered: sharing typeface ownership
+// with ForgeLookAndFeel would mean changing how the base class's five fonts
+// are constructed (its own header ties them to `ForgeLookAndFeel`'s member
+// initialiser list), which is a materially bigger change than "add five
+// fonts and a dispatch table" and belongs in its own piece of work. So: ten
+// embedded typefaces total now duplicate for as long as a face is attached
+// (~2-4 MB), a larger but still bounded and still-accepted cost -- font
+// FILES, not per-frame allocation, and nothing on the audio thread.
 //
 // ── Lifetime (identical contract to ForgeLookAndFeel, one level down) ────────
 // juce::Component holds a `WeakReference<LookAndFeel> lookAndFeel`
@@ -53,8 +62,36 @@ public:
     // parseable and to clear the WCAG thresholds (a failing field is already
     // the Ember token by the time this reads it).
     explicit GeneratedFaceLookAndFeel(const UiIr::Theme& raw)
+        : spaceGroteskBold        (juce::Typeface::createSystemTypefaceFor (PluginForgeFonts::SpaceGroteskBold_ttf,
+                                                                            (size_t) PluginForgeFonts::SpaceGroteskBold_ttfSize)),
+          barlowCondensedSemiBold (juce::Typeface::createSystemTypefaceFor (PluginForgeFonts::BarlowCondensedSemiBold_ttf,
+                                                                            (size_t) PluginForgeFonts::BarlowCondensedSemiBold_ttfSize)),
+          oswaldSemiBold          (juce::Typeface::createSystemTypefaceFor (PluginForgeFonts::OswaldSemiBold_ttf,
+                                                                            (size_t) PluginForgeFonts::OswaldSemiBold_ttfSize)),
+          archivoBold             (juce::Typeface::createSystemTypefaceFor (PluginForgeFonts::ArchivoBold_ttf,
+                                                                            (size_t) PluginForgeFonts::ArchivoBold_ttfSize)),
+          ibmPlexMonoRegular      (juce::Typeface::createSystemTypefaceFor (PluginForgeFonts::IBMPlexMonoRegular_ttf,
+                                                                            (size_t) PluginForgeFonts::IBMPlexMonoRegular_ttfSize))
     {
         const UiIr::Theme t = ThemeValidate::validate(raw).theme;
+        // A3c: this class's OWN copy of the two typography enums, used by
+        // createSliderTextBox() below and by displayFont()/readoutFont().
+        // Deliberately NOT taken as a parameter at call time from
+        // ParamGridPanel's `activeTheme` -- that field is a SEPARATE copy of
+        // the same fact, set independently by applyUiIr(), and the two can
+        // desync: a test (EditorSessionTest scenario 50) that calls
+        // applyGeneratedFace() directly, the way the production compile-
+        // success callback calls it (PluginEditor.cpp) rather than only
+        // through the full applyUiIr()-then-applyGeneratedFace() sequence,
+        // reproduced exactly that desync live -- activeTheme.display stayed
+        // "engraved" from the PREVIOUS layout while this constructor built a
+        // face from "grotesk", and every label kept rendering Pirata One.
+        // Storing the enum HERE, on the object that is actually the single
+        // source of truth for "what face is attached," makes that class of
+        // bug structurally impossible: there is no second copy left to
+        // disagree with it.
+        themeDisplayEnum = t.display;
+        themeReadoutEnum = t.readout;
 
         const juce::Colour surface = toColour(t.surface, Theme::surface);
         const juce::Colour line    = toColour(t.line,    Theme::outline);
@@ -124,6 +161,88 @@ public:
     static juce::Colour resolvedAccent(const UiIr::Theme& raw)
     {
         return toColour(ThemeValidate::validate(raw).theme.accent, Theme::accent);
+    }
+
+    // ── A3c: theme.display / theme.readout typography ───────────────────────
+    // The five embedded families new to A3c, dispatched by the exact literal
+    // name their own name-table carries (verified per-file with fontTools --
+    // each was renamed after instancing/download so the family FIELD bakes in
+    // the weight and the subfamily reads "Regular", the same convention
+    // BigShouldersDisplaySemiBold/WorkSansSemiBold already use above, which is
+    // what makes dispatch-by-getTypefaceName() unambiguous). Falls through to
+    // ForgeLookAndFeel::getTypefaceForFont for the five Ember faces (a face
+    // whose theme.display resolves to "engraved" asks for "Pirata One" by
+    // name, same as the shell) and, beneath that, LookAndFeel_V4's platform
+    // default.
+    juce::Typeface::Ptr getTypefaceForFont(const juce::Font& font) override
+    {
+        const auto& name = font.getTypefaceName();
+
+        if (name == "Space Grotesk Bold")         return spaceGroteskBold;
+        if (name == "Barlow Condensed SemiBold")  return barlowCondensedSemiBold;
+        if (name == "Oswald SemiBold")             return oswaldSemiBold;
+        if (name == "Archivo Bold")                return archivoBold;
+        if (name == "IBM Plex Mono")               return ibmPlexMonoRegular;
+
+        return ForgeLookAndFeel::getTypefaceForFont(font);
+    }
+
+    // theme.readout drives the SLIDER'S OWN value textbox -- ForgeLookAndFeel's
+    // own override of this (inherited otherwise) hardcodes Theme::Type::
+    // caption(), which names "Work Sans" at 11px; every generated face wants
+    // its readout in `readoutFamilyFor(theme.readout)` instead (IBM Plex Mono
+    // for every worked mockup; Barlow Condensed SemiBold only for a `pedal`
+    // archetype that chose the condensed-sans readout option per
+    // llm/prompts/ui_face_prompt.md:85). Base implementation unchanged
+    // (LookAndFeel_V2::createSliderTextBox, juce_LookAndFeel_V2.cpp:1607-1629)
+    // -- only the font differs from ForgeLookAndFeel's own override.
+    juce::Label* createSliderTextBox(juce::Slider& slider) override
+    {
+        auto* l = juce::LookAndFeel_V2::createSliderTextBox(slider);
+        l->setFont(readoutFont(Theme::Type::caption().getHeight()));
+        return l;
+    }
+
+    // Called by ParamGridPanel (control name labels, applyPresentation) and
+    // ContentArea (section headings, paint()) once they already know a
+    // GeneratedFaceLookAndFeel is attached (via dynamic_cast on their own
+    // getLookAndFeel()). Deliberately take no enum argument -- see
+    // themeDisplayEnum's own declaration for why the caller must not supply
+    // a second copy of a fact this object already owns. `height` is whatever
+    // Theme::Type::label()/sectionTitle() already fixed for that role -- only
+    // the FAMILY changes, the size scale this codebase already tuned per
+    // role does not.
+    juce::Font displayFont(float height)
+    {
+        return namedFont(displayFamilyFor(themeDisplayEnum), height);
+    }
+
+    juce::Font readoutFont(float height)
+    {
+        return namedFont(readoutFamilyFor(themeReadoutEnum), height);
+    }
+
+    // The enum-to-family mapping is public (not just used internally) so a
+    // test can assert it directly without constructing a Font/Graphics
+    // context. "slab" is a deliberately imperfect label: Oswald is a
+    // condensed grotesque, not a true slab serif, but it is the fourth worked
+    // mockup face (Echo Plate) and the only remaining UiIr enum bucket once
+    // grotesk/condensed-sans/geometric-sans take the other three faces' own
+    // literal family names -- recorded here so a future reader is not misled
+    // into expecting an actual slab serif is embedded.
+    static juce::String displayFamilyFor(const std::string& display)
+    {
+        if (display == "grotesk")         return "Space Grotesk Bold";
+        if (display == "condensed-sans")  return "Barlow Condensed SemiBold";
+        if (display == "geometric-sans")  return "Archivo Bold";
+        if (display == "slab")            return "Oswald SemiBold";
+        return "Pirata One";   // "engraved", and any value this build predates
+    }
+
+    static juce::String readoutFamilyFor(const std::string& readout)
+    {
+        if (readout == "condensed-sans")  return "Barlow Condensed SemiBold";
+        return "IBM Plex Mono";   // "mono", and any value this build predates
     }
 
     // A3d (ADR-035 Step 3 cont'd): the arc-knob GEOMETRY, per
@@ -218,6 +337,32 @@ private:
     // computed once in the constructor, reused on every paint of every
     // rotary this LookAndFeel draws.
     juce::Colour trackColour = Theme::outline;
+
+    // A3c: the five typefaces new to this class, loaded once per attach --
+    // see the COST note at the top of this file's header comment. Same
+    // lifetime shape ForgeLookAndFeel's own five already establish: members
+    // of an object that is a by-value/unique_ptr member up the ownership
+    // chain (PluginEditor's `faceLnf`), destroyed well before static deinit.
+    juce::Typeface::Ptr spaceGroteskBold, barlowCondensedSemiBold, oswaldSemiBold,
+                        archivoBold, ibmPlexMonoRegular;
+
+    // A3c: this face's validated theme.readout, for createSliderTextBox()
+    // above. Set once in the constructor; never mutated afterward (a face is
+    // replaced wholesale on the next compile, never edited in place).
+    std::string themeDisplayEnum = "engraved";
+    std::string themeReadoutEnum = "mono";
+
+    // Builds a Font from a literal family NAME. ForgeLookAndFeel's own private
+    // resolveFont() takes the opposite input (an existing Theme::Type::*()
+    // Font, re-resolving only its typeface) and is not reachable from here
+    // (private to that class) -- this is the shape displayFont()/
+    // readoutFont() need instead, since their caller supplies an ENUM string,
+    // not a pre-built Font.
+    juce::Font namedFont(const juce::String& family, float height)
+    {
+        return juce::Font(getTypefaceForFont(juce::Font(family, height, juce::Font::plain)))
+                   .withHeight(height);
+    }
 
     // ThemeValidate returns colour strings and no juce type by design (its test
     // links nothing a UiIr round-trip does not). This is the one place a
