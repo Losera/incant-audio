@@ -6,8 +6,9 @@ Pure functions over synthetic paired records. No scipy stub needed (McNemar and
 Wilcoxon are exercised against known-answer inputs). Covers: the McNemar exact
 p on a crafted discordant split, censored scoring, `include=` filtering, the
 rescue arithmetic closing, `same + new + no_attempt == failed`, the arm-A cap
-stratification split, and `load_pairs`'s last-write-wins as *documented* known
-behaviour (WP1).
+stratification split, and `load_pairs`'s multi-sample aggregation (WP1: a
+`--samples K>1` cell is collapsed by majority-green / upper-median attempts;
+K=1 is a strict no-op, which is every cell in the committed data).
 """
 import sys
 from pathlib import Path
@@ -79,15 +80,48 @@ def test_load_pairs_include_filters_by_sha():
     assert sr.load_pairs(recs, "m", "B", include=set()) == []
 
 
-def test_load_pairs_last_write_wins_is_known_behaviour():
-    # WP1 in METHODOLOGY.md: with --samples K>1, load_pairs keeps the LAST
-    # record per (code_sha, arm). This test pins that as a KNOWN limitation so a
-    # future fix trips it deliberately, not silently.
-    recs = [_rec("s", "A", repaired=False),
-            _rec("s", "A", repaired=True, attempts=1),   # second wins
-            _rec("s", "B", repaired=False)]
+def test_load_pairs_k1_is_a_strict_noop():
+    # Every committed issue-#26 cell has one sample; the aggregation path must
+    # not perturb it — same record object, no synthetic keys added.
+    recs = [_rec("s", "A", repaired=True, attempts=2, n_attempts=2),
+            _rec("s", "B", repaired=False, n_attempts=2)]
+    (a, b), = sr.load_pairs(recs, "m", "B")
+    assert a is recs[0] and b is recs[1]
+    assert "samples_aggregated" not in a
+
+
+def test_load_pairs_aggregates_samples_by_majority_green():
+    # WP1: 3 samples of (s, A) — 2 green, 1 not -> the cell is green, and its
+    # attempts_to_green is the upper median of the green samples' (1, 2) = 2.
+    recs = [
+        _rec("s", "A", repaired=True, attempts=1),
+        _rec("s", "A", repaired=True, attempts=2, n_attempts=2),
+        _rec("s", "A", repaired=False, n_attempts=2),
+        _rec("s", "B", repaired=False),
+        _rec("s", "B", repaired=False),
+        _rec("s", "B", repaired=True, attempts=1),   # B: 1/3 green -> not repaired
+    ]
+    (a, b), = sr.load_pairs(recs, "m", "B")
+    assert a["repaired"] is True and a["attempts_to_green"] == 2
+    assert a["samples_aggregated"] == 3 and a["samples_green"] == 2
+    assert b["repaired"] is False and b["attempts_to_green"] is None
+
+
+def test_load_pairs_sample_tie_is_not_repaired():
+    recs = [_rec("s", "A", repaired=True, attempts=1),
+            _rec("s", "A", repaired=False, n_attempts=2),   # 1-1 tie
+            _rec("s", "B", repaired=True, attempts=1)]
     (a, _b), = sr.load_pairs(recs, "m", "B")
-    assert a["repaired"] is True
+    assert a["repaired"] is False
+
+
+def test_load_pairs_all_aborted_cell_stays_aborted():
+    recs = [_rec("s", "A", repaired=False, made_code=False, terminal="truncated"),
+            _rec("s", "A", repaired=False, made_code=False, terminal="rate_limited"),
+            _rec("s", "B", repaired=True, attempts=1)]
+    (a, _b), = sr.load_pairs(recs, "m", "B")
+    assert a["repaired"] is False and a.get("terminal_reason")
+    assert sr.produced_no_program(a)
 
 
 # ── rescue arithmetic ───────────────────────────────────────────────────────

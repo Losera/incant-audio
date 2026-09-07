@@ -87,12 +87,26 @@ def _check_p(label: str, p: float, bound: dict) -> None:
         _fails.append(label)
 
 
+P_FLOOR = 1e-8   # below this a p-value's magnitude is scipy-version noise, not a claim
+
+
 def _p_bound(p: float) -> dict:
-    """A recorded bound for a fresh p-value: one decade of headroom below 0.05,
-    else 'must stay >= 0.05' for a claim that is deliberately not significant."""
-    if p < 0.05:
-        return {"le": 10.0 ** (math.ceil(math.log10(p)) + 1)}
-    return {"ge": 0.05}
+    """A recorded bound for a fresh p-value.
+
+      p >= 0.05      the claim is deliberately NOT significant → freeze
+                     'must stay >= 0.05'.
+      P_FLOOR <= p   one decade of headroom below the observed value.
+      p < P_FLOOR    the claim is 'overwhelmingly significant' and the exact
+                     magnitude (1e-12? 1e-22?) is an artefact of how a given
+                     scipy computes binomtest's extreme tail, not evidence.
+                     Freeze a flat 1e-8 so a byte-identical re-run cannot fail
+                     `verify.py` on a mantissa wobble.
+    """
+    if p >= 0.05:
+        return {"ge": 0.05}
+    if p < P_FLOOR:
+        return {"le": P_FLOOR}
+    return {"le": 10.0 ** (math.ceil(math.log10(p)) + 1)}
 
 
 # ── observation: compute everything from the committed data ──────────────────
@@ -329,6 +343,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--freeze", action="store_true",
                     help="re-emit expected.json from a fresh observation")
     args = ap.parse_args(argv)
+
+    try:
+        import scipy  # noqa: F401
+    except ModuleNotFoundError:
+        sys.exit("[!] verify.py needs scipy — run "
+                 "`pip install -r bench/issue26/requirements.txt` "
+                 "(or `pip install scipy`) and re-run.")
 
     obs = observe()
 

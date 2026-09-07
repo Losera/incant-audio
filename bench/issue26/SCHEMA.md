@@ -109,6 +109,13 @@ records; the committed 7B file is a 120-program stratified subset (360 records).
 
 ## Scoring conventions (`bench/score_repair_ab.py`)
 
+- **multi-sample cells** (a `--samples K>1` run): `load_pairs` collapses each
+  `(code_sha, arm)` cell via `_aggregate_cell` before pairing — majority vote on
+  `repaired` (a tie is not-repaired), the upper median of the green samples'
+  `attempts_to_green`, and `attempt_log` / second-error fields from the first
+  sample matching the majority verdict. The synthetic record carries
+  `samples_aggregated` + `samples_green`. K=1 (every committed cell) is a strict
+  no-op — the record passes through untouched.
 - **repaired-within-2** = `repaired`.
 - **attempts-to-green** for a never-green pair is censored at
   `CORRECTIVE_ATTEMPTS + 1 = 3`.

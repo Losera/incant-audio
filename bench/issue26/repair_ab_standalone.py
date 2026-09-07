@@ -73,10 +73,10 @@ DETERMINISM
     is retracted; a proper audit is pre-registered as WP5 in
     bench/issue26/METHODOLOGY.md. A hosted model is definitely NOT bit
     deterministic at temp 0 — use --samples K (K>=5). --samples writes K records
-    per (program, arm) tagged with `sample_index`. NOTE: score_repair_ab.py's
-    load_pairs currently keeps only the LAST of the K per cell (WP1); until that
-    lands, aggregate the K yourself before scoring — the end-of-run summary here
-    uses a strict per-cell majority as a rough guide.
+    per (program, arm) tagged with `sample_index`; score_repair_ab.py collapses
+    them per cell by majority-green / upper-median attempts before scoring
+    (load_pairs -> _aggregate_cell, WP1). K=1 is a strict no-op. The end-of-run
+    summary here uses the same majority rule as a rough guide.
 
 PROGRAM SCREEN
     By default the 10 corpus rows that are not Faust programs (English prose,
