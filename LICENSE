@@ -26,15 +26,20 @@ reproduced and the dataset reused:
 (a) DATASET — Creative Commons Attribution 4.0 International (CC-BY-4.0)
 
       bench/corpora/repair_corpus_20260830.json
+      bench/corpora/repair_corpus_20260830_excluded.json
       bench/issue26/SCHEMA.md
 
     Full terms: bench/corpora/LICENSE
 
 (b) REPRODUCTION HARNESS — The MIT License (text below)
 
-      bench/issue26/                         (the whole directory)
+      bench/issue26/                         (the whole directory, including the
+                                              vendored system_prompt.txt snapshot
+                                              and frs_rederive_cells.json)
       bench/repair_ab_core.py
-      bench/build_repair_corpus.py
+      bench/build_repair_corpus.py           (provided for audit; it needs the
+                                              full proprietary repo to RUN)
+      bench/corpus_screen.py
       bench/frs_check.py
       bench/score_repair_ab.py
       bench/frs_rederive_issue26.py
@@ -43,8 +48,15 @@ reproduced and the dataset reused:
                                               summaries, reports, and charts)
       llm/error_classes.py
 
-No rights are granted in any other file. In particular the synthesis engine,
-the LLM prompt layer, the JUCE host, and everything under host/ and llm/ (other
+The reproduction package under (a) + (b) is self-contained: verify.py,
+repair_ab_standalone.py, frs_rederive_issue26.py and the container run using
+only the files listed here plus scipy / faust / faust-rs. The system prompt the
+corpus was generated with is vendored into bench/issue26/system_prompt.txt as a
+snapshot (byte-identical to commit c1e9370); the live llm/prompts/ tree is used
+instead when present but is NOT relicensed.
+
+No rights are granted in any other file. In particular the synthesis engine, the
+live LLM prompt layer, the JUCE host, and everything under host/ and llm/ (other
 than llm/error_classes.py) remain "All rights reserved" per the notice above.
 
 

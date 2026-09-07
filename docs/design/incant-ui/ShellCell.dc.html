@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<div style="position:relative;box-sizing:border-box;height:100%;min-height:{{ minH }};padding:13px 14px;border-right:1px solid #383838;border-bottom:1px solid #383838;display:flex;align-items:center;gap:13px;background:#050505">
+<div style="flex:none">{{ dial }}</div>
+<div style="min-width:0;flex:1;display:flex;flex-direction:column;gap:3px">
+<div style="font:600 12px 'Big Shoulders Display',sans-serif;letter-spacing:.06em;color:#f5f0e6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ label }}</div>
+<div style="font:400 11px 'JetBrains Mono',monospace;color:{{ accent }};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ text }}</div>
+<div style="height:2px;background:#000;margin-top:3px"><div style="height:100%;width:{{ pct }};background:{{ accent }}"></div></div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:220,&quot;height&quot;:90},&quot;label&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;Cutoff&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;text&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;4.80 kHz&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;value&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:0.7,&quot;min&quot;:0,&quot;max&quot;:1,&quot;step&quot;:0.01,&quot;tsType&quot;:&quot;number&quot;},&quot;big&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;false&quot;,&quot;options&quot;:[&quot;true&quot;,&quot;false&quot;],&quot;tsType&quot;:&quot;string&quot;},&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#ff7a45&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;options&quot;:[&quot;#ff4b1f&quot;,&quot;#ffb03d&quot;,&quot;#d9542b&quot;,&quot;#ff7a45&quot;]}}">
+class Component extends DCLogic {
+  renderVals() {
+    const v = Math.max(0, Math.min(1, Number(this.props.value ?? 0.5)));
+    const accent = this.props.accent ?? "#ff7a45";
+    const big = String(this.props.big ?? "") === "true";
+    const size = big ? 62 : 40;
+    const w = big ? 5 : 3.5;
+    const start = Math.PI * 1.2, end = Math.PI * 2.8;
+    const r = size / 2 - w / 2 - 1, cx = size / 2, cy = size / 2;
+    const pt = (a, rad) => [cx + rad * Math.sin(a), cy - rad * Math.cos(a)];
+    const arc = (a0, a1, colour) => {
+      const [x0, y0] = pt(a0, r), [x1, y1] = pt(a1, r);
+      return React.createElement("path", {
+        d: `M ${x0} ${y0} A ${r} ${r} 0 ${a1 - a0 > Math.PI ? 1 : 0} 1 ${x1} ${y1}`,
+        stroke: colour, strokeWidth: w, fill: "none", strokeLinecap: "butt"
+      });
+    };
+    const a = start + (end - start) * v;
+    const [tx, ty] = pt(a, r - w);
+    const [ix, iy] = pt(a, r * 0.3);
+    const dial = React.createElement("svg", { width: size, height: size, viewBox: `0 0 ${size} ${size}` },
+      arc(start, end, "#0c0c0c"),
+      v > 0.004 ? arc(start, a, accent) : null,
+      React.createElement("line", { x1: ix, y1: iy, x2: tx, y2: ty, stroke: "#f5f0e6", strokeWidth: 1.6 })
+    );
+    return { dial, accent, pct: (v * 100).toFixed(1) + "%", minH: big ? "104px" : "76px" };
+  }
+}
+</script>
+</body>
+</html>

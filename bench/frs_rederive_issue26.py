@@ -25,7 +25,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import frs_check  # noqa: E402
 
-ARCHIVE = Path(__file__).resolve().parent / "results" / "efficacy" / "efficacy_ollama_20260828.json"
+# The 15 never-compiled efficacy cells. Full repo: the archive. Reproduction
+# package: the vendored MIT copy next to bench/issue26/ (same rows, code +
+# effect_id + tier only). filters-05/L2 is a program the generator truncated
+# mid-token — a legitimate "broken input" for a diagnostic-quality comparison,
+# kept on purpose.
+_VENDORED = Path(__file__).resolve().parent / "issue26" / "frs_rederive_cells.json"
+_ARCHIVE = Path(__file__).resolve().parent / "results" / "efficacy" / "efficacy_ollama_20260828.json"
+ARCHIVE = _ARCHIVE if _ARCHIVE.is_file() else _VENDORED
 
 
 def cpp_verdict(src: str) -> tuple[bool, str]:

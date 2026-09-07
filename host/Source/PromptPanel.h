@@ -159,6 +159,37 @@ public:
     std::function<void(const juce::String&, bool, bool)> onRecommendationFailure;
     std::function<void()> onRecommendationInvalidated;
 
+    // ADR-035 §5/A3b. Queue a post-compile ui_face request on the SAME owned
+    // worker generate/recommend already use, rather than a second
+    // independent thread. `requestBody` must already carry action="ui_face"
+    // and everything generate.py's ui_face dispatch needs (params,
+    // is_instrument, prompt, provider/model). A no-op if generate.py hasn't
+    // resolved.
+    //
+    // Priority, relative to a real generate/recommend job:
+    //   - A ui_face job is NEVER queued ahead of, or run instead of, a real
+    //     job — workerLoop() always drains a pending real job first and, in
+    //     doing so, drops a merely-PENDING ui_face job outright (it would be
+    //     stale by the time it ran: a fresh generate is about to produce its
+    //     own newer compile and its own newer ui_face request anyway).
+    //   - A real job ALWAYS preempts a ui_face job that is ALREADY RUNNING —
+    //     queueRequest()'s existing unconditional activeChild->kill() covers
+    //     this for free, since `activeChild` names whichever subprocess is
+    //     actually running, regardless of which kind of job started it.
+    //   - Two ui_face requests never preempt each other; a newer one simply
+    //     overwrites the pending body (coalescing, same as pendingPrompt) and
+    //     runs once the worker is next free. Compiles are seconds apart in
+    //     practice, so this is not a real queueing delay.
+    void requestUiFace(const juce::var& requestBody);
+
+    // Delivered on the message thread with the parsed ui_face response `var`
+    // on completion, or a non-object `var` on ANY failure (bad script,
+    // timeout, no JSON, a killed/superseded subprocess). The caller's job is
+    // to fall back, never to distinguish failure modes — ADR-035 §5's
+    // contract: "additive and non-blocking... never a broken face and never
+    // bad audio."
+    std::function<void(juce::var)> onUiFaceResult;
+
     // Test-only. True while the worker thread exists — lets a test assert that a
     // panel which never generated also never spawned a thread.
     bool hasWorkerForTest() const { return worker.joinable(); }
@@ -185,6 +216,17 @@ public:
     // state rather than a bookkeeping flag, so it can't drift from what the UI
     // actually offers.
     bool refineModeAvailableForTest() const { return refineSelector.isItemEnabled(2); }
+
+    // Production accessors, not test-only (ADR-035 §5/A3b): the post-compile
+    // ui_face request wants the SAME provider/model/prompt the compile it is
+    // reacting to actually used, not a fresh PluginConfig::load() read that
+    // could have drifted if the picker changed mid-session. Deliberately
+    // separate from the ForTest trio below even though they read the same
+    // members -- those are named for what they are (a test escape hatch);
+    // these are named for what they are used for.
+    juce::String currentProvider() const { return activeProvider; }
+    juce::String currentModel() const { return activeModel; }
+    juce::String currentPromptText() const { return promptInput.getText(); }
 
     // Test-only (ADR-032 items 2 & 7). The provider picker's current value ("" for
     // the "auto" item) and the free-text model; setting either fires the same
@@ -438,6 +480,13 @@ private:
                        const juce::var& designPlan,
                        const juce::String& provider,
                        const juce::String& model);
+    // ADR-035 §5/A3b. Same subprocess shape as runGeneration (request-file,
+    // bounded wait+kill, "last line starting with {" scan) but no UI touch
+    // (no statusLabel/generateButton) and no per-job stamp: see
+    // requestUiFace()'s header comment for why sequencing alone (this worker
+    // processes exactly one thing at a time) already makes a generation
+    // counter unnecessary here.
+    void runUiFace(const juce::var& requestBody);
     void shutdownWorker();
 
     std::thread             worker;
@@ -477,6 +526,18 @@ private:
     juce::String            pendingModel;             // guarded by jobMutex
     bool                    hasJob   = false;
     bool                    stopping = false;   // guarded by jobMutex
+
+    // ADR-035 §5/A3b. A SECOND, lower-priority job kind on this SAME worker
+    // (see requestUiFace()'s header comment for the priority rules).
+    // Deliberately no pendingUiFaceGeneration stamp: unlike pendingGeneration
+    // above, which discriminates ONE `generation` atomic checked mid-flight
+    // by runGeneration's stale(), a ui_face job needs no such check —
+    // workerLoop() runs at most one job at a time, so by the time a ui_face
+    // job is even picked up, any newer one is either what got coalesced into
+    // pendingUiFaceBody (nothing stale to detect) or is still sitting
+    // pending behind it (hasn't started, nothing to invalidate yet).
+    bool                    hasUiFaceJob = false;      // guarded by jobMutex
+    juce::var               pendingUiFaceBody;         // guarded by jobMutex
 
     // The subprocess currently in flight. Registered by runGeneration for exactly
     // as long as the ChildProcess lives on the worker's stack, so submit and

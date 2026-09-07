@@ -1,8 +1,10 @@
 #include "ParamGridPanel.h"
+#include "ArchetypeLayout.h"
 #include "ParamGridLayout.h"
 #include "ParamMap.h"
 #include "Theme.h"
 #include "ForgeLookAndFeel.h"   // resolveThemeFont -- see its header comment
+#include "GeneratedFaceLookAndFeel.h"   // A3c -- displayFont/readoutFont dispatch
 #include <algorithm>   // find_if, stable_sort, count_if — deriveLayoutFromGroups + applyUiIr
 #include <functional>  // std::hash — derivePalette
 #include <set>         // canonical sorted group names — derivePalette
@@ -60,10 +62,36 @@ int ParamGridPanel::contentHeightForCurrentMode() const
 
 int ParamGridPanel::contentHeightForSections() const
 {
-    int y = 0;
+    // ADR-035 gap 4 / session 018 A4, corrected on fix/pedal-layout-packing:
+    // layoutFor() is now TOTAL -- every archetype, including "pedal",
+    // "utility", "", or a name this build predates, gets a real geometry via
+    // ArchetypeLayout::layoutFor(). There is no second, flat-sum formula left
+    // to keep in sync with layoutSectioned() -- the "one height function"
+    // principle ParamGridPanel.h's header states now holds for every Layout,
+    // not just four archetype names, closing the exact kChromeHeight defect
+    // shape a second formula here used to risk.
+    //
+    // Passing viewport.getWidth() unconditionally is safe even when it is
+    // still 0 (this function is called from contentHeightForCurrentMode(),
+    // which feeds the shell's window-size REQUEST -- it can run before the
+    // shell has granted a width at all): packing (ArchetypeLayout.h's
+    // perRowFor()) is a pure function of controlCount/span, never of pixel
+    // width, so row COUNT -- and therefore height -- cannot change once a
+    // real width is granted. Only the Rect's `w`/`x` fields depend on width,
+    // and this function discards them.
+    std::vector<ArchetypeLayout::SectionInput> inputs;
+    inputs.reserve(activeSections.size());
     for (const auto& section : activeSections)
-        y += kHeadingH + static_cast<int>(section.controls.size()) * kCellH + kSectionGapH;
-    return y;
+    {
+        std::vector<bool> large(section.controls.size(), false);
+        for (size_t i = 0; i < section.controls.size(); ++i)
+            large[i] = (section.controls[i].size == "lg");
+        inputs.push_back({ static_cast<int>(section.controls.size()), section.span, std::move(large) });
+    }
+
+    return ArchetypeLayout::layoutFor(activeArchetype.toStdString(), inputs, viewport.getWidth(),
+                                       kCellH, kHeadingH, kSectionGapH)
+               .contentHeight;
 }
 
 int ParamGridPanel::preferredContentHeight() const
@@ -189,14 +217,13 @@ void ParamGridPanel::refreshParamKnobs(const FaustEngine::ParamList& params)
 
         c.label = std::make_unique<juce::Label>();
         c.label->setJustificationType(juce::Justification::centred);
-        // resolveThemeFont anchored on `content`, not `*c.label` -- the label
-        // isn't addAndMakeVisible()'d until the next line, so its own
-        // parentComponent is still null here and would resolve against the
-        // process default instead. `content` has been part of the editor's
-        // fully-wired tree since construction; refreshParamKnobs() only ever
-        // runs after a successful compile, well after that, so anchoring on
-        // it resolves correctly regardless of *c.label's own wiring state.
-        c.label->setFont(resolveThemeFont(content, Theme::Type::label()));
+        // Font is set by applyPresentation() below (called once per control,
+        // right after this loop), not here -- A3c made the label font
+        // theme-aware (activeTheme.display), and activeTheme is not settled
+        // for THIS compile until applyUiIr() runs, which happens after
+        // refreshParamKnobs() returns. Setting it twice (a stale value here,
+        // the real one moments later in applyPresentation) would be dead
+        // code, not a correctness issue, but is worth not writing anyway.
         c.label->setText(juce::String(p.label), juce::dontSendNotification);
         content.addAndMakeVisible(*c.label);
 
@@ -245,9 +272,17 @@ void ParamGridPanel::applyPresentation(Control& c)
     // BEFORE the Slider early-return -- a toggle in Horizontal style needs its
     // label left-aligned too.
     if (c.label != nullptr)
+    {
         c.label->setJustificationType(style == ControlStyle::Horizontal
                                           ? juce::Justification::centredLeft
                                           : juce::Justification::centred);
+        // A3c: theme-aware label font. Re-read every call (build time AND
+        // every setControlStyle() restyle) rather than cached anywhere, same
+        // reasoning as the accent lines further down this function --
+        // currentLabelFont()'s own header comment explains why a single
+        // shared decision point matters here.
+        c.label->setFont(currentLabelFont());
+    }
 
     // Anything that is not a Slider has no style to apply. A ToggleButton returns
     // here, which is why no rotary code below can ever reach a toggle-kind param.
@@ -287,7 +322,7 @@ void ParamGridPanel::applyPresentation(Control& c)
     // updateText() re-renders it now (juce_Slider.h:844).
     sl->updateText();
 
-    // ── Accent (ADR-022 §3 / T7) ────────────────────────────────────────────
+    // ── Accent (ADR-022 §3 / T7; face-aware since the A3d fix) ──────────────
     // Applied here, not in refreshParamKnobs(), because applyPresentation()
     // already "owns every styling decision" (header comment) and re-runs on
     // every setControlStyle() restyle -- so a style change can never leave a
@@ -302,9 +337,21 @@ void ParamGridPanel::applyPresentation(Control& c)
     // (juce_LookAndFeel_V4.cpp:1342), so a toggle was never going to pick this
     // up regardless, and Control's early return above already keeps this
     // whole block unreachable for one anyway.
-    sl->setColour(juce::Slider::thumbColourId, currentPalette);
-    sl->setColour(juce::Slider::trackColourId, currentPalette);
-    sl->setColour(juce::Slider::rotarySliderFillColourId, currentPalette);
+    //
+    // faceAccentActive/faceAccentColour (A3d fix): a face's theme accent is
+    // not known at the moment a control is first built -- PluginEditor's
+    // compile-success callback calls applyGeneratedFace() AFTER
+    // refreshParamKnobs()/applyUiIr() -- so this cannot simply always use
+    // currentPalette. Both members are set by setFaceAccent(), called
+    // whenever a face attaches, changes, or detaches; reading them HERE
+    // (rather than only re-colouring existing widgets from setFaceAccent()
+    // itself) is what keeps a later setControlStyle() restyle from silently
+    // reverting an attached face's accent back to the heuristic -- see this
+    // member's own declaration in the header for the reproduction.
+    const auto accent = faceAccentActive ? faceAccentColour : currentPalette;
+    sl->setColour(juce::Slider::thumbColourId, accent);
+    sl->setColour(juce::Slider::trackColourId, accent);
+    sl->setColour(juce::Slider::rotarySliderFillColourId, accent);
 
     // ── Style override ──────────────────────────────────────────────────────
     // Rotary and Horizontal are user view choices and win over the Faust Kind.
@@ -619,6 +666,59 @@ UiIr::Layout ParamGridPanel::deriveLayoutFromGroups(const FaustEngine::ParamList
     UiIr::Layout layout;
     layout.schema = 2;   // ADR-029 §4: was 1; components below is the addition
     layout.components = deriveComponents(params, isInstrument);
+
+    // Fold single-control groups (fix/pedal-layout-packing). A vgroup wrapping
+    // one control renders as its own heading + hairline + row + trailing gap --
+    // "its own tiny plugin", not part of a grouped panel. The live shape this
+    // exists for: "warm analog tape saturation effect with input drive, tone,
+    // output level, and a wet/dry mix" -> four one-control vgroups -> four
+    // one-knob sections, half the panel dead. Two outcomes, both keyed on
+    // whether ANY group is real (>= 2 controls) rather than on the average
+    // (an average of two is cleared by [1,1,4] and by [3,1] alike, leaving a
+    // lone-knob heading standing in both):
+    //   * no real group  -> one neutral "Controls" section holding everything
+    //     (the tape case; ranked order is preserved by the sort above).
+    //   * some real group -> fold each singleton forward into the preceding
+    //     real group (or, for a leading singleton, into the first real group).
+    //     [2,2,1] stays FILTER(2) + OUTPUT(3), not one flat grid -- the
+    //     grouping the generation *did* get right survives.
+    // `occupiedSlots < 4` is already returned empty above, so the smallest
+    // input that reaches here is 4 controls in >= 2 groups.
+    const auto isReal = [](const GroupEntry& g) { return g.labels.size() >= 2; };
+    const int realGroups = static_cast<int>(std::count_if(groups.begin(), groups.end(), isReal));
+
+    if (static_cast<int>(groups.size()) > 1 && realGroups < static_cast<int>(groups.size()))
+    {
+        if (realGroups == 0)
+        {
+            GroupEntry merged { "Controls", groups.front().firstIndex, {} };
+            for (const auto& g : groups)
+                merged.labels.insert(merged.labels.end(), g.labels.begin(), g.labels.end());
+            groups.clear();
+            groups.push_back(std::move(merged));
+        }
+        else
+        {
+            std::vector<GroupEntry> folded;
+            std::vector<std::string> pending;   // leading singletons, no real group kept yet
+            for (auto& g : groups)
+            {
+                if (isReal(g))
+                {
+                    g.labels.insert(g.labels.begin(), pending.begin(), pending.end());
+                    pending.clear();
+                    folded.push_back(std::move(g));
+                }
+                else if (! folded.empty())
+                    folded.back().labels.insert(folded.back().labels.end(),
+                                                g.labels.begin(), g.labels.end());
+                else
+                    pending.insert(pending.end(), g.labels.begin(), g.labels.end());
+            }
+            groups = std::move(folded);   // realGroups >= 1, so pending is always drained
+        }
+    }
+
     for (const auto& g : groups)
     {
         UiIr::Section section;
@@ -752,6 +852,11 @@ void ParamGridPanel::applyUiIr(const UiIr::Layout& ir)
     activeArchetype = juce::String(ir.archetype);
     activeTokens = juce::String(ir.tokens);
     activeComponents = ir.components;
+    // UiIr schema 3 (ADR-035 Step 3). Stored for observability and for
+    // resized()/paint() consumers that will follow (the arc-knob geometry,
+    // A3d); the LookAndFeel swap this theme drives is owned by
+    // PluginForgeEditor::applyGeneratedFace(), which reads the same Layout.
+    activeTheme = ir.theme;
 
     // ADR-029 §4: checks ir.sections directly rather than ir.schema != 1, so a
     // schema-2 Layout with components but no sections (deriveLayoutFromGroups'
@@ -836,6 +941,17 @@ void ParamGridPanel::applyUiIr(const UiIr::Layout& ir)
 // cells per control, honouring the control's span. Column count derives from the
 // widest section rather than the global sqrt — a 12-param synth with a 2-wide
 // filter section reads as intended, not squashed.
+void ParamGridPanel::placeControlInCell(Control& c, juce::Rectangle<int> cell)
+{
+    c.label->setBounds(cell.removeFromTop(kLabelH));
+    auto body = cell.reduced(4);
+    if (c.buttonAtt != nullptr)
+        c.widget->setBounds(body.withSizeKeepingCentre(
+            juce::jmin(body.getWidth(), 90), juce::jmin(body.getHeight(), 28)));
+    else
+        c.widget->setBounds(body);
+}
+
 void ParamGridPanel::layoutSectioned()
 {
     if (controls.empty() || activeSections.empty())
@@ -845,54 +961,78 @@ void ParamGridPanel::layoutSectioned()
     if (fullW == 0)
         return;
 
-    int cols = 2;
-    for (const auto& section : activeSections)
-        cols = juce::jmax(cols, section.span);
-    cols = juce::jlimit(2, 6, cols);
+    // A3c: computed once per pass and handed to `content` as plain data,
+    // same "decide once, paint reads" split `content.headings` itself
+    // already uses -- kept consistent with that sibling field even though
+    // ContentArea::paint() could now make this same dynamic_cast call
+    // itself (displayFont() no longer needs an enum argument only
+    // ParamGridPanel had -- see GeneratedFaceLookAndFeel.h's
+    // themeDisplayEnum for why that changed). Computed BEFORE the archetype
+    // dispatch below (merge note: A4 landed on main while this branch was in
+    // flight) so it applies uniformly whichever geometry path -- the
+    // ArchetypeLayout early-return or the grid fallback -- actually places
+    // this pass's headings.
+    if (auto* faceLnf = dynamic_cast<GeneratedFaceLookAndFeel*>(&content.getLookAndFeel()))
+        content.sectionTitleFont =
+            faceLnf->displayFont(Theme::Type::sectionTitle().getHeight());
+    else
+        content.sectionTitleFont = resolveThemeFont(content, Theme::Type::sectionTitle());
 
-    const int cellW = fullW / cols;
-    int y = 0;
-
+    // ADR-035 gap 4 / session 018 A4, corrected on fix/pedal-layout-packing:
+    // ArchetypeLayout::layoutFor() is now TOTAL -- "pedal", "utility", "", or
+    // a name this build predates all get a real geometry (row()), not the
+    // old ungeometried grid fallback that used to live below this comment.
+    // That fallback placed every control at x=0, one per row, and gave a
+    // `size:"lg"` control a double-width box at that SAME x=0 -- since JUCE
+    // centres a rotary slider within whatever bounds it is handed, the `lg`
+    // knob's visual centre landed at a different x than every `md` sibling's.
+    // Both defects are gone with the fallback: every archetype now packs
+    // through the same stackColumn()-based geometry, and `size:"lg"` means
+    // "this control gets its own full-width row" (ArchetypeLayout.h).
+    const auto archetype = activeArchetype.toStdString();
+    std::vector<ArchetypeLayout::SectionInput> inputs;
+    inputs.reserve(activeSections.size());
     for (const auto& section : activeSections)
     {
-        // Heading row. The rect is stored, not just computed -- ContentArea::
-        // paint() draws from this list rather than re-deriving the geometry,
-        // so the two can never drift apart (the two-copies-of-one-layout shape
-        // that produced the kChromeHeight defect PluginEditor.h documents).
-        auto heading = juce::Rectangle<int>(4, y, fullW - 8, kHeadingH);
-        content.headings.push_back({ heading, juce::String(section.title) });
-        y += kHeadingH;
-
-        for (const auto& ref : section.controls)
-        {
-            auto it = irLookup.find(ref.paramLabel);
-            if (it == irLookup.end())
-                continue;
-            auto* c = it->second;
-            const int span = juce::jlimit(1, cols, ref.size == "lg" ? 2 : 1);
-            const int w = cellW * span;
-            auto cell = juce::Rectangle<int>(0, y, w, kCellH);
-            c->label->setBounds(cell.removeFromTop(kLabelH));
-            auto body = cell.reduced(4);
-            if (c->buttonAtt != nullptr)
-                c->widget->setBounds(body.withSizeKeepingCentre(
-                    juce::jmin(body.getWidth(), 90), juce::jmin(body.getHeight(), 28)));
-            else
-                c->widget->setBounds(body);
-            y += kCellH;
-        }
-        y += kSectionGapH;
+        std::vector<bool> large(section.controls.size(), false);
+        for (size_t i = 0; i < section.controls.size(); ++i)
+            large[i] = (section.controls[i].size == "lg");
+        inputs.push_back({ static_cast<int>(section.controls.size()), section.span, std::move(large) });
     }
 
-    content.setSize(fullW, juce::jmax(y, viewport.getHeight()));
+    const auto result = ArchetypeLayout::layoutFor(archetype, inputs, fullW,
+                                                     kCellH, kHeadingH, kSectionGapH);
+
+    // 4px inset on every heading rect so a section title reads with a
+    // consistent left margin regardless of archetype.
+    for (size_t s = 0; s < activeSections.size(); ++s)
+    {
+        const auto& h = result.headings[s];
+        auto heading = juce::Rectangle<int>(h.x + 4, h.y, juce::jmax(0, h.w - 8), h.h);
+        content.headings.push_back({ heading, juce::String(activeSections[s].title) });
+    }
+
+    for (const auto& pc : result.controls)
+    {
+        const auto& ref = activeSections[static_cast<size_t>(pc.section)]
+                               .controls[static_cast<size_t>(pc.index)];
+        auto it = irLookup.find(ref.paramLabel);
+        if (it == irLookup.end())
+            continue;
+        placeControlInCell(*it->second,
+                            juce::Rectangle<int>(pc.bounds.x, pc.bounds.y, pc.bounds.w, pc.bounds.h));
+    }
+
+    content.setSize(fullW, juce::jmax(result.contentHeight, viewport.getHeight()));
     content.repaint();   // headings were just (re)populated above
 }
 
 void ParamGridPanel::ContentArea::paint(juce::Graphics& g)
 {
-    // Safe unresolved-name-free: paint() only ever runs once this component
-    // is fully wired into the editor's tree.
-    g.setFont(resolveThemeFont(*this, Theme::Type::sectionTitle()));
+    // A3c: sectionTitleFont is decided by layoutSectioned() (ParamGridPanel
+    // has activeTheme in scope; this class does not), not re-derived here --
+    // see that member's own header comment.
+    g.setFont(sectionTitleFont);
     for (const auto& h : headings)
     {
         g.setColour(Theme::textSecondary);
@@ -1007,6 +1147,69 @@ juce::String ParamGridPanel::controlTextForTest(int index) const
     if (auto* tb = dynamic_cast<juce::ToggleButton*>(w))
         return tb->getToggleState() ? "On" : "Off";
     return {};
+}
+
+juce::Colour ParamGridPanel::controlWidgetColourForTest(int index, int colourId) const
+{
+    if (index < 0 || index >= static_cast<int>(controls.size()))
+        return {};
+    // Component::findColour, not the LookAndFeel's -- see the header comment
+    // on why that distinction is the entire point of this accessor.
+    return controls[static_cast<size_t>(index)].widget->findColour(colourId);
+}
+
+juce::String ParamGridPanel::controlLabelFontNameForTest(int index) const
+{
+    if (index < 0 || index >= static_cast<int>(controls.size())
+        || controls[static_cast<size_t>(index)].label == nullptr)
+        return {};
+    return controls[static_cast<size_t>(index)].label->getFont().getTypefaceName();
+}
+
+// A3d fix (see ParamGridPanel.h's header comment on this method, and on the
+// faceAccentActive/faceAccentColour members, for the full story). Two jobs,
+// both necessary:
+//   1. Persist the decision so a LATER applyPresentation() call (e.g. from
+//      setControlStyle()) keeps using it, not just the controls that exist
+//      right now.
+//   2. Re-colour the controls that already exist, immediately -- a face
+//      attaching does not by itself trigger a fresh applyPresentation() pass
+//      over anything, so without this loop the fix would only take effect on
+//      the NEXT compile, not the one that just requested this face.
+// Skips anything that is not a Slider by the same dynamic_cast guard
+// applyPresentation() itself uses -- a toggle-kind control was never touched
+// by the original colours either.
+// A3c: theme-aware label font -- theme.display via the attached
+// GeneratedFaceLookAndFeel if one is attached (content's own LookAndFeel,
+// walked via the normal parent-chain lookup resolveThemeFont already relies
+// on elsewhere in this file), else the shipped Theme::Type::label(). A
+// dynamic_cast, not a stored bool, because "is a face attached" and "which
+// LookAndFeel is actually walking the tree right now" must never be able to
+// disagree -- the two are the same fact asked two different ways.
+juce::Font ParamGridPanel::currentLabelFont() const
+{
+    if (auto* faceLnf = dynamic_cast<GeneratedFaceLookAndFeel*>(&content.getLookAndFeel()))
+        return faceLnf->displayFont(Theme::Type::label().getHeight());
+    return resolveThemeFont(content, Theme::Type::label());
+}
+
+// A3d fix, extended by A3c. Re-applies applyPresentation() to every control
+// rather than a bespoke colour-only loop (which is what this function used to
+// be) -- applyPresentation() already "owns every styling decision"
+// (its own header comment), so calling it again is the SAME operation
+// setControlStyle() already relies on being idempotent, just triggered by a
+// different event (a face attaching/detaching/changing rather than a style
+// button). This is what makes the A3c label font AND the A3d accent both
+// take effect together, from one call, the moment PluginEditor::
+// applyGeneratedFace() invokes this -- neither can drift out of sync with
+// the other because both are read from the SAME re-application pass.
+void ParamGridPanel::setFaceAccent(bool faceActive, juce::Colour faceAccent)
+{
+    faceAccentActive = faceActive;
+    faceAccentColour = faceAccent;
+
+    for (auto& c : controls)
+        applyPresentation(c);
 }
 
 const char* ParamGridPanel::widgetKindName(WidgetKind k)

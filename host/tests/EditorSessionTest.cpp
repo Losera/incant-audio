@@ -2626,11 +2626,21 @@ void scenario34_qwertyAfterGeneration(const juce::File& tmp)
 //      must render the ordinary flat grid, not a heading over a few knobs).
 void scenario35_sectionedLayoutOrdersAndSuppresses()
 {
-    scenario("35. sectioned layout: canonical group order, suppressed when sparse",
+    scenario("35. sectioned layout: canonical group order, thin groups folded, suppressed when sparse",
              "deriveLayoutFromGroups ranks Osc before Filter before Env before Fx "
-             "-- the reverse of Faust's own alphabetical report -- and returns no "
-             "sections at all for <=1 non-empty group or <4 controls");
+             "-- the reverse of Faust's own alphabetical report -- collapses to one "
+             "section when NO group is real, folds a lone singleton forward into the "
+             "preceding real group otherwise, and returns no sections at all for "
+             "<=1 non-empty group or <4 controls");
 
+    // CORRECTED (fix/pedal-layout-packing): this used to assert 4 SEPARATE
+    // sections for this exact patch -- one knob per heading, the live defect
+    // a real "warm analog tape saturation effect with input drive, tone,
+    // output level, and a wet/dry mix" generation reproduced (see
+    // ArchetypeLayout.h's header comment and STATUS.md). No group here holds
+    // more than one control, so it collapses to ONE "Controls" section -- the
+    // deliberate, tested behaviour change, not a regression.
+    //
     // Four groups, one control each, declared (and therefore Faust-reported)
     // in ALPHABETICAL order: Env, Filter, Fx, Osc -- the exact case F4 names.
     const char* kFourGroupPatch = R"(import("stdfaust.lib");
@@ -2645,16 +2655,68 @@ process = _ * amt, _ * amt;
     Session s;
     check(loadAndSettle(s, kFourGroupPatch, 4), "the 4-group patch compiled");
 
-    const auto& sections = s.editor.gridActiveSectionsForTest();
-    check(sections.size() == 4,
-          juce::String("expected 4 sections, got ") + juce::String((int) sections.size()));
-    if (sections.size() == 4)
     {
-        const char* expected[] = { "Osc", "Filter", "Env", "Fx" };
-        for (int i = 0; i < 4; ++i)
-            check(juce::String(sections[(size_t) i].title) == expected[i],
-                  juce::String("section ") + juce::String(i) + " expected '" + expected[i]
-                      + "', got '" + juce::String(sections[(size_t) i].title) + "'");
+        const auto& sections = s.editor.gridActiveSectionsForTest();
+        check(sections.size() == 1,
+              juce::String("expected 1 merged section, got ") + juce::String((int) sections.size()));
+        if (sections.size() == 1)
+        {
+            check(juce::String(sections[0].title) == "Controls",
+                  juce::String("expected the merged section titled 'Controls', got '")
+                      + juce::String(sections[0].title) + "'");
+            check(sections[0].controls.size() == 4,
+                  "the merged section still carries all four controls, none dropped");
+            // Ranked order (Osc -> Filter -> Env -> Fx) survives the merge --
+            // the merge concatenates groups in their already-ranked order, it
+            // does not re-sort or reverse it.
+            const char* expected[] = { "Freq", "Cutoff", "Attack", "Mix" };
+            for (int i = 0; i < 4 && i < (int) sections[0].controls.size(); ++i)
+                check(sections[0].controls[(size_t) i].paramLabel == expected[i],
+                      juce::String("merged control ") + juce::String(i) + " expected '" + expected[i]
+                          + "', got '" + juce::String(sections[0].controls[(size_t) i].paramLabel) + "'");
+        }
+    }
+
+    // Two real groups stay two sections -- the fold only touches singletons,
+    // never a group that already reads as real grouping.
+    const char* kTwoByTwoPatch = R"(import("stdfaust.lib");
+osc  = vgroup("Osc",    hslider("Freq", 0.5, 0, 1, 0.01) + hslider("Shape", 0.5, 0, 1, 0.01));
+filt = vgroup("Filter", hslider("Cutoff", 0.5, 0, 1, 0.01) + hslider("Reso", 0.5, 0, 1, 0.01));
+amt = (osc + filt) * 0.25;
+process = _ * amt, _ * amt;
+)";
+    check(loadAndSettle(s, kTwoByTwoPatch, 4), "the 2-groups-of-2 patch compiled");
+    check(s.editor.gridActiveSectionsForTest().size() == 2,
+          "two real groups stay separate sections, not merged");
+
+    // The case the average rule got wrong: [2, 2, 1]. Osc(2) + Filter(2) are
+    // real; Fx(1) is a lone knob. Average is 5/3 = 1 (< 2), so the old rule
+    // flattened ALL THREE into one grid, discarding the Osc/Filter grouping
+    // the patch got right. The fold keeps them: Fx's control moves forward
+    // into Filter (its preceding real group by rank), leaving two sections.
+    const char* kTwoTwoOnePatch = R"(import("stdfaust.lib");
+osc  = vgroup("Osc",    hslider("Freq", 0.5, 0, 1, 0.01) + hslider("Shape", 0.5, 0, 1, 0.01));
+filt = vgroup("Filter", hslider("Cutoff", 0.5, 0, 1, 0.01) + hslider("Reso", 0.5, 0, 1, 0.01));
+fx   = vgroup("Fx",     hslider("Mix", 0.5, 0, 1, 0.01));
+amt = (osc + filt + fx) * 0.2;
+process = _ * amt, _ * amt;
+)";
+    check(loadAndSettle(s, kTwoTwoOnePatch, 5), "the [2,2,1] patch compiled");
+    {
+        const auto& sec = s.editor.gridActiveSectionsForTest();
+        check(sec.size() == 2,
+              juce::String("[2,2,1] folds the singleton, keeps two sections, got ")
+                  + juce::String((int) sec.size()));
+        if (sec.size() == 2)
+        {
+            check(juce::String(sec[0].title) == "Osc" && sec[0].controls.size() == 2,
+                  "first section is still Osc with its two controls");
+            check(juce::String(sec[1].title) == "Filter" && sec[1].controls.size() == 3,
+                  "the lone Fx control folded into Filter, which now holds three");
+            check(sec[1].controls.size() == 3
+                      && sec[1].controls[2].paramLabel == "Mix",
+                  "the folded control is appended after Filter's own, not interleaved");
+        }
     }
 
     // Threshold guard #1: kFourParamPatch (defined above, §2 in this file) has
@@ -3529,6 +3591,348 @@ void scenario49_generateButtonRoutesByRefineMode(const juce::File& tmp)
     }
 }
 
+// 50 — ADR-035 Step 3. A generated face's theme becomes a LookAndFeel scoped to
+// paramGridPanel: the grid's resolved colours change, the shell's do not, the
+// Ember-default theme detaches, and teardown with a face attached leaves the
+// ~LookAndFeel assert / JUCE leak detector quiet (the lifetime contract in
+// GeneratedFaceLookAndFeel.h / PluginEditor.h).
+//
+// The theme is applied directly via editor.applyGeneratedFace() rather than
+// through a compile: deriveLayoutFromGroups() only ever emits the Ember default
+// until the ui_face producer is wired to the callback (a later step), so the
+// compile path cannot exercise a non-default face yet.
+void scenario50_generatedFaceScopedToParamGrid()
+{
+    scenario("50. a generated face themes the param grid only",
+             "applyGeneratedFace attaches a GeneratedFaceLookAndFeel to "
+             "paramGridPanel; the shell keeps ForgeLookAndFeel; detach + teardown are clean.");
+
+    Session s;
+    check(loadAndSettle(s, kFourParamPatch, 4), "a 4-param patch compiled");
+
+    // V4 wires Slider::rotarySliderFillColourId from the scheme's highlightedFill
+    // slot (ForgeLookAndFeel.h cites juce_LookAndFeel_V4.cpp:1399-1401), which
+    // both LookAndFeels fill with their accent — so this id is where a themed
+    // face and the shell must disagree.
+    const int fillId = juce::Slider::rotarySliderFillColourId;
+
+    check(! s.editor.gridFaceActiveForTest(),
+          "no face is attached after a plain compile (Ember-default theme)");
+    check(s.editor.gridFaceColourForTest(fillId) == s.editor.shellColourForTest(fillId),
+          "with no face, the grid resolves the same fill colour as the shell");
+
+    // A3c: the enum-to-family mapping tables, asserted directly -- pure
+    // functions, no editor/widget needed. Covers every UiIr enum value
+    // (README.md's Design tokens -> Faces table) plus the degrade-to-default
+    // case (an unrecognised string, e.g. a future build's enum value this
+    // one predates) UiIr::oneOf() already applies to the enum FIELD itself;
+    // this is the analogous guarantee one level downstream, where a string
+    // this build DOES recognise as valid UiIr still has to resolve to SOME
+    // embedded family rather than silently drawing nothing.
+    check(GeneratedFaceLookAndFeel::displayFamilyFor("grotesk") == juce::String("Space Grotesk Bold"),
+          "display grotesk -> Space Grotesk Bold");
+    check(GeneratedFaceLookAndFeel::displayFamilyFor("condensed-sans") == juce::String("Barlow Condensed SemiBold"),
+          "display condensed-sans -> Barlow Condensed SemiBold");
+    check(GeneratedFaceLookAndFeel::displayFamilyFor("geometric-sans") == juce::String("Archivo Bold"),
+          "display geometric-sans -> Archivo Bold");
+    check(GeneratedFaceLookAndFeel::displayFamilyFor("slab") == juce::String("Oswald SemiBold"),
+          "display slab -> Oswald SemiBold");
+    check(GeneratedFaceLookAndFeel::displayFamilyFor("engraved") == juce::String("Pirata One"),
+          "display engraved -> Pirata One");
+    check(GeneratedFaceLookAndFeel::displayFamilyFor("some-future-value") == juce::String("Pirata One"),
+          "an unrecognised display value degrades to Pirata One");
+    check(GeneratedFaceLookAndFeel::readoutFamilyFor("mono") == juce::String("IBM Plex Mono"),
+          "readout mono -> IBM Plex Mono");
+    check(GeneratedFaceLookAndFeel::readoutFamilyFor("condensed-sans") == juce::String("Barlow Condensed SemiBold"),
+          "readout condensed-sans -> Barlow Condensed SemiBold");
+    check(GeneratedFaceLookAndFeel::readoutFamilyFor("some-future-value") == juce::String("IBM Plex Mono"),
+          "an unrecognised readout value degrades to IBM Plex Mono");
+
+    // Velvet Drift: a dark cool surface with a mint accent, Space Grotesk
+    // display -- the real design tokens (README.md's Faces table), not a
+    // colour-only subset of them.
+    UiIr::Theme velvet;
+    velvet.surface = "#0e0f13";
+    velvet.text    = "#eef2ee";
+    velvet.accent  = "#8fe3c1";
+    velvet.display = "grotesk";
+    s.editor.applyGeneratedFace(velvet);
+
+    check(s.editor.gridFaceActiveForTest(),
+          "a non-default theme attaches a face");
+    const auto gridFill  = s.editor.gridFaceColourForTest(fillId);
+    const auto shellFill = s.editor.shellColourForTest(fillId);
+    check(gridFill != shellFill,
+          "the grid's fill colour now differs from the shell's");
+    check(gridFill.getRed() < 190 && gridFill.getGreen() > 200 && gridFill.getBlue() > 150,
+          "the grid's fill colour reads as the mint theme accent, not Ember orange");
+    check(shellFill == juce::Colour(Theme::accent),
+          "the shell's own fill colour is untouched (still Ember accent)");
+
+    // A3d fix. gridFaceColourForTest() above asks the LookAndFeel OBJECT what
+    // it resolves for `fillId` -- it says nothing about what an actual
+    // Slider paints, because applyPresentation() (ParamGridPanel.cpp)
+    // hardcodes thumb/track/rotarySliderFill directly on every widget at
+    // build time, and a component's own explicit colour always wins over its
+    // LookAndFeel's. That gap is exactly how this defect shipped undetected
+    // in A3a: every prior assertion here would still pass today even if
+    // setFaceAccent() were deleted. controlWidgetColourForTest() asks the
+    // WIDGET instead (Component::findColour), which is the only query that
+    // can actually fail if the fix regresses.
+    check(s.editor.gridControlWidgetColourForTest(0, fillId) == gridFill,
+          "a live widget's fill colour matches the face's accent, not just "
+          "the LookAndFeel scheme");
+
+    // A3c: the label's ACTUAL typeface, asked of the live widget the same
+    // way controlWidgetColourForTest() asks about colour above -- not a
+    // recomputation of displayFamilyFor("grotesk"), which would pass even if
+    // applyPresentation()/currentLabelFont() never actually wired it in.
+    check(s.editor.gridControlLabelFontNameForTest(0) == juce::String("Space Grotesk Bold"),
+          "a live control label's font matches the face's display family (grotesk)");
+
+    // A LIGHT face (Iron Strip): GeneratedFaceLookAndFeel picks highlightedText
+    // (button-text-on-accent) as whichever of surface / text reads better on the
+    // accent, rather than assuming a dark ground the way ForgeLookAndFeel can.
+    // Here the surface is near-white and the accent is a dark red, so the
+    // light surface is the correct on-accent colour.
+    UiIr::Theme iron;
+    iron.surface = "#d7d3c9";
+    iron.text    = "#1c1b18";
+    iron.accent  = "#b4402f";
+    s.editor.applyGeneratedFace(iron);
+    const auto onAccent = s.editor.gridFaceColourForTest(juce::TextButton::textColourOnId);
+    check(onAccent.getPerceivedBrightness() > 0.6f,
+          "light face: on-accent text resolves to the light surface, not the dark ink");
+
+    // The Ember default detaches — the grid goes back to the shell look.
+    s.editor.applyGeneratedFace(UiIr::Theme {});
+    check(! s.editor.gridFaceActiveForTest(),
+          "the Ember-default theme detaches the face");
+    check(s.editor.gridFaceColourForTest(fillId) == s.editor.shellColourForTest(fillId),
+          "after detach the grid resolves the shell colour again");
+    // A3d fix: the live widget must revert to the ADR-022 HEURISTIC accent
+    // (whichever of the four swatches this patch's derivePalette() picked),
+    // not to Theme::accent or any other fixed literal -- currentPalette can
+    // land on amber/rust/coral just as easily as ember, and a detach that
+    // silently reset every patch to plain Ember orange would itself be a
+    // regression this assertion would not have caught before A3d.
+    check(s.editor.gridControlWidgetColourForTest(0, fillId) == s.editor.gridPaletteForTest(),
+          "after detach, the live widget reverts to the heuristic accent");
+    // A3c: the label font must revert to the SHIPPED default (Theme::Type::
+    // label()'s "Big Shoulders Display SemiBold"), not stay on the detached
+    // face's Space Grotesk Bold -- currentLabelFont()'s dynamic_cast on the
+    // now-detached LookAndFeel is what this actually exercises.
+    // Expected value is "Big Shoulders Display", NOT "...SemiBold" -- a
+    // pre-existing property of resolveThemeFont()'s round trip (name string
+    // -> getTypefaceForFont() -> Font(Typeface::Ptr) -> getTypefaceName()),
+    // unrelated to A3c: BigShouldersDisplay-SemiBold.ttf carries OpenType
+    // typographic name records (ID 16/17) splitting "Big Shoulders Display"
+    // from "SemiBold", and Font(Typeface::Ptr) reads those in preference to
+    // the legacy family name (ID 1, "...SemiBold") ForgeLookAndFeel's
+    // getTypefaceForFont dispatch itself still matches on directly (that
+    // dispatch compares against a Theme::Type::label()-constructed Font's
+    // literal string, never round-tripping through a Typeface::Ptr, so it is
+    // unaffected). SpaceGrotesk-Bold.ttf/Archivo-Bold.ttf, deliberately
+    // renamed WITHOUT typo records (fontTools left them absent after
+    // instancing), round-trip cleanly -- which is why the ATTACHED case
+    // above asserts the FULL "Space Grotesk Bold" and is correct to.
+    check(s.editor.gridControlLabelFontNameForTest(0) == juce::String("Big Shoulders Display"),
+          "after detach, the live widget's label font reverts to the shipped default");
+    check(s.editor.gridControlLabelFontNameForTest(0) != juce::String("Space Grotesk Bold"),
+          "after detach, the live widget's label font is no longer the detached face's display family");
+
+    // Re-attach and let Session fall out of scope: ~PluginForgeEditor detaches
+    // paramGridPanel before `faceLnf` is destroyed. A leak here fails the run
+    // via getLeakedObjectClassName (matched against leak:libfaust only).
+    s.editor.applyGeneratedFace(velvet);
+    check(s.editor.gridFaceActiveForTest(), "re-attached before teardown");
+    snapshot(s.editor, "session_50_generated_face");
+
+    // A3d (ADR-035 Step 3 cont'd, docs/design/incant-ui/GKnob.dc.html): the
+    // arc-knob geometry override only actually paints while the grid is in
+    // Rotary style (scenario 13's `cycle` proves the style flip itself
+    // already works) -- everything above this point exercised only colour,
+    // via a Faithful-style grid where kFourParamPatch's continuous params
+    // render as horizontal sliders (drawLinearSlider, not touched by A3d).
+    // Flipping to Rotary here is what actually calls
+    // GeneratedFaceLookAndFeel::drawRotarySlider for the first time in this
+    // suite, with the Velvet Drift face still attached from the re-attach
+    // above.
+    //
+    // NOT VERIFIED BY THIS CHECK: pixel-exact arc geometry against
+    // GKnob.dc.html (angle, stroke width, pointer position) -- this suite has
+    // no pixel-level image assertion anywhere, for this or any other visual
+    // element, and this scenario does not invent one. What this DOES prove,
+    // mechanically: the override runs to completion (no crash/assert) against
+    // a real Slider under a real GeneratedFaceLookAndFeel, at multiple
+    // control sizes (kFourParamPatch's four continuous params), with the
+    // panel left in a state a human can actually look at afterwards --
+    // COLLABORATION.md §1's listening/looking pass still applies and is not
+    // replaced by this.
+    s.processor.setUiStyle("rotary");
+    check(pumpUntil([&] { return s.editor.controlStyleForTest() == juce::String("rotary"); }),
+          "the panel reached rotary style with the face still attached");
+    check(s.editor.gridFaceActiveForTest(),
+          "the face survived the style flip (style and face are independent state)");
+    // A3d fix, the regression this exact assertion caught during development:
+    // setControlStyle() re-invokes applyPresentation() per control WITHOUT
+    // going through setFaceAccent() again (ParamGridPanel.h's ControlStyle
+    // comment: widgets "stay alive across every style change -- setControlStyle
+    // only restyles and relayouts them"). Before faceAccentActive/
+    // faceAccentColour were persisted as members applyPresentation() itself
+    // reads, this style flip silently repainted every knob back to the
+    // ADR-022 heuristic (visually confirmed: the exported snapshot showed the
+    // Ember-swatch orange, not Velvet Drift's mint, immediately after this
+    // exact setUiStyle("rotary") call) even though gridFaceActiveForTest()
+    // above still correctly reported the face as attached -- style and face
+    // being independent STATE (checked above) does not by itself guarantee
+    // they independently drive rendering.
+    check(s.editor.gridControlWidgetColourForTest(0, fillId) == gridFill,
+          "a live rotary widget's fill colour still matches the face's accent "
+          "after a style flip, not the heuristic it silently fell back to");
+    snapshot(s.editor, "session_50b_generated_face_rotary");
+}
+
+// 51 — ADR-035 §5/A3b. The compile-success callback's own ui_face request,
+// end to end: a REAL compile through the fake generator, followed by the
+// host's OWN background subprocess call for a face, both landing on the SAME
+// resolved script (FakeGenerator::install's env vars, resolved independently
+// by PromptPanel and UiFaceClient via the same resolveGenerateScript() /
+// resolvePythonExe() functions — production shape). Where scenario 50 called
+// applyGeneratedFace() directly because "the compile path cannot exercise a
+// non-default face yet", this scenario is what closes that gap.
+void scenario51_uiFaceRequestAppliesGeneratedFace(const juce::File& tmp)
+{
+    scenario("51. the post-compile ui_face request applies a generated face",
+             "ADR-035 §5/A3b: a real compile's success callback fires a background "
+             "ui_face request; a valid schema-3 answer attaches a face; a declined "
+             "or failed one leaves the deterministic Ember layout untouched.");
+
+    const int fillId = juce::Slider::rotarySliderFillColourId;
+
+    // ── A valid face answer attaches ──────────────────────────────────────
+    {
+        FakeGenerator::install(FakeGenerator::writeSuccessThenFace(
+            tmp, "gen51", kFourParamPatch,
+            "#0e0f13" /* surface */, "#eef2ee" /* text */, "#8fe3c1" /* accent */));
+
+        Session s;
+        s.editor.submitPromptForTest("a face-worthy patch");
+        const bool live = pumpUntil([&] {
+            return s.editor.statusTextForTest().contains("DSP live");
+        });
+        check(live, "the compile itself reached DSP live");
+
+        // Right after the compile settles, the deterministic layout
+        // (deriveLayoutFromGroups(), always the Ember default) is what is
+        // live -- the ui_face round trip is still an independent background
+        // subprocess call at this point.
+        check(! s.editor.gridFaceActiveForTest(),
+              "immediately after compile: still the deterministic Ember default");
+
+        const bool faceApplied = pumpUntil([&] {
+            return s.editor.gridFaceActiveForTest();
+        });
+        check(faceApplied, "the background ui_face request's answer attached a face");
+
+        const auto gridFill = s.editor.gridFaceColourForTest(fillId);
+        check(gridFill.getRed() < 190 && gridFill.getGreen() > 200 && gridFill.getBlue() > 150,
+              "the attached face reads as the mint theme from the fake answer, not Ember orange");
+    }
+
+    // ── A schema-0 decline leaves the deterministic layout in place ───────
+    {
+        auto* decline = new juce::DynamicObject();
+        decline->setProperty("schema", 0);
+        auto* response = new juce::DynamicObject();
+        response->setProperty("success", true);
+        response->setProperty("action", "ui_face");
+        response->setProperty("reason", "ok");
+        response->setProperty("face", juce::var(decline));
+        tmp.getChildFile("gen51decline_face.json").replaceWithText(
+            juce::JSON::toString(juce::var(response), true), false, false, "\n");
+        FakeGenerator::writeSuccess(tmp, "gen51decline_generate", kFourParamPatch);
+        auto script = tmp.getChildFile("gen51decline");
+        script.replaceWithText(
+            juce::String("#!/bin/sh\n")
+            + "if [ \"$1\" = '--request-file' ] && grep -q '\"action\".*\"ui_face\"' \"$2\"; then\n"
+            + "  cat '" + tmp.getChildFile("gen51decline_face.json").getFullPathName() + "'\n"
+            + "else\n"
+            + "  cat '" + tmp.getChildFile("gen51decline_generate.json").getFullPathName() + "'\n"
+            + "fi\n",
+            false, false, "\n");
+        script.setExecutePermission(true);
+        FakeGenerator::install(script);
+
+        Session s;
+        s.editor.submitPromptForTest("a patch whose face producer declines");
+        const bool live = pumpUntil([&] {
+            return s.editor.statusTextForTest().contains("DSP live");
+        });
+        check(live, "the compile reached DSP live even though the face producer will decline");
+
+        // Give the background request a real chance to land (it always
+        // does — the fake script has no sleep), then confirm it did NOT
+        // attach anything. There is no positive event to pumpUntil() for a
+        // decline, so this pumps the message loop directly instead of
+        // asserting on an unbounded negative.
+        pumpUntil([&] { return false; }, 500);
+        check(! s.editor.gridFaceActiveForTest(),
+              "a schema-0 decline leaves the deterministic Ember default attached");
+    }
+}
+
+// 52 — renumbered on rebase over #65 (scenario51 landed first, see the
+// comment above it). A3c: a section HEADING's font goes through a different
+// code path than a control's own name label -- layoutSectioned() decides it (ParamGridPanel
+// owns activeSections/the dynamic_cast), ContentArea::paint() just reads what
+// was decided (see content.sectionTitleFont's own header comment) -- and
+// kFourParamPatch above has no groups, so scenario 50 never rendered a
+// heading at all. This scenario exists to actually exercise that second path
+// rather than assuming it works because the mechanism LOOKS the same as the
+// control-label one.
+const char* kTwoGroupPatch = R"(import("stdfaust.lib");
+osc_a = hgroup("Osc", hslider("Freq", 0.5, 0, 1, 0.01));
+osc_b = hgroup("Osc", hslider("Detune", 0.2, 0, 1, 0.01));
+fx_a = hgroup("Fx", hslider("Mix", 0.5, 0, 1, 0.01));
+fx_b = hgroup("Fx", hslider("Depth", 0.3, 0, 1, 0.01));
+process = _ * (osc_a+osc_b+fx_a+fx_b) * 0.25, _ * (osc_a+osc_b+fx_a+fx_b) * 0.25;
+)";
+
+void scenario52_generatedFaceHeadingFont()
+{
+    scenario("52. a generated face themes section headings too",
+             "layoutSectioned()/ContentArea::paint() go through a SEPARATE "
+             "code path from a control's own label -- this proves the "
+             "heading font is themed as well, not just assumed from the "
+             "label case (scenario 50).");
+
+    Session s;
+    check(loadAndSettle(s, kTwoGroupPatch, 4),
+          "a 4-param, 2-group patch compiled (Osc/Fx, sectioning threshold met)");
+    check(! s.editor.gridActiveSectionsForTest().empty(),
+          "the heuristic derivation actually produced sections to theme");
+
+    UiIr::Theme velvet;
+    velvet.surface = "#0e0f13";
+    velvet.text    = "#eef2ee";
+    velvet.accent  = "#8fe3c1";
+    velvet.display = "grotesk";
+    s.editor.applyGeneratedFace(velvet);
+    check(s.editor.gridFaceActiveForTest(), "the face attached over a sectioned layout");
+
+    // NOT independently asserted here: there is no public accessor for
+    // ContentArea's resolved sectionTitleFont (adding one would expose a
+    // private nested class's internals for a single test's benefit). What
+    // IS proven: displayFont() itself resolves "grotesk" -> "Space Grotesk
+    // Bold" correctly (scenario 50's direct mapping-table checks), and this
+    // scenario's own compile+attach sequence runs to completion against a
+    // REAL sectioned layout without crashing or asserting. The snapshot
+    // below is the actual verification for the heading glyphs themselves --
+    // COLLABORATION.md §1's looking pass, not a substitute for one.
+    snapshot(s.editor, "session_52_generated_face_heading_font");
+}
+
 // 48 — PF-065: the "Paths…" callout writes generate_script_path + python_path
 // into config.json (merge, not overwrite) and re-resolves the runtime live.
 // Numbered 48 to sit after PR #39's scenarios 45-47; renumber on rebase if that
@@ -3609,7 +4013,7 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInit;
 
     std::printf("EditorSessionTest -- a simulated human session against the real editor\n");
-    std::printf("  49 scenarios, no network, no quota, snapshots to artifacts/images/\n");
+    std::printf("  50 scenarios, no network, no quota, snapshots to artifacts/images/\n");
 
     auto tmp = juce::File::getSpecialLocation(juce::File::tempDirectory)
                    .getChildFile("pluginforge_editor_session");
@@ -3673,6 +4077,9 @@ int main()
     scenario47_defaultPathIsDirectGenerate(tmp);
     scenario48_runtimePathsCallout(tmp);
     scenario49_generateButtonRoutesByRefineMode(tmp);
+    scenario50_generatedFaceScopedToParamGrid();
+    scenario51_uiFaceRequestAppliesGeneratedFace(tmp);
+    scenario52_generatedFaceHeadingFont();
 
     tmp.deleteRecursively();
 

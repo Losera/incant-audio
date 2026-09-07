@@ -16,15 +16,15 @@
 ## ⚡ Visual Showcase
 
 <div align="center">
-  <img src="artifacts/ui_gallery/04_generator_grouped.png" alt="Incant Audio Grouped Knob UI" width="850" />
-  <p><em>Incant Audio generating a multi-parameter audio effect with grouped controls, parameter mapping, and physical audio units (Hz, dB, ms).</em></p>
+  <img src="docs/img/ui_generator_grouped.png" alt="Incant Audio grouped-control UI" width="850" />
+  <p><em>A generated multi-parameter patch with grouped controls, parameter mapping, and physical audio units.</em></p>
 </div>
 
 <br/>
 
 <div align="center">
-  <img src="artifacts/images/session_01_happy_path.png" alt="Incant Audio Auditioning Keyboard" width="850" />
-  <p><em>Prompt input panel, effect selector, and integrated QWERTY & on-screen auditioning keyboard.</em></p>
+  <img src="docs/img/ui_generate_then_play.png" alt="Incant Audio prompt panel and auditioning keyboard" width="850" />
+  <p><em>Prompt input panel, provider/effect selectors, and the integrated QWERTY &amp; on-screen auditioning keyboard.</em></p>
 </div>
 
 ---

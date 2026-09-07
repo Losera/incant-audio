@@ -1899,9 +1899,9 @@ this entry and deleted.
 
 | | |
 |---|---|
-| **Status** | Proposed (2026-09-02). Step 1 (schema 3 + state persistence) implemented and in review as PR #51; Steps 2–6 await acceptance. |
-| **Date** | 2026-09-02 |
-| **Relates to** | ADR-024 (extends its versioned `UiIr` schema), ADR-029 (schema 2 / components — same deterministic post-compile pattern), ADR-022 §3 (per-generation accent — narrowed, not reopened), ADR-019 (no WebView — unchanged) |
+| **Status** | **Accepted — 2026-09-03, by explicit user decision.** Step 1 (schema 3 + state persistence) landed 2026-09-03 (PR #51). Steps 2–6 authorized as direction; each still lands on its own change report + Tier-2 / semantic-diff review — Step 3 (a second `LookAndFeel`) especially. |
+| **Date** | 2026-09-02 (accepted 2026-09-03) |
+| **Relates to** | ADR-024 (extends its versioned `UiIr` schema), ADR-029 (schema 2 / components — same deterministic post-compile pattern), ADR-022 §3 (per-generation accent — narrowed, not reopened), ADR-019 (no WebView — unchanged), ADR-036 (the shell redesign around these faces — shares `ArchetypeLayout.h`) |
 
 **Context**
 Every generated patch renders with one shell look: `ForgeLookAndFeel` + Ember Console
@@ -2008,5 +2008,356 @@ adding a parallel one:
 **Status note**
 Step 1 landed ahead of this ADR's acceptance because it is inert: a schema field and a
 persisted attribute with no consumer, verifiable in full by `check.sh` with no design
-judgement involved. Steps 2–6 are **Proposed** — this entry authorizes the direction for
+judgement involved. Steps 2–6 were **Proposed** — this entry authorized the direction for
 the human to accept or redirect, not the implementation.
+
+**Status note (2026-09-03 — accepted)**
+Accepted as direction by explicit user decision. Two grounding updates from the refreshed
+design bundle (zip 2, 2026-09-03):
+
+- **`GENERATION_PLAN.md` supersedes the Decision section's 1–6 step numbering.** It
+  re-grounds the work against `main` into five dependency-ordered gaps and moves the
+  **producer earliest** (`llm/ui_face.py` + a `ui_face` action in `generate.py`), because
+  the host currently ignores its output (`ParamGridPanel::applyUiIr` reads
+  `archetype`/`tokens`/`components`/`sections` but not `ir.theme`) — it is the cheapest,
+  least risky piece. Build order:
+  1. `host/Source/ThemeValidate.h` — WCAG contrast, per-token Ember fallback. Pure, no UI.
+  2. `llm/ui_face.py` + a `ui_face` action — modelled on `llm/recommendation.py`. Host
+     still ignores the output.
+  3. `host/Source/GeneratedFaceLookAndFeel.h` wired into `applyUiIr` — faces get their
+     colours; layout unchanged.
+  4. `host/Source/ArchetypeLayout.h` + `host/tests/ParamGridLayoutTest.cpp` — faces get
+     their geometry; the sectioned list becomes archetype columns.
+  5. Cache the face in the state blob keyed on the source hash; extend the cockpit export
+     with archetype + theme; `tools/ui_iterate.sh` contact sheet vs the committed
+     `screenshots/`.
+
+- **The "design bundle is untracked" consequence is resolved.** A distilled copy lives at
+  `docs/design/incant-ui/` (README, GENERATION_PLAN, `ui_ir_system_prompt.md`,
+  `github.md` screen-map, the nine `screenshots/*.png`, and the `.dc.html`
+  source-of-record files). It is a **dated, read-only point-in-time record** per
+  COLLABORATION.md §8 — superseded by a new dated bundle, never edited in place.
+  `support.js` (the browser harness) is not committed. The full working bundle no longer
+  lives at the repo root.
+
+- **Open detail for gap 1:** `Theme.h`'s contrast table measures against `background`
+  `#050505` (`Theme.h:47-53`: textPrimary 17.94:1, textSecondary 5.43:1, accent 6.09:1,
+  progress 11.19:1), while `GENERATION_PLAN.md` / the bundle README say "against
+  `surface`". Pin which reference colour `ThemeValidate.h` uses before implementing it;
+  the measured numbers are the fixture either way, and the historical bone `#f5f0e6`
+  accent (`Theme.h`'s RESOLVED RISK note) is the negative case.
+
+The multi-session build order and per-gap traps are written up in
+`docs/sessions/018-incant-ui-faces-and-shell.md`.
+
+---
+
+## ADR-036 — Incant shell redesign: prototype two directions, keep a code/compile region
+
+| | |
+|---|---|
+| **Status** | Proposed (2026-09-03). **Amended 2026-09-04: direction picked (2a) ahead of the real-build prototype; see amendment below — §1/§2 superseded.** |
+| **Date** | 2026-09-03 |
+| **Relates to** | ADR-035 (shares `ArchetypeLayout.h` and the single content-height function), ADR-024 / ADR-029 (`UiIr` — `span` drives the lattice), ADR-022 §3 (Ember tokens — unchanged), ADR-019 (no WebView — unchanged), `docs/ui_design_plan.md` (prior UI-layout analysis), `docs/sessions/010-alpha-ui-architecture.md`, `docs/sessions/019-architecture-review-pipeline-and-ui.md` (the amendment's review) |
+
+**Context**
+
+`PluginEditor` splits its width at a fixed `kLeftFraction = 0.65` (`PluginEditor.h:384`).
+At `kMinWindowW = 700` the right column computes to ~232px, and `PromptPanel`'s own
+control row drops widgets to 0px — `Chrome::promptH`'s comment (`PluginEditor.cpp:678-692`)
+records `refineSelector` already hitting 0px at the **900px default**, not only the
+minimum. The prompt is on the width budget and collides with itself.
+
+Separately, the user wants the param grid to read as a panel rather than a half-width
+list, to be genuinely resize-aware, and to stop objects colliding — the same
+`layoutSectioned()` one-control-per-row problem ADR-035 gap 4 addresses.
+
+The refreshed design bundle carries two worked directions for the chrome, both on the
+**unchanged** Ember Console tokens (`Theme.h`), in `Incant Audio Shell.dc.html` with 2×
+screenshots (`docs/design/incant-ui/screenshots/`):
+
+- **2a Command Bar** (`2a-command-bar-1160.png`) — the prompt becomes a full-width bottom
+  bar; the grid owns everything above it as a hairline lattice
+  (`repeat(auto-fit, minmax(180px,1fr))`, shared 1px `#383838` borders, section headers
+  spanning `1/-1` with an accent rank number); a `UiIr` `span: 2` section renders a
+  double-width cell with a 62px knob. Title-bar disclosures become fixed 30px squares so
+  the **title** truncates under pressure, not the buttons.
+- **2b Rail + Dock** (`2b-rail-dock-1160.png`) — a 52px left mode rail replaces the
+  disclosure cluster; the prompt column becomes a user-dragged dock (persisted width,
+  280px floor, 40% ceiling — not `kLeftFraction`); one 26px status bar absorbs the meter,
+  the status line and the sample-browser line.
+- **Both at 700×500** (`2c-both-at-700-minimum.png`) — 2a → 3 columns, family/refine
+  behind `⋯`, Generate keeps its full hit target, grid scrolls with a visible 8px thumb;
+  2b → dock auto-collapses to a 30px tab, grid takes the width back.
+
+Both take the prompt off the width budget, so no band depends on a percentage.
+
+**Decision**
+
+1. **Prototype both directions and pick from the real build.** A shared prep commit does
+   the direction-neutral work: extract `ArchetypeLayout.h` (the same free functions
+   ADR-035 gap 4 introduces — the lattice's width-driven column count wants them), keep
+   `contentHeightForSections()` as the single height function that both
+   `layoutSectioned()` and `contentHeightForCurrentMode()` call (`ParamGridPanel.h:51-57`),
+   and make the disclosure buttons fixed 30px squares (a strict improvement, valid under
+   either direction). Then **two task branches off that base** —
+   `feat/shell-command-bar`, `feat/shell-rail-dock` — each a full `resized()`
+   implementation. Render both through `tools/ui_iterate.sh`, evaluate on the running
+   Standalone, **pick one, merge it, delete the other branch.** No dead layout ships
+   behind a preference flag.
+
+2. **2a keeps a dedicated right-hand code/compile region.** `Incant Audio Shell.dc.html`
+   left this open ("decide where a 20-line Faust error goes in 2a before building it").
+   Resolved: the bottom command bar takes only the **prompt** off the width budget; a
+   right-side region hosts `CodeEditorPanel`, showing the attempted Faust source with the
+   highlighted error line (`PluginEditor.cpp:210-211`) and the full stderr (today also
+   routed to `PromptPanel::setError`). Today `codeEditorPanel` is a hidden bottom-dock
+   child (`PluginEditor.cpp:103, 733-735`); 2a promotes it to a first-class right column —
+   persistent or toggled via the `{ }` title-bar square, decided in the prototype. 2b
+   already has a persistent right dock, so this constraint is 2a-specific.
+
+3. **Ember tokens are unchanged.** This is a `Component::resized()` change, not a repaint.
+   The bundle's R1/R2 recreation (`screenshots/shell-effect-900x500.png`,
+   `shell-instrument-900x786.png`) is the before-picture and the "did not move the chrome"
+   regression check.
+
+**Alternatives considered**
+
+1. **Just make the divider draggable with a minimum right-column width (2b-lite).** The
+   smallest fix for the collision. Kept as the **floor** — if both full directions stall
+   on the real build, ship this. Rejected as the *only* change because it does not deliver
+   the width-driven lattice or the resize-awareness the user asked for.
+2. **Ship 2a-only or 2b-only without prototyping.** Rejected — the user's explicit call is
+   to judge on the running build, and the two differ most in ways a screenshot understates
+   (drag feel, a rail vs. a bottom bar under a DAW's own chrome).
+3. **Carry both layouts permanently behind a user preference.** Rejected — a little-used
+   layout rots undetected (CLAUDE.md's signature defect) and doubles the `resized()`
+   maintenance surface for every future panel.
+4. **A WebView shell.** Rejected — ADR-019 stands, unreopened.
+
+**Reasons**
+
+- The prep commit's deliverables (`ArchetypeLayout.h`, the single height function, the
+  30px buttons) are needed by ADR-035 gap 4 regardless of which shell direction wins, so
+  the two ADRs converge on one piece of code rather than forking it.
+- Prototyping on branches, not behind a flag, keeps exactly one shell in the tree at all
+  times and makes the loser's deletion a `git branch -D`, not a refactor.
+- Keeping `CodeEditorPanel` first-class in 2a preserves the iterate-on-the-Faust
+  workflow, which is the product's core loop — the prompt bar is for starting over, the
+  code panel is for fixing what compiled wrong.
+
+**Consequences**
+
+- **This is new UI architecture.** The `resized()` rewrite, the sqrt-grid formula
+  (`cols = clamp(ceil(sqrt(N)), 2, 6)`) giving way to a width-driven column count, and the
+  `CodeEditorPanel` promotion each land on their own change report + Tier-2 /
+  semantic-diff review — ADR acceptance authorizes the direction only (AGENTS.md §4).
+- **Sequenced after ADR-035 gap 4**, or the prep commit lands `ArchetypeLayout.h` first
+  and both tracks consume it. The lattice is not built twice.
+- `kMinWindowW` / `kMinWindowH` may change — 2c is drawn at 700×500, today's minimum is
+  700×400 (`PluginEditor.h:417, 424`). A `setResizeLimits` change is Tier-2, not §2-gated.
+- The persisted dock width (2b) is a new state-blob attribute — additive, same policy as
+  `uiStyle` / `uiIr`, no `kStateSchemaVersion` bump.
+- A `setDefaultLookAndFeel` denylist guard for `host/Source/` becomes worth adding once
+  ADR-035 gap 3 lands (hand to `invariant-hook-writer` then, not before).
+- Revisit if: neither direction beats the draggable-divider floor on the real build, or
+  the lattice proves worse than the sectioned columns on a real corpus patch.
+
+---
+
+**Amendment (2026-09-04): pick made ahead of the real-build prototype — 2a, with the
+error region changed from a right column to a bottom sheet**
+
+Made during an architecture-review session that read all nine bundle screenshots
+(`docs/design/incant-ui/screenshots/`) directly, not only this ADR's prose description
+of them, alongside ADR-019/021/022/024/027/029/030/033/035 and the DSP-pipeline question
+that prompted the review (see `docs/sessions/019-architecture-review-pipeline-and-ui.md`
+for the full review). This amendment supersedes **Decision §1** (prototype-both,
+pick-later) and **Decision §2** (2a's error region is a persistent right column) below.
+§3 (Ember tokens unchanged) is untouched.
+
+**§1 superseded — the pick is 2a, not a build-both prototype.** Reasons, weighed against
+the two directions' own worked screenshots rather than against each other in the
+abstract:
+
+1. **2a fully removes the width tax; 2b re-imposes a smaller version of it.**
+   `PluginEditor.h:411`'s `kLeftFraction = 0.65` is this ADR's own stated defect, and
+   `Chrome::promptH`'s comment (cited above) records the collision at the **900px
+   default**, not only `kMinWindowW`. 2a takes the prompt off the width budget entirely.
+   2b's dock has a **280px floor** (this ADR's own Context section) — a permanent
+   right-hand tax at exactly the width where the grid is starved, i.e. the same defect
+   shape at a smaller constant.
+2. **One layout engine, not two.** 2a's lattice
+   (`repeat(auto-fit, minmax(180px,1fr))`, a width-driven column count) is the same
+   mechanism `ArchetypeLayout.h` (ADR-035 gap 4) already has to build. 2b's dock-plus-rail
+   does not reuse it — it is a second, independent layout concern (persisted width,
+   floor/ceiling, collapse-to-tab) with its own state and its own edge cases at 2c's
+   700×500 minimum.
+3. **2b's rail introduces modality the product's core loop does not want.** The 52px mode
+   rail (`{ }` / `◎` / `⋯` / `...`, per `2b-rail-dock-1160.png`) implies code, samples and
+   the grid become mutually exclusive views. Generate → read error → fix source is one
+   continuous loop today (`PromptPanel::setError` → `CodeEditorPanel::highlightErrorLine`,
+   `PluginEditor.cpp:210-211`); a rail that hides the grid to show the error breaks the
+   "see the mismatch, fix it" motion this ADR's own §2 reasoning already values.
+
+Building both branches per §1's original process (`feat/shell-command-bar`,
+`feat/shell-rail-dock`) is not authorized under this amendment. §1's shared prep commit
+(`ArchetypeLayout.h`, the single height function, 30px disclosure buttons) is unaffected
+and still lands first, per ADR-035 gap 4's own dependency.
+
+**§2 superseded — the error/code region is a bottom sheet, not a persistent right
+column.** §2's own text left this "decided in the prototype"; the prototype step is now
+skipped, so the choice is made here instead, on the same reasoning §2 already used against
+carrying dead layout: a persistent right column re-imports exactly the width tax point 1
+above rejects 2b for, only inside 2a. The error is also **transient and temporally bound**
+to the prompt that produced it — unlike the code-inspection workflow §2 correctly wants to
+preserve, an error does not need to occupy screen space between generations.
+
+Resolution: `CodeEditorPanel` becomes a sheet that expands the bottom command bar
+**upward**, anchored to the prompt row that triggered it (collapsed height: 0, costing the
+grid nothing when idle). It opens automatically on a compile failure — same trigger
+`PromptPanel::setError` already fires — and stays user-togglable via the `{ }` title-bar
+square for the read-only "inspect the accepted source" case §2's reasoning is about. This
+keeps §2's core value (the iterate-on-Faust workflow stays first-class) while keeping
+ADR-036's own stated principle — "no band depends on a percentage" — true for the error
+region as well as the prompt.
+
+**Consequences of this amendment**
+- The two `feat/shell-*` branches named in §1 are replaced by one implementation branch,
+  `feat/shell-command-bar`, built directly against this amended decision. No branch is cut
+  for 2b.
+- §1's "Alternatives considered" #1 (draggable-divider floor) and #3 (carry both behind a
+  flag) are unaffected — #1 remains the fallback if 2a stalls on the real build; #3 remains
+  rejected.
+- The bottom-sheet error region is new geometry not in any bundle screenshot or `.dc.html`
+  file. It has no pixel-value source of record the way the rest of 2a does — the
+  implementing session sizes it against `CodeEditorPanel`'s existing content and states its
+  chosen dimensions in the change report, since there is no design reference to cite.
+- Everything in the original ADR's **Consequences** section stands unchanged (new UI
+  architecture, Tier-2 change-report obligation, `ArchetypeLayout.h` sequencing,
+  `kMinWindowW`/`kMinWindowH` revisit, the persisted-dock-width note — which now applies to
+  nothing, since 2b is not built — and the `setDefaultLookAndFeel` denylist note).
+- Revisit if: the bottom-sheet error region proves worse in the real build than a
+  persistent region would have — this amendment is itself a judgment made from
+  screenshots, not from the running Standalone, and ADR-036's original point (judge on the
+  real build) is not overruled in principle, only sequenced later for this one element.
+
+---
+
+## ADR-037 — Offline generation evaluation: persist the accepted design plan, score it after the fact
+
+| | |
+|---|---|
+| **Status** | Proposed (2026-09-04) |
+| **Date** | 2026-09-04 |
+| **Relates to** | ADR-021 (named the unmet need — "acceptance criteria"), ADR-027 (declined a *live* critique gate; this ADR does not reopen it), ADR-033 (`recommendation.py` — the acceptance-criteria source), ADR-030 (orchestration tripwire; this is item 2 of 3) |
+
+**Context**
+
+ADR-021 rejected a structured `PluginSpec` on 0/19-corpus evidence and named the actual
+remaining gap explicitly: *"the remaining unmet need is acceptance criteria — capturing
+what a generation was asked for so the result can be checked against it. That is a
+different artifact from a structural spec and is tracked separately."* It has sat
+untracked since 2026-08-04.
+
+ADR-027 separately declined to add a live critique/refine gate to the generation path —
+correctly, on grounds that still hold: no measured judge reliability, added latency and
+free-tier quota on every generation, and the risk of manufacturing false confidence that
+erodes the listening pass COLLABORATION.md §1 protects (*"whether a generated plugin
+sounds like what was asked for... is not delegable to a hook or a model"*). ADR-027 §1's
+decision stands and this ADR does not touch it — everything here runs **offline**, with no
+live-path consumer.
+
+What has changed since both ADRs: `llm/recommendation.py` (ADR-033, accepted, opt-in)
+already produces the artifact ADR-021 asked for and never built separately. Its typed,
+capped output — title, 1–5 ordered modules, 1–12 controls
+(`llm/recommendation.py:15-17`'s `MAX_MODULES`/`MAX_CONTROLS`), `schema: 1`
+(`llm/recommendation.py:133`) — **is** a per-generation acceptance-criteria record; the
+`recommend` panel workflow just discards it after the user accepts and generation runs.
+Separately, `bench/render_oracle.py`'s `measure()` already produces objective per-render
+facts (NaN/Inf, silence, DC, runaway gain, peak/RMS) for every corpus entry, offline, at
+zero cost — this is exactly the substrate an evaluation stage needs and none of it is
+wired to any acceptance record today.
+
+STATUS.md's "assumed, never checked" metric cannot move on documentation; it moves only
+on evidence. This ADR is one instance of that metric's own design working as intended —
+proposed because it closes a named, dated gap with a mechanism already proven out
+(`recommendation.py`, `render_oracle.py`), not because a new capability was invented to
+fill a slot in an external pipeline diagram.
+
+**Decision**
+
+1. **Persist the accepted plan.** When a `recommend` round is accepted and the following
+   `generate` call succeeds, write the accepted `Recommendation` object into the state
+   blob as a new root attribute, `acceptancePlan` — same additive policy `uiIr` already
+   established (`PluginProcessor.cpp:772,798`: a new root attribute, no
+   `kStateSchemaVersion` bump, an old blob simply lacks it). Scope: **only** the opt-in
+   `recommend` → `generate` path (ADR-033 condition 1) writes it; the default `generate`
+   path leaves it absent, same as today.
+2. **A new offline evaluation entry point**, `bench/evaluate_against_plan.py`, run
+   explicitly (a `check.sh` level or a standalone invocation — implementer's call, not
+   wired into any live request path). Input: a corpus of `(faustSource, acceptancePlan)`
+   pairs, sourced either from real saved state blobs or from a benchmark run that exercises
+   the `recommend` path. Output per entry: `render_oracle.measure()`'s objective facts,
+   plus a **structural** check against the plan (every planned control name resolvable in
+   the compiled `ParamInfo` table; no unplanned control silently absent) — no semantic
+   judgment of whether the audio matches the plan's *intent*, which stays the deferred,
+   harder problem ADR-027 already declined to automate.
+3. **No live-path change of any kind.** No new field in the `generate` request/response
+   contract, no new `reason` code, no timing dependency added to `generate_json()`. A
+   provider outage or a malformed plan affects nothing this ADR touches, because nothing
+   this ADR touches runs while a user is waiting on a result.
+
+**Alternatives considered**
+
+1. **A live critique gate, reopening ADR-027 §1.** Rejected — no new evidence exists
+   against ADR-027's reasoning; nothing here changes the free-tier-quota or
+   judge-reliability facts that reasoning rests on. ADR-027's own reopen trigger
+   (unattended batch generation becoming a real product goal) has not fired.
+2. **A new LLM-authored acceptance-criteria artifact, separate from `recommendation.py`.**
+   Rejected — `recommendation.py` already exists, is typed, capped, tested (44 Python
+   tests + 2 `EditorSessionTest` scenarios per ADR-033), and is exactly what ADR-021 asked
+   for. Building a second artifact next to it would repeat ADR-029's discard-problem
+   pattern in reverse: inventing new output before checking what already exists goes
+   unused.
+3. **Score every generation, not only the opt-in `recommend` path.** Rejected for this
+   ADR — the default `generate` path has no acceptance record to score against by
+   ADR-033's own design (condition 1: review is opt-in). Scoring the default path would
+   need a different acceptance-criteria source (e.g. the raw prompt text as a weak proxy)
+   and is a separate, smaller-evidence proposal if it is ever wanted.
+
+**Reasons**
+
+- Closes ADR-021's named gap using an artifact that already exists and is already tested,
+  rather than adding a new one.
+- Strictly additive to the state blob, matching `uiIr`'s precedent exactly — no schema
+  version bump, no migration.
+- Zero live-path risk: the evaluation stage has no caller on the request/response path
+  `generate_json()` serves, so it cannot introduce a new live failure mode, latency, or
+  quota cost.
+- Moves STATUS.md's `assumed` metric on a real claim (does the generated result satisfy
+  its own accepted plan, structurally) rather than by writing documentation about the
+  claim.
+
+**Consequences**
+
+- `PluginProcessor.h`/`.cpp` gain a new persisted field and its round-trip test, mirroring
+  `UiIrTest`'s pattern for `uiIr`.
+- `bench/evaluate_against_plan.py` is new surface with its own test coverage; it depends on
+  `render_oracle.py`'s existing `measure()` and does not modify it.
+- **ADR-030 tripwire.** This is the second of the three items ADR-030's revisit clause
+  names (an offline critic/decompose pass). If the issue-#26 `faust-rs` error-code advisor
+  (the first item) also lands, ADR-030's own re-evaluation clause activates — against a
+  hand-rolled dispatch table, per its explicit instruction, not against an orchestration
+  framework by default. Recording this now so the count is not rediscovered cold.
+- The harder problem ADR-021 also left open — semantic fidelity, not structural
+  completeness — remains unsolved and is not claimed to be solved by this ADR. This is a
+  structural-completeness checker, not a judge of whether the plan's intent was honored.
+- Revisit if: the structural check's false-positive/false-negative rate, once measured
+  against a real corpus, turns out too noisy to be worth the state-blob field — mirrors the
+  caution ADR-027 §1 already applied to a harder version of this same class of tool.
+
+**Unverified until implementation.** No code accompanies this proposal. The concrete
+`acceptancePlan` JSON shape, the `bench/evaluate_against_plan.py` CLI surface, and which
+`check.sh` level (if any) runs it by default are implementation-session decisions, not
+settled here.

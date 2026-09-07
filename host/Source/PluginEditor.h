@@ -8,6 +8,7 @@
 #include "KeyboardPanel.h"
 #include "SampleBrowserPanel.h"
 #include "ForgeLookAndFeel.h"
+#include "GeneratedFaceLookAndFeel.h"
 
 // ── PluginForgeEditor ───────────────────────────────────────────────────────
 // Thin top-level shell. It owns the window, the title + output level meter, and
@@ -30,6 +31,16 @@ public:
 
     void paint(juce::Graphics&) override;
     void resized() override;
+
+    // ADR-035 Step 3. Attach a GeneratedFaceLookAndFeel built from `theme` to
+    // `paramGridPanel` only, so that panel wears the generated plugin's palette
+    // while the shell keeps Ember Console. `theme == UiIr::Theme{}` (the
+    // untouched Ember default, which is all deriveLayoutFromGroups() produces
+    // until the ui_face producer is wired) detaches instead — the panel falls
+    // back to the shell's `lnf`. Called from the compile-success callback right
+    // after paramGridPanel.applyUiIr(); safe to call repeatedly (it detaches
+    // before it rebuilds).
+    void applyGeneratedFace(const UiIr::Theme& theme);
 
     // Computer-keyboard (QWERTY) routing seam, added 2026-08-12. See
     // KeyboardPanel::routeKeyStateChanged() for why this exists: the piano is
@@ -122,6 +133,13 @@ public:
     juce::String gridControlOrientationForTest(int i) const;
     double       gridControlValueForTest(int i) const;
     juce::String gridControlTextForTest(int i) const;
+    // A3d fix: the colour a live grid widget itself resolves for `colourId` --
+    // see ParamGridPanel::controlWidgetColourForTest's own header comment for
+    // why this is a different, and stricter, question than
+    // gridFaceColourForTest() below asks.
+    juce::Colour gridControlWidgetColourForTest(int i, int colourId) const;
+    // A3c: the ACTUAL typeface name a control's name label resolves to.
+    juce::String gridControlLabelFontNameForTest(int i) const;
     // T1 (ADR-022 Track 1.2): the sectioned layout applyUiIr() is currently
     // holding, if any. Forwarded rather than exposing paramGridPanel itself,
     // same rule as every accessor above.
@@ -140,6 +158,22 @@ public:
     juce::Colour gridPaletteForTest() const
     {
         return paramGridPanel.currentPaletteForTest();
+    }
+    // ADR-035 Step 3: whether a GeneratedFaceLookAndFeel is currently attached
+    // to paramGridPanel (false = the panel is on the shell's `lnf`).
+    bool gridFaceActiveForTest() const { return faceLnf != nullptr; }
+    // The colour paramGridPanel's LookAndFeel resolves for `colourId` vs. the
+    // colour the shell's own LookAndFeel resolves for the same id. A themed
+    // face makes these differ; no face makes them identical. Reads the live
+    // parent-chain LookAndFeel, not a recomputation, so it cannot pass by
+    // agreeing with the face's construction by accident.
+    juce::Colour gridFaceColourForTest(int colourId) const
+    {
+        return paramGridPanel.getLookAndFeel().findColour(colourId);
+    }
+    juce::Colour shellColourForTest(int colourId) const
+    {
+        return lnf.findColour(colourId);
     }
     // ADR-029 §5: the generated title for the current compile, same forwarding
     // rule as every accessor here. Also what paint() itself draws -- not a
@@ -448,6 +482,31 @@ private:
     // docs/sessions/002-handoff-README.md for why the ordering is load-bearing
     // (~LookAndFeel() asserts if anything still points at it).
     ForgeLookAndFeel lnf;
+
+    // ADR-035 Step 3. The generated plugin's face, attached to `paramGridPanel`
+    // only (never setDefaultLookAndFeel, same reason as `lnf`). A unique_ptr,
+    // not a by-value member, because it is (re)built per compile from that
+    // patch's UiIr::Theme and is absent when the theme is the Ember default.
+    // Declared HERE — right after `lnf`, before every child panel below — for
+    // the exact reason `lnf` is: reverse-declaration-order destruction tears
+    // `paramGridPanel` down first, so its WeakReference<LookAndFeel>
+    // (juce_Component.h:2571) is already released when this pointer's
+    // destructor runs. applyGeneratedFace() also detaches the panel before
+    // resetting this, and ~PluginForgeEditor detaches before anything unwinds.
+    std::unique_ptr<GeneratedFaceLookAndFeel> faceLnf;
+
+    // ADR-035 §5/A3b. The Components block (keyboard/sampleBrowser/meter) for
+    // whichever compile most recently fired a ui_face request -- read back
+    // when promptPanel.onUiFaceResult fires, since that callback is
+    // persistent (set once in the constructor) and cannot itself capture a
+    // per-compile value the way a per-request lambda could. Safe to read
+    // unconditionally when the callback fires: a ui_face job in flight is
+    // ALWAYS for the compile that most recently updated this field --
+    // PromptPanel::requestUiFace()'s header comment is the proof (a real
+    // generate/recommend job always preempts an in-flight ui_face job before
+    // producing a newer compile, so an older callback can only ever arrive
+    // for the compile whose components are still the ones sitting here).
+    UiIr::Components lastDerivedComponentsForUiFace;
 
     // T5/T3.4: there was no juce::TooltipWindow anywhere in host/ -- confirmed by
     // grep before adding this -- so the two existing setTooltip() calls

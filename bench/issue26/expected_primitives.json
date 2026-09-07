@@ -1,0 +1,116 @@
+{
+  "trivial-01": [
+    "ba.db2linear",
+    "pow(10"
+  ],
+  "trivial-02": [
+    "checkbox",
+    "button"
+  ],
+  "trivial-03": [
+    "<:"
+  ],
+  "trivial-04": [
+    "fi.dcblocker",
+    "dcblock",
+    "fi.highpass",
+    "fi.pole",
+    "fi.zero"
+  ],
+  "trivial-05": [
+    "-1",
+    "select2"
+  ],
+  "filters-01": [
+    "fi.resonlp",
+    "fi.lowpass",
+    "moog",
+    "fi.svf"
+  ],
+  "filters-02": [
+    "fi.highpass",
+    "fi.resonhp",
+    "fi.svf"
+  ],
+  "filters-03": [
+    "fi.resonbp",
+    "fi.bandpass",
+    "fi.svf"
+  ],
+  "filters-04": [
+    "fi.notch",
+    "fi.peak_eq",
+    "fi.svf"
+  ],
+  "filters-05": [
+    "shelf",
+    "fi.peak_eq"
+  ],
+  "time-based-01": [
+    "de.delay",
+    "de.fdelay",
+    "de.sdelay",
+    "@"
+  ],
+  "time-based-02": [
+    "ping_pong",
+    "de.delay",
+    "de.fdelay",
+    "@"
+  ],
+  "time-based-03": [
+    "ef.chorus",
+    "de.fdelay",
+    "de.delay"
+  ],
+  "time-based-04": [
+    "flanger",
+    "de.fdelay"
+  ],
+  "time-based-05": [
+    "re.",
+    "reverb",
+    "allpass"
+  ],
+  "dynamics-01": [
+    "co.",
+    "compress"
+  ],
+  "dynamics-02": [
+    "co.",
+    "limit"
+  ],
+  "dynamics-03": [
+    "gate",
+    "co."
+  ],
+  "dynamics-04": [
+    "expand",
+    "co."
+  ],
+  "dynamics-05": [
+    "co.",
+    "compress"
+  ],
+  "generative-01": [
+    "os.osc",
+    "sin"
+  ],
+  "generative-02": [
+    "saw",
+    "adsr"
+  ],
+  "generative-03": [
+    "os.osc",
+    "fm"
+  ],
+  "generative-04": [
+    "no.noise",
+    "noise"
+  ],
+  "generative-05": [
+    "no.noise",
+    "karplus",
+    "pm."
+  ]
+}

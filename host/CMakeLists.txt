@@ -23,6 +23,23 @@ juce_add_binary_data(PluginForgeAssets
         Resources/fonts/WorkSans-Regular.ttf
         Resources/fonts/WorkSans-SemiBold.ttf
         Resources/fonts/JetBrainsMono-Regular.ttf
+        # A3c (ADR-035 Step 3 cont'd, docs/design/incant-ui/README.md's Design
+        # tokens -> Faces table): one weight per generated-face display family,
+        # plus the shared mono readout. Sourced from google/fonts (OFL), static
+        # weight instances -- Space Grotesk/Oswald/Archivo ship only as
+        # variable [wght]/[wdth,wght] fonts upstream and were instanced with
+        # `fonttools varLib.instancer` to the weight the design calls for, then
+        # renamed (fontTools TTFont.name.setName) so the family name itself
+        # carries the weight and the subfamily reads "Regular" -- the SAME
+        # convention BigShouldersDisplay-SemiBold.ttf/WorkSans-SemiBold.ttf
+        # above already use, load-bearing because GeneratedFaceLookAndFeel's
+        # getTypefaceForFont dispatches on that literal family-name string.
+        # See host/Resources/fonts/licenses/OFL-*.txt for each family's license.
+        Resources/fonts/SpaceGrotesk-Bold.ttf
+        Resources/fonts/BarlowCondensed-SemiBold.ttf
+        Resources/fonts/Oswald-SemiBold.ttf
+        Resources/fonts/Archivo-Bold.ttf
+        Resources/fonts/IBMPlexMono-Regular.ttf
 )
 set_target_properties(PluginForgeAssets PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
 
@@ -417,6 +434,38 @@ target_link_libraries(UiIrTest PRIVATE
 )
 
 # ---------------------------------------------------------------------------
+# ThemeValidateTest -- ThemeValidate::validate() (host/Source/ThemeValidate.h),
+# the contrast gate a generated-plugin face passes through before a LookAndFeel
+# is built from it (ADR-035 Step 2, docs/design/incant-ui/GENERATION_PLAN.md
+# "Gap 1"). Pure arithmetic on parsed RGB; ThemeValidate.h pulls in only UiIr.h,
+# so this links exactly what UiIrTest does -- juce_data_structures for the
+# UiIr::Theme type, nothing more. ASan/UBSan because the parser indexes into
+# author-supplied colour strings.
+juce_add_console_app(ThemeValidateTest
+    PRODUCT_NAME "ThemeValidate Test"
+)
+
+target_sources(ThemeValidateTest PRIVATE
+    tests/ThemeValidateTest.cpp
+)
+
+target_compile_features(ThemeValidateTest PRIVATE cxx_std_17)
+
+target_compile_definitions(ThemeValidateTest PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_VST3_CAN_REPLACE_VST2=0
+)
+
+target_compile_options(ThemeValidateTest PRIVATE -fsanitize=address,undefined -g -O1)
+target_link_options(ThemeValidateTest PRIVATE -fsanitize=address,undefined)
+
+target_link_libraries(ThemeValidateTest PRIVATE
+    juce::juce_data_structures
+    juce::juce_recommended_config_flags
+)
+
+# ---------------------------------------------------------------------------
 # ParamIdentityTest -- the parameter-identity derivation rule
 # (host/Source/ParamIdentity.h, host/tests/ParamIdentityTest.cpp).
 #
@@ -436,6 +485,30 @@ add_executable(ParamIdentityTest tests/ParamIdentityTest.cpp)
 target_compile_features(ParamIdentityTest PRIVATE cxx_std_17)
 target_compile_options(ParamIdentityTest PRIVATE -fsanitize=address,undefined -g -O1)
 target_link_options(ParamIdentityTest PRIVATE -fsanitize=address,undefined)
+
+# ---------------------------------------------------------------------------
+# ParamGridLayoutTest -- ArchetypeLayout.h's section/control placement
+# (host/Source/ArchetypeLayout.h, host/tests/ParamGridLayoutTest.cpp),
+# ADR-035 gap 4 / session 018 track A4.
+#
+# ParamGridLayout.h's own header has carried a warning since it was written
+# that this exact filename "has never existed" and asked whoever read it to
+# "either write it or delete the claim" -- this target is that write. Same
+# convention as ParamIdentityTest immediately above: a plain executable with
+# NO JUCE, NO libfaust and no plugin sources, because ArchetypeLayout.h is
+# pure section/rect arithmetic with no dependency on either, and it is
+# exactly the kind of layout-correctness claim ("no overlapping rects, every
+# control placed exactly once") that belongs at the rung that costs two
+# seconds to run.
+#
+# ASan/UBSan for the same reason every other header-only test here carries
+# them: the code under test does pointer/index arithmetic over
+# caller-supplied section and control counts.
+# ---------------------------------------------------------------------------
+add_executable(ParamGridLayoutTest tests/ParamGridLayoutTest.cpp)
+target_compile_features(ParamGridLayoutTest PRIVATE cxx_std_17)
+target_compile_options(ParamGridLayoutTest PRIVATE -fsanitize=address,undefined -g -O1)
+target_link_options(ParamGridLayoutTest PRIVATE -fsanitize=address,undefined)
 
 # ---------------------------------------------------------------------------
 # NoteRingTest / NoteRingTsanTest -- the message->audio note queue

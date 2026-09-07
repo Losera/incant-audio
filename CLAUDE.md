@@ -204,11 +204,13 @@ host/Source/OutputGuard.*     NaN/DC/limit/runaway safety net before the speaker
 host/Source/*Panel.*          editor shell: prompt, code editor, param grid, keyboard,
                               sample browser
 llm/generate.py               LLM call + Faust validation + retry loop; `action`
-                              dispatch (generate | recommend, ADR-033)
+                              dispatch (generate | recommend, ADR-033 | ui_face, ADR-035 §5)
 llm/recommendation.py         bounded typed pre-generation design plan (ADR-033)
+llm/ui_face.py                bounded typed post-compile UI face (ADR-035 §5)
 llm/providers.py              five providers, three adapters, free-only rule
 llm/prompts/system_prompt.txt the one prompt (stdlib block is generated)
 llm/prompts/recommendation_prompt.md  the design-planner system prompt (ADR-033)
+llm/prompts/ui_face_prompt.md the UI-face system prompt (ADR-035 §5)
 bench/render_oracle.py        renders compiled Faust offline and measures it
 tools/check.sh                the gate ladder — start here
 tools/kg.py                   view the repo's ID graph (PF-/ADR-/session refs);

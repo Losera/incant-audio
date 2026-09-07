@@ -1,0 +1,82 @@
+[
+  {
+    "code_sha": "18143791cbe9ae50",
+    "prompt_id": "filters-05/L2",
+    "tier": "L2",
+    "cpp_error_class": "routing_arity",
+    "screen_reason": "truncated_ellipsis",
+    "code_head": "import(\"stdfaust.lib\");\n\nbrightness = hslider(\"Brightness\", 0.5, 0, 1, 0.01) : si.smoo;\n\nprocess = _,_ <: _,1e+01f : * :"
+  },
+  {
+    "code_sha": "a6246d365f065b7f",
+    "prompt_id": "trivial-05/L0",
+    "tier": "L0",
+    "cpp_error_class": "syntax",
+    "screen_reason": "no_process_definition",
+    "code_head": "This Faust code defines a simple stereo mix effect where the user can control the mix between the left and right channel"
+  },
+  {
+    "code_sha": "b2034ebb445c6b22",
+    "prompt_id": "filters-04/L0",
+    "tier": "L0",
+    "cpp_error_class": "syntax",
+    "screen_reason": "no_process_definition",
+    "code_head": "A ground loop buzz from a guitar amp plugged into a bad outlet can be effectively eliminated using a ground loop isolato"
+  },
+  {
+    "code_sha": "7014f6f5c4c25d40",
+    "prompt_id": "filters-04/L0",
+    "tier": "L0",
+    "cpp_error_class": "syntax",
+    "screen_reason": "no_process_definition",
+    "code_head": "To kill the ground-loop buzz from a guitar amp plugged into a bad outlet, studio engineers often use a combination of te"
+  },
+  {
+    "code_sha": "7d47498712538cc1",
+    "prompt_id": "dynamics-04/L0",
+    "tier": "L0",
+    "cpp_error_class": "syntax",
+    "screen_reason": "no_process_definition",
+    "code_head": "To bring out the breaths and finger noise on a Norah Jones record, mastering engineers often use a combination of techni"
+  },
+  {
+    "code_sha": "305fb7da3bd041b1",
+    "prompt_id": "trivial-03/L0",
+    "tier": "L0",
+    "cpp_error_class": "syntax",
+    "screen_reason": "no_process_definition",
+    "code_head": "In a stereo session, a Y-split cable divides the mono bass signal into two channels. This means that the bass signal wil"
+  },
+  {
+    "code_sha": "24144fc67fdcb390",
+    "prompt_id": "filters-04/L0",
+    "tier": "L0",
+    "cpp_error_class": "syntax",
+    "screen_reason": "no_process_definition",
+    "code_head": "To kill ground-loop buzz from a guitar amp plugged into a bad outlet, studio engineers often employ several strategies:\n"
+  },
+  {
+    "code_sha": "2263b138d48f9f90",
+    "prompt_id": "filters-05/L0",
+    "tier": "L0",
+    "cpp_error_class": "syntax",
+    "screen_reason": "no_process_definition",
+    "code_head": "This Faust code implements a simple top-end lift mastering effect by modifying the high frequencies of a stereo signal u"
+  },
+  {
+    "code_sha": "dbcdb04b4bbea4db",
+    "prompt_id": "dynamics-04/L0",
+    "tier": "L0",
+    "cpp_error_class": "syntax",
+    "screen_reason": "no_process_definition",
+    "code_head": "To bring out the breaths and finger noise on a Norah Jones record, mastering engineers typically use techniques that enh"
+  },
+  {
+    "code_sha": "317de3f3aae959cf",
+    "prompt_id": "generative-03/L0",
+    "tier": "L0",
+    "cpp_error_class": "syntax",
+    "screen_reason": "no_process_definition",
+    "code_head": "I'm sorry, but as an AI language model, I do not have access to the specific sound of the band \"Careless Whisper\" or the"
+  }
+]

@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<div style="display:flex;flex-direction:column;align-items:center;gap:6px">
+<div style="position:relative;width:{{ px }};height:{{ px }}">{{ dial }}</div>
+<div style="display:flex;flex-direction:column;align-items:center;gap:1px">
+<div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;white-space:nowrap;color:{{ labelColor }};font-family:{{ labelFont }}">{{ label }}</div>
+<div style="font-size:10px;white-space:nowrap;color:{{ accent }};font-family:{{ readoutFont }}">{{ text }}</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:110,&quot;height&quot;:110},&quot;label&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;CUTOFF&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;text&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;4.80 kHz&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;value&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:0.7,&quot;min&quot;:0,&quot;max&quot;:1,&quot;step&quot;:0.01,&quot;tsType&quot;:&quot;number&quot;},&quot;size&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:52,&quot;min&quot;:28,&quot;max&quot;:120,&quot;tsType&quot;:&quot;number&quot;},&quot;thickness&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:4,&quot;min&quot;:2,&quot;max&quot;:10,&quot;tsType&quot;:&quot;number&quot;},&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#8fe3c1&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;track&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;rgba(255,255,255,.10)&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;face&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;none&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;labelColor&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;rgba(255,255,255,.55)&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;labelFont&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;'Space Grotesk',sans-serif&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;readoutFont&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;'IBM Plex Mono',monospace&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const v = Math.max(0, Math.min(1, Number(this.props.value ?? 0.5)));
+    const size = Number(this.props.size ?? 52);
+    const accent = this.props.accent ?? "#8fe3c1";
+    const track = this.props.track ?? "rgba(255,255,255,.10)";
+    const face = this.props.face ?? "none";
+    const w = Number(this.props.thickness ?? 4);
+    const start = Math.PI * 1.2, end = Math.PI * 2.8;
+    const r = size / 2 - w / 2 - 1, cx = size / 2, cy = size / 2;
+    const pt = (a, rad) => [cx + rad * Math.sin(a), cy - rad * Math.cos(a)];
+    const arc = (a0, a1, colour) => {
+      const [x0, y0] = pt(a0, r), [x1, y1] = pt(a1, r);
+      return React.createElement("path", {
+        d: `M ${x0} ${y0} A ${r} ${r} 0 ${a1 - a0 > Math.PI ? 1 : 0} 1 ${x1} ${y1}`,
+        stroke: colour, strokeWidth: w, fill: "none", strokeLinecap: "round"
+      });
+    };
+    const a = start + (end - start) * v;
+    const [tx, ty] = pt(a, r - w - 1);
+    const [ix, iy] = pt(a, r * 0.34);
+    const dial = React.createElement("svg", { width: size, height: size, viewBox: `0 0 ${size} ${size}` },
+      face !== "none" ? React.createElement("circle", { cx, cy, r: r - w, fill: face }) : null,
+      arc(start, end, track),
+      v > 0.004 ? arc(start, a, accent) : null,
+      React.createElement("line", { x1: ix, y1: iy, x2: tx, y2: ty, stroke: accent, strokeWidth: 2, strokeLinecap: "round" })
+    );
+    return { dial, px: size + "px", labelColor: this.props.labelColor ?? "rgba(255,255,255,.62)" };
+  }
+}
+</script>
+</body>
+</html>

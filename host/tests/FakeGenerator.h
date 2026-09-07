@@ -147,10 +147,102 @@ inline juce::File writeRecommendationThenSuccess(const juce::File& dir,
     auto script = dir.getChildFile(name);
     script.replaceWithText(
         juce::String("#!/bin/sh\n")
+        // ADR-035 §5/A3b: a ui_face request hits this SAME script (both
+        // PromptPanel calls resolve PLUGINFORGE_LLM_SCRIPT independently).
+        // Answered harmlessly WITHOUT touching the capture below -- a
+        // background face request for a compile this scenario doesn't even
+        // know happened must not clobber the request.json this scenario's
+        // own assertions read.
+        + "if [ \"$1\" = '--request-file' ] && grep -q '\"action\".*\"ui_face\"' \"$2\"; then\n"
+        + "  echo '{\"success\":false,\"action\":\"ui_face\",\"reason\":\"error\"}'\n"
+        + "  exit 0\n"
+        + "fi\n"
         + "if [ \"$1\" = '--request-file' ]; then cp \"$2\" '"
         + requestFile.getFullPathName() + "'; fi\n"
         + "if grep -q '\"action\".*\"recommend\"' \"$2\"; then\n"
         + "  cat '" + dir.getChildFile(name + "_recommend.json").getFullPathName() + "'\n"
+        + "else\n"
+        + "  cat '" + dir.getChildFile(name + "_generate.json").getFullPathName() + "'\n"
+        + "fi\n",
+        false, false, "\n");
+    script.setExecutePermission(true);
+    return script;
+}
+
+// success:true generate response, THEN -- on any subsequent request whose
+// request-file carries action=ui_face -- a canned schema-3 face. This is the
+// ADR-035 §5/A3b round trip: a real compile followed by the host's OWN
+// post-compile ui_face request, both resolved against ONE script (production
+// shape: PromptPanel and UiFaceClient both resolve PLUGINFORGE_LLM_SCRIPT /
+// PLUGINFORGE_PYTHON independently via the same resolveGenerateScript() /
+// resolvePythonExe() functions, and land on the same env-var override here).
+//
+// `faustCode`'s occupied param labels appearing in `sections` is realism, not
+// a load-bearing requirement of this fake -- UiIr::parse() does not itself
+// cross-check a section's control labels against the live param list
+// (ParamGridPanel::applyUiIr is the renderer that tolerates an unknown one),
+// so a test using this can assert on the theme without also constructing a
+// label-accurate face.
+inline juce::File writeSuccessThenFace(const juce::File& dir, const juce::String& name,
+                                       const juce::String& faustCode,
+                                       const juce::String& surfaceHex,
+                                       const juce::String& textHex,
+                                       const juce::String& accentHex)
+{
+    writeSuccess(dir, name + "_generate", faustCode);
+
+    const auto section = [](const juce::String& id, const juce::String& title,
+                            std::initializer_list<const char*> params)
+    {
+        juce::Array<juce::var> controls;
+        for (auto* p : params)
+        {
+            auto* c = new juce::DynamicObject();
+            c->setProperty("param", juce::String(p));
+            controls.add(juce::var(c));
+        }
+        auto* s = new juce::DynamicObject();
+        s->setProperty("id", id);
+        s->setProperty("title", title);
+        s->setProperty("span", 1);
+        s->setProperty("controls", controls);
+        return juce::var(s);
+    };
+
+    auto* theme = new juce::DynamicObject();
+    theme->setProperty("surface", surfaceHex);
+    theme->setProperty("text", textHex);
+    theme->setProperty("accent", accentHex);
+
+    auto* face = new juce::DynamicObject();
+    face->setProperty("schema", 3);
+    face->setProperty("archetype", "pedal");
+    face->setProperty("tokens", "test-face");
+    face->setProperty("theme", juce::var(theme));
+    face->setProperty("sections", juce::Array<juce::var> {
+        section("tone", "TONE", { "Alpha", "Beta" }),
+        section("level", "LEVEL", { "Gamma", "Delta" }) });
+
+    auto* response = new juce::DynamicObject();
+    response->setProperty("success", true);
+    response->setProperty("action", "ui_face");
+    response->setProperty("reason", "ok");
+    response->setProperty("attempts", 1);
+    response->setProperty("error", juce::var());
+    response->setProperty("provider", "test");
+    response->setProperty("model", "test-model");
+    response->setProperty("face", juce::var(face));
+
+    // allOnOneLine=true -- see writeSuccess() above: PromptPanel/UiFaceClient
+    // both scan for "the last line starting with {".
+    dir.getChildFile(name + "_face.json").replaceWithText(
+        juce::JSON::toString(juce::var(response), /* allOnOneLine */ true), false, false, "\n");
+
+    auto script = dir.getChildFile(name);
+    script.replaceWithText(
+        juce::String("#!/bin/sh\n")
+        + "if [ \"$1\" = '--request-file' ] && grep -q '\"action\".*\"ui_face\"' \"$2\"; then\n"
+        + "  cat '" + dir.getChildFile(name + "_face.json").getFullPathName() + "'\n"
         + "else\n"
         + "  cat '" + dir.getChildFile(name + "_generate.json").getFullPathName() + "'\n"
         + "fi\n",
@@ -172,6 +264,12 @@ inline juce::File writeRecommendationFailureThenSuccess(
     auto script = dir.getChildFile(name);
     script.replaceWithText(
         juce::String("#!/bin/sh\n")
+        // See writeRecommendationThenSuccess()'s comment above for why this
+        // ui_face bypass exists.
+        + "if [ \"$1\" = '--request-file' ] && grep -q '\"action\".*\"ui_face\"' \"$2\"; then\n"
+        + "  echo '{\"success\":false,\"action\":\"ui_face\",\"reason\":\"error\"}'\n"
+        + "  exit 0\n"
+        + "fi\n"
         + "if [ \"$1\" = '--request-file' ]; then cp \"$2\" '"
         + requestFile.getFullPathName() + "'; fi\n"
         + "if grep -q '\"action\".*\"recommend\"' \"$2\"; then\n"
@@ -271,6 +369,16 @@ inline juce::File writeSuccessCapturing(const juce::File& dir, const juce::Strin
     auto script = dir.getChildFile(name);
     script.replaceWithText(
         juce::String("#!/bin/sh\n")
+        // ADR-035 §5/A3b: a ui_face request hits this SAME script (both
+        // PromptPanel calls resolve PLUGINFORGE_LLM_SCRIPT independently).
+        // Answered harmlessly WITHOUT touching argv.txt/request.json below --
+        // a background face request for a compile this scenario doesn't even
+        // know happened must not clobber what this scenario's own
+        // assertions read.
+        + "if [ \"$1\" = '--request-file' ] && grep -q '\"action\".*\"ui_face\"' \"$2\"; then\n"
+        + "  echo '{\"success\":false,\"action\":\"ui_face\",\"reason\":\"error\"}'\n"
+        + "  exit 0\n"
+        + "fi\n"
         + "rm -f '" + requestFile.getFullPathName() + "'\n"
         + "for a in \"$@\"; do printf '%s\\n' \"$a\"; done > '"
         + argvFile.getFullPathName() + "'\n"

@@ -733,6 +733,25 @@ asserts the Faust/faust-rs versions; CI now runs `verify.py`. The GRAME reply li
 immutable commit SHA, not the `issue-26-repro` tag (which is not moved — a new tag is cut
 alongside). See STATUS.md.
 
+**Integrity pass (2026-09-03, before the GRAME handoff).** A second adversarial review
+found the headline ROBUST but the package not yet defensible. Fixed: (1) **10** of the 202
+"C++-rejected Faust programs" are not programs (9 prose, 1 truncated) — a mechanical
+outcome-blind screen `bench/corpus_screen.py` drops them; everything is now the 192/115
+view, `--no-screen` gives the raw 202 (75/44/43, unchanged finding). (2) **arm A's C++
+stderr is `.strip()[:500]`, arms B/C uncapped** — disclosed, and stratified: on the 158
+never-truncated programs arm A still wins 75%→45%, McNemar p≈3e-7, so the cap (which
+handicaps arm A) is not the cause. (3) mechanism denominators fixed and script-backed —
+rescue-after-attempt-1 49/87 (was mis-stated 50/101), same-class recidivism 21/39 (the
+shipped report showed 21+18≠51); `score_repair_ab.py` grew per-class McNemar + a rescue
+block + the cap strata, all checked by `verify.py`, which now has an N-guard
+(`checks_expected`) so a stale verify can't print REPRODUCED over a subset. (4) transport
+robustness in `repair_ab_standalone.py` (retry/backoff/Retry-After; a 429/timeout is
+`terminal_reason` and excluded, not scored as a repair failure; ≥25% aborts → exit 3).
+(5) the MIT harness is now legally runnable — `system_prompt.txt` + `frs_rederive_cells.json`
+vendored into `bench/issue26/`, the proprietary `COPY`s dropped from the Dockerfile.
+(6) `verify.py` had ZERO tests on `score_repair_ab.py` — `tests/test_score_repair_ab.py`
+(13) + `tests/test_corpus_screen.py` (10) added. Branch `issue26-integrity`, ~7 commits.
+
 **Caveat, unchanged:** the diagnostic-quality half is the 7B on CPU. groq's 120B is barely
 sampled (a 2026-08-28 probe sweep got 4 PF-024 syntax classes clean on groq — no
 reproduction — and the `duplicate_symbol` residual once in 3, before the daily token limit

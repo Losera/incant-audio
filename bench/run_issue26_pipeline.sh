@@ -60,7 +60,7 @@ say "stage 2 — paired A/B (arm A = C++ stderr, arm B = faust-rs)"
 python3 bench/run_repair_ab.py --corpus "$CORPUS" --out "$AB" --resume || {
     say "A/B exited $? — stopping"; exit 1; }
 
-say "stage 3 — score"
-python3 bench/score_repair_ab.py "$AB" --json-out "$SUMMARY" | tee "$REPORT"
+say "stage 3 — score (--screen: the committed reports are the program-screened view)"
+python3 bench/score_repair_ab.py "$AB" --screen "$CORPUS" --json-out "$SUMMARY" | tee "$REPORT"
 
 say "DONE — verdict in $REPORT, machine-readable in $SUMMARY"

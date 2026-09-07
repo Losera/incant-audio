@@ -1,0 +1,21 @@
+# bench/issue26/requirements.txt — the Python half of the issue-#26 repro pin.
+#
+# The compilers are pinned in the Dockerfile (Faust 2.85.9, faust-rs 0.8.0).
+# This file pins what the no-compiler ~1 s path (verify.py) and the scorer
+# actually import, so a cold `pip install -r` reproduces the published numbers
+# instead of picking up whatever scipy resolves on the day.
+#
+#   pip install -r bench/issue26/requirements.txt
+#   python3 bench/issue26/verify.py
+#
+# Dev + CI run scipy 1.17.1 on Python 3.12 / 3.14. The `< 2` ceiling is the
+# load-bearing part — a hypothetical scipy 2.0 API break must not silently
+# reach a reproducer. The lower bound is just "has scipy.stats.binomtest"
+# (1.7+); verify.py's p-value checks carry a 1e-8 floor (verify.py `P_FLOOR`)
+# so a minor-version change in binomtest's extreme tail cannot fail a
+# byte-identical re-run regardless.
+scipy>=1.10,<2
+
+# Chart only (bench/score_repair_ab.py's grouped-bar PNG). Optional: the scorer
+# prints every number and skips the chart if matplotlib is not installed.
+matplotlib>=3.6,<4

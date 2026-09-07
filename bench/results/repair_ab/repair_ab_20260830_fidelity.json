@@ -1,7 +1,7 @@
 {
   "meta": {
     "tool": "bench/fidelity_gate.py",
-    "schema": 1,
+    "schema": 2,
     "tiers": [
       "shrink",
       "primitives"
@@ -12,7 +12,9 @@
     "shrink_threshold": 0.6,
     "records_total": 606,
     "cells": 606,
-    "records_unjoined": 0
+    "records_unjoined": 0,
+    "screen_file": "repair_corpus_20260830.json",
+    "screened_programs": 192
   },
   "summary": {
     "A": {
@@ -11107,6 +11109,38 @@
       "pre_has_primitive": null,
       "post_has_primitive": null,
       "primitive_lost": null
+    }
+  },
+  "summary_screened": {
+    "A": {
+      "wins": 143,
+      "shrank": 33,
+      "primitives_determinable": 132,
+      "primitive_lost": 20,
+      "kept": 87,
+      "shrink_rate": 0.2308,
+      "primitive_lost_rate": 0.1515,
+      "kept_rate": 0.6591
+    },
+    "B": {
+      "wins": 82,
+      "shrank": 31,
+      "primitives_determinable": 76,
+      "primitive_lost": 7,
+      "kept": 44,
+      "shrink_rate": 0.378,
+      "primitive_lost_rate": 0.0921,
+      "kept_rate": 0.5789
+    },
+    "C": {
+      "wins": 80,
+      "shrank": 24,
+      "primitives_determinable": 74,
+      "primitive_lost": 5,
+      "kept": 49,
+      "shrink_rate": 0.3,
+      "primitive_lost_rate": 0.0676,
+      "kept_rate": 0.6622
     }
   }
 }

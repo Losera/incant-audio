@@ -1,0 +1,107 @@
+[
+  {
+    "effect_id": "trivial-01",
+    "tier": "L1",
+    "code": "import(\"stdfaust.lib\");\ngain = hslider(\"Gain\", 1.0f, 0.01f, 1e+01f, 0.01f) : si.smoo;\nprocess = _, _ <: _, gain;",
+    "first_try_compiles": false,
+    "retry_success": false
+  },
+  {
+    "effect_id": "trivial-03",
+    "tier": "L4",
+    "code": "import(\"stdfaust.lib\");\nprocess = _, _ : id;",
+    "first_try_compiles": false,
+    "retry_success": false
+  },
+  {
+    "effect_id": "trivial-05",
+    "tier": "L2",
+    "code": "import(\"stdfaust.lib\");\nflip = hslider(\"Flip\", 0, 0, 1, 0.1) : si.smoo;\nprocess = _,_ : select2(flip, _, -_);\n```",
+    "first_try_compiles": false,
+    "retry_success": false
+  },
+  {
+    "effect_id": "trivial-05",
+    "tier": "L0",
+    "code": "import(\"stdfaust.lib\");\nprocess = _ , _ as input signals;",
+    "first_try_compiles": false,
+    "retry_success": false
+  },
+  {
+    "effect_id": "filters-01",
+    "tier": "L1",
+    "code": "import(\"stdfaust.lib\");\n\n// Warm and muffled synth effect\ncutoff = hslider(\"Cutoff [unit:Hz]\", 1000, 20, 20000, 1) : si.smoo;\nq = hslider(\"Resonance\", 1.0, 0.5, 20, 0.01) : si.smoo;\ndelayTime = hslider(\"Delay Time [unit:ms]\", 300, 1, 2000, 1) : si.smoo : *(ma.SR/1000.0) : min(192000-1) : max(1);\nfeedback = hslider(\"Feedback\", 0.4, 0, 0.95, 0.01) : si.smoo;\nmix = hslider(\"Dry/Wet\", 0.5, 0, 1, 0.01) : si.smoo;\n\n// Low-pass filter\nlp = fi.resonlp(cutoff, q, 1.0);\n\n// Delay\ndelay = de.fdelay(192000, delayTime);\n\n// Feedback loop\nfeedbackLoop = delay : *(feedback) : ~;\n\n// Muffled sound effect\nmuffled = (lp : feedbackLoop) : *(mix) + _ : *(1 - mix);\n\n// Process\nprocess = muffled, muffled;",
+    "first_try_compiles": false,
+    "retry_success": false
+  },
+  {
+    "effect_id": "filters-05",
+    "tier": "L2",
+    "code": "import(\"stdfaust.lib\");\n\nbrightness = hslider(\"Brightness\", 0.5, 0, 1, 0.01) : si.smoo;\n\nprocess = _,_ <: _,1e+01f : * : _,0 : + : 1,_ : min : -1,_ : max : \\(x1).(x1,(((x1,x1 : *),x1 : *),3 : /) : -) : _,(brightness : \\(x2).(\\(x3).(((1.0f,(1,(44.1f,(1.92e+05f,(1 ...;",
+    "first_try_compiles": false,
+    "retry_success": false
+  },
+  {
+    "effect_id": "time-based-02",
+    "tier": "L2",
+    "code": "import(\"stdfaust.lib\");\nMAXD  = 192000;\ndtime = hslider(\"Delay Time [unit:ms]\", 300, 1, 2000, 1) : si.smoo\n        : *(ma.SR/1000.0) : min(MAXD-1) : max(1);\nfb    = hslider(\"Feedback\", 0.4, 0, 0.95, 0.01);\nmix   = hslider(\"Dry/Wet\", 0.5, 0, 1, 0.01) : si.smoo;\nprocess = _,_ <: dry, wet :> _,_\nwith {\n  cross(fbL, fbR, inL, inR) = inL + fbR*fb, inR + fbL*fb;\n  dry = par(i, 2, _ * (1 - mix));\n  wet = (cross ~ (de.fdelay(MAXD, dtime), de.fdelay(MAXD, dtime))) : par(i, 2, _ * mix);\n  wet = wet : *(mix : -,1) : ef.dryWetMixer(mix, wet);\n};",
+    "first_try_compiles": false,
+    "retry_success": false
+  },
+  {
+    "effect_id": "dynamics-03",
+    "tier": "L2",
+    "code": "import(\"stdfaust.lib\");\n\nattack = hslider(\"Attack [unit:ms]\", 10, 1, 100, 1) : si.smoo : *(ma.SR/1000.0);\nrelease = hslider(\"Release [unit:ms]\", 100, 1, 1000, 1) : si.smoo : *(ma.SR/1000.0);\nthreshold = hslider(\"Threshold [unit:dB]\", -60, -120, 0, 1) : ba.db2linear : si.smoo;\n\ngate = ef.gate_mono(threshold, attack, 0.1, release, _);\n\nprocess = _, _ : gate : _, _;",
+    "first_try_compiles": false,
+    "retry_success": false
+  },
+  {
+    "effect_id": "dynamics-03",
+    "tier": "L1",
+    "code": "import(\"stdfaust.lib\");\n\n// Define the amp follower with attack and release times\nampFollower = an.amp_follower_ar(0.01, 0.1);\n\n// Define the gain control with a smooth slider\ngain = hslider(\"Gain [unit:dB]\", 0, -60, 12, 0.1) : ba.db2linear : si.smoo;\n\n// Define the amp buzz effect\nampBuzz = fi.lowpass(2, 1000) : *(gain);\n\n// Define the process with amp follower and amp buzz\nprocess = ampFollower : ampBuzz, ampFollower : ampBuzz;",
+    "first_try_compiles": false,
+    "retry_success": false
+  },
+  {
+    "effect_id": "dynamics-04",
+    "tier": "L0",
+    "code": "import(\"stdfaust.lib\");\n\n// Define the finger noise threshold slider\nthreshold = hslider(\"Finger Noise Threshold [unit:dB]\", -10, -80, 0, 1) : si.smoo;\n\n// Define a function to detect and remove finger noise\nremoveFingerNoise(x) = x : ba.db2linear : ba.smoo : *(1 - threshold : ba.db2linear) : ba.linear2db;\n\n// Apply the finger noise removal to both channels\nprocess = removeFingerNoise, removeFingerNoise;",
+    "first_try_compiles": false,
+    "retry_success": false
+  },
+  {
+    "effect_id": "dynamics-05",
+    "tier": "L3",
+    "code": "import(\"stdfaust.lib\");\n\ncompressorThreshold = hslider(\"Threshold [unit:dB]\", -20, -60, 0, 0.1) : ba.db2linear : si.smoo;\ncompressorRatio = hslider(\"Ratio\", 4, 1, 20, 0.1);\ncompressorAttack = hslider(\"Attack [unit:ms]\", 10, 1, 100, 0.1) : si.smoo : *(ma.SR / 1000.0);\ncompressorRelease = hslider(\"Release [unit:ms]\", 200, 1, 2000, 0.1) : si.smoo : *(ma.SR / 1000.0);\ncompressorMix = hslider(\"Mix\", 0.5, 0, 1, 0.01);\n\ncompressor = co.compressor_stereo(compressorRatio, compressorThreshold, compressorAttack, compressorRelease);\n\nprocess = _, _, 1, (compressorMix : *(compressor) : +), _;",
+    "first_try_compiles": false,
+    "retry_success": false
+  },
+  {
+    "effect_id": "generative-05",
+    "tier": "L4",
+    "code": "import(\"stdfaust.lib\");\n\nfreq = hslider(\"Frequency [unit:Hz]\", 400, 40, 2000, 1) : si.smoo;\ndecay = hslider(\"Decay Time [unit:ms]\", 100, 10, 1000, 1) : si.smoo;\ndamp = hslider(\"Damping\", 0.5, 0, 1, 0.01) : si.smoo;\ntrigger = hslider(\"Trigger\", 0, 0, 1, 0.01);\n\nMAXD = 192000;\ndelayTime = freq : ba.sec2samp : min(MAXD-1) : max(1);\nfeedback = decay : ba.sec2samp : min(MAXD-1) : max(1);\ndamping = damp * 0.999;\n\ndelayLine(x) = de.fdelay(MAXD, delayTime, x);\nfeedbackLine(x) = delayLine(x) * feedback * damping;\n\nprocess = trigger : select2(trigger, _, feedbackLine), _;\nwith {\n  feedbackLine = feedbackLine : delayLine;\n};",
+    "first_try_compiles": false,
+    "retry_success": false
+  },
+  {
+    "effect_id": "generative-05",
+    "tier": "L3",
+    "code": "import(\"stdfaust.lib\");\n\nfSamplingFreq = ma.SR;\nstringLength = hslider(\"String Length [unit:s]\", 0.1f, 0.01f, 0.5f, 0.01f) : si.smoo;\npluckPosition = hslider(\"Pluck Position\", 0.5f, 0.0f, 1.0f, 0.01f) : si.smoo;\npluckAmplitude = hslider(\"Pluck Amplitude\", 0.5f, 0.0f, 1.0f, 0.01f) : si.smoo;\ndecayTime = hslider(\"Decay Time [unit:s]\", 0.1f, 0.01f, 1.0f, 0.01f) : si.smoo;\n\nstringLengthSamples = stringLength * fSamplingFreq;\npluckPositionSamples = pluckPosition * stringLengthSamples;\ndecay = 1.0f / (fSamplingFreq * decayTime);\n\nstring = de.fdelay(stringLengthSamples, 0.0f, 0.0f);\npluck = de.fdelay(pluckPositionSamples, pluckAmplitude, 0.0f);\n\nprocess = pluck : string : *(decay), pluck : string : *(decay);",
+    "first_try_compiles": false,
+    "retry_success": false
+  },
+  {
+    "effect_id": "generative-05",
+    "tier": "L1",
+    "code": "import(\"stdfaust.lib\");\n\ndecay = hslider(\"Decay [unit:ms]\", 1000, 10, 10000, 1) : si.smoo : *(ma.SR / 1000.0) : min(192000 - 1) : max(1);\ndryWet = hslider(\"Dry/Wet\", 0.5, 0, 1, 0.01) : si.smoo;\n\nprocess = _, _ : ef.dryWetMixer(dryWet, en.ar(0.01, decay, 1.0));\n\nwith {\n  en.ar(at, rt, gate) = gate : *(en.adsr(at, rt, 0.01, rt, _));\n};",
+    "first_try_compiles": false,
+    "retry_success": false
+  },
+  {
+    "effect_id": "generative-05",
+    "tier": "L0",
+    "code": "import(\"stdfaust.lib\");\n\n// Define the plucked sound parameters\npluckTime = hslider(\"Pluck Time [unit:ms]\", 10, 1, 50, 1) : si.smoo : *(ma.SR / 1000.0);\npluckFreq = hslider(\"Pluck Frequency [unit:Hz]\", 440, 100, 880, 10) : si.smoo;\npluckGain = hslider(\"Pluck Gain\", 0.5, 0, 1, 0.01) : si.smoo;\n\n// Define the plucked sound effect\npluckEffect(x) = x * pluckGain * (1 - exp(-x * pluckTime));\n\n// Define the pitch shifter\npitchShift(f, x) = x : os.osc(f);\n\n// Define the main process\nprocess = pitchShift(pluckFreq, pluckEffect), pitchShift(pluckFreq * 2, pluckEffect), pitchShift(pluckFreq * 3, pluckEffect);",
+    "first_try_compiles": false,
+    "retry_success": false
+  }
+]

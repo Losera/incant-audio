@@ -14,25 +14,41 @@ is also usable on its own as a faust-rs regression / diagnostic-quality corpus.
 |---|---|
 | File | `repair_corpus_20260830.json` — flat JSON list, 513 records |
 | Records where `compiles == false` | **207** (kept for auditability: the `true` records let you recompute each config's first-try rate) |
-| **Distinct failing programs** (first occurrence of each `code_sha`) | **202** — this is "the corpus" |
-| Per record | the NL prompt, the generated Faust source, `faust -lang cpp` stderr, `faust-rs --check` codes + rendered feedback, and an error-class label |
+| **Distinct failing programs** (first occurrence of each `code_sha`) | **202** |
+| Pass `bench/corpus_screen.py` ("is this a Faust program?") | **192** — this is "the corpus" for the published numbers |
+| Excluded by the screen | **10** — 9 English prose, 1 truncated fragment; listed in `repair_corpus_20260830_excluded.json` |
+| Per record | the NL prompt, the generated Faust source, `faust -lang cpp` stderr (capped at 500 chars), `faust-rs --check` codes + rendered feedback, and an error-class label |
 
-### Failure classes (over the 202 distinct programs)
+### Failure classes
 
 `cpp_error_class` is `llm/error_classes.classify_error(cpp_stderr)` — a coarse
 taxonomy of the C++ stderr:
 
-| class | n | what it is |
-|---|--:|---|
-| `routing_arity` | 81 | split/merge (`<:` `:>`) or sequential (`:`) channel-count mismatch |
-| `syntax` | 61 | parse errors — often a construct the prompt recommends but never shows (`with{}`, unbalanced parens, unexpected token) |
-| `hallucinated_symbol` | 25 | invented or mis-namespaced stdlib function |
-| `unclassified` | 17 | rejected, but the stderr did not match a known pattern |
-| `duplicate_symbol` | 15 | the same definition emitted twice |
-| `delay_range` | 2 | `@` / `delay` with a non-constant or unbounded amount |
-| `recursion_cycle` | 1 | `~` feedback with no delay in the loop |
+| class | n (202) | n (192, screened) | what it is |
+|---|--:|--:|---|
+| `routing_arity` | 81 | 80 | split/merge (`<:` `:>`) or sequential (`:`) channel-count mismatch |
+| `syntax` | 61 | 52 | parse errors — often a construct the prompt recommends but never shows (`with{}`, unbalanced parens, unexpected token) |
+| `hallucinated_symbol` | 25 | 25 | invented or mis-namespaced stdlib function |
+| `unclassified` | 17 | 16 | rejected, but the stderr did not match a known pattern |
+| `duplicate_symbol` | 15 | 15 | the same definition emitted twice |
+| `delay_range` | 2 | 2 | `@` / `delay` with a non-constant or unbounded amount |
+| `recursion_cycle` | 1 | 1 | `~` feedback with no delay in the loop |
 
 All 202 have at least one faust-rs stable code (`frs_codes`).
+
+---
+
+## Revisions
+
+- **2026-09-03** — added `bench/corpus_screen.py`, a mechanical
+  outcome-blind screen (no top-level `process` binding, or a literal `...` in
+  the source). It excludes 10 of the 202 distinct failing rows — 9 that are
+  English prose the L0-tier generator emitted instead of code, and one program
+  the generator truncated mid-token. The 10 shas + reasons are in
+  `repair_corpus_20260830_excluded.json`. The JSON file itself is **unchanged**;
+  the screen is applied at analysis time (`verify.py`, `score_repair_ab.py
+  --screen`, `repair_ab_standalone.py`). Screened headline (3B): A 143/192 /
+  B 82 / C 80; the raw 202 give 151 / 88 / 86 — same finding.
 
 ---
 

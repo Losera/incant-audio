@@ -72,16 +72,17 @@ RUN set -eu; \
     fi
 
 # The reproduction package + the shared modules it imports. Copied, not cloned,
-# so the image is built from exactly the tree you build it in.
+# so the image is built from exactly the tree you build it in. Everything here
+# is openly licensed — see /LICENSE exceptions (a) + (b). The proprietary
+# llm/prompts/ tree and the efficacy archive are NOT copied; the harness uses
+# the vendored bench/issue26/system_prompt.txt and frs_rederive_cells.json.
 WORKDIR /work
 COPY bench/issue26/            /work/bench/issue26/
-COPY bench/repair_ab_core.py bench/frs_check.py bench/score_repair_ab.py bench/frs_rederive_issue26.py  /work/bench/
+COPY bench/repair_ab_core.py bench/corpus_screen.py bench/frs_check.py \
+     bench/score_repair_ab.py bench/frs_rederive_issue26.py bench/fidelity_gate.py  /work/bench/
 COPY bench/corpora/            /work/bench/corpora/
 COPY bench/results/repair_ab/  /work/bench/results/repair_ab/
-# frs_rederive_issue26.py reads this archived efficacy run (the 15 never-compiled cells).
-COPY bench/results/efficacy/efficacy_ollama_20260828.json  /work/bench/results/efficacy/
 COPY llm/error_classes.py      /work/llm/
-COPY llm/prompts/system_prompt.txt  /work/llm/prompts/
 
 # Provenance: which repo state this image was built from.
 RUN printf 'source_commit=%s\nsource_dirty=%s\nfaust_rs_ref=%s\nbuilt=%s\n' \

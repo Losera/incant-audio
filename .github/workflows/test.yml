@@ -56,12 +56,16 @@ jobs:
         # run for real in the build-host job below, which already has both.
 
       - name: Reproduce the issue-#26 numbers (bench/issue26/verify.py)
-        run: python bench/issue26/verify.py
-        # The published repro command for issue #26 (scipy only, ~1 s). It is
-        # NOT part of the product but it is what an external reviewer runs, so
-        # CI must catch it breaking. If the committed corpus / result JSONs or
-        # the fidelity sidecars are deliberately re-frozen, update
-        # bench/issue26/expected.json in the same commit.
+        run: |
+          pip install -r bench/issue26/requirements.txt
+          python bench/issue26/verify.py
+        # The published repro command for issue #26 (scipy only, ~1 s), run the
+        # same way an external reviewer runs it — via its own pinned
+        # requirements.txt, not the numpy+scipy the job installs above for the
+        # render oracle. It is NOT part of the product but CI must catch it
+        # breaking. If the committed corpus / result JSONs or the fidelity
+        # sidecars are deliberately re-frozen, update bench/issue26/expected.json
+        # in the same commit.
 
   # timeout-minutes: added 2026-08-15, same incident as the `test` job's note
   # above -- this is the job that actually hung (twice) on "Install system
@@ -258,7 +262,7 @@ jobs:
       # with CI green, and running it catches a fixture that will not compile
       # or a grid that never settles (see the "Run UiDesignGallery" step below).
       - name: Build behavioural test harnesses
-        run: cmake --build build-ci --target OfflineRenderTest OfflineSynthRenderTest PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery ParamIdentityTest NoteRingTest NoteRingTsanTest AuditionThreadingTest ValidationGateTest SoundfetchClientTest GenerationProfilesAutoTest UiIrTest PromptPanelPathResolutionTest
+        run: cmake --build build-ci --target OfflineRenderTest OfflineSynthRenderTest PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery ParamIdentityTest NoteRingTest NoteRingTsanTest AuditionThreadingTest ValidationGateTest SoundfetchClientTest GenerationProfilesAutoTest UiIrTest ThemeValidateTest PromptPanelPathResolutionTest ParamGridLayoutTest
 
       # ── PF-036: pin the JIT's target CPU for every harness that JITs ────────
       # GitHub's hosted fleet mixes EPYC 7763 (Zen 3, no AVX-512), Xeon 8573C
@@ -334,9 +338,15 @@ jobs:
       # UiIrTest joined 2026-09-01 (generated-plugin faces, Step 1): UiIr schema 3
       # makes UiIr::parse()/toVar() a persisted production path (the state blob
       # carries the IR as JSON) and neither had a direct test. Pure and fast.
-      - name: Run the pure harnesses (OutputGuard, ParamMap, StatePersistence, ParamIdentity, NoteRing, ValidationGate, SoundfetchClient, GenerationProfilesAuto, UiIr, PromptPanelPathResolution)
+      # ThemeValidateTest joined with ADR-035 Step 2: ThemeValidate::validate()
+      # is the contrast gate every generated face passes before a LookAndFeel is
+      # built from it. Pure arithmetic on parsed RGB, no display.
+      # ParamGridLayoutTest joined with ADR-035 gap 4 / session 018 track A4:
+      # ArchetypeLayout.h's section/control placement (columns/split/rail),
+      # pure rect arithmetic, no display -- same shape as ParamIdentityTest.
+      - name: Run the pure harnesses (OutputGuard, ParamMap, StatePersistence, ParamIdentity, NoteRing, ValidationGate, SoundfetchClient, GenerationProfilesAuto, UiIr, ThemeValidate, PromptPanelPathResolution, ParamGridLayout)
         run: |
-          for t in OutputGuardTest ParamMapTest StatePersistenceTest ParamIdentityTest NoteRingTest ValidationGateTest SoundfetchClientTest GenerationProfilesAutoTest UiIrTest PromptPanelPathResolutionTest; do
+          for t in OutputGuardTest ParamMapTest StatePersistenceTest ParamIdentityTest NoteRingTest ValidationGateTest SoundfetchClientTest GenerationProfilesAutoTest UiIrTest ThemeValidateTest PromptPanelPathResolutionTest ParamGridLayoutTest; do
             BIN="$(find build-ci -type f -name "$t" | head -n 1)"
             if [ -z "$BIN" ]; then
               echo "$t binary not found" >&2

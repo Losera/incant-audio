@@ -1,0 +1,286 @@
+#!/usr/bin/env python3
+"""Unit tests for bench/score_repair_ab.py — the file that turns the committed
+issue-#26 trajectories into every published number.
+
+Pure functions over synthetic paired records. No scipy stub needed (McNemar and
+Wilcoxon are exercised against known-answer inputs). Covers: the McNemar exact
+p on a crafted discordant split, censored scoring, `include=` filtering, the
+rescue arithmetic closing, `same + new + no_attempt == failed`, the arm-A cap
+stratification split, and `load_pairs`'s multi-sample aggregation (WP1: a
+`--samples K>1` cell is collapsed by majority-green / upper-median attempts;
+K=1 is a strict no-op, which is every cell in the committed data).
+"""
+import sys
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "bench"))
+
+import score_repair_ab as sr  # noqa: E402
+
+
+def _rec(sha, arm, *, repaired, attempts=None, model="m",
+         first_class="syntax", second_same=None, terminal=None,
+         feedback_len=40, made_code=True, n_attempts=1):
+    """One (program, arm) result record, minimal but shaped like the real thing."""
+    log = []
+    if made_code:
+        log.append({"n": 1, "code": "process = _;", "feedback_text": "x" * feedback_len,
+                    "cpp_ok": repaired and attempts == 1})
+        if n_attempts > 1:
+            log.append({"n": 2, "code": "process = _,_;", "feedback_text": "y",
+                        "cpp_ok": repaired and attempts == 2})
+    else:
+        log.append({"n": 1, "error": "OutputTruncated: hit the cap"})
+    return {
+        "code_sha": sha, "arm": arm, "repair_model": model,
+        "repaired": repaired, "attempts_to_green": attempts,
+        "first_error_class": first_class,
+        "second_error_same_as_first": second_same,
+        "terminal_reason": terminal, "attempt_log": log,
+    }
+
+
+def _pairs(*specs):
+    """specs: (sha, a_kwargs, b_kwargs) -> [(a_rec, b_rec)]"""
+    return [(_rec(sha, "A", **a), _rec(sha, "B", **b)) for sha, a, b in specs]
+
+
+# ── mcnemar_exact ────────────────────────────────────────────────────────────
+
+def test_mcnemar_exact_known_values():
+    assert sr.mcnemar_exact(0, 0) == 1.0
+    # 3 vs 1 discordant, two-sided exact: P(X<=1) + P(X>=3) on Binom(4, .5)
+    # = (1 + 4)/16 + (4 + 1)/16 = 10/16
+    assert sr.mcnemar_exact(3, 1) == pytest.approx(10 / 16)
+    # 10 vs 0: only the two tails at the extremes -> 2 * .5^10
+    assert sr.mcnemar_exact(10, 0) == pytest.approx(2 * 0.5 ** 10)
+    assert sr.mcnemar_exact(5, 5) == pytest.approx(1.0)
+
+
+# ── score() censoring ────────────────────────────────────────────────────────
+
+def test_score_censors_failures_at_fail_score():
+    assert sr.score({"repaired": True, "attempts_to_green": 1}) == 1
+    assert sr.score({"repaired": True, "attempts_to_green": 2}) == 2
+    assert sr.score({"repaired": False, "attempts_to_green": None}) == sr.FAIL_SCORE
+
+
+# ── load_pairs include= ──────────────────────────────────────────────────────
+
+def test_load_pairs_include_filters_by_sha():
+    recs = [_rec("keep", "A", repaired=True, attempts=1),
+            _rec("keep", "B", repaired=False),
+            _rec("drop", "A", repaired=True, attempts=1),
+            _rec("drop", "B", repaired=True, attempts=1)]
+    assert len(sr.load_pairs(recs, "m", "B")) == 2                     # no filter
+    assert len(sr.load_pairs(recs, "m", "B", include={"keep"})) == 1   # filtered
+    assert sr.load_pairs(recs, "m", "B", include=set()) == []
+
+
+def test_load_pairs_k1_is_a_strict_noop():
+    # Every committed issue-#26 cell has one sample; the aggregation path must
+    # not perturb it — same record object, no synthetic keys added.
+    recs = [_rec("s", "A", repaired=True, attempts=2, n_attempts=2),
+            _rec("s", "B", repaired=False, n_attempts=2)]
+    (a, b), = sr.load_pairs(recs, "m", "B")
+    assert a is recs[0] and b is recs[1]
+    assert "samples_aggregated" not in a
+
+
+def test_load_pairs_aggregates_samples_by_majority_green():
+    # WP1: 3 samples of (s, A) — 2 green, 1 not -> the cell is green, and its
+    # attempts_to_green is the upper median of the green samples' (1, 2) = 2.
+    recs = [
+        _rec("s", "A", repaired=True, attempts=1),
+        _rec("s", "A", repaired=True, attempts=2, n_attempts=2),
+        _rec("s", "A", repaired=False, n_attempts=2),
+        _rec("s", "B", repaired=False),
+        _rec("s", "B", repaired=False),
+        _rec("s", "B", repaired=True, attempts=1),   # B: 1/3 green -> not repaired
+    ]
+    (a, b), = sr.load_pairs(recs, "m", "B")
+    assert a["repaired"] is True and a["attempts_to_green"] == 2
+    assert a["samples_aggregated"] == 3 and a["samples_green"] == 2
+    assert b["repaired"] is False and b["attempts_to_green"] is None
+
+
+def test_load_pairs_sample_tie_is_not_repaired():
+    recs = [_rec("s", "A", repaired=True, attempts=1),
+            _rec("s", "A", repaired=False, n_attempts=2),   # 1-1 tie
+            _rec("s", "B", repaired=True, attempts=1)]
+    (a, _b), = sr.load_pairs(recs, "m", "B")
+    assert a["repaired"] is False
+
+
+def test_load_pairs_all_aborted_cell_stays_aborted():
+    recs = [_rec("s", "A", repaired=False, made_code=False, terminal="truncated"),
+            _rec("s", "A", repaired=False, made_code=False, terminal="rate_limited"),
+            _rec("s", "B", repaired=True, attempts=1)]
+    (a, _b), = sr.load_pairs(recs, "m", "B")
+    assert a["repaired"] is False and a.get("terminal_reason")
+    assert sr.produced_no_program(a)
+
+
+# ── rescue arithmetic ───────────────────────────────────────────────────────
+
+def test_rescue_counts_close():
+    recs = [
+        _rec("1", "A", repaired=True, attempts=1),                       # won@1
+        _rec("2", "A", repaired=True, attempts=2, n_attempts=2),         # rescued@2
+        _rec("3", "A", repaired=False, n_attempts=2),                    # still broken, not rescued
+        _rec("4", "A", repaired=False, made_code=False, terminal="truncated"),  # no program
+    ]
+    r = sr._rescue(recs)
+    assert r == {"n": 4, "won_at_1": 1, "still_broken": 2,
+                 "rescued_at_2": 1, "no_program": 1}
+    # still_broken = n - won_at_1 - no_program
+    assert r["still_broken"] == r["n"] - r["won_at_1"] - r["no_program"]
+
+
+def test_produced_no_program_detects_both_signals():
+    assert sr.produced_no_program(_rec("x", "A", repaired=False, made_code=False))
+    assert sr.produced_no_program(
+        {"terminal_reason": "rate_limited", "attempt_log": [{"n": 1, "code": "process=_;"}]})
+    assert not sr.produced_no_program(_rec("x", "A", repaired=True, attempts=1))
+
+
+# ── report(): denominators close, cap stratification splits ──────────────────
+
+def _report_dict(pairs):
+    import io
+    from contextlib import redirect_stdout
+    with redirect_stdout(io.StringIO()):
+        return sr.report(pairs, "m", "B")
+
+
+def test_report_second_error_denominators_close():
+    pairs = _pairs(
+        ("1", dict(repaired=True, attempts=1), dict(repaired=False, second_same=True, n_attempts=2)),
+        ("2", dict(repaired=False, second_same=True, n_attempts=2), dict(repaired=False, second_same=False, n_attempts=2)),
+        ("3", dict(repaired=False, made_code=False, terminal="truncated"),
+              dict(repaired=False, second_same=False, n_attempts=2)),
+    )
+    s = _report_dict(pairs)
+    # arm A failed = 2 (sha 2, sha 3); same 1, new 0, no_attempt 1 -> 1+0+1 == 2
+    a_failed = [p[0] for p in pairs if not p[0]["repaired"]]
+    same = sum(1 for r in a_failed if r["second_error_same_as_first"] is True)
+    new = sum(1 for r in a_failed if r["second_error_same_as_first"] is False)
+    no_att = sum(1 for r in a_failed if sr.produced_no_program(r))
+    assert same + new + no_att == len(a_failed)
+
+
+def test_report_cap_stratification_splits_on_feedback_length():
+    pairs = _pairs(
+        ("cap",   dict(repaired=True, attempts=1, feedback_len=sr.STDERR_CAP),
+                  dict(repaired=False)),
+        ("short", dict(repaired=True, attempts=1, feedback_len=50), dict(repaired=False)),
+    )
+    s = _report_dict(pairs)
+    assert s["by_arm_a_truncation"]["capped"]["n"] == 1
+    assert s["by_arm_a_truncation"]["uncapped"]["n"] == 1
+
+
+def test_report_keeps_the_nine_keys_verify_reads():
+    pairs = _pairs(("1", dict(repaired=True, attempts=1), dict(repaired=False)))
+    s = _report_dict(pairs)
+    for k in ("n", "a_green", "b_green", "b_only", "a_only", "mcnemar_p",
+              "a_mean_attempts", "b_mean_attempts", "wilcoxon_p"):
+        assert k in s
+    assert "per_class" in s and "rescue" in s and "by_arm_a_truncation" in s
+
+
+# ── caret-line preservation ─────────────────────────────────────────────────
+
+def test_quoted_source_line_extracts_the_caret_line():
+    fb = ("The Faust compiler rejected your program. [FRS-PARSE-0001] Parsing error\n"
+          "  at line 5, column 15\n"
+          "     5 | process = cut ? _ : _;\n"
+          "       |               ^\n"
+          "Fix this and re-emit the complete program.")
+    assert sr.quoted_source_line(fb) == "process = cut ? _ : _;"
+
+
+def test_quoted_source_line_none_for_plain_cpp_stderr():
+    assert sr.quoted_source_line(
+        "/tmp/x.dsp:5 : ERROR : syntax error, unexpected EXTRA") is None
+    assert sr.quoted_source_line("") is None
+
+
+def test_quoted_source_line_rejects_trivial_lines():
+    assert sr.quoted_source_line("     3 | };") is None
+    assert sr.quoted_source_line("     3 | _") is None
+
+
+def test_line_survives_is_per_line_whitespace_insensitive():
+    src = 'import("stdfaust.lib");\nprocess = cut ? _ : _;'
+    assert sr._line_survives(src, "process = cut ? _ : _;")
+    assert sr._line_survives("   process = cut ? _ : _;  \n", "process = cut ? _ : _;")
+    assert not sr._line_survives("process = cut : _;", "process = cut ? _ : _;")
+
+
+def _caret_rec(sha, arm, *, code, feedback_line=None, repaired=False):
+    fb = "raw compiler error, no caret"
+    if feedback_line is not None:
+        fb = f"  at line 5\n     5 | {feedback_line}\n       | ^\nFix this."
+    return {
+        "code_sha": sha, "arm": arm, "repair_model": "m",
+        "repaired": repaired, "attempts_to_green": 1 if repaired else None,
+        "first_error_class": "syntax", "second_error_same_as_first": None,
+        "terminal_reason": None,
+        "attempt_log": [{"n": 1, "code": code, "feedback_text": fb, "cpp_ok": repaired}],
+    }
+
+
+def test_caret_preservation_counts_paired_survival():
+    line = "process = cut ? _ : _;"
+    pairs = [
+        (_caret_rec("1", "A", code="process = _ <: _, _;"),
+         _caret_rec("1", "B", code=f'import("stdfaust.lib");\n{line}',
+                    feedback_line=line)),
+        (_caret_rec("2", "A", code=line),
+         _caret_rec("2", "B", code=line, feedback_line=line)),
+        # B feedback carries no caret line -> pair is outside the denominator
+        (_caret_rec("3", "A", code="process = _;"),
+         _caret_rec("3", "B", code="process = _;")),
+    ]
+    cp = sr._caret_preservation(pairs, "B")
+    assert cp["n"] == 2
+    assert (cp["b_preserved"], cp["a_preserved"]) == (2, 1)
+    assert (cp["b_only"], cp["a_only"]) == (1, 0)
+
+
+def test_caret_preservation_excludes_transport_aborts():
+    line = "process = cut ? _ : _;"
+    a = _caret_rec("1", "A", code=line)
+    b = {"code_sha": "1", "arm": "B", "repair_model": "m", "repaired": False,
+         "attempts_to_green": None, "first_error_class": "syntax",
+         "second_error_same_as_first": None, "terminal_reason": "truncated",
+         "attempt_log": [{"n": 1, "error": "OutputTruncated: cap"}]}
+    assert sr._caret_preservation([(a, b)], "B")["n"] == 0
+
+
+def test_report_exposes_caret_preservation_and_second_error():
+    pairs = _pairs(("1", dict(repaired=True, attempts=1),
+                    dict(repaired=False, n_attempts=2, second_same=True)))
+    s = _report_dict(pairs)
+    assert set(s["caret_preservation"]) >= {
+        "n", "a_preserved", "b_preserved", "b_only", "a_only", "mcnemar_p"}
+    assert set(s["second_error"]["A"]) == {
+        "failed", "same_class", "new_class", "no_attempt"}
+    assert set(s["second_error"]["B"]) == {
+        "failed", "same_class", "new_class", "no_attempt"}
+
+
+# ── verdict ─────────────────────────────────────────────────────────────────
+
+def test_verdict_branches():
+    base = dict(treatment="B", treatment_label="faust-rs full", wilcoxon_p=1e-6)
+    assert sr.verdict({**base, "n": 100, "mcnemar_p": 1e-8, "a_green": 70, "b_green": 40}
+                      ).startswith("NO — C++ stderr repaired 30 MORE")
+    assert sr.verdict({**base, "n": 100, "mcnemar_p": 1e-8, "a_green": 40, "b_green": 70}
+                      ).startswith("YES")
+    assert "NO MEASURABLE DIFFERENCE" in sr.verdict(
+        {**base, "n": 100, "mcnemar_p": 0.4, "a_green": 50, "b_green": 52})
