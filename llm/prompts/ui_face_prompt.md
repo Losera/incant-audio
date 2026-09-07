@@ -97,6 +97,9 @@ prompt tilt the hue — not from the prompt's genre words alone.
 - Order sections the way a musician scans the panel: source → shaping → dynamics → time →
   out. Not alphabetically.
 - 2–6 sections. One section holding everything is worse than no IR at all.
+- A section needs at least two controls. A heading over a single knob reads as its own
+  tiny plugin, not part of a grouped panel. With four or fewer parameters, prefer ONE
+  section over splitting each parameter into its own — see the negative example below.
 - `span`: 1–3 grid columns. Give the section carrying the patch's headline control
   (cutoff, delay time, drive) the wider span.
 - `title` is displayed uppercase; keep it ≤ 10 characters.
@@ -133,3 +136,9 @@ near-black surface, amber accent, sections TRANSPORT / TONE / MIX, `lg` on delay
 Prompt: *"a granular cloud from the input with density and pitch spray"* →
 `texture-field`, tokens `dustfield`, near-black surface, violet accent with cyan alt for
 the playhead, sections CLOUD / GRAIN / MIX.
+
+Prompt: *"a warm analog tape saturation effect with input drive, tone, output level, and
+a wet/dry mix"* (4 params, one stage) → `pedal`, ONE section (e.g. "CONTROLS") holding all
+four knobs, `lg` on drive. **Wrong**: four sections named DRIVE / TONE / OUT / MIX, one
+knob each — a real generation that did exactly this is the negative example this rule
+exists for.

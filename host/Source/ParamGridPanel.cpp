@@ -62,41 +62,36 @@ int ParamGridPanel::contentHeightForCurrentMode() const
 
 int ParamGridPanel::contentHeightForSections() const
 {
-    // ADR-035 gap 4 / session 018 A4: a supported archetype ("synth-panel",
-    // "channel-strip", "tape-unit", "texture-field") lays sections out as
-    // columns/regions rather than one shared vertical list, so this function
-    // must go through the SAME geometry layoutSectioned() places by --
-    // ArchetypeLayout::layoutFor() -- rather than the flat sum below, which
-    // assumes every section shares one y stream (true only of the grid path).
-    // This is the "one height function" principle ParamGridPanel.h's header
-    // states, applied to the archetype dispatch: two independent formulas for
-    // the same Layout is the exact kChromeHeight defect shape.
+    // ADR-035 gap 4 / session 018 A4, corrected on fix/pedal-layout-packing:
+    // layoutFor() is now TOTAL -- every archetype, including "pedal",
+    // "utility", "", or a name this build predates, gets a real geometry via
+    // ArchetypeLayout::layoutFor(). There is no second, flat-sum formula left
+    // to keep in sync with layoutSectioned() -- the "one height function"
+    // principle ParamGridPanel.h's header states now holds for every Layout,
+    // not just four archetype names, closing the exact kChromeHeight defect
+    // shape a second formula here used to risk.
     //
     // Passing viewport.getWidth() unconditionally is safe even when it is
     // still 0 (this function is called from contentHeightForCurrentMode(),
     // which feeds the shell's window-size REQUEST -- it can run before the
-    // shell has granted a width at all): none of the three supported
-    // archetypes' HEIGHT depends on width. Each stacks its own section's
-    // controls one per row inside its own column (ArchetypeLayout.h's
-    // stackColumn()), and a row's height never depends on that column's
-    // width -- only the Rect's `w` field does, which this function discards.
-    const auto archetype = activeArchetype.toStdString();
-    if (ArchetypeLayout::isSupported(archetype))
+    // shell has granted a width at all): packing (ArchetypeLayout.h's
+    // perRowFor()) is a pure function of controlCount/span, never of pixel
+    // width, so row COUNT -- and therefore height -- cannot change once a
+    // real width is granted. Only the Rect's `w`/`x` fields depend on width,
+    // and this function discards them.
+    std::vector<ArchetypeLayout::SectionInput> inputs;
+    inputs.reserve(activeSections.size());
+    for (const auto& section : activeSections)
     {
-        std::vector<ArchetypeLayout::SectionInput> inputs;
-        inputs.reserve(activeSections.size());
-        for (const auto& section : activeSections)
-            inputs.push_back({ static_cast<int>(section.controls.size()), section.span });
-
-        return ArchetypeLayout::layoutFor(archetype, inputs, viewport.getWidth(),
-                                           kCellH, kHeadingH, kSectionGapH)
-                   .contentHeight;
+        std::vector<bool> large(section.controls.size(), false);
+        for (size_t i = 0; i < section.controls.size(); ++i)
+            large[i] = (section.controls[i].size == "lg");
+        inputs.push_back({ static_cast<int>(section.controls.size()), section.span, std::move(large) });
     }
 
-    int y = 0;
-    for (const auto& section : activeSections)
-        y += kHeadingH + static_cast<int>(section.controls.size()) * kCellH + kSectionGapH;
-    return y;
+    return ArchetypeLayout::layoutFor(activeArchetype.toStdString(), inputs, viewport.getWidth(),
+                                       kCellH, kHeadingH, kSectionGapH)
+               .contentHeight;
 }
 
 int ParamGridPanel::preferredContentHeight() const
@@ -671,6 +666,59 @@ UiIr::Layout ParamGridPanel::deriveLayoutFromGroups(const FaustEngine::ParamList
     UiIr::Layout layout;
     layout.schema = 2;   // ADR-029 §4: was 1; components below is the addition
     layout.components = deriveComponents(params, isInstrument);
+
+    // Fold single-control groups (fix/pedal-layout-packing). A vgroup wrapping
+    // one control renders as its own heading + hairline + row + trailing gap --
+    // "its own tiny plugin", not part of a grouped panel. The live shape this
+    // exists for: "warm analog tape saturation effect with input drive, tone,
+    // output level, and a wet/dry mix" -> four one-control vgroups -> four
+    // one-knob sections, half the panel dead. Two outcomes, both keyed on
+    // whether ANY group is real (>= 2 controls) rather than on the average
+    // (an average of two is cleared by [1,1,4] and by [3,1] alike, leaving a
+    // lone-knob heading standing in both):
+    //   * no real group  -> one neutral "Controls" section holding everything
+    //     (the tape case; ranked order is preserved by the sort above).
+    //   * some real group -> fold each singleton forward into the preceding
+    //     real group (or, for a leading singleton, into the first real group).
+    //     [2,2,1] stays FILTER(2) + OUTPUT(3), not one flat grid -- the
+    //     grouping the generation *did* get right survives.
+    // `occupiedSlots < 4` is already returned empty above, so the smallest
+    // input that reaches here is 4 controls in >= 2 groups.
+    const auto isReal = [](const GroupEntry& g) { return g.labels.size() >= 2; };
+    const int realGroups = static_cast<int>(std::count_if(groups.begin(), groups.end(), isReal));
+
+    if (static_cast<int>(groups.size()) > 1 && realGroups < static_cast<int>(groups.size()))
+    {
+        if (realGroups == 0)
+        {
+            GroupEntry merged { "Controls", groups.front().firstIndex, {} };
+            for (const auto& g : groups)
+                merged.labels.insert(merged.labels.end(), g.labels.begin(), g.labels.end());
+            groups.clear();
+            groups.push_back(std::move(merged));
+        }
+        else
+        {
+            std::vector<GroupEntry> folded;
+            std::vector<std::string> pending;   // leading singletons, no real group kept yet
+            for (auto& g : groups)
+            {
+                if (isReal(g))
+                {
+                    g.labels.insert(g.labels.begin(), pending.begin(), pending.end());
+                    pending.clear();
+                    folded.push_back(std::move(g));
+                }
+                else if (! folded.empty())
+                    folded.back().labels.insert(folded.back().labels.end(),
+                                                g.labels.begin(), g.labels.end());
+                else
+                    pending.insert(pending.end(), g.labels.begin(), g.labels.end());
+            }
+            groups = std::move(folded);   // realGroups >= 1, so pending is always drained
+        }
+    }
+
     for (const auto& g : groups)
     {
         UiIr::Section section;
@@ -930,81 +978,52 @@ void ParamGridPanel::layoutSectioned()
     else
         content.sectionTitleFont = resolveThemeFont(content, Theme::Type::sectionTitle());
 
-    // ADR-035 gap 4 / session 018 A4: a supported archetype gets real
-    // per-section geometry (columns/regions) via ArchetypeLayout.h. Anything
-    // else -- "pedal", "utility", "", or a name this build predates -- falls
-    // through to the grid path below, UNCHANGED from what it has always been
-    // (deriveLayoutFromGroups() never sets .archetype, so every heuristically
-    // -derived Layout takes this branch today; only a hand-authored or
-    // ui_face-emitted IR can name a supported archetype).
+    // ADR-035 gap 4 / session 018 A4, corrected on fix/pedal-layout-packing:
+    // ArchetypeLayout::layoutFor() is now TOTAL -- "pedal", "utility", "", or
+    // a name this build predates all get a real geometry (row()), not the
+    // old ungeometried grid fallback that used to live below this comment.
+    // That fallback placed every control at x=0, one per row, and gave a
+    // `size:"lg"` control a double-width box at that SAME x=0 -- since JUCE
+    // centres a rotary slider within whatever bounds it is handed, the `lg`
+    // knob's visual centre landed at a different x than every `md` sibling's.
+    // Both defects are gone with the fallback: every archetype now packs
+    // through the same stackColumn()-based geometry, and `size:"lg"` means
+    // "this control gets its own full-width row" (ArchetypeLayout.h).
     const auto archetype = activeArchetype.toStdString();
-    if (ArchetypeLayout::isSupported(archetype))
-    {
-        std::vector<ArchetypeLayout::SectionInput> inputs;
-        inputs.reserve(activeSections.size());
-        for (const auto& section : activeSections)
-            inputs.push_back({ static_cast<int>(section.controls.size()), section.span });
-
-        const auto result = ArchetypeLayout::layoutFor(archetype, inputs, fullW,
-                                                         kCellH, kHeadingH, kSectionGapH);
-
-        // Same 4px inset the grid path below gives its own heading rects, so
-        // a section title reads identically under either archetype.
-        for (size_t s = 0; s < activeSections.size(); ++s)
-        {
-            const auto& h = result.headings[s];
-            auto heading = juce::Rectangle<int>(h.x + 4, h.y, juce::jmax(0, h.w - 8), h.h);
-            content.headings.push_back({ heading, juce::String(activeSections[s].title) });
-        }
-
-        for (const auto& pc : result.controls)
-        {
-            const auto& ref = activeSections[static_cast<size_t>(pc.section)]
-                                   .controls[static_cast<size_t>(pc.index)];
-            auto it = irLookup.find(ref.paramLabel);
-            if (it == irLookup.end())
-                continue;
-            placeControlInCell(*it->second,
-                                juce::Rectangle<int>(pc.bounds.x, pc.bounds.y, pc.bounds.w, pc.bounds.h));
-        }
-
-        content.setSize(fullW, juce::jmax(result.contentHeight, viewport.getHeight()));
-        content.repaint();   // headings were just (re)populated above
-        return;
-    }
-
-    int cols = 2;
-    for (const auto& section : activeSections)
-        cols = juce::jmax(cols, section.span);
-    cols = juce::jlimit(2, 6, cols);
-
-    const int cellW = fullW / cols;
-    int y = 0;
-
+    std::vector<ArchetypeLayout::SectionInput> inputs;
+    inputs.reserve(activeSections.size());
     for (const auto& section : activeSections)
     {
-        // Heading row. The rect is stored, not just computed -- ContentArea::
-        // paint() draws from this list rather than re-deriving the geometry,
-        // so the two can never drift apart (the two-copies-of-one-layout shape
-        // that produced the kChromeHeight defect PluginEditor.h documents).
-        auto heading = juce::Rectangle<int>(4, y, fullW - 8, kHeadingH);
-        content.headings.push_back({ heading, juce::String(section.title) });
-        y += kHeadingH;
-
-        for (const auto& ref : section.controls)
-        {
-            auto it = irLookup.find(ref.paramLabel);
-            if (it == irLookup.end())
-                continue;
-            const int span = juce::jlimit(1, cols, ref.size == "lg" ? 2 : 1);
-            const int w = cellW * span;
-            placeControlInCell(*it->second, juce::Rectangle<int>(0, y, w, kCellH));
-            y += kCellH;
-        }
-        y += kSectionGapH;
+        std::vector<bool> large(section.controls.size(), false);
+        for (size_t i = 0; i < section.controls.size(); ++i)
+            large[i] = (section.controls[i].size == "lg");
+        inputs.push_back({ static_cast<int>(section.controls.size()), section.span, std::move(large) });
     }
 
-    content.setSize(fullW, juce::jmax(y, viewport.getHeight()));
+    const auto result = ArchetypeLayout::layoutFor(archetype, inputs, fullW,
+                                                     kCellH, kHeadingH, kSectionGapH);
+
+    // 4px inset on every heading rect so a section title reads with a
+    // consistent left margin regardless of archetype.
+    for (size_t s = 0; s < activeSections.size(); ++s)
+    {
+        const auto& h = result.headings[s];
+        auto heading = juce::Rectangle<int>(h.x + 4, h.y, juce::jmax(0, h.w - 8), h.h);
+        content.headings.push_back({ heading, juce::String(activeSections[s].title) });
+    }
+
+    for (const auto& pc : result.controls)
+    {
+        const auto& ref = activeSections[static_cast<size_t>(pc.section)]
+                               .controls[static_cast<size_t>(pc.index)];
+        auto it = irLookup.find(ref.paramLabel);
+        if (it == irLookup.end())
+            continue;
+        placeControlInCell(*it->second,
+                            juce::Rectangle<int>(pc.bounds.x, pc.bounds.y, pc.bounds.w, pc.bounds.h));
+    }
+
+    content.setSize(fullW, juce::jmax(result.contentHeight, viewport.getHeight()));
     content.repaint();   // headings were just (re)populated above
 }
 
