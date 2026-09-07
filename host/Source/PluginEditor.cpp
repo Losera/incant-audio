@@ -189,10 +189,17 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
         safeThis->resized();
     };
 
+    // ADR-036 B0: both disclosure controls are 30px glyph squares. The
+    // componentID routes them onto the mono face in ForgeLookAndFeel::
+    // getTextButtonFont -- their glyphs are outside Big Shoulders' coverage.
     addAndMakeVisible(codeToggle);
-    codeToggle.onClick = [this] { setCodeViewVisible(! codeEditorPanel.isVisible()); };
+    codeToggle.setComponentID("disclosureSquare");
+    codeToggle.setClickingTogglesState(true);
+    codeToggle.setTooltip("Show the generated Faust code");
+    codeToggle.onClick = [this] { setCodeViewVisible(codeToggle.getToggleState()); };
 
     addAndMakeVisible(styleToggle);
+    styleToggle.setComponentID("disclosureSquare");
     styleToggle.onClick = [this] { cycleControlStyle(); };
 
     // Come up in whatever style is stored, not the default -- a project reopened
@@ -432,12 +439,19 @@ void PluginForgeEditor::applyControlStyle(const juce::String& styleName)
     const auto s = ParamGridPanel::controlStyleFromName(styleName);
     paramGridPanel.setControlStyle(s);
 
+    // The button shows a fixed "◎" glyph (ADR-036 B0); the style it is in is
+    // named by the tooltip, and the glyph is drawn in the accent when the style
+    // is not the default ("auto"/Faithful) so an at-a-glance non-default state
+    // is still legible without hovering.
     switch (s)
     {
-        case ParamGridPanel::ControlStyle::Rotary:     styleToggle.setButtonText("Knobs: rotary"); break;
-        case ParamGridPanel::ControlStyle::Horizontal: styleToggle.setButtonText("Knobs: sliders"); break;
-        case ParamGridPanel::ControlStyle::Faithful:   styleToggle.setButtonText("Knobs: auto"); break;
+        case ParamGridPanel::ControlStyle::Rotary:     styleToggle.setTooltip("Knob style: rotary. Click to cycle."); break;
+        case ParamGridPanel::ControlStyle::Horizontal: styleToggle.setTooltip("Knob style: sliders. Click to cycle."); break;
+        case ParamGridPanel::ControlStyle::Faithful:   styleToggle.setTooltip("Knob style: auto. Click to cycle."); break;
     }
+    styleToggle.setColour(juce::TextButton::textColourOffId,
+                          s == ParamGridPanel::ControlStyle::Faithful ? Theme::textPrimary
+                                                                     : Theme::accent);
 
     // The two styles want different content heights, so the window follows.
     updateWindowSizeForParams();
@@ -472,7 +486,12 @@ void PluginForgeEditor::setCodeViewVisible(bool shouldBeVisible)
         codeEditorPanel.showSource(processor.currentSource());
 
     codeEditorPanel.setVisible(shouldBeVisible);
-    codeToggle.setButtonText(shouldBeVisible ? "Hide code" : "Show code");
+    // Keep the glyph square in sync whether the toggle drove this or a keyboard
+    // shortcut / restore did (dontSendNotification: onClick already ran, or must
+    // not run for a programmatic change).
+    codeToggle.setToggleState(shouldBeVisible, juce::dontSendNotification);
+    codeToggle.setTooltip(shouldBeVisible ? "Hide the generated Faust code"
+                                          : "Show the generated Faust code");
 
     // updateWindowSizeForParams already adds Chrome::codeH when the panel is
     // visible, so the window grows and shrinks with the disclosure rather than
@@ -684,7 +703,7 @@ void PluginForgeEditor::writeCockpitState()
     root->setProperty("status", statusTextForTest());
     root->setProperty("error", errorTextForTest());
     root->setProperty("controlStyle", controlStyleForTest());
-    root->setProperty("styleButton", styleButtonTextForTest());
+    root->setProperty("styleButton", styleButtonTooltipForTest());
     root->setProperty("codeVisible", codeVisibleForTest());
     root->setProperty("codeReadOnly", codeIsReadOnlyForTest());
     root->setProperty("keyboardPlayable", keyboardPlayableForTest());
@@ -866,14 +885,18 @@ void PluginForgeEditor::resized()
     auto area = getLocalBounds().reduced(c.margin);
     auto titleArea = area.removeFromTop(c.titleH);
 
-    // Disclosure row: claims the right side of the title band, same left-to-
-    // right order and widths it had as its own row before the 65/35 split left
-    // the right column too narrow for it (see Chrome::promptH's comment).
-    // Whatever remains on the left is the title text's bounds, read by paint().
-    codeToggle.setBounds(titleArea.removeFromRight(110));
-    titleArea.removeFromRight(6);
-    styleToggle.setBounds(titleArea.removeFromRight(120));
-    titleArea.removeFromRight(6);
+    // Disclosure squares (ADR-036 B0): fixed 30px, right-aligned, laid out
+    // right-to-left so the reading order left-to-right is "{ } ◎". Whatever is
+    // left of them is the title text's bounds (read by paint()) -- so under a
+    // narrow window the TITLE truncates, not these controls. The captioned
+    // 110/120px buttons this replaces were the thing that vanished when the
+    // 65/35 split starved the band (see Chrome::promptH's comment).
+    constexpr int kSquareSide = 30;
+    constexpr int kSquareGap  = 5;
+    styleToggle.setBounds(titleArea.removeFromRight(kSquareSide));
+    titleArea.removeFromRight(kSquareGap);
+    codeToggle.setBounds(titleArea.removeFromRight(kSquareSide));
+    titleArea.removeFromRight(Theme::Space::sm);
     titleTextBounds = titleArea;
 
     // Keyboard: full-width band at the bottom, laid out only for a patch that

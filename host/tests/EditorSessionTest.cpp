@@ -808,9 +808,11 @@ void scenario10_stateRoundTrip()
     check(styled,
           juce::String("the reopened editor's grid is actually in rotary -- got '")
               + s2.editor.controlStyleForTest() + "'");
-    check(s2.editor.styleButtonTextForTest() == "Knobs: rotary",
-          juce::String("the reopened button caption matches -- got '")
-              + s2.editor.styleButtonTextForTest() + "'");
+    // ADR-036 B0: the style square shows a glyph, not a caption -- the style it
+    // is in is in its tooltip.
+    check(s2.editor.styleButtonTooltipForTest().contains("rotary"),
+          juce::String("the reopened style square's tooltip names the restored style -- got '")
+              + s2.editor.styleButtonTooltipForTest() + "'");
 
     snapshot(s2.editor, "10b_after_restore");
 }
@@ -993,8 +995,9 @@ void scenario13_styleSwitchDoesNotThrash()
         check(textHeld,   juce::String("every real-unit readout survived the flip to ") + want);
     }
 
-    check(s.editor.styleButtonTextForTest() == "Knobs: auto",
-          "the button caption tracked the round trip back to faithful");
+    check(s.editor.styleButtonTooltipForTest().contains("auto"),
+          juce::String("the style square's tooltip tracked the round trip back to faithful -- got '")
+              + s.editor.styleButtonTooltipForTest() + "'");
 
     snapshot(s.editor, "13_style_round_trip");
 }
