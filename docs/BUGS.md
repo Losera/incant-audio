@@ -701,7 +701,7 @@ C++ rejected. **Accept/reject agreement 15/15.** C++ carried a source location o
 difference plus Faust 2.85.5→2.85.9; not material)*; faust-rs on **15/15**, plus a stable
 `FRS-*` code on **15/15** (C++: 0). The 6 `routing_arity` failures — C++'s worst case, no
 location + a Box-expression dump — map 1:1 to `FRS-PROP-0002` with a caret and the arities as
-numbers. Reproducible from a clean checkout via `bench/frs_rederive_issue26.py`
+numbers. Reproducible from a clean checkout via `bench/frs_rederive.py`
 (replaces the uncommitted-and-lost `scratchpad/frs_annotate.py`; measurement-only, faust-rs
 is not a project dependency). The 36-program hand-built corpus behind the "51/51" figure was
 in the same lost scratchpad and is **not** recoverable — 15/51 re-derives.
@@ -718,16 +718,16 @@ A/B design had no artifact and are withdrawn: (1) `bench/build_repair_corpus.py`
 shows the only commit touching that string *added the comment*; the closest real measurement
 is the ~20% ollama temp-0 output-flip rate two sections above (`:659-660`). n=1 per cell is
 now flagged as an unaudited limitation, with a determinism audit pre-registered as WP5 in
-`bench/issue26/METHODOLOGY.md`. (2) The "~24% of arm A's wins shrink the program — arm A
-partly buys the compile with fidelity" line in `bench/issue26/README.md` compared each arm
+`bench/repair_ab_repro/METHODOLOGY.md`. (2) The "~24% of arm A's wins shrink the program — arm A
+partly buys the compile with fidelity" line in `bench/repair_ab_repro/README.md` compared each arm
 to its own (different) set of wins and reversed the sign. Recomputed paired on the **67
 programs both A and B repaired** (`bench/fidelity_gate.py`): arm A shrank 19/67 (28%),
 arm B 24/67 (36%); primitive-lost A 10/63, B 6/63. Arm A does not buy compiles with
 fidelity; the loop-level result above is unaffected.
 
-**Repro-package handoff (2026-09-02).** `bench/issue26/` + the harness are relicensed
+**Repro-package handoff (2026-09-02).** `bench/repair_ab_repro/` + the harness are relicensed
 (MIT; corpus CC-BY-4.0 — `/LICENSE` exceptions, `bench/corpora/LICENSE`,
-`bench/issue26/LICENSE`); `verify.py` gains a `verify_fidelity()` checksum of the
+`bench/repair_ab_repro/LICENSE`); `verify.py` gains a `verify_fidelity()` checksum of the
 committed sidecars; `METHODOLOGY.md` collects the WP1–WP5 follow-up; the Dockerfile
 asserts the Faust/faust-rs versions; CI now runs `verify.py`. The GRAME reply links an
 immutable commit SHA, not the `issue-26-repro` tag (which is not moved — a new tag is cut
@@ -748,7 +748,7 @@ block + the cap strata, all checked by `verify.py`, which now has an N-guard
 robustness in `repair_ab_standalone.py` (retry/backoff/Retry-After; a 429/timeout is
 `terminal_reason` and excluded, not scored as a repair failure; ≥25% aborts → exit 3).
 (5) the MIT harness is now legally runnable — `system_prompt.txt` + `frs_rederive_cells.json`
-vendored into `bench/issue26/`, the proprietary `COPY`s dropped from the Dockerfile.
+vendored into `bench/repair_ab_repro/`, the proprietary `COPY`s dropped from the Dockerfile.
 (6) `verify.py` had ZERO tests on `score_repair_ab.py` — `tests/test_score_repair_ab.py`
 (13) + `tests/test_corpus_screen.py` (10) added. Branch `issue26-integrity`, ~7 commits.
 

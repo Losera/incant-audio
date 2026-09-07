@@ -1,4 +1,4 @@
-# issue #26 — methodology, limitations, and planned follow-up
+# Repair-loop A/B — methodology, limitations, and planned follow-up
 
 The headline result (feeding faust-rs `--check` diagnostics into a small-model
 repair loop *lowers* fix-within-2-attempts: on the program-screened corpus,

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# bench/run_issue26_followups.sh — the two follow-ups to the 3B repair A/B:
+# bench/run_repair_ab_followups.sh — the two follow-ups to the 3B repair A/B:
 #
 #   1. arm C on the 3B  — faust-rs trimmed to code+message+caret (no notes/help).
 #      Tests whether it was faust-rs's CONTENT or its human-programmer VERBOSITY
@@ -16,7 +16,7 @@ set -u
 cd "$(dirname "$0")/.."
 
 export PLUGINFORGE_GENERATION_BUDGET="${PLUGINFORGE_GENERATION_BUDGET:-900}"
-DATE="${ISSUE26_DATE:-20260830}"
+DATE="${REPAIR_AB_DATE:-20260830}"
 CORPUS="bench/corpora/repair_corpus_${DATE}.json"
 AB3B="bench/results/repair_ab/repair_ab_${DATE}.json"
 AB7B="bench/results/repair_ab/repair_ab_${DATE}_7b.json"

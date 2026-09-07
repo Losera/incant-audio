@@ -14,8 +14,8 @@ git clone https://github.com/Losera/incant-audio
 cd incant-audio
 git checkout <SHA>                     # the commit linked from issue #26
 python3 -m venv .venv && . .venv/bin/activate
-pip install -r bench/issue26/requirements.txt   # scipy (pinned < 2); that's all
-python3 bench/issue26/verify.py        # exit 0 == every committed number reproduced
+pip install -r bench/repair_ab_repro/requirements.txt   # scipy (pinned < 2); that's all
+python3 bench/repair_ab_repro/verify.py        # exit 0 == every committed number reproduced
 ```
 
 Python 3.10+ (CI runs 3.12). No compiler, no model, no network. `verify.py`
@@ -149,7 +149,7 @@ bears directly on a *preservation* claim; closing it needs a model re-run
 ### 1. Verify the published numbers — no model, no faust-rs, ~1 s
 
 ```bash
-python3 bench/issue26/verify.py
+python3 bench/repair_ab_repro/verify.py
 ```
 
 Re-derives, from the committed data: the corpus shape + class mix; that every
@@ -161,14 +161,14 @@ figures, recomputed from the `*_fidelity.json` `cells` dict under the screen.
 Diffs against `expected.json`; asserts it ran exactly `checks_expected` checks.
 Only needs `scipy` (`requirements.txt`, pinned `< 2`); p-value checks carry a
 `1e-8` floor so a minor scipy change can't fail a byte-identical re-run.
-`python3 bench/issue26/verify.py --freeze` re-emits `expected.json` (for when
+`python3 bench/repair_ab_repro/verify.py --freeze` re-emits `expected.json` (for when
 the committed data is deliberately changed).
 
 ### 2. Re-run the diagnostic-quality half — needs `faust` + `faust-rs`
 
 ```bash
 PLUGINFORGE_FAUST_RS_BIN=$(command -v faust-rs) \
-  python3 bench/frs_rederive_issue26.py
+  python3 bench/frs_rederive.py
 ```
 
 Runs both compilers over the 15 never-compiled cells (vendored in
@@ -184,7 +184,7 @@ ollama:
 # local ollama, the 3B the published run used
 #   (macOS: OLLAMA_HOST=0.0.0.0 ollama serve — it binds 127.0.0.1 by default)
 # (add --limit 20 for a quick smoke test before the full corpus)
-python3 bench/issue26/repair_ab_standalone.py \
+python3 bench/repair_ab_repro/repair_ab_standalone.py \
   --corpus bench/corpora/repair_corpus_20260830.json \
   --arms A,B,C --backend ollama --model qwen2.5-coder:3b \
   --out run_local.json
@@ -192,7 +192,7 @@ python3 bench/score_repair_ab.py run_local.json \
   --screen bench/corpora/repair_corpus_20260830.json
 
 # a hosted model (Groq shown; any OpenAI-compatible endpoint works)
-GROQ_API_KEY=... python3 bench/issue26/repair_ab_standalone.py \
+GROQ_API_KEY=... python3 bench/repair_ab_repro/repair_ab_standalone.py \
   --corpus bench/corpora/repair_corpus_20260830.json \
   --arms A,B --backend openai \
   --endpoint https://api.groq.com/openai/v1 \
@@ -226,21 +226,21 @@ stop building rather than silently produce a different environment. No
 proprietary file is in the image.
 
 ```bash
-make -C bench/issue26 docker-verify        # builds if needed, then verifies
+make -C bench/repair_ab_repro docker-verify        # builds if needed, then verifies
 # 20-program smoke run against a host ollama, then scored:
-make -C bench/issue26 docker-replay BACKEND=ollama \
+make -C bench/repair_ab_repro docker-replay BACKEND=ollama \
   ENDPOINT=http://host.docker.internal:11434 MODEL=qwen2.5-coder:3b ARMS=A,B,C LIMIT=20
 ```
 
-The image is tagged `incant-issue26:<short-sha>` so `docker-verify` can't run a
+The image is tagged `incant-repair-ab:<short-sha>` so `docker-verify` can't run a
 stale build by accident.
 
 **Apple Silicon / arm64:** `archlinux` publishes no arm64 image. Build with
-`DOCKER_DEFAULT_PLATFORM=linux/amd64 make -C bench/issue26 docker`. It runs
+`DOCKER_DEFAULT_PLATFORM=linux/amd64 make -C bench/repair_ab_repro docker`. It runs
 emulated — fine for `verify`, and the Rust build of faust-rs under emulation is
 slow (budget an hour, and there is a small chance of a qemu/rustc failure).
 
-`docker run --rm incant-issue26:<sha> {verify | rederive | fidelity FILE |
+`docker run --rm incant-repair-ab:<sha> {verify | rederive | fidelity FILE |
 replay ARGS | score FILE | shell}`.
 
 ---

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""bench/frs_rederive_issue26.py — reproduce the diagnostic-quality half of the
-issue-#26 faust-rs evidence from a clean checkout.
+"""bench/frs_rederive.py — reproduce the diagnostic-quality half of the
+faust-rs diagnostic-quality evidence from a clean checkout.
 
 Replaces the lost `scratchpad/frs_annotate.py` cited at docs/BUGS.md. Runs both
 compilers over the 15 never-compiled cells archived in
@@ -26,11 +26,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import frs_check  # noqa: E402
 
 # The 15 never-compiled efficacy cells. Full repo: the archive. Reproduction
-# package: the vendored MIT copy next to bench/issue26/ (same rows, code +
+# package: the vendored MIT copy next to bench/repair_ab_repro/ (same rows, code +
 # effect_id + tier only). filters-05/L2 is a program the generator truncated
 # mid-token — a legitimate "broken input" for a diagnostic-quality comparison,
 # kept on purpose.
-_VENDORED = Path(__file__).resolve().parent / "issue26" / "frs_rederive_cells.json"
+_VENDORED = Path(__file__).resolve().parent / "repair_ab_repro" / "frs_rederive_cells.json"
 _ARCHIVE = Path(__file__).resolve().parent / "results" / "efficacy" / "efficacy_ollama_20260828.json"
 ARCHIVE = _ARCHIVE if _ARCHIVE.is_file() else _VENDORED
 
@@ -94,7 +94,7 @@ def main() -> int:
               f'{",".join(codes):<34} {"yes" if has_help else "-"}')
 
     print("-" * 88)
-    print(f"\nn = {n} never-compiled cells (issue-#26 reproducible subset)\n")
+    print(f"\nn = {n} never-compiled cells (reproducible subset)\n")
     print(f"  accept/reject verdict agreement : {agree}/{n}")
     print(f"  source location present         : C++ {cpp_loc}/{n}   faust-rs {frs_loc}/{n}")
     print(f"  stable error code present       : C++ {cpp_code}/{n}   faust-rs {frs_code}/{n}")
