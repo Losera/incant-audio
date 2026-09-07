@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Unit tests for bench/fidelity_gate.py — the compiler-free half of the
-issue-#26 "did the repair keep the program?" question.
+the "did the repair keep the program?" question.
 
 No faust, no faust-rs, no network. Two kinds of test:
 

@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# bench/issue26_status.sh — one-shot status of the issue-#26 repair-loop run.
+# bench/repair_ab_status.sh — one-shot status of the repair-loop A/B run.
 # Safe to run anytime; reads files only, starts nothing.
 set -u
 cd "$(dirname "$0")/.."
 
-DATE="${ISSUE26_DATE:-20260830}"
-LOG="${ISSUE26_LOG:-/tmp/claude-1000/-home-losera-PluginForge/3e50c350-5d82-4f84-948c-badfe3206708/scratchpad/pipeline.log}"
+DATE="${REPAIR_AB_DATE:-20260830}"
+LOG="${REPAIR_AB_LOG:-/tmp/claude-1000/-home-losera-PluginForge/3e50c350-5d82-4f84-948c-badfe3206708/scratchpad/pipeline.log}"
 CORPUS="bench/corpora/repair_corpus_${DATE}.json"
 AB="bench/results/repair_ab/repair_ab_${DATE}.json"
 REPORT="bench/results/repair_ab/repair_ab_${DATE}_report.txt"
 
 echo "── process ──"
-if pgrep -af run_issue26_pipeline.sh; then :; else echo "pipeline NOT running"; fi
+if pgrep -af run_repair_ab_pipeline.sh; then :; else echo "pipeline NOT running"; fi
 echo
 echo "── last 8 log lines ($LOG) ──"
 tail -8 "$LOG" 2>/dev/null || echo "no log yet"

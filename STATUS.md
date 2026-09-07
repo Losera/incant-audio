@@ -148,7 +148,7 @@ and closed two hygiene gaps — the documented pipeline scripts were silently re
 report artifacts to the pre-screen view for want of a `--screen` flag, plus an orphan
 pre-screen chart PNG. New `bench/score_repair_ab.py` caret-preservation metric + a
 `verify.py` check, `expected.json` checks_expected 311→367, new
-`tests/test_issue26_readme_numbers.py` pinning the README prose to `verify.observe()`.
+`tests/test_repair_ab_readme_numbers.py` pinning the README prose to `verify.observe()`.
 **`~/issue26-reply.md` was updated to match** — confirmed this session by reading the draft:
 it already cites `1ad968a` and the 58%/4% figures, not stale.) **PR #59** (`4508ac4`,
 `llm/ui_face.py` + a `ui_face` action in `generate.py` + `llm/prompts/ui_face_prompt.md` +

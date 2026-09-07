@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """bench/score_repair_ab.py — turn a run_repair_ab.py result file into the
-issue-#26 answer: does faust-rs feedback shorten the repair loop?
+answer to: does faust-rs feedback shorten the repair loop?
 
 Reads bench/results/repair_ab/repair_ab_<date>.json (one record per
 (program, arm)), pairs by code_sha, and reports:
@@ -27,7 +27,7 @@ FAIL_SCORE = CORRECTIVE_ATTEMPTS + 1     # censored value for "never green"
 
 # arm A's feedback is `faust -lang cpp` stderr .strip()[:500] — the product's
 # real cap (bench/run_benchmark.py:246). A record whose attempt-1 arm-A feedback
-# is exactly this long was truncated; see bench/issue26/METHODOLOGY.md L6.
+# is exactly this long was truncated; see bench/repair_ab_repro/METHODOLOGY.md L6.
 STDERR_CAP = 500
 
 
@@ -356,7 +356,7 @@ def make_chart(s: dict, chart_file: Path) -> None:
     ax.set_xticklabels(classes, rotation=30, ha="right")
     ax.set_ylim(0, 115)
     ax.set_ylabel("Repaired within 2 corrective attempts (%)")
-    ax.set_title(f"issue #26 repair-loop A/B — {s['model']}, temp=0  (n={s['n']})")
+    ax.set_title(f"faust-rs repair-loop A/B — {s['model']}, temp=0  (n={s['n']})")
     ax.legend()
     ax.grid(axis="y", linestyle="--", alpha=0.5, zorder=0)
     for bars, pcts in [(ba, a_pct), (bb, b_pct)]:

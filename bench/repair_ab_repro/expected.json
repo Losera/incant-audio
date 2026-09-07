@@ -687,7 +687,7 @@
     }
   },
   "_schema": 2,
-  "_comment": "Frozen expectations for bench/issue26/verify.py. Regenerate with `verify.py --freeze` ONLY when the committed corpus / result JSONs are deliberately changed, and say why in the commit. p-value fields are {le: x} (p must stay <= x) or {ge: 0.05} (claim is deliberately NOT significant).",
+  "_comment": "Frozen expectations for bench/repair_ab_repro/verify.py. Regenerate with `verify.py --freeze` ONLY when the committed corpus / result JSONs are deliberately changed, and say why in the commit. p-value fields are {le: x} (p must stay <= x) or {ge: 0.05} (claim is deliberately NOT significant).",
   "headline": "faust-rs feedback fed verbatim into the repair loop LOWERS repaired-within-2. Program screen (bench/corpus_screen.py) -> 3B 143/192 (A) -> 82 (B) / 80 (C); 7B-Q3 84/115 (A) -> 56 (B) / 53 (C). McNemar exact p < 1e-8 every headline cell; arm A also fewer attempts-to-green. On the programs where arm A's stderr was never truncated the gap is the same; see METHODOLOGY.md for the full limitations list.",
   "checks_expected": 367
 }

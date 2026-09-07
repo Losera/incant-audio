@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Unit tests for bench/repair_ab_core.py — the shared issue-#26 repair loop.
+"""Unit tests for bench/repair_ab_core.py — the shared repair loop.
 
 The point of the module is that bench/run_repair_ab.py (the canonical harness
-that produced the committed numbers) and bench/issue26/repair_ab_standalone.py
+that produced the committed numbers) and bench/repair_ab_repro/repair_ab_standalone.py
 (the external-reproduction harness) run the SAME loop. These tests pin the
 record shape, the stop-at-green behaviour, and the one piece the standalone had
 to vendor rather than import (strip_code_fences).
@@ -16,7 +16,7 @@ import pytest
 
 BENCH = Path(__file__).resolve().parent.parent / "bench"
 sys.path.insert(0, str(BENCH))
-sys.path.insert(0, str(BENCH / "issue26"))
+sys.path.insert(0, str(BENCH / "repair_ab_repro"))
 
 import repair_ab_core  # noqa: E402
 

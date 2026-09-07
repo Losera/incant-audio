@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""bench/issue26/verify.py — reproduce the published issue-#26 numbers from the
+"""bench/repair_ab_repro/verify.py — reproduce the published repair-loop A/B numbers from the
 committed data, with no model and no faust-rs.
 
 What it re-derives, from bench/corpora/ and bench/results/repair_ab/ :
@@ -21,14 +21,14 @@ What it re-derives, from bench/corpora/ and bench/results/repair_ab/ :
                                  checksum), incl. the paired "both A and B
                                  repaired" figures
 
-against bench/issue26/expected.json.  Integer counts must match exactly;
+against bench/repair_ab_repro/expected.json.  Integer counts must match exactly;
 p-values must sit under a recorded bound (or above 0.05 where the claim is
 "not significant").  The run asserts it made exactly `checks_expected` checks —
 a stale verify.py against a newer expected.json (or vice versa) fails loudly
 instead of printing REPRODUCED over a subset.
 
-    python3 bench/issue26/verify.py            # verify (exit 0 == reproduced)
-    python3 bench/issue26/verify.py --freeze   # re-emit expected.json from a run
+    python3 bench/repair_ab_repro/verify.py            # verify (exit 0 == reproduced)
+    python3 bench/repair_ab_repro/verify.py --freeze   # re-emit expected.json from a run
 
 Only dependency: scipy.  Runs in ~1 s.
 """
@@ -229,7 +229,7 @@ def freeze(obs: dict) -> dict:
             cell["caret_preservation"]["mcnemar_p"])
     exp["_schema"] = 2
     exp["_comment"] = (
-        "Frozen expectations for bench/issue26/verify.py. Regenerate with "
+        "Frozen expectations for bench/repair_ab_repro/verify.py. Regenerate with "
         "`verify.py --freeze` ONLY when the committed corpus / result JSONs are "
         "deliberately changed, and say why in the commit. p-value fields are "
         "{le: x} (p must stay <= x) or {ge: 0.05} (claim is deliberately NOT "
@@ -339,7 +339,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     exp = json.loads(EXPECTED_PATH.read_text())
-    print("issue #26 — reproducing the published repair-loop A/B from committed data")
+    print("reproducing the published faust-rs repair-loop A/B from committed data")
     print(exp.get("headline", ""))
     _compare(obs, exp)
 

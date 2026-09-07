@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Unit tests for bench/score_repair_ab.py — the file that turns the committed
-issue-#26 trajectories into every published number.
+repair-loop A/B trajectories into every published number.
 
 Pure functions over synthetic paired records. No scipy stub needed (McNemar and
 Wilcoxon are exercised against known-answer inputs). Covers: the McNemar exact

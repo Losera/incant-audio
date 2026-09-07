@@ -1819,7 +1819,7 @@ to see the corpus + harness behind our result that faust-rs diagnostics *lower* 
 repair-loop success rate on a small local model. He is an external collaborator and will
 want to re-run it, likely against a larger model of his own.
 
-The scripts and data are already committed (`bench/issue26/`). `verify.py` re-derives every
+The scripts and data are already committed (`bench/repair_ab_repro/`). `verify.py` re-derives every
 headline number from committed data with only `scipy` — no model, no compiler, ~1 s. The
 reproduction barrier is the **two compilers** for a live replay: Faust (C++) for arm A and
 the compile gate, and faust-rs (Rust) for arms B/C. Building both from scratch on an
@@ -1830,12 +1830,12 @@ need, and COLLABORATION.md §2 trigger 4 gates "distribution". This ADR is the c
 
 **Decision**
 
-Add **one** Dockerfile, `bench/issue26/Dockerfile`, that builds a pinned environment for
+Add **one** Dockerfile, `bench/repair_ab_repro/Dockerfile`, that builds a pinned environment for
 reproducing issue #26 and nothing else:
 
 - `archlinux:base-devel` base (the machine the corpus was built on; `faust` in the Arch
   repo is currently the pinned 2.85.9), `faust-rs` built from source at the `0.8.0` tag,
-  `python` + `scipy` + `matplotlib`, and a copy of the `bench/issue26/` package plus the
+  `python` + `scipy` + `matplotlib`, and a copy of the `bench/repair_ab_repro/` package plus the
   shared modules it imports.
 - The **LLM is not in the image.** Models are multi-GB; the harness points at a host
   ollama or any OpenAI-compatible endpoint at run time.
@@ -1866,7 +1866,7 @@ on the Obsidian vault). The project remains un-containerised.
 - The result is **published on a public issue**; a claim that cannot be independently
   re-run is weak. Lowering the re-run cost for the compiler-toolchain half is proportionate
   to that. If it were only developer convenience it would not clear §12.
-- Blast radius is a file delete: `bench/issue26/Dockerfile` + `docker-entrypoint.sh` + the
+- Blast radius is a file delete: `bench/repair_ab_repro/Dockerfile` + `docker-entrypoint.sh` + the
   `docker*` Makefile targets. No schema, no build, no CI, no dependency-manifest change.
 - **Does not trip ADR-030's reopen trigger.** That trigger is about the *offline generation
   pipeline* growing a multi-node topology (e.g. an FRS-code-branching repair advisor). This
@@ -1890,7 +1890,7 @@ on the Obsidian vault). The project remains un-containerised.
   to exactly one.
 
 **Accepted 2026-09-01 by explicit user decision** (AskUserQuestion — "Accept — keep the
-container"). The draft `bench/issue26/ADR-034-draft-repro-container.md` is superseded by
+container"). The draft `bench/repair_ab_repro/ADR-034-draft-repro-container.md` is superseded by
 this entry and deleted.
 
 ---
