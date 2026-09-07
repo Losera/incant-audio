@@ -1,5 +1,65 @@
 # PluginForge DSL Benchmark
 
+## Offline eval pilot
+
+`cases.json` is the versioned, 12-case deterministic evaluation pilot. It uses
+handwritten Faust fixtures only: it never reads API credentials or calls a model
+provider. Run it after building the existing shipping-path capture harness:
+
+```bash
+cmake -S host -B host/build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DJUCE_PATH="$HOME/JUCE"
+cmake --build host/build --target OfflineRenderTest
+python bench/run_eval.py
+```
+
+Each run creates a new timestamped directory under `artifacts/` containing
+`results.json`, `report.md`, and the synth-pitch WAV. Use `--out` to choose a
+different new directory. The command exits nonzero when an observed outcome does
+not match the case contract. Negative controls therefore produce case-level
+`fail` results while satisfying the run contract only when the named failure is
+observed.
+
+The three v1 research contracts are intentionally small:
+
+- `EvalCase v1` is each `cases.json` entry: fixture, product kind/mode, expected
+  compiler/interface/audio evidence, and (for a negative control) its named
+  failure.
+- `EvalResult v1` is each `results.json` result: pass/fail/error/absent status,
+  typed checks by layer, source hash, grader version, timing, and failure code.
+- `RunManifest v1` records the commit and dirty flag, case/prompt hashes,
+  toolchain/platform, sample rate, and timestamps. Unknown values are `null`;
+  absence is never converted to zero or pass.
+
+The pilot delegates to Faust `-json` for compiler/UI evidence,
+`render_oracle.analyse()` for effect signal evidence, and
+`OfflineRenderTest --capture` plus `pitch_of_wav()` for the shipping JIT synth
+path. It does not claim musical quality. The distortion case measures harmonic
+energy added to a 997 Hz sine; the tremolo case measures dominant envelope rate
+and normalized modulation depth from a constant input. These are narrow semantic
+claims about the fixture defaults, not complete perceptual judgments.
+
+### Baseline reconciliation (2026-09-07)
+
+The pilot branch starts clean from `5408d93`. On this machine the clean fast
+suite completed with 783 passed, 2 skipped, 17 deselected, and 1 expected failure
+in 102.64 seconds; the six render-oracle self-tests passed. The environment was
+Python 3.14.7, Faust 2.85.9 backed by LLVM 22.1.8, GCC 16.2.1, CMake 4.4.2, and
+Linux 7.1.8-arch1-3 x86-64 on an Intel i7-11800H.
+
+Existing retained evidence is classified as follows:
+
+| Evidence | State | What it proves / limitation |
+|---|---|---|
+| `efficacy_ollama_20260828.json` | complete (125 records) | Archived model run; environment/model provenance in the archive governs comparability. |
+| `efficacy_groq_20260831.json` at `5408d93` | incomplete (0 committed records) | Not a usable baseline. A separate dirty checkout held 89 records during reconciliation; it was neither modified nor promoted. |
+| `ladder_corpus.json` | complete frozen corpus (19 records) | Deterministic render safety; four zero-input generators are structurally unsupported. |
+| `.prompt_baseline.json` | stale historical baseline | Its Claude rate predates prompt unification and is intentionally not overwritten. |
+
+Compilation establishes syntax and selected interface constraints. Render safety
+establishes finite, non-silent, bounded behavior plus the named tail controls.
+Primitive/substring semantic scoring remains a weak intent proxy. None of these
+numbers establishes musicality or broad prompt alignment.
+
 Measures **first-try compile success rate** for Claude-generated DSP code across two target DSLs:
 - **Faust** — algebraic DSL, compiled via `faust -lang cpp`
 - **Cmajor** — typed OOP-style DSL, validated via `cmaj play --dry-run`
