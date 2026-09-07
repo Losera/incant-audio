@@ -161,7 +161,7 @@ credential precheck now resolves the request's own `provider` instead of the imp
 the free-only guard is off by default in tests — a future free-only regression test must pop
 the key. 843 non-integration tests pass; CI green). **PR #70** (`704963a`, issue-#26 repro
 suite hardening — `score_repair_ab` aggregates `--samples K>1` cells before pairing (K=1 a
-strict no-op), `bench/issue26/requirements.txt` pins scipy, `verify.py` floors any p-value
+strict no-op), `bench/repair_ab_repro/requirements.txt` pins scipy, `verify.py` floors any p-value
 below `1e-8`; `expected.json` moves 4 bounds, `checks_expected` stays 367; `verify.py`
 REPRODUCED, issue26 suite 101 passed). **PR #74 / PR #75** are reflected in the PF-011
 closure ("Assumed" section) and defect #1 (PF-024) respectively. `/change-report` for all
@@ -185,7 +185,7 @@ and closed two hygiene gaps — the documented pipeline scripts were silently re
 report artifacts to the pre-screen view for want of a `--screen` flag, plus an orphan
 pre-screen chart PNG. New `bench/score_repair_ab.py` caret-preservation metric + a
 `verify.py` check, `expected.json` checks_expected 311→367, new
-`tests/test_issue26_readme_numbers.py` pinning the README prose to `verify.observe()`.
+`tests/test_repair_ab_readme_numbers.py` pinning the README prose to `verify.observe()`.
 **`~/issue26-reply.md` was updated to match** — confirmed this session by reading the draft:
 it already cites `1ad968a` and the 58%/4% figures, not stale.) **PR #59** (`4508ac4`,
 `llm/ui_face.py` + a `ui_face` action in `generate.py` + `llm/prompts/ui_face_prompt.md` +
