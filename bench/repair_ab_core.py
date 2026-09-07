@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""bench/repair_ab_core.py — the issue-#26 repair-loop A/B, minus the plumbing.
+"""bench/repair_ab_core.py — the faust-rs repair-loop A/B, minus the plumbing.
 
 Extracted from bench/run_repair_ab.py (2026-09-01) so the paired corrective
 loop has ONE implementation, shared by:
 
   * bench/run_repair_ab.py            — the canonical in-repo harness (ollama via
                                         llm/providers.py, the shared bench lock)
-  * bench/issue26/repair_ab_standalone.py — the external-reproduction harness
+  * bench/repair_ab_repro/repair_ab_standalone.py — the external-reproduction harness
                                         (any OpenAI-compatible endpoint, no
                                         dependency on llm/providers.py or the
                                         rest of bench/)
 
 Same argument bench/../llm/error_classes.py already makes: two copies of a rule
-drift apart. The committed issue-#26 numbers were produced by THIS loop; a
+drift apart. The committed A/B numbers were produced by THIS loop; a
 reproduction that reimplements it is not reproducing it.
 
 Only leaf imports here — `frs_check` and `error_classes`, both stdlib-only —

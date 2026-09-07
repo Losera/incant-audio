@@ -1,5 +1,5 @@
-# bench/issue26/Dockerfile — a pinned, single-purpose environment for reproducing
-# the issue-#26 repair-loop A/B (https://github.com/Losera/incant-audio/issues/26).
+# bench/repair_ab_repro/Dockerfile — a pinned, single-purpose environment for reproducing
+# the faust-rs repair-loop A/B (https://github.com/Losera/incant-audio/issues/26).
 #
 # WHY THIS EXISTS  (see docs/decisions.md — ADR-034)
 #   The one hard part of reproducing this result is building the two compilers:
@@ -13,18 +13,18 @@
 #   docker-entrypoint.sh and the README.
 #
 # BUILD  (context = repo root, so the shared modules are in scope)
-#   docker build -f bench/issue26/Dockerfile -t incant-issue26 .
-#   # or just: make -C bench/issue26 docker
+#   docker build -f bench/repair_ab_repro/Dockerfile -t incant-repair-ab .
+#   # or just: make -C bench/repair_ab_repro docker
 # VERIFY THE PUBLISHED NUMBERS (no model, no network, ~1s)
-#   docker run --rm incant-issue26 verify
+#   docker run --rm incant-repair-ab verify
 # REPLAY THE A/B WITH YOUR OWN MODEL
 #   # host ollama:
 #   docker run --rm --add-host host.docker.internal:host-gateway \
-#     -v "$PWD/out:/out" incant-issue26 replay \
+#     -v "$PWD/out:/out" incant-repair-ab replay \
 #     --backend ollama --endpoint http://host.docker.internal:11434 \
 #     --model qwen2.5-coder:3b --arms A,B,C --out /out/run.json
 #   # hosted endpoint:
-#   docker run --rm -e GROQ_API_KEY -v "$PWD/out:/out" incant-issue26 replay \
+#   docker run --rm -e GROQ_API_KEY -v "$PWD/out:/out" incant-repair-ab replay \
 #     --backend openai --endpoint https://api.groq.com/openai/v1 \
 #     --model llama-3.3-70b-versatile --api-key-env GROQ_API_KEY \
 #     --arms A,B --samples 5 --out /out/run.json
@@ -75,11 +75,11 @@ RUN set -eu; \
 # so the image is built from exactly the tree you build it in. Everything here
 # is openly licensed — see /LICENSE exceptions (a) + (b). The proprietary
 # llm/prompts/ tree and the efficacy archive are NOT copied; the harness uses
-# the vendored bench/issue26/system_prompt.txt and frs_rederive_cells.json.
+# the vendored bench/repair_ab_repro/system_prompt.txt and frs_rederive_cells.json.
 WORKDIR /work
-COPY bench/issue26/            /work/bench/issue26/
+COPY bench/repair_ab_repro/            /work/bench/repair_ab_repro/
 COPY bench/repair_ab_core.py bench/corpus_screen.py bench/frs_check.py \
-     bench/score_repair_ab.py bench/frs_rederive_issue26.py bench/fidelity_gate.py  /work/bench/
+     bench/score_repair_ab.py bench/frs_rederive.py bench/fidelity_gate.py  /work/bench/
 COPY bench/corpora/            /work/bench/corpora/
 COPY bench/results/repair_ab/  /work/bench/results/repair_ab/
 COPY llm/error_classes.py      /work/llm/
@@ -87,9 +87,9 @@ COPY llm/error_classes.py      /work/llm/
 # Provenance: which repo state this image was built from.
 RUN printf 'source_commit=%s\nsource_dirty=%s\nfaust_rs_ref=%s\nbuilt=%s\n' \
       "${SOURCE_COMMIT}" "${SOURCE_DIRTY}" "${FAUST_RS_REF}" "$(date -u +%FT%TZ)" \
-      > /work/bench/issue26/BUILD_PROVENANCE \
-    && cat /work/bench/issue26/BUILD_PROVENANCE
+      > /work/bench/repair_ab_repro/BUILD_PROVENANCE \
+    && cat /work/bench/repair_ab_repro/BUILD_PROVENANCE
 
 ENV PLUGINFORGE_ROOT=/work
-ENTRYPOINT ["/work/bench/issue26/docker-entrypoint.sh"]
+ENTRYPOINT ["/work/bench/repair_ab_repro/docker-entrypoint.sh"]
 CMD ["verify"]

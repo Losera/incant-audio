@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""repair_ab_standalone.py — the issue-#26 repair-loop A/B, runnable outside PluginForge.
+"""repair_ab_standalone.py — the faust-rs repair-loop A/B, runnable outside PluginForge.
 
 WHAT THIS IS
     A self-contained driver for the paired experiment behind
@@ -71,7 +71,7 @@ DETERMINISM
     the local repair step is byte-stable run-to-run at temp 0 is NOT audited —
     the earlier claim that it "is deterministic when warm" had no artifact and
     is retracted; a proper audit is pre-registered as WP5 in
-    bench/issue26/METHODOLOGY.md. A hosted model is definitely NOT bit
+    bench/repair_ab_repro/METHODOLOGY.md. A hosted model is definitely NOT bit
     deterministic at temp 0 — use --samples K (K>=5). --samples writes K records
     per (program, arm) tagged with `sample_index`. NOTE: score_repair_ab.py's
     load_pairs currently keeps only the LAST of the K per cell (WP1); until that
@@ -122,7 +122,7 @@ try:
     import repair_ab_core  # noqa: E402
 except ModuleNotFoundError as exc:  # pragma: no cover
     sys.exit(f"[!] cannot import {exc.name} — set PLUGINFORGE_ROOT to a checkout, "
-             f"or run from bench/issue26/ inside one.")
+             f"or run from bench/repair_ab_repro/ inside one.")
 
 # the system prompt the corpus was built with. Full repo: llm/prompts/. Repro
 # package: the vendored MIT snapshot (byte-identical to c1e9370, sha a2d909565e3c2fd2).

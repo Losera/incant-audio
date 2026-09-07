@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """bench/build_repair_corpus.py — assemble a corpus of failing Faust programs
-for the issue-#26 repair-loop A/B (bench/run_repair_ab.py).
+for the faust-rs repair-loop A/B (bench/run_repair_ab.py).
 
 WHY A CORPUS, NOT A GRID RE-RUN
     Statistical power comes from the NUMBER of distinct failing programs, not
@@ -18,7 +18,7 @@ WHY A CORPUS, NOT A GRID RE-RUN
     artifact anywhere and is retracted; `docs/BUGS.md` records ~20% run-to-run
     output flips for ollama at temp 0 on a related measurement. A proper
     determinism audit is pre-registered as WP5 in
-    bench/issue26/METHODOLOGY.md; until it runs, n=1 is a known limitation,
+    bench/repair_ab_repro/METHODOLOGY.md; until it runs, n=1 is a known limitation,
     not a warranted design.
 
 WHAT IT WRITES
