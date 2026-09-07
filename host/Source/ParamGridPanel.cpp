@@ -667,36 +667,56 @@ UiIr::Layout ParamGridPanel::deriveLayoutFromGroups(const FaustEngine::ParamList
     layout.schema = 2;   // ADR-029 §4: was 1; components below is the addition
     layout.components = deriveComponents(params, isInstrument);
 
-    // Phase 2 (fix/pedal-layout-packing): enough distinct groups and enough
-    // total controls to clear the suppression threshold above, but each
-    // group too thin to read as real grouping -- exactly the shape a live
-    // generation hit ("warm analog tape saturation effect with input drive,
-    // tone, output level, and a wet/dry mix", four one-control vgroups ->
-    // four one-knob sections, each its own heading/hairline/row/dead-space
-    // row). The threshold above only asks "is there more than one group and
-    // at least four controls at all" -- it says nothing about how those
-    // controls are DISTRIBUTED across groups. Below an average of two
-    // controls per group, a heading per group reads as N separate plugins
-    // stapled together, not one grouped panel, so collapse to a single
-    // section instead. `groups.size()` (not `nonEmptyGroups`) is the right
-    // denominator: it is the exact number of sections the loop below would
-    // otherwise create, including the trailing "Parameters" catch-all.
-    const int totalSections = static_cast<int>(groups.size());
-    if (totalSections > 1 && occupiedSlots / totalSections < 2)
+    // Fold single-control groups (fix/pedal-layout-packing). A vgroup wrapping
+    // one control renders as its own heading + hairline + row + trailing gap --
+    // "its own tiny plugin", not part of a grouped panel. The live shape this
+    // exists for: "warm analog tape saturation effect with input drive, tone,
+    // output level, and a wet/dry mix" -> four one-control vgroups -> four
+    // one-knob sections, half the panel dead. Two outcomes, both keyed on
+    // whether ANY group is real (>= 2 controls) rather than on the average
+    // (an average of two is cleared by [1,1,4] and by [3,1] alike, leaving a
+    // lone-knob heading standing in both):
+    //   * no real group  -> one neutral "Controls" section holding everything
+    //     (the tape case; ranked order is preserved by the sort above).
+    //   * some real group -> fold each singleton forward into the preceding
+    //     real group (or, for a leading singleton, into the first real group).
+    //     [2,2,1] stays FILTER(2) + OUTPUT(3), not one flat grid -- the
+    //     grouping the generation *did* get right survives.
+    // `occupiedSlots < 4` is already returned empty above, so the smallest
+    // input that reaches here is 4 controls in >= 2 groups.
+    const auto isReal = [](const GroupEntry& g) { return g.labels.size() >= 2; };
+    const int realGroups = static_cast<int>(std::count_if(groups.begin(), groups.end(), isReal));
+
+    if (static_cast<int>(groups.size()) > 1 && realGroups < static_cast<int>(groups.size()))
     {
-        UiIr::Section merged;
-        merged.id = "controls";
-        merged.title = "Controls";
-        merged.span = 1;
-        for (const auto& g : groups)
-            for (const auto& label : g.labels)
+        if (realGroups == 0)
+        {
+            GroupEntry merged { "Controls", groups.front().firstIndex, {} };
+            for (const auto& g : groups)
+                merged.labels.insert(merged.labels.end(), g.labels.begin(), g.labels.end());
+            groups.clear();
+            groups.push_back(std::move(merged));
+        }
+        else
+        {
+            std::vector<GroupEntry> folded;
+            std::vector<std::string> pending;   // leading singletons, no real group kept yet
+            for (auto& g : groups)
             {
-                UiIr::ControlRef ref;
-                ref.paramLabel = label;
-                merged.controls.push_back(std::move(ref));
+                if (isReal(g))
+                {
+                    g.labels.insert(g.labels.begin(), pending.begin(), pending.end());
+                    pending.clear();
+                    folded.push_back(std::move(g));
+                }
+                else if (! folded.empty())
+                    folded.back().labels.insert(folded.back().labels.end(),
+                                                g.labels.begin(), g.labels.end());
+                else
+                    pending.insert(pending.end(), g.labels.begin(), g.labels.end());
             }
-        layout.sections.push_back(std::move(merged));
-        return layout;
+            groups = std::move(folded);   // realGroups >= 1, so pending is always drained
+        }
     }
 
     for (const auto& g : groups)

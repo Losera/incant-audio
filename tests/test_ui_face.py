@@ -150,13 +150,23 @@ def test_section_count_bounds(sections, message):
         checked(face(sections=sections))
 
 
-def test_many_thin_sections_merge_into_one():
-    """The live defect this covers: a real 4-param "warm analog tape
-    saturation effect with input drive, tone, output level, and a wet/dry
-    mix" generation produced 4 sections, 1 knob each -- a heading per
-    parameter, not one grouped panel. Below MIN_CONTROLS_PER_SECTION on
-    average, merge rather than reject (every other degradation in this file
-    keeps the face); order is preserved, nothing is dropped."""
+# Six real knob labels for the fold tests -- the default PARAMS has only four
+# non-meter controls, not enough for a [2, 2, 1] shape.
+_GROUPED_PARAMS = [
+    {"label": lbl, "kind": "hslider", "group": grp,
+     "min": 0.0, "max": 1.0, "default": 0.5, "unit": ""}
+    for lbl, grp in [("freq", "OSC"), ("shape", "OSC"),
+                     ("cut", "FILTER"), ("res", "FILTER"),
+                     ("mix", "FX"), ("depth", "FX")]
+]
+
+
+def test_all_thin_sections_collapse_to_one():
+    """The live defect: a real "warm analog tape saturation effect with input
+    drive, tone, output level, and a wet/dry mix" generation produced 4
+    sections, 1 knob each -- a heading per parameter. When NO section is real
+    (>= MIN_CONTROLS_PER_SECTION), collapse to one "Controls" section rather
+    than reject; order is preserved, nothing is dropped."""
     sections = [
         {"id": "a", "title": "A", "controls": [{"param": "detune"}]},
         {"id": "b", "title": "B", "controls": [{"param": "blend"}]},
@@ -171,11 +181,9 @@ def test_many_thin_sections_merge_into_one():
     assert [c["param"] for c in merged["controls"]] == ["detune", "blend", "cutoff", "bypass"]
 
 
-def test_well_grouped_sections_are_not_merged():
-    """The merge threshold has a floor: two sections averaging exactly
-    MIN_CONTROLS_PER_SECTION each is real grouping, not one param wrapped
-    alone, and must stay separate -- otherwise the merge would swallow every
-    grouped face, not just thin ones."""
+def test_well_grouped_sections_are_not_touched():
+    """The fold only acts on singletons. Two sections that already read as
+    real grouping stay exactly as they are."""
     sections = [
         {"id": "osc", "title": "OSC", "controls": [{"param": "detune"}, {"param": "blend"}]},
         {"id": "filter", "title": "FILTER", "controls": [{"param": "cutoff"}, {"param": "bypass"}]},
@@ -183,6 +191,34 @@ def test_well_grouped_sections_are_not_merged():
     result = checked(face(sections=sections))
     assert len(result["sections"]) == 2
     assert [s["id"] for s in result["sections"]] == ["osc", "filter"]
+
+
+def test_lone_singleton_folds_into_preceding_real_section():
+    """The case the average rule got wrong: [2, 2, 1]. Averaging 5/3 < 2 used
+    to flatten all three, discarding the OSC/FILTER grouping the face got
+    right. The fold keeps them -- the lone FX control moves forward into
+    FILTER, its preceding real section."""
+    sections = [
+        {"id": "osc", "title": "OSC", "controls": [{"param": "freq"}, {"param": "shape"}]},
+        {"id": "filter", "title": "FILTER", "controls": [{"param": "cut"}, {"param": "res"}]},
+        {"id": "fx", "title": "FX", "controls": [{"param": "mix"}]},
+    ]
+    result = checked(face(sections=sections), params=_GROUPED_PARAMS)
+    assert [s["id"] for s in result["sections"]] == ["osc", "filter"]
+    assert [c["param"] for c in result["sections"][1]["controls"]] == ["cut", "res", "mix"]
+
+
+def test_leading_singleton_folds_into_first_real_section():
+    """A singleton with no real section before it folds into the first real
+    one instead, prepended so it still leads."""
+    sections = [
+        {"id": "fx", "title": "FX", "controls": [{"param": "mix"}]},
+        {"id": "osc", "title": "OSC", "controls": [{"param": "freq"}, {"param": "shape"}]},
+        {"id": "filter", "title": "FILTER", "controls": [{"param": "cut"}, {"param": "res"}]},
+    ]
+    result = checked(face(sections=sections), params=_GROUPED_PARAMS)
+    assert [s["id"] for s in result["sections"]] == ["osc", "filter"]
+    assert [c["param"] for c in result["sections"][0]["controls"]] == ["mix", "freq", "shape"]
 
 
 @pytest.mark.parametrize("archetype", ["", "cool-panel", None, "SYNTH-PANEL"])

@@ -2626,19 +2626,19 @@ void scenario34_qwertyAfterGeneration(const juce::File& tmp)
 //      must render the ordinary flat grid, not a heading over a few knobs).
 void scenario35_sectionedLayoutOrdersAndSuppresses()
 {
-    scenario("35. sectioned layout: canonical group order, merged when thin, suppressed when sparse",
+    scenario("35. sectioned layout: canonical group order, thin groups folded, suppressed when sparse",
              "deriveLayoutFromGroups ranks Osc before Filter before Env before Fx "
-             "-- the reverse of Faust's own alphabetical report -- merges into one "
-             "section when every group is too thin to read as real grouping, and "
-             "returns no sections at all for <=1 non-empty group or <4 controls");
+             "-- the reverse of Faust's own alphabetical report -- collapses to one "
+             "section when NO group is real, folds a lone singleton forward into the "
+             "preceding real group otherwise, and returns no sections at all for "
+             "<=1 non-empty group or <4 controls");
 
     // CORRECTED (fix/pedal-layout-packing): this used to assert 4 SEPARATE
     // sections for this exact patch -- one knob per heading, the live defect
     // a real "warm analog tape saturation effect with input drive, tone,
     // output level, and a wet/dry mix" generation reproduced (see
-    // ArchetypeLayout.h's header comment and STATUS.md). Four groups of one
-    // control each is below the 2-controls-per-group merge threshold added
-    // this session, so it now collapses to ONE "Controls" section -- the
+    // ArchetypeLayout.h's header comment and STATUS.md). No group here holds
+    // more than one control, so it collapses to ONE "Controls" section -- the
     // deliberate, tested behaviour change, not a regression.
     //
     // Four groups, one control each, declared (and therefore Faust-reported)
@@ -2677,11 +2677,8 @@ process = _ * amt, _ * amt;
         }
     }
 
-    // The merge threshold has a floor: two groups of TWO controls each
-    // averages exactly 2 per group, which is real grouping, not one param
-    // wrapped alone -- this must still produce two separate sections, or the
-    // merge clause would have swallowed every grouped patch, not just thin
-    // ones.
+    // Two real groups stay two sections -- the fold only touches singletons,
+    // never a group that already reads as real grouping.
     const char* kTwoByTwoPatch = R"(import("stdfaust.lib");
 osc  = vgroup("Osc",    hslider("Freq", 0.5, 0, 1, 0.01) + hslider("Shape", 0.5, 0, 1, 0.01));
 filt = vgroup("Filter", hslider("Cutoff", 0.5, 0, 1, 0.01) + hslider("Reso", 0.5, 0, 1, 0.01));
@@ -2690,7 +2687,37 @@ process = _ * amt, _ * amt;
 )";
     check(loadAndSettle(s, kTwoByTwoPatch, 4), "the 2-groups-of-2 patch compiled");
     check(s.editor.gridActiveSectionsForTest().size() == 2,
-          "two groups averaging exactly 2 controls each stay separate sections, not merged");
+          "two real groups stay separate sections, not merged");
+
+    // The case the average rule got wrong: [2, 2, 1]. Osc(2) + Filter(2) are
+    // real; Fx(1) is a lone knob. Average is 5/3 = 1 (< 2), so the old rule
+    // flattened ALL THREE into one grid, discarding the Osc/Filter grouping
+    // the patch got right. The fold keeps them: Fx's control moves forward
+    // into Filter (its preceding real group by rank), leaving two sections.
+    const char* kTwoTwoOnePatch = R"(import("stdfaust.lib");
+osc  = vgroup("Osc",    hslider("Freq", 0.5, 0, 1, 0.01) + hslider("Shape", 0.5, 0, 1, 0.01));
+filt = vgroup("Filter", hslider("Cutoff", 0.5, 0, 1, 0.01) + hslider("Reso", 0.5, 0, 1, 0.01));
+fx   = vgroup("Fx",     hslider("Mix", 0.5, 0, 1, 0.01));
+amt = (osc + filt + fx) * 0.2;
+process = _ * amt, _ * amt;
+)";
+    check(loadAndSettle(s, kTwoTwoOnePatch, 5), "the [2,2,1] patch compiled");
+    {
+        const auto& sec = s.editor.gridActiveSectionsForTest();
+        check(sec.size() == 2,
+              juce::String("[2,2,1] folds the singleton, keeps two sections, got ")
+                  + juce::String((int) sec.size()));
+        if (sec.size() == 2)
+        {
+            check(juce::String(sec[0].title) == "Osc" && sec[0].controls.size() == 2,
+                  "first section is still Osc with its two controls");
+            check(juce::String(sec[1].title) == "Filter" && sec[1].controls.size() == 3,
+                  "the lone Fx control folded into Filter, which now holds three");
+            check(sec[1].controls.size() == 3
+                      && sec[1].controls[2].paramLabel == "Mix",
+                  "the folded control is appended after Filter's own, not interleaved");
+        }
+    }
 
     // Threshold guard #1: kFourParamPatch (defined above, §2 in this file) has
     // FOUR controls but ZERO groups -- nonEmptyGroups == 0, under the <=1 cutoff.
