@@ -1,8 +1,10 @@
 # INTERFACE.md — the host/ <-> llm/ subprocess boundary
 
-*Line citations verified against `host/Source/PromptPanel.cpp` 2026-08-19 — the previous version
-of this file had drifted on every citation (see PF-065, `docs/BUGS.md`, discovered while tracing
-the REAPER "generate.py not found" defect).*
+*Re-anchored to function/symbol names 2026-09-07. This file cited bare `PromptPanel.cpp`
+line numbers and had drifted on every one of them **twice** (2026-08-19, then again by
+2026-09-07 — `PromptPanel.cpp` grew ~700 lines and every citation was stale). Bare line
+numbers into a churning file do not survive; the anchors below are function names and
+quoted code you can `grep` for.*
 
 `PromptPanel.cpp` shells out to `llm/generate.py` and parses one JSON line
 back. No shared header or schema file exists; this file documents the wire
@@ -71,10 +73,10 @@ file — that is what closes PF-065's install-layout half alongside `install.sh`
 **Omitted entirely when not configured** ("auto" / blank) — an explicit `""`
 would defeat `generate.py`'s `request.get("provider", DEFAULT_PROVIDER)`
 fallback (the key would exist), which is exactly the launcher-started-DAW
-case they exist to fix. `generate_json()` already consumes both
-(`llm/generate.py:507-510`); the Python side is unchanged, and the paid
-`anthropic` gate stays there (`PaidProviderError` unless
-`PLUGINFORGE_ALLOW_PAID=1`) — the picker does not re-implement it.
+case they exist to fix. `generate_json()` in `llm/generate.py` already consumes both
+(`provider = request.get("provider", DEFAULT_PROVIDER)`, `model = request.get("model")`);
+the Python side is unchanged, and the paid `anthropic` gate stays there (`PaidProviderError`
+unless `PLUGINFORGE_ALLOW_PAID=1`) — the picker does not re-implement it.
 
 **Precedence (ADR-033):** the config's `active_provider` / `active_model` is the
 default. A `recommend` response's resolved `provider` / `model`, echoed back on
@@ -84,31 +86,33 @@ per-generation immutable snapshot (ADR-032 §5).
 
 Credentials are **not** here — they stay in `.env` / the environment, read by
 the Python side (ADR-032 §4).
-**Read**: `readAllProcessOutput()` merges stdout+stderr (:646); the LAST
-line starting with `{` is taken as JSON (:650-658, generate.py's own
-"exactly one JSON line" promise, generate.py:590) — `getProperty` with
-defaults for `success`/`faust_code`/`error`/`reason`, plus the additive
-`prior_source_dropped`/`prior_source_refused` flags read at
-`PromptPanel.cpp` :709,720.
+**Read** (in `PromptPanel::runGeneration`): `child.readAllProcessOutput()` merges
+stdout+stderr; the loop over `StringArray::fromLines(raw)` keeps the LAST line whose
+`trim().startsWith("{")` as `jsonLine` (generate.py's own "exactly one JSON line" promise —
+see `_run_subprocess_mode`'s docstring in `llm/generate.py`) — then `juce::JSON::parse`,
+`getProperty` with defaults for `success`/`faust_code`/`error`/`reason`, plus the additive
+`prior_source_dropped` / `prior_source_refused` flags (`parsed.getProperty("prior_source_*", false)`).
 
 ## The five failure modes
-- **Malformed output**: SPECIFIED for no `{`-line at all — branch (:658-665)
-  shows the full raw output as the error. EMERGENT for a `{`-line that
-  parses but lacks fields or has wrong types — `getProperty` defaults
-  silently stand in; no schema validation exists on the C++ side.
-- **Non-zero exit**: never checked — no `getExitCode()` in `runGeneration`.
-  SPECIFIED to never happen in subprocess mode (generate.py:590-591,
-  "always exits 0"); if it does anyway (import-time crash, OOM kill),
-  EMERGENT — falls through to "no JSON" by accident of the merged pipe.
-- **Timeout**: SPECIFIED. `kSubprocessTimeoutMs`=180s (backstop for
-  a wedged interpreter — generate.py budgets itself ~117s, reports
-  `reason:"timeout"` first). Expiry kills the child, reports "generator
-  wedged" (:599-622) — UNLESS `stale()` (:606) says a supersede/teardown
-  caused the same wait to end; that must not read as a timeout.
-- **Editor destruction mid-generation**: SPECIFIED (PF-006). `stopping` +
-  `generation` bump + `activeChild->kill()` (`shutdownWorker`, :244-263)
-  make every later `stale()` (:513,606,637,765) a no-op return before
-  touching the processor. `PromptPanelThreadingTest` covers this one only.
+- **Malformed output**: SPECIFIED for no `{`-line at all — the `jsonLine.isEmpty()` branch
+  ("No JSON in generator output") shows the full raw output as the error. EMERGENT for a
+  `{`-line that parses but lacks fields or has wrong types — `getProperty` defaults silently
+  stand in; the only structural check is `parsed.isObject()` ("Malformed JSON object").
+- **Non-zero exit**: `runGeneration` reads `child.getExitCode()` and shows it in the error
+  text, but never branches on it. SPECIFIED to be 0 in subprocess mode
+  (`_run_subprocess_mode` in `generate.py`: "always exits 0 — the host parses the JSON
+  regardless of exit code"); if it is nonzero anyway (import-time crash, OOM kill), EMERGENT
+  — falls through to the "no JSON" branch by accident of the merged pipe.
+- **Timeout**: SPECIFIED. `kSubprocessTimeoutMs` = 180s (`PromptPanel.h`) is the backstop
+  for a wedged interpreter — `generate.py` budgets its own generation work to
+  `_DEFAULT_GENERATION_BUDGET_S` (140s) and reports `reason:"timeout"` first. On
+  `! child.waitForProcessToFinish(kSubprocessTimeoutMs)` the child is killed and the error
+  reads "generator wedged" — UNLESS the `stale()` lambda says a supersede/teardown ended
+  the same wait; that must not read as a timeout.
+- **Editor destruction mid-generation**: SPECIFIED (PF-006). `PromptPanel::shutdownWorker`
+  (`stopping` + `generation` bump + `activeChild` kill) makes every later `stale()` check in
+  `runGeneration` a no-op return before touching the processor. `PromptPanelThreadingTest`
+  covers this one only.
 - **Surgical (Add) refusal**: SPECIFIED. `refine_mode:"surgical"` whose
   prior source fails generate.py's token-budget preflight returns
   `success:false, reason:"error", attempts:0, prior_source_refused:true`

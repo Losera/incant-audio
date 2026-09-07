@@ -14,12 +14,16 @@ The strongest areas are the provider-neutral LLM/Faust pipeline, separate effect
 targets, real JIT/audio harnesses, sanitizer coverage, render oracle, prompt-grounding
 checks, and an explicit cost-ordered verification ladder.
 
-The main blockers are distribution truth and real-host evidence: no tracked license file,
-no package/release path, no pluginval or DAW run, VST3/Standalone-only CMake despite AU
-claims, stale quickstart artifact names, and installed-plugin discovery of
-`llm/generate.py` not yet exercised. Known product gaps include the silent noise-gate case,
-raw DAW macro-slot presentation, Ollama context mismatch, and incomplete end-to-end QWERTY
-coverage.
+The main blockers at assessment were distribution truth and real-host evidence:
+VST3/Standalone-only CMake despite AU claims, stale quickstart artifact names, and
+installed-plugin discovery of `llm/generate.py` not yet exercised. Known product gaps
+include the silent noise-gate case, raw DAW macro-slot presentation, Ollama context
+mismatch, and incomplete end-to-end QWERTY coverage.
+
+*Update 2026-09-07: several P0 blockers have since resolved — `LICENSE` is tracked (P0.1
+done), a release path exists (`tools/package_release.sh` / `install_release.sh`), and
+`pluginval --strictness 5` + a REAPER run are recorded in `STATUS.md`. Treat `STATUS.md`
+as authoritative for current state; the checkboxes below have not all been re-ticked.*
 
 One new inspection finding needs prompt reproduction: `FaustEngine::prepare()` writes the
 plain sample-rate field before taking `compileMutex`, while the persistent compile worker
