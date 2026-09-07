@@ -834,28 +834,81 @@ def _read_request_file(path: str) -> dict:
 
 def _run_subprocess_mode(build_request):
     """
-    Shared body for the --json and --prompt ADR-011 subprocess entry points.
+    Shared body for the --json/--prompt/--request-file ADR-011 subprocess
+    entry points.
 
-    `build_request` is a zero-arg callable that produces the request dict for
-    generate_json() — called only after the API-key precheck passes, so a
-    malformed stdin payload (--json mode) is caught by the try/except below
-    rather than escaping as an uncaught exception before the precheck.
+    `build_request` is a zero-arg callable that produces the request dict.
+    Parsed in its OWN try/except, before the credential precheck — a
+    malformed --json stdin payload or a missing --request-file path is
+    reported the same ADR-011 JSON way process_json_request() failing would,
+    never an uncaught traceback on stdout.
+
+    CORRECTED 2026-09-04 (found live, reproduced independent of the C++
+    host: `echo '{"action":"generate","prompt":"x","provider":"ollama"}' |
+    python generate.py --json` still reported a GROQ_API_KEY error with
+    PLUGINFORGE_PROVIDER=groq). The precheck used to run BEFORE the request
+    was parsed — literally could not, since `build_request` was never
+    called until after it passed — so it could only ever check
+    DEFAULT_PROVIDER's credentials. That was correct back when
+    PLUGINFORGE_PROVIDER was the only way to select a provider; ADR-032
+    added a per-request `provider` override (the in-plugin picker) this
+    precheck never learned about. Silent in a normally-configured
+    environment (the default provider's key is usually the one actually
+    set, so the wrong-target check happens to pass) — visible only once the
+    default and the requested provider disagree on credentials, exactly
+    this session's case. Same root cause, worse consequence:
+    assert_free(DEFAULT_PROVIDER) has the identical blind spot, so a request
+    explicitly naming the paid `anthropic` provider bypassed the free-only
+    guard entirely whenever DEFAULT_PROVIDER was free — ADR-012's guard is
+    supposed to cover every path that can spend money, and a per-request
+    override is exactly such a path.
+
+    This moved the OLD "never calls build_request on a missing key" contract
+    (tests/test_generate_unit.py's TestSubprocessModeMissingApiKey, before
+    this fix) to "always resolves the request's actual provider before
+    checking anything" instead — parsing a request dict has no side effects
+    worth avoiding, and correctness requires knowing which provider was
+    actually asked for.
 
     Prints exactly one JSON line to stdout (the ADR-011 contract) and always
     exits 0 — the host parses the JSON regardless of exit code, and a nonzero
     exit would mask the structured error the JSON already carries. All
     diagnostics/tracebacks go to stderr, never stdout.
     """
-    # Provider-aware precheck: names whichever credential the selected provider
-    # actually needs, and is skipped entirely for local ollama (which needs none).
-    credential_error = providers.check_credentials(DEFAULT_PROVIDER)
-    if credential_error:
-        legacy_text = DEFAULT_PROVIDER == "anthropic"
-        print(json.dumps(_missing_api_key_response(None if legacy_text else credential_error)))
-        return
-    request = None
     try:
         request = build_request()
+    except Exception as exc:  # noqa: BLE001 - a malformed request fails the same
+                              # ADR-011-JSON way a malformed generation would
+        traceback.print_exc(file=sys.stderr)
+        print(json.dumps(_exception_response(exc)))
+        return
+
+    # Provider-aware precheck: names whichever credential THIS request's own
+    # provider needs — `request.get("provider", DEFAULT_PROVIDER)`, the same
+    # fallback every other provider call site in this file uses (lines ~510,
+    # ~813) — and is skipped entirely for local ollama (which needs none).
+    # resolve_provider() validates the name eagerly; assert_free() is the
+    # ADR-012 free-only guard, checked against the same resolved provider so a
+    # per-request override cannot walk around it.
+    try:
+        provider = providers.resolve_provider(request.get("provider", DEFAULT_PROVIDER))
+        providers.assert_free(provider)
+    except providers.PaidProviderError as exc:
+        print(json.dumps(_exception_response(exc)))
+        return
+    except Exception as exc:  # noqa: BLE001 - an unknown provider string in the request
+                              # (resolve_provider's get_spec validates eagerly) fails
+                              # the same ADR-011-JSON way any other bad request would
+        traceback.print_exc(file=sys.stderr)
+        print(json.dumps(_exception_response(exc)))
+        return
+    credential_error = providers.check_credentials(provider)
+    if credential_error:
+        legacy_text = provider == "anthropic"
+        print(json.dumps(_missing_api_key_response(None if legacy_text else credential_error)))
+        return
+
+    try:
         response = process_json_request(request)
         # PF-014 is a generation corpus, not an interaction-event log. A normal
         # recommendation flow invokes this subprocess twice for one generation.
@@ -865,9 +918,10 @@ def _run_subprocess_mode(build_request):
     except Exception as exc:  # noqa: BLE001 - convert to ADR-011 JSON, never a stdout traceback
         traceback.print_exc(file=sys.stderr)
         response = _exception_response(exc)
-        # A prompt that blew up is the most interesting kind to have recorded. Only
-        # skipped when build_request() itself failed, i.e. there is no prompt to log.
-        if request is not None and request.get("action", "generate") == "generate":
+        # A prompt that blew up is the most interesting kind to have recorded.
+        # `request` is always a real dict here -- a malformed one already
+        # returned above, before this try block.
+        if request.get("action", "generate") == "generate":
             log_user_prompt(request, response)
         print(json.dumps(response))
 
