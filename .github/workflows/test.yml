@@ -56,12 +56,16 @@ jobs:
         # run for real in the build-host job below, which already has both.
 
       - name: Reproduce the issue-#26 numbers (bench/issue26/verify.py)
-        run: python bench/issue26/verify.py
-        # The published repro command for issue #26 (scipy only, ~1 s). It is
-        # NOT part of the product but it is what an external reviewer runs, so
-        # CI must catch it breaking. If the committed corpus / result JSONs or
-        # the fidelity sidecars are deliberately re-frozen, update
-        # bench/issue26/expected.json in the same commit.
+        run: |
+          pip install -r bench/issue26/requirements.txt
+          python bench/issue26/verify.py
+        # The published repro command for issue #26 (scipy only, ~1 s), run the
+        # same way an external reviewer runs it — via its own pinned
+        # requirements.txt, not the numpy+scipy the job installs above for the
+        # render oracle. It is NOT part of the product but CI must catch it
+        # breaking. If the committed corpus / result JSONs or the fidelity
+        # sidecars are deliberately re-frozen, update bench/issue26/expected.json
+        # in the same commit.
 
   # timeout-minutes: added 2026-08-15, same incident as the `test` job's note
   # above -- this is the job that actually hung (twice) on "Install system

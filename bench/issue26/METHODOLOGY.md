@@ -36,7 +36,7 @@ derivable from the committed data.
 
 | # | limitation | status | WP |
 |---|---|---|---|
-| L1 | `score_repair_ab.py`'s `load_pairs` overwrites samples (`by_sha[sha][arm] = r`), so `--samples K` silently keeps 1 of K. Latent on the committed data (0 duplicate triples); `tests/test_score_repair_ab.py` pins it as known behaviour. `repair_ab_standalone.py`'s end-of-run summary uses a strict per-cell majority instead. | open | **WP1** |
+| L1 | `score_repair_ab.py`'s `load_pairs` used to overwrite samples (`by_sha[sha][arm] = r`), so `--samples K` silently kept 1 of K. **Fixed (WP1):** `load_pairs` now groups each `(code_sha, arm)` cell and `_aggregate_cell` collapses it by majority-green / upper-median attempts-to-green before pairing (a tie is not-repaired); `tests/test_score_repair_ab.py` covers it. K=1 — every cell in the committed data — is a strict no-op, so the published numbers are unchanged. | fixed | **WP1** |
 | L2 | When the generator raises before producing a program, the loop aborts. On the committed **local ollama** runs all 23 such aborts were `OutputTruncated` (the model hit the 4096-token cap): 3B arm A 12, B 4, C 5; 7B 0/0/0 — so the 3B headline is if anything *conservative* for arm A. A hosted run adds `RateLimited` to this class, and arm B's ~6× longer prompt makes it more exposed. **Fixed in `repair_ab_standalone.py` (P5/WP2):** such records carry `terminal_reason` and `score_repair_ab.py` excludes them from the arm comparison; `--resume` retries them; a run that aborts ≥25% exits non-zero. `bench/run_repair_ab.py` (the in-repo harness) still needs the same treatment. | fixed for the standalone; open for `run_repair_ab.py` | **WP2** |
 | L3 | **The arms' correction wrappers are not matched.** Arm A wraps the payload with `"Your previous output had this compiler error — fix it:"` (`repair_ab_core.py:44`); arms B/C use only a bare lead-in (`repair_ab_core.py:47`) because `frs_check.render` already supplies a `"The Faust compiler rejected your program. …"` header and a closing `"Fix this and re-emit the complete program."` directive (`frs_check.py:222,244`). This bears directly on the **caret-line-preservation** signature (§"What the result does") — a "re-emit the complete program" instruction plausibly nudges toward verbatim reproduction of the shown line, independently of the caret. Arm C behaving like arm B is evidence against *verbosity* as the driver, but not against the wrapper wording. Median feedback length 97 / 637 / 262 chars (A/B/C). A byte-matched A2/B2/C2 with identical wrappers is the fix. | open | **WP3** |
 | L4 | "Fidelity" is checked with two cheap tiers only (non-blank-line shrink, expected-primitive retention). No render-level check (silence / NaN / DC / spectral match). | partial (`fidelity_gate.py` ships the two cheap tiers) | **WP4** |
@@ -49,9 +49,13 @@ derivable from the committed data.
 
 ## Work packages
 
-- **WP1 — real per-cell aggregation.** Replace the `load_pairs` overwrite with a
-  `(code_sha, arm)` → K-samples grouping; majority-green / median-attempts per
-  cell; K=1 a strict no-op (the committed numbers must not move).
+- **WP1 — real per-cell aggregation.** *(Done — `score_repair_ab._aggregate_cell`.)*
+  `load_pairs` groups each `(code_sha, arm)` cell and collapses it before pairing:
+  majority vote on `repaired` (a tie is not-repaired), the upper median of the
+  green samples' attempts-to-green, and the representative `attempt_log` from the
+  first sample matching the majority verdict (so rescue / caret-preservation /
+  cap-strata still run on one real trajectory). K=1 is a strict no-op — the
+  committed numbers do not move.
 - **WP2 — honest transport failures.** *(Done for `repair_ab_standalone.py` +
   `score_repair_ab.py`; `bench/run_repair_ab.py` still to do.)* Generator
   exceptions set `terminal_reason` (`rate_limited` | `truncated` | `timeout` |

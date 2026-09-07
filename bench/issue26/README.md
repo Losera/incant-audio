@@ -14,7 +14,7 @@ git clone https://github.com/Losera/incant-audio
 cd incant-audio
 git checkout <SHA>                     # the commit linked from issue #26
 python3 -m venv .venv && . .venv/bin/activate
-pip install scipy                      # the only dependency verify.py needs
+pip install -r bench/issue26/requirements.txt   # scipy (pinned < 2); that's all
 python3 bench/issue26/verify.py        # exit 0 == every committed number reproduced
 ```
 
@@ -159,8 +159,10 @@ per-class McNemar, the rescue split, the second-error identity, caret-line
 preservation, the stderr-cap strata); and the fidelity
 figures, recomputed from the `*_fidelity.json` `cells` dict under the screen.
 Diffs against `expected.json`; asserts it ran exactly `checks_expected` checks.
-Only needs `scipy`. `python3 bench/issue26/verify.py --freeze` re-emits
-`expected.json` (for when the committed data is deliberately changed).
+Only needs `scipy` (`requirements.txt`, pinned `< 2`); p-value checks carry a
+`1e-8` floor so a minor scipy change can't fail a byte-identical re-run.
+`python3 bench/issue26/verify.py --freeze` re-emits `expected.json` (for when
+the committed data is deliberately changed).
 
 ### 2. Re-run the diagnostic-quality half — needs `faust` + `faust-rs`
 
@@ -208,9 +210,9 @@ records exits non-zero and tells you the endpoint is wrong.
 local repair step is byte-stable run-to-run at temp 0 is **not** audited — an
 earlier claim that it "is deterministic when warm" is retracted; a proper audit
 is WP5 in [`METHODOLOGY.md`](METHODOLOGY.md). A hosted model is definitely not
-bit-deterministic at temp 0 — use `--samples K` (K ≥ 5). Note `score_repair_ab.py`
-currently keeps only the last of the K per cell (WP1); until that lands,
-aggregate the K yourself, or read the standalone's end-of-run per-cell majority.
+bit-deterministic at temp 0 — use `--samples K` (K ≥ 5). `score_repair_ab.py`
+collapses a K-sample cell by majority-green / upper-median attempts before
+scoring (`load_pairs` → `_aggregate_cell`, WP1); K=1 is a strict no-op.
 
 ### 4. Everything pinned, in a container
 
@@ -249,6 +251,7 @@ replay ARGS | score FILE | shell}`.
 |---|---|
 | `verify.py` | re-derive + check every published number; `--freeze` re-emits expectations |
 | `expected.json` | the frozen expectations (schema 2; `checks_expected` guards completeness) |
+| `requirements.txt` | the one pinned Python dep for `verify.py` (`scipy < 2`) + the optional chart dep |
 | `repair_ab_standalone.py` | the A/B driver, no dependency on `llm/providers.py` (step 3) |
 | `system_prompt.txt` | **vendored** — the prompt the corpus was built with (snapshot at `c1e9370`) |
 | `frs_rederive_cells.json` | **vendored** — the 15 never-compiled cells for step 2 |
@@ -303,10 +306,10 @@ Full list, with the planned follow-up for each, is in
 3. **Arm A is capped at 500 chars, arms B/C are not** (METHODOLOGY L6). The
    stratified check above shows the cap isn't the cause; a byte-matched re-run
    is WP3.
-4. **`--samples K` keeps only the last of the K** in `score_repair_ab.py`
-   (`load_pairs`, WP1). Harmless on the committed data (0 duplicate triples);
-   real for a hosted run — aggregate yourself, or use the standalone's per-cell
-   majority summary.
+4. **`--samples K` is aggregated per cell** by `score_repair_ab.load_pairs` →
+   `_aggregate_cell` (majority-green, upper-median attempts, WP1). K=1 — every
+   committed cell — is a strict no-op. A tie among K samples counts as
+   not-repaired (conservative).
 5. **faust-rs is advisory only.** `frs_codes` / `frs_feedback` in the corpus are
    recomputed live during the A/B, so a newer faust-rs changes arms B/C. If the
    binary is missing or crashes mid-run, arms B/C silently fall back to arm A's

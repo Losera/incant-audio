@@ -176,7 +176,7 @@
         "b_only": 91,
         "a_only": 4,
         "mcnemar_p": {
-          "le": 1e-20
+          "le": 1e-08
         }
       }
     },
@@ -324,7 +324,7 @@
         "b_only": 87,
         "a_only": 3,
         "mcnemar_p": {
-          "le": 1e-20
+          "le": 1e-08
         }
       }
     },
@@ -472,7 +472,7 @@
         "b_only": 52,
         "a_only": 3,
         "mcnemar_p": {
-          "le": 1e-10
+          "le": 1e-08
         }
       }
     },
@@ -620,7 +620,7 @@
         "b_only": 43,
         "a_only": 2,
         "mcnemar_p": {
-          "le": 1e-09
+          "le": 1e-08
         }
       }
     }
