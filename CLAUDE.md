@@ -22,7 +22,7 @@ opportunistically. When it happens it gets its own session and its own ADR.
 
 ## What this project is
 LLM-guided program synthesis for real-time DSP audio plugins.
-Pipeline: Natural language prompt → LLM → Faust DSL → LLVM JIT → VST3/AU
+Pipeline: Natural language prompt → LLM → Faust DSL → LLVM JIT → VST3 + Standalone
 
 ## Key architectural decisions
 - LLM outputs Faust DSL (not raw C++ or JSON IR)
@@ -34,7 +34,8 @@ Pipeline: Natural language prompt → LLM → Faust DSL → LLVM JIT → VST3/AU
   artifact or WebView (ADR-022)
 
 ## Stack
-- JUCE 7 (C++17) — audio plugin framework, VST3/AU output
+- JUCE 7 (C++17) — audio plugin framework; VST3 + Standalone output only
+  (`host/CMakeLists.txt`: `FORMATS VST3 Standalone` — there is no AU or macOS target)
 - libfaust + LLVM — JIT compiler embedded in host plugin
 - Python — LLM prompt layer; provider-agnostic via llm/providers.py (free-only by
   default: gemini / groq / openrouter / local ollama; anthropic is paid and gated
@@ -42,27 +43,23 @@ Pipeline: Natural language prompt → LLM → Faust DSL → LLVM JIT → VST3/AU
 - CMake + Ninja — build system
 
 ## The machine this is built on
-**Re-verified 2026-07-30 and four of these had drifted** — the block below had said Faust
-2.85.5, LLVM 22.1.6, CMake 4.3.3, Python 3.14.5 since 2026-07-27, while the box had been
-upgraded underneath it. Every number here is read from the installed tool, not recalled.
+Every number here is read from the installed tool, not recalled — this block has drifted
+silently before (2026-07-27 → 07-30 it lagged four upgrades; re-verified again 2026-09-07).
 These are the versions the JIT, the oracle and the prompt's stdlib block are pinned to in
 practice — when a version here moves, expect the generated Faust and the measured audio to
 move with it, which is exactly why silent drift matters.
 
-- **Arch Linux** (Omarchy). Kernel **7.0.10-arch1-1 running**, **7.1.4.arch1-1 installed** —
-  the box has not rebooted since the upgrade. That gap is also why `nvidia-smi` fails
-  (`NVML: Driver/library version mismatch`): the loaded module is 610.43.02 against 610.43.03
-  userspace, so **ollama runs CPU-only** until a reboot. Primary and only dev target.
+- **Arch Linux** (Omarchy). Kernel **7.1.8-arch1-3** — running and installed match; the box
+  has rebooted since the last upgrade. `nvidia-smi` works (driver 610.57.04, KMD and UMD
+  matched), so the GPU is available to ollama. Primary and only dev target.
 - **Faust 2.85.9**, stdlib at `/usr/share/faust/`. This is the ground truth
   `tools/gen_stdlib_block.py` generates the prompt's stdlib block from, and what
-  `check_prompt_invariants.py` resolves every `ns.func` against.
-  ⚠️ The block in `llm/prompts/system_prompt.txt:71` is still stamped
-  `Faust version at generation: 2.85.5`. That is **not** a defect: `--check` validates the
-  entry *names*, which are version-independent by design (`gen_stdlib_block.py:300-308`), and
-  it passes. Regenerating under 2.85.9 would rewrite signatures and spend prompt headroom
-  there are only ~140 tokens of *(corrected 2026-08-25; re-measured via
-  `python3 tests/test_prompt_headroom.py`, which prints `slack=140` — the 124 figure
-  predates the 2026-07-31 stdlib trim)*, so it is a deliberate deferral, not an oversight.
+  `check_prompt_invariants.py` resolves every `ns.func` against. The stdlib block in
+  `system_prompt.txt` and `instrument_prompt.txt` is stamped
+  `# Faust version at generation: 2.85.9` and matches the installed toolchain. `--check`
+  validates entry *names* only (version-independent by design, `gen_stdlib_block.py`), so a
+  Faust bump does not by itself force a regen; `python3 tests/test_prompt_headroom.py`
+  prints the prompt's remaining token slack.
 - **LLVM 22.1.8** — backs the libfaust JIT inside the host plugin.
 - **JUCE 7.0.9 at `$HOME/JUCE` — NOT vendored in this repo** *(corrected 2026-08-11; this
   line had said "vendored at `host/JUCE`", which is a CMake **build** directory produced by
@@ -70,7 +67,7 @@ move with it, which is exactly why silent drift matters.
   `JUCE_PATH` to `$ENV{HOME}/JUCE` and hard-errors if it is absent; override with
   `-DJUCE_PATH=...`. Read real JUCE sources from `/home/losera/JUCE/modules/` — the Tier 2
   citation rule means reading the header, not recalling it.
-  CMake 4.4.0, Ninja 1.13.2, Python 3.14.6,
+  CMake 4.4.2, Ninja 1.13.2, Python 3.14.7,
   libsndfile 1.2.2 (the render oracle's static-link closure).
 - **Wayland session under Hyprland.** The Standalone runs here, so UI capture is
   compositor-specific: `tools/screenshot_ui.sh` drives `hyprctl` + `grim` and cannot be
@@ -208,7 +205,7 @@ llm/generate.py               LLM call + Faust validation + retry loop; `action`
 llm/recommendation.py         bounded typed pre-generation design plan (ADR-033)
 llm/ui_face.py                bounded typed post-compile UI face (ADR-035 §5)
 llm/providers.py              five providers, three adapters, free-only rule
-llm/prompts/system_prompt.txt the one prompt (stdlib block is generated)
+llm/prompts/system_prompt.txt effect prompt (see "Three prompt files" above; stdlib generated)
 llm/prompts/recommendation_prompt.md  the design-planner system prompt (ADR-033)
 llm/prompts/ui_face_prompt.md the UI-face system prompt (ADR-035 §5)
 bench/render_oracle.py        renders compiled Faust offline and measures it
