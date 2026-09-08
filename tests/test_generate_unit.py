@@ -661,12 +661,46 @@ class TestSubprocessModeMissingApiKey:
         assert len(lines) == 1
         assert lines[0].startswith("{")
 
-    def test_missing_key_never_calls_build_request(self, monkeypatch, capsys):
+    def test_missing_key_still_calls_build_request_to_learn_the_provider(self, monkeypatch, capsys):
+        """CORRECTED 2026-09-04: this used to assert the OPPOSITE (build_request
+        never called on a missing key) -- that was true only because the
+        precheck could not yet see which provider a request actually asked
+        for. It now must parse the request first, precisely so a per-request
+        provider override reaches the credential check at all -- see the two
+        tests below, which is the behaviour the old assertion was
+        (unknowingly) preventing."""
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         calls = []
-        generate._run_subprocess_mode(lambda: calls.append(1))
+        generate._run_subprocess_mode(lambda: (calls.append(1), {"prompt": "x"})[1])
         capsys.readouterr()
-        assert calls == []
+        assert calls == [1]
+
+    def test_credential_precheck_uses_request_provider_not_default(self, monkeypatch, capsys):
+        """The bug this session found live: a request naming a DIFFERENT
+        provider than DEFAULT_PROVIDER used to have its credentials checked
+        against the wrong one -- reproduced independent of the C++ host via
+        `generate.py --json` with an explicit "provider" field."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-key")  # DEFAULT_PROVIDER's key: present
+        monkeypatch.delenv("GROQ_API_KEY", raising=False)       # the REQUESTED provider's: absent
+        generate._run_subprocess_mode(lambda: {"prompt": "x", "provider": "groq"})
+        payload = json.loads(capsys.readouterr().out.strip())
+        assert payload["success"] is False
+        assert payload["reason"] == "no_credentials"
+        assert "GROQ_API_KEY" in payload["error"]
+
+    def test_paid_provider_override_is_still_gated(self, monkeypatch, capsys):
+        """The worse half of the same bug: assert_free(DEFAULT_PROVIDER) never
+        saw a per-request override either, so a request explicitly naming the
+        paid `anthropic` provider could bypass ADR-012's free-only guard
+        whenever DEFAULT_PROVIDER itself was free."""
+        monkeypatch.delenv("PLUGINFORGE_ALLOW_PAID", raising=False)  # no opt-in
+        # DEFAULT_PROVIDER (whatever it resolved to at import, typically
+        # "anthropic" via conftest.py's pin) is irrelevant here on purpose --
+        # the request's own explicit "provider" must be what gets checked.
+        generate._run_subprocess_mode(lambda: {"prompt": "x", "provider": "anthropic"})
+        payload = json.loads(capsys.readouterr().out.strip())
+        assert payload["success"] is False
+        assert "free-only" in payload["error"]
 
 
 class TestSubprocessModeUnexpectedException:
