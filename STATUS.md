@@ -1,4 +1,4 @@
-# PluginForge — Status  (2026-09-04)
+# PluginForge — Status  (2026-09-08)
 
 Rewritten each session per COLLABORATION.md §5. Single writer, no merge conflicts.
 Narrative history lives in git and in `docs/sessions/`.
@@ -39,6 +39,22 @@ One line per capability, each naming its evidence. "Builds clean" is not a capab
   (CPU), PF-041/PF-042-fixed judge — `bench/results/efficacy/efficacy_ollama_20260828_judged.json`.
   Compile rate 84–92% retry-corrected and tier-independent; semantic fidelity declines
   monotonically, judge mean 1.57/2 (L4) → 0.36/2 (L0). The pipeline degrades gracefully.
+- **The grid also ran end to end on `groq` / `openai/gpt-oss-120b`** — the shipping-tier
+  model. All 125 cells generated code (started 2026-08-31, completed 2026-09-07); committed
+  on branch `task/efficacy-groq-125` (`efficacy_groq_20260831.json`, 125 cells: 114
+  compiled, 9 compile_failed, 2 rate_limited). Re-scored 2026-09-08 with
+  `bench/score_efficacy.py` ($0, no quota, no `--judge`): retry-corrected compile **L4 23/25
+  (92%) · L3 24/25 (96%) · L2 24/25 (96%) · L1 21/25 (84%) · L0 22/25 (88%)**. Not a
+  monotonic tier gradient — L2–L4 are flat and L1 is a trough. First-try tells the story:
+  L2/L3/L4 all 84%, **L1 collapses to 48%**, L0 recovers to 72%. The L1 tier is "sensory
+  metaphor only, no effect or parameter names"; L0 is "named artist/gear reference" — a
+  specific device name (`SSL console fader`, `LA-2A`) is more actionable to the model than
+  an abstract metaphor. L1's failures are semantic, not syntactic (error-class tagging:
+  SEMANTIC 9 / SYNTAX 4 at L1, vs 2–4 elsewhere). Orthogonally, the `dynamics` category is
+  weak at *every* tier (first-try 20–60%), consistent with defect #2 (PF-032). Caveat: n=1
+  per cell (PF-031's ≥3-run bar unmet), unjudged, and `dynamics-03`/L1's 3rd corrective
+  attempt was cut off by a rate limit and recorded as a failure — so retry-corrected is a
+  lower bound, understated by at most 1/125 (inside L1).
 - **Spectral judge produces a per-prompt verdict** (report-only, not gated). PF-041/PF-042
   closed 2026-08-06.
 
@@ -337,32 +353,28 @@ into PF-024's family-failure sampling, notes in `scratchpad/pf065-reaper-observa
 
 ## Assumed, never checked
 
-- **The efficacy tier gradient is unknown on the shipping model.** *(PF-011.)* The 125-cell
-  grid ran once, on `ollama qwen2.5-coder:7b` (CPU) — compile rate tier-independent,
-  fidelity monotonically declining. **Still assumed:** whether that gradient holds on
-  `groq`'s `openai/gpt-oss-120b`. Progress since the last rewrite: 51 cells committed at
-  `HEAD` (up from ~29), and the run has advanced to **89/125 in the working tree, not yet
-  committed** — re-scored this session with `bench/score_efficacy.py` ($0, no quota spent):
-  retry-corrected compile by tier is L4 16/18 (89%), L3 17/18 (94%), L2 17/18 (94%), L1
-  15/18 (83%), L0 16/17 (94%) — noisier than "flat" but not a clean gradient either.
-  **The heuristic semantic-pass-rate proxy *does* now show a monotonic decline** — L4 94% →
-  L3 88% → L2 82% → L1 73% → L0 62% — consistent in shape with the ollama run's fidelity
-  finding, though it is a heuristic (`expected_primitives` any-of match), not the judged
-  score. Resume with `python bench/run_efficacy_study.py --provider groq --resume --out
-  bench/results/efficacy/efficacy_groq_20260831.json` next quota window; still n=1 per cell
-  (PF-031's ≥3-run bar unmet) and unjudged (`--judge` spends quota — defect #8).
+*(none.)* PF-011 — "the efficacy tier gradient on the shipping model" — closed 2026-09-08:
+the groq / `openai/gpt-oss-120b` grid completed all 125 cells and was scored ($0). Result
+in "Works" above: no monotonic tier gradient (L2–L4 flat ~84% first-try), a sharp L1
+metaphor-only trough (48%), and a category-level `dynamics` weakness at every tier. The
+`--resume` next-action that stood here for a week was a **no-op** — `prepare_resume`
+(`bench/run_efficacy_study.py:329`) keeps every record that carries `code`, and all 125
+did; the grid was already generated, just uncommitted. What remains open is a *deeper* bar,
+not this one: n≥3 per cell (PF-031) and a judged fidelity pass (`--judge` spends quota,
+defect #8). Those are new evidence items, not a re-opening of PF-011.
 
 ---
 
 ## Next three things
 
-1. *(evidence)* **Resume and commit the groq 125-cell efficacy run.** Same command as
-   before — at **89/125 in the working tree, uncommitted** (51/125 is the last committed
-   checkpoint). Resumes when the daily quota permits; it checkpoints harmlessly if not.
-   Worth a `git add -p`/commit of the current progress before it resumes further, so a crash
-   doesn't lose the 38 uncommitted cells. Moves PF-011 out of Assumed, the one number this
-   project steers by. Score with `bench/score_efficacy.py` (compile rate first; `--judge`
-   spends quota — defect #8).
+1. *(evidence)* **Re-run the groq grid to n≥3 per cell (PF-031), or run the judged fidelity
+   pass.** The single-run groq grid is now committed and scored (PF-011 closed — see
+   "Works"), so the Assumed list is empty and this slot needs a fresh evidence target. Two
+   candidates, both spend quota: (a) `run_efficacy_study.py` ×3 with per-cell aggregation to
+   meet PF-031's ≥3-run bar and get a variance estimate on the L1 trough; (b)
+   `score_efficacy.py --judge` for a judged semantic-fidelity gradient (defect #8 — the
+   lock is fine, the quota is the cost) to compare against the ollama run's monotonic
+   fidelity decline. (a) is the stronger claim; (b) is cheaper.
 2. **Capture repros for PF-072 and PF-074.** The two medium in-host findings are
    currently unactionable — each needs the triggering patch source and the action
    immediately before. Needs an interactive host session; until then they can only be
