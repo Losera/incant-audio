@@ -1,4 +1,4 @@
-# PluginForge — Status  (2026-09-08)
+# PluginForge — Status  (2026-09-09)
 
 Rewritten each session per COLLABORATION.md §5. Single writer, no merge conflicts.
 Narrative history lives in git and in `docs/sessions/`.
@@ -145,6 +145,26 @@ write. **Not verified:** a real DAW/Standalone session with a live LLM provider 
 updated. Tier 2
 (COLLABORATION.md §3, new threading surface) — **needs a human review before merge**, the
 same bar #61 got and didn't (below).
+
+**Landed 2026-09-08 (reconciled by the 2026-09-09 consolidation pass):** **PR #73**
+(`2f03141`, doc corrections to the session-loaded files — `CLAUDE.md` toolchain re-read from
+the box (kernel 7.1.8-arch1-3, CMake 4.4.2, Python 3.14.7), `VST3/AU` → `VST3 + Standalone`,
+the already-regenerated "Faust 2.85.5 deferral" paragraph deleted; `INTERFACE.md` citations
+re-anchored to symbols after a ~700-line line-number drift; `PLUGIN_HEALTH_PLAN.md` internal
+contradiction removed. Prose only, `check.sh fast` green). **PR #72** (`7970d66`, ADR-011
+credential precheck now resolves the request's own `provider` instead of the import-time
+`DEFAULT_PROVIDER` — closes an ADR-012 free-only bypass where a request naming paid
+`anthropic` walked around `assert_free` when `DEFAULT_PROVIDER` was free; a malformed
+`--json` payload now returns ADR-011 JSON, not a traceback. Human-reviewed 2026-09-07.
+**Watch:** `tests/conftest.py` now `setdefault`s `PLUGINFORGE_ALLOW_PAID=1` suite-wide, so
+the free-only guard is off by default in tests — a future free-only regression test must pop
+the key. 843 non-integration tests pass; CI green). **PR #70** (`704963a`, issue-#26 repro
+suite hardening — `score_repair_ab` aggregates `--samples K>1` cells before pairing (K=1 a
+strict no-op), `bench/issue26/requirements.txt` pins scipy, `verify.py` floors any p-value
+below `1e-8`; `expected.json` moves 4 bounds, `checks_expected` stays 367; `verify.py`
+REPRODUCED, issue26 suite 101 passed). **PR #74 / PR #75** are reflected in the PF-011
+closure ("Assumed" section) and defect #1 (PF-024) respectively. `/change-report` for all
+four: `docs/records/change-reports-2026-09-08-merges.md`.
 
 **Landed 2026-09-03 (evening, after PR #57 below):** four PRs, in landing order — **PR #58**
 (`da5594d`, `host/Source/ThemeValidate.h` — WCAG contrast gate for a `UiIr::Theme`: `text` ≥
