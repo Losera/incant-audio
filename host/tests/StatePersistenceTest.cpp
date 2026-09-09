@@ -153,7 +153,10 @@ int main()
             s.title = "MIX";
             s.controls.push_back({ "Mix", "slider", "md" });
             ir.sections.push_back(s);
-            a.setUiIr(ir);
+            // ADR-035 A5: the layout is stamped with the key of the source it
+            // describes. The editor passes juce::String(source.hashCode64());
+            // here a literal stands in for it.
+            a.setUiIr(ir, "src-key-abc123");
         }
 
         a.getStateInformation(blob);
@@ -181,6 +184,9 @@ int main()
                   "no SlotLabels node — dropped from v1 2026-07-27");
             check(root.hasProperty("uiIr"),
                   "uiIr attribute present (v3 amendment, 2026-09-01)");
+            check(root.getProperty("uiIrSourceKey").toString() == "src-key-abc123",
+                  "uiIrSourceKey attribute present and carries the stamped key "
+                  "(ADR-035 A5, 2026-09-08)");
 
             // v2 (2026-08-02) added the slot -> ParamIdentity map; v3 (2026-08-12,
             // C6) adds prompt history. The count assertion is kept rather than
@@ -237,6 +243,18 @@ int main()
         check(ir.theme.surface == "#0c0c0c", "uiIr: unset theme token is the Ember default");
         check(ir.sections.size() == 1 && ir.sections[0].id == "mix",
               "uiIr: section restored");
+
+        // ADR-035 A5: the source key round-trips, and uiIrForRestoredSource()
+        // returns the layout ONLY for the matching key -- this is what lets the
+        // editor tell a still-valid saved face from one left over from a
+        // different patch, without re-running the producer on every reopen.
+        check(b.uiIrSourceKeyForTest() == "src-key-abc123", "uiIr: source key restored");
+        check(b.uiIrForRestoredSource("src-key-abc123").schema == 3,
+              "uiIrForRestoredSource: the matching key returns the schema-3 face");
+        check(b.uiIrForRestoredSource("some-other-source").schema == 0,
+              "uiIrForRestoredSource: a mismatched key returns UiIr::empty()");
+        check(b.uiIrForRestoredSource("").schema == 0,
+              "uiIrForRestoredSource: an empty key never matches");
     }
 
     // ── v2 BACK-COMPAT: a blob saved before prompt history still restores ────
@@ -286,6 +304,52 @@ int main()
         check(v2.currentSourceForTest() == kSource, "v2: Faust source restored");
         check(v2.promptHistoryForTest().isEmpty(),
               "v2: prompt history restores empty, not an error");
+    }
+
+    // ── ADR-035 A5 BACK-COMPAT: a blob with no uiIrSourceKey still restores ──
+    // Every project saved before 2026-09-08 has a `uiIr` attribute but no
+    // `uiIrSourceKey`. The correct response is an EMPTY key, which
+    // uiIrForRestoredSource() treats as "no match" -- so the editor re-derives
+    // and re-requests the face exactly as it did before the attribute existed.
+    // No migration: the empty key IS the pre-A5 behaviour.
+    {
+        std::printf("\nADR-035 A5 back-compat — a pre-key blob restores with an empty key\n");
+
+        juce::MemoryBlock preKeyBlob;
+        {
+            PluginForgeProcessor donor;
+            check(loadAndAwaitCompile(donor, kSource, kPrompt,
+                                      PluginForgeProcessor::LoadMode::Iterate),
+                  "pre-key donor compile completed");
+            UiIr::Layout ir;
+            ir.schema = 3;
+            ir.theme.accent = "#8fe3c1";
+            donor.setUiIr(ir, "would-have-had-a-key");
+
+            juce::MemoryBlock current;
+            donor.getStateInformation(current);
+            auto xml = juce::AudioProcessor::getXmlFromBinary(
+                           current.getData(), static_cast<int>(current.getSize()));
+            check(xml != nullptr, "pre-key donor blob parsed");
+            if (xml != nullptr)
+            {
+                auto root = juce::ValueTree::fromXml(*xml);
+                root.removeProperty("uiIrSourceKey", nullptr);
+                check(root.hasProperty("uiIr") && ! root.hasProperty("uiIrSourceKey"),
+                      "the synthesised blob has uiIr but no uiIrSourceKey");
+                if (auto preKeyXml = root.createXml())
+                    juce::AudioProcessor::copyXmlToBinary(*preKeyXml, preKeyBlob);
+            }
+        }
+
+        PluginForgeProcessor p;
+        p.setStateInformation(preKeyBlob.getData(), static_cast<int>(preKeyBlob.getSize()));
+        check(p.currentSourceForTest() == kSource, "pre-key: Faust source restored");
+        check(p.uiIrForTest().schema == 3, "pre-key: the face itself still restores");
+        check(p.uiIrSourceKeyForTest().isEmpty(), "pre-key: the source key restores empty");
+        check(p.uiIrForRestoredSource("would-have-had-a-key").schema == 0,
+              "pre-key: uiIrForRestoredSource returns empty for any key -- the "
+              "editor falls back to derive-then-request");
     }
 
     // ── v1 MIGRATION: a blob saved before the identity map still restores ────

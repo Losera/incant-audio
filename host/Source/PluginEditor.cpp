@@ -166,7 +166,12 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
         face.components = safeThis->lastDerivedComponentsForUiFace;
         safeThis->paramGridPanel.applyUiIr(face);
         safeThis->applyGeneratedFace(face.theme);
-        safeThis->processor.setUiIr(face);
+        // Stamp the face with the key of the source it describes so a later
+        // reopen re-applies it without a regenerate (ADR-035 A5). currentSource()
+        // is the patch this face was produced for -- the request rode the
+        // compile that committed it.
+        safeThis->processor.setUiIr(
+            face, juce::String(safeThis->processor.currentSource().hashCode64()));
     };
     recommendationPanel.onGenerate = [safeThis = juce::Component::SafePointer<PluginForgeEditor>(this)]
         (const juce::var& plan, const juce::String& provider, const juce::String& model)
@@ -303,18 +308,35 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
             // or sparse patch is unaffected byte-for-byte.
             const auto derivedLayout = ParamGridPanel::deriveLayoutFromGroups(
                 params, safeThis->processor.isInstrumentForTest());
-            safeThis->paramGridPanel.applyUiIr(derivedLayout);
+
+            // ADR-035 A5: a reopened project carries the face it was saved with
+            // in the state blob, keyed to the source it describes. If the patch
+            // that just compiled IS that source, re-apply the saved face and do
+            // NOT ask the producer for a new one -- a restore must never spend
+            // provider quota regenerating something the user already accepted.
+            // Any mismatch (a fresh generate, a refine, a hand edit -> a
+            // different source key) or a non-face restore (schema 0/2, which
+            // deriveLayoutFromGroups rebuilds anyway) falls through to the
+            // derive-then-request path below, byte-for-byte as before.
+            const juce::String sourceKey =
+                juce::String(safeThis->processor.currentSource().hashCode64());
+            const UiIr::Layout cachedFace =
+                safeThis->processor.uiIrForRestoredSource(sourceKey);
+            const bool haveCachedFace = (cachedFace.schema == 3);
+
+            const UiIr::Layout& layoutToApply = haveCachedFace ? cachedFace
+                                                               : derivedLayout;
+            safeThis->paramGridPanel.applyUiIr(layoutToApply);
             // ADR-035 Step 3: dress paramGridPanel in the layout's theme.
-            // deriveLayoutFromGroups() only ever produces the Ember default,
-            // so this is always a no-op detach FROM THIS CALL -- the ui_face
-            // request below is what may later replace `derivedLayout` with a
-            // real theme, asynchronously, via the exact same two calls.
-            safeThis->applyGeneratedFace(derivedLayout.theme);
-            // Hand the layout to the processor so it rides the state blob
-            // (UiIr schema 3, Step 1). Persistence only -- the restore path
-            // does not feed this back into applyUiIr() yet; this callback
-            // re-derives from `params` on every compile, restore included.
-            safeThis->processor.setUiIr(derivedLayout);
+            // deriveLayoutFromGroups() only ever produces the Ember default, so
+            // absent a cached face this is a no-op detach FROM THIS CALL -- the
+            // ui_face request below is what may later swap in a real theme,
+            // asynchronously, via these same two calls. WITH a cached face it is
+            // what dresses the restored project on its first frame.
+            safeThis->applyGeneratedFace(layoutToApply.theme);
+            // Hand the layout back to the processor so it rides the state blob,
+            // stamped with the key of the source it describes (ADR-035 A5).
+            safeThis->processor.setUiIr(layoutToApply, sourceKey);
 
             // ADR-035 §5/A3b: post-compile UI face request, queued on
             // PromptPanel's own worker (requestUiFace() -- see its header
@@ -327,6 +349,11 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
             // (no script resolved, timeout, malformed JSON, an explicit
             // schema-0 decline) leaves it exactly as applied above -- see
             // llm/ui_face.py's "never a broken face, never bad audio".
+            //
+            // Skipped entirely when a cached face was just restored (ADR-035
+            // A5): the accepted face is already on screen and re-requesting it
+            // would only spend quota to reproduce it.
+            if (! haveCachedFace)
             {
                 juce::Array<juce::var> paramsJson;
                 for (const auto& p : params)

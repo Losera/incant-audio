@@ -294,6 +294,10 @@ PromptPanel::PromptPanel(PluginForgeProcessor& p)
     // agree and neither re-reads the environment on the worker thread.
     pythonExe = resolvePythonExe(config, &pythonExeSource);
 
+    // PF-078: one env read, into a member. See the field's header comment.
+    uiFaceSuppressed = juce::SystemStats::getEnvironmentVariable(
+                           "PLUGINFORGE_NO_UI_FACE", {}).isNotEmpty();
+
     addAndMakeVisible(generateButton);
     generateButton.onClick = [this] { submitPrompt(); };
 
@@ -782,6 +786,10 @@ void PromptPanel::queueRequest(const juce::String& action, const juce::var& desi
 // doesn't.
 void PromptPanel::requestUiFace(const juce::var& requestBody)
 {
+    if (uiFaceSuppressed)
+        return;   // PF-078: env-disabled (the snapshot harness). Same
+                  // silent-fallback contract as a missing script below.
+
     if (! generateScript.existsAsFile())
         return;   // same silent-fallback contract as any other failure path
 

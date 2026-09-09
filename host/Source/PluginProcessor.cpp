@@ -796,6 +796,11 @@ static const juce::Identifier kUiStyleId       ("uiStyle");
 // Added 2026-09-01. A v3 AMENDMENT, not a schema bump -- see the "generated-
 // plugin faces" paragraph in the format block above. Absent => UiIr::empty().
 static const juce::Identifier kUiIrId          ("uiIr");
+// Added 2026-09-08 (ADR-035 A5). A v3 AMENDMENT, not a schema bump: absent in
+// every earlier blob, restored as "", which uiIrForRestoredSource() treats as
+// "no match" -- so an old project reopens re-deriving and re-requesting its
+// face exactly as it did before.
+static const juce::Identifier kUiIrSourceKeyId ("uiIrSourceKey");
 // schemaVersion 2 (2026-08-02). The slot -> ParamIdentity map, and the derivation
 // scheme that produced it. See getStateInformation for the format and
 // setStateInformation for what a v1 blob (which has none of this) does instead.
@@ -837,10 +842,25 @@ UiIr::Layout PluginForgeProcessor::uiIr() const
     return currentUiIr;
 }
 
-void PluginForgeProcessor::setUiIr(const UiIr::Layout& layout)
+void PluginForgeProcessor::setUiIr(const UiIr::Layout& layout, const juce::String& sourceKey)
 {
     std::lock_guard<std::mutex> lock(metaMutex);
-    currentUiIr = layout;
+    currentUiIr          = layout;
+    currentUiIrSourceKey = sourceKey;
+}
+
+UiIr::Layout PluginForgeProcessor::uiIrForRestoredSource(const juce::String& sourceKey) const
+{
+    std::lock_guard<std::mutex> lock(metaMutex);
+    if (sourceKey.isNotEmpty() && sourceKey == currentUiIrSourceKey)
+        return currentUiIr;
+    return UiIr::empty();
+}
+
+juce::String PluginForgeProcessor::uiIrSourceKeyForTest() const
+{
+    std::lock_guard<std::mutex> lock(metaMutex);
+    return currentUiIrSourceKey;
 }
 
 void PluginForgeProcessor::getStateInformation(juce::MemoryBlock& destData)
@@ -863,6 +883,11 @@ void PluginForgeProcessor::getStateInformation(juce::MemoryBlock& destData)
         root.setProperty(kUiIrId,
                          juce::JSON::toString(UiIr::toVar(currentUiIr), true),
                          nullptr);
+        // ADR-035 A5: the source key currentUiIr is bound to, so a restore can
+        // tell a still-valid saved face from one left over from a different
+        // patch. Absent in a pre-2026-09-08 blob -> restored as "" -> never
+        // matches -> the editor re-derives and re-requests exactly as before.
+        root.setProperty(kUiIrSourceKeyId, currentUiIrSourceKey, nullptr);
 
         // ── The slot -> identity map (schemaVersion 2) ──────────────────────
         // Without this, a restore knows every knob's VALUE and nothing about
@@ -1031,10 +1056,16 @@ void PluginForgeProcessor::setStateInformation(const void* data, int sizeInBytes
     // returns "", juce::JSON::parse("") yields a void var, and UiIr::parse()
     // maps that to UiIr::empty() (schema 0) -- the "no IR" state those blobs
     // were saved in. A malformed or newer-schema string lands on the same
-    // fallback. Restored but not yet consumed for rendering (see uiIr()'s
-    // header): the editor re-derives on the restore recompile.
+    // fallback. ADR-035 A5: the editor re-applies this on the restore recompile
+    // IFF it is a schema-3 face whose source key still matches (uiIrForRestoredSource);
+    // a derived schema-0/2 layout is rebuilt from the params as before.
     const UiIr::Layout uiIrLayout =
         UiIr::parse(juce::JSON::parse(root.getProperty(kUiIrId, juce::String()).toString()));
+    // ADR-035 A5. "" for a pre-2026-09-08 blob, which never matches a live
+    // source key, so the editor re-derives and re-requests exactly as it did
+    // before this attribute existed.
+    const juce::String uiIrSourceKey =
+        root.getProperty(kUiIrSourceKeyId, juce::String()).toString();
 
     {
         std::lock_guard<std::mutex> lock(metaMutex);
@@ -1044,6 +1075,7 @@ void PluginForgeProcessor::setStateInformation(const void* data, int sizeInBytes
         currentGenerationFamilySource = familySource;
         currentUiStyle     = style;
         currentUiIr        = uiIrLayout;
+        currentUiIrSourceKey = uiIrSourceKey;
     }
 
     // Tell any open editor before the restore recompile below: the compile will
