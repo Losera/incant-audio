@@ -1,4 +1,4 @@
-# PluginForge — Status  (2026-09-08)
+# PluginForge — Status  (2026-09-09)
 
 Rewritten each session per COLLABORATION.md §5. Single writer, no merge conflicts.
 Narrative history lives in git and in `docs/sessions/`.
@@ -51,10 +51,11 @@ One line per capability, each naming its evidence. "Builds clean" is not a capab
   specific device name (`SSL console fader`, `LA-2A`) is more actionable to the model than
   an abstract metaphor. L1's failures are semantic, not syntactic (error-class tagging:
   SEMANTIC 9 / SYNTAX 4 at L1, vs 2–4 elsewhere). Orthogonally, the `dynamics` category is
-  weak at *every* tier (first-try 20–60%), consistent with defect #2 (PF-032). Caveat: n=1
-  per cell (PF-031's ≥3-run bar unmet), unjudged, and `dynamics-03`/L1's 3rd corrective
-  attempt was cut off by a rate limit and recorded as a failure — so retry-corrected is a
-  lower bound, understated by at most 1/125 (inside L1).
+  weak at *every* tier (first-try 20–60%) — largely a `routing_arity` mechanism now
+  diagnosed and partly mitigated (defect #1; prompt fix PR #75, single re-run 2026-09-09).
+  Caveat: n=1 per cell (PF-031's ≥3-run bar unmet), unjudged, and `dynamics-03`/L1's 3rd
+  corrective attempt was cut off by a rate limit and recorded as a failure — so
+  retry-corrected is a lower bound, understated by at most 1/125 (inside L1).
 - **Spectral judge produces a per-prompt verdict** (report-only, not gated). PF-041/PF-042
   closed 2026-08-06.
 
@@ -292,12 +293,21 @@ tier that compiles renders +79.6 dB runaway; the sidechain compressor fails ever
   signal as a trailing `_` argument to a stdlib effect (`co.compressor_stereo(r,t,a,rl,_,_)`,
   `ef.gate_stereo(...,_,_)`), which is a hard arity error because the library function
   reuses `x,y` internally. `misceffects.lib:182`, `compressors.lib:1002`. **Mitigation
-  landed (PR — prompt + retry hint), NOT yet verified against a live model:** a dynamics
-  few-shot replaced the tape-flanger few-shot in `system_prompt.txt`, the "renders SILENCE"
-  claim on the gate rule was corrected to "hard arity error", and `error_classes.ROUTING_ARITY`
-  got a `RETRY_HINT` (was raw stderr only; `dynamics-01`/L4 and `dynamics-03`/L4 each repeated
-  the identical error on all 3 attempts). Needs a fresh efficacy run to confirm — see
-  "Assumed" / benchmark-staleness note below.
+  landed** (PR #75, `a778853`): a dynamics few-shot replaced the tape-flanger few-shot in
+  `system_prompt.txt`, the "renders SILENCE" claim on the gate rule was corrected to "hard
+  arity error", and `error_classes.ROUTING_ARITY` got a `RETRY_HINT` (was raw stderr only;
+  `dynamics-01`/L4 and `dynamics-03`/L4 each repeated the identical error on all 3 attempts).
+  **Verified 2026-09-09, n=1, single re-run of all 25 dynamics cells on the fixed prompt**
+  (`bench/results/efficacy/efficacy_groq_dynamics_postfix_20260909.json`):
+  *the targeted pattern is gone* — `co./ef. X_stereo(...,_,_)` in generated code **8/25 → 0/25**,
+  `routing_arity` first-attempt errors **10/25 → 4/25**. `dynamics-03`/L4 (baseline
+  `compile_failed`, the flagship) is now a first-try pass with the correct idiom. *Net
+  compile rate barely moved* — first-try **8/25 → 9/25**, retry-corrected **16/22 → 17/22**
+  on the 22 cells not cut short by groq's TPM limit — because failures partly rotated into
+  `syntax` errors (6→9): the model now calls the compressor correctly but botches makeup
+  gain (`: *makeup`, prefix-op) and other adjacent things the fix does not target. Honest
+  read: the fix does what it was built to do; dynamics has multiple independent failure
+  modes and this closed one. n=1 keeps it short of a verdict (PF-031 wants ≥3).
 
 **2. The noise gate still renders silent.** *(PF-032's surviving half, high, open.)* Warm-LP
 renders silent 1/4 at L4 on the grid.
@@ -374,24 +384,27 @@ did; the grid was already generated, just uncommitted. What remains open is a *d
 not this one: n≥3 per cell (PF-031) and a judged fidelity pass (`--judge` spends quota,
 defect #8). Those are new evidence items, not a re-opening of PF-011.
 
-**Benchmark staleness (2026-09-08):** `system_prompt.txt` changed after that grid was
-measured — the tape-flanger few-shot became a `co.compressor_stereo` few-shot and the
-`routing_arity` retry hint was added (defect #1). The committed
-`efficacy_groq_20260831.json` therefore measures a **superseded prompt** for the dynamics
-category. Its dynamics numbers stand as the *pre-fix* baseline; the fix is unverified until
-a fresh grid runs (Next-three #1 now doubles as that check).
+**Benchmark staleness (2026-09-08 → partly closed 2026-09-09):** `system_prompt.txt`
+changed after the 125-cell grid was measured — the tape-flanger few-shot became a
+`co.compressor_stereo` few-shot and the `routing_arity` retry hint was added (defect #1).
+`efficacy_groq_20260831.json`'s **dynamics** numbers are therefore the *pre-fix* baseline.
+A fresh single run of the 25 dynamics cells on the fixed prompt landed 2026-09-09
+(`efficacy_groq_dynamics_postfix_20260909.json`, committed) — see defect #1 for the result.
+The other four categories in `efficacy_groq_20260831.json` are unaffected by the edit and
+still current. A full 125-cell re-run at n≥3 (PF-031) is still owed for a real verdict.
 
 ---
 
 ## Next three things
 
-1. *(evidence)* **Re-run the groq efficacy grid** — now doing double duty. It (a) closes the
-   benchmark-staleness gap opened by the 2026-09-08 dynamics prompt fix (defect #1) by
-   re-measuring dynamics against the current prompt, and (b) moves toward PF-031's n≥3 bar
-   if run ×3 with per-cell aggregation. `run_efficacy_study.py --provider groq` (spends
-   quota; checkpoints harmlessly). Compare the dynamics `routing_arity` first-attempt rate
-   against the committed pre-fix baseline. A judged fidelity pass (`score_efficacy.py
-   --judge`, defect #8) is the cheaper alternative if quota is tight.
+1. *(evidence)* **Re-run the groq efficacy grid at n≥3 (PF-031).** The single dynamics
+   re-run (2026-09-09, defect #1) confirmed the prompt fix kills the `_,_)` pattern but left
+   the compile-rate verdict inside n=1 noise. A real number needs all 125 cells × 3 with
+   per-cell aggregation. `run_efficacy_study.py --provider groq` (spends quota; groq's
+   ~8k-TPM limit paces it to ~1 cell/90s, so this is a multi-day grind — resume-loop it).
+   Also owed: the makeup-gain follow-up — the dynamics few-shot stops at the compressor call
+   and the model then writes `: *makeup`; showing `: par(i, 2, *(makeup))` would need ~120
+   chars of prompt headroom back (trim one `gen_stdlib_block.py` curated entry).
 2. **Capture repros for PF-072 and PF-074.** The two medium in-host findings are
    currently unactionable — each needs the triggering patch source and the action
    immediately before. Needs an interactive host session; until then they can only be
