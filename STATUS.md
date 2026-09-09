@@ -287,6 +287,17 @@ open.)* Karplus-Strong's `recursion_cycle` fails to compile across every archive
 tier that compiles renders +79.6 dB runaway; the sidechain compressor fails every run with a
 *different* error. `routing_arity` is now PF-024's dominant first-attempt failure class
 (22/44 error strings on the 125-cell grid).
+  **Diagnosed 2026-09-08** (full trace: the session log / PR): the dynamics category's
+  `routing_arity` failures (10/25 cells) are one mechanism — the model passes the audio
+  signal as a trailing `_` argument to a stdlib effect (`co.compressor_stereo(r,t,a,rl,_,_)`,
+  `ef.gate_stereo(...,_,_)`), which is a hard arity error because the library function
+  reuses `x,y` internally. `misceffects.lib:182`, `compressors.lib:1002`. **Mitigation
+  landed (PR — prompt + retry hint), NOT yet verified against a live model:** a dynamics
+  few-shot replaced the tape-flanger few-shot in `system_prompt.txt`, the "renders SILENCE"
+  claim on the gate rule was corrected to "hard arity error", and `error_classes.ROUTING_ARITY`
+  got a `RETRY_HINT` (was raw stderr only; `dynamics-01`/L4 and `dynamics-03`/L4 each repeated
+  the identical error on all 3 attempts). Needs a fresh efficacy run to confirm — see
+  "Assumed" / benchmark-staleness note below.
 
 **2. The noise gate still renders silent.** *(PF-032's surviving half, high, open.)* Warm-LP
 renders silent 1/4 at L4 on the grid.
@@ -363,18 +374,24 @@ did; the grid was already generated, just uncommitted. What remains open is a *d
 not this one: n≥3 per cell (PF-031) and a judged fidelity pass (`--judge` spends quota,
 defect #8). Those are new evidence items, not a re-opening of PF-011.
 
+**Benchmark staleness (2026-09-08):** `system_prompt.txt` changed after that grid was
+measured — the tape-flanger few-shot became a `co.compressor_stereo` few-shot and the
+`routing_arity` retry hint was added (defect #1). The committed
+`efficacy_groq_20260831.json` therefore measures a **superseded prompt** for the dynamics
+category. Its dynamics numbers stand as the *pre-fix* baseline; the fix is unverified until
+a fresh grid runs (Next-three #1 now doubles as that check).
+
 ---
 
 ## Next three things
 
-1. *(evidence)* **Re-run the groq grid to n≥3 per cell (PF-031), or run the judged fidelity
-   pass.** The single-run groq grid is now committed and scored (PF-011 closed — see
-   "Works"), so the Assumed list is empty and this slot needs a fresh evidence target. Two
-   candidates, both spend quota: (a) `run_efficacy_study.py` ×3 with per-cell aggregation to
-   meet PF-031's ≥3-run bar and get a variance estimate on the L1 trough; (b)
-   `score_efficacy.py --judge` for a judged semantic-fidelity gradient (defect #8 — the
-   lock is fine, the quota is the cost) to compare against the ollama run's monotonic
-   fidelity decline. (a) is the stronger claim; (b) is cheaper.
+1. *(evidence)* **Re-run the groq efficacy grid** — now doing double duty. It (a) closes the
+   benchmark-staleness gap opened by the 2026-09-08 dynamics prompt fix (defect #1) by
+   re-measuring dynamics against the current prompt, and (b) moves toward PF-031's n≥3 bar
+   if run ×3 with per-cell aggregation. `run_efficacy_study.py --provider groq` (spends
+   quota; checkpoints harmlessly). Compare the dynamics `routing_arity` first-attempt rate
+   against the committed pre-fix baseline. A judged fidelity pass (`score_efficacy.py
+   --judge`, defect #8) is the cheaper alternative if quota is tight.
 2. **Capture repros for PF-072 and PF-074.** The two medium in-host findings are
    currently unactionable — each needs the triggering patch source and the action
    immediately before. Needs an interactive host session; until then they can only be

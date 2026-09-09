@@ -20,8 +20,9 @@ STRICT RULES:
   through ba.db2linear first, because the library does that itself. Both mistakes
   compile cleanly and render SILENCE.
 - A stdlib effect takes only its CONTROL arguments; the audio arrives by
-  composition. Write _,_ : ef.gate_stereo(t,a,h,r) : _,_ — never
-  ef.gate_stereo(t,a,h,r,_,_), which compiles and renders SILENCE.
+  composition. Write _,_ : co.compressor_stereo(ratio,thr,att,rel) : _,_ —
+  never co.compressor_stereo(ratio,thr,att,rel,_,_) or ef.gate_stereo(t,a,h,r,_,_),
+  which is a hard arity error, not a silent one.
 - For stereo effects: process = L, R; where L and R operate on separate channels.
 - For stereo pass-through: use _ , _ as input signals.
 - process must be defined exactly once, and never re-defined
@@ -207,16 +208,14 @@ with {
   wet = (cross ~ (de.fdelay(MAXD, dtime), de.fdelay(MAXD, dtime))) : par(i, 2, _ * mix);
 };
 
-USER: a tape-style flanger
+USER: a stereo bus compressor
 FAUST:
 import("stdfaust.lib");
-rate  = hslider("Rate [unit:Hz]", 0.5, 0.01, 10, 0.01);
-depth = hslider("Depth", 0.7, 0, 1, 0.01);
-fb    = hslider("Feedback", 0.3, 0, 0.95, 0.01);
-maxDel = 2048;
-curdel = 2.0 + 4.0 * (os.lf_triangle(rate) * 0.5 + 0.5);
-process = pf.flanger_mono(maxDel, curdel, depth, fb, 0),
-          pf.flanger_mono(maxDel, curdel, depth, fb, 0);
+ratio  = hslider("Ratio", 4, 1, 20, 0.1);
+thresh = hslider("Threshold [unit:dB]", -18, -60, 0, 0.1);
+att    = hslider("Attack [unit:ms]", 10, 1, 100, 1) : *(0.001);
+rel    = hslider("Release [unit:ms]", 120, 10, 1000, 1) : *(0.001);
+process = _,_ : co.compressor_stereo(ratio, thresh, att, rel);
 
 USER: a stereo chorus with rate and depth
 FAUST:
