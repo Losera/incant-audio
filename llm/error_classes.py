@@ -139,7 +139,33 @@ def classify_error(error: str) -> str:
 # ("interval(0,2.14748e+09,0)": no expression, no line, no remedy). Text
 # below restates the rule from system_prompt.txt:60-63 plus the bounded
 # pattern from its stereo-delay few-shot (:172-176), not a paraphrase.
+#
+# ROUTING_ARITY is the second, evidenced by the 2026-08-31 groq efficacy
+# grid (bench/results/efficacy/efficacy_groq_20260831.json). It is PF-024's
+# single largest first-attempt failure class and it dominates the dynamics
+# category (10 of 25 cells). Two cells emitted the IDENTICAL arity error on
+# all three attempts: dynamics-03/L4 (ef.gate_stereo(...,_,_)) and
+# dynamics-01/L4 (co.compressor_stereo(...,_,_) * makeup) — the model passed
+# the audio as a trailing _ argument, the raw stderr came back as
+# post-desugaring lambda soup ("gate_stereo(h..._,0.001f : *)(_)(_)": no
+# remedy), and it repeated the mistake verbatim. system_prompt.txt already
+# carried the rule; a dynamics few-shot and this hint were added together.
+# Text below restates system_prompt.txt's "stdlib effect takes only its
+# CONTROL arguments" and "par(i, 2, E)" rules, not a paraphrase.
 RETRY_HINT = {
+    ROUTING_ARITY: (
+        "\n\nThe compiler rejected a routing-arity mismatch: the signal count "
+        "on one side of a : , <: or :> did not match the other. The most "
+        "common cause, and the first thing to check: you passed the audio "
+        "signal as an argument to a stdlib effect. A stdlib effect takes ONLY "
+        "its control arguments — the audio arrives by composition. Write "
+        "_,_ : co.compressor_stereo(ratio,thr,att,rel) : _,_ — NEVER "
+        "co.compressor_stereo(ratio,thr,att,rel,_,_) or "
+        "ef.gate_stereo(t,a,h,r,_,_); those reuse x,y internally and end up "
+        "demanding more inputs than you have signals. To apply a MONO effect "
+        "to a stereo signal use par(i, 2, E), never _,_ : E. Fix the routing "
+        "and re-emit the full program."
+    ),
     DELAY_RANGE: (
         "\n\nYour previous program had an UNBOUNDED delay — the compiler "
         "rejected it with an invalid parameter range. The FIRST argument to "
