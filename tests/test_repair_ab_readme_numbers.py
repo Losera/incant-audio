@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tests/test_issue26_readme_numbers.py — pin bench/issue26/README.md's prose
+"""tests/test_repair_ab_readme_numbers.py — pin bench/repair_ab_repro/README.md's prose
 numbers to what bench/score_repair_ab.py actually computes over the committed
 trajectories.
 
@@ -19,11 +19,11 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "bench" / "issue26"))
+sys.path.insert(0, str(ROOT / "bench" / "repair_ab_repro"))
 
 import verify  # noqa: E402
 
-README = (ROOT / "bench" / "issue26" / "README.md").read_text()
+README = (ROOT / "bench" / "repair_ab_repro" / "README.md").read_text()
 
 
 @pytest.fixture(scope="module")

@@ -1,4 +1,4 @@
-# bench/issue26/Makefile — reproduction entrypoints for
+# bench/repair_ab_repro/Makefile — reproduction entrypoints for
 # https://github.com/Losera/incant-audio/issues/26
 #
 #   make verify        re-derive the published numbers from committed data (~1s)
@@ -43,7 +43,7 @@ STRATIFY   ?=
 # stale build (a plain :latest could, and did).
 _SHA   := $(shell git -C $(ROOT) rev-parse --short HEAD 2>/dev/null || echo nogit)
 _DIRTY := $(shell git -C $(ROOT) status --porcelain 2>/dev/null | grep -q . && echo -dirty)
-IMAGE  ?= incant-issue26:$(_SHA)$(_DIRTY)
+IMAGE  ?= incant-repair-ab:$(_SHA)$(_DIRTY)
 
 _KEYENV := $(if $(API_KEY_ENV),--api-key-env $(API_KEY_ENV),)
 _SUBSET := $(if $(LIMIT),--limit $(LIMIT),) $(if $(STRATIFY),--stratify $(STRATIFY),)
@@ -56,7 +56,7 @@ verify:
 
 rederive:
 	PLUGINFORGE_FAUST_RS_BIN=$${PLUGINFORGE_FAUST_RS_BIN:-$$(command -v faust-rs)} \
-	$(PYTHON) $(ROOT)/bench/frs_rederive_issue26.py
+	$(PYTHON) $(ROOT)/bench/frs_rederive.py
 
 replay:
 	$(PYTHON) $(CURDIR)/repair_ab_standalone.py \

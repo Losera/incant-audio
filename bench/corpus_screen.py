@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """bench/corpus_screen.py — a mechanical "is this actually a Faust program?" screen
-for the issue-#26 repair corpus.
+for the faust-rs repair corpus.
 
 WHY THIS EXISTS
     A weak generator, prompted with an artist/gear reference and nothing else
@@ -96,7 +96,7 @@ def screen(records: list[dict]) -> tuple[list[dict], list[dict]]:
 
 def included_shas(corpus_path: str | Path) -> set[str]:
     """The code_shas that pass the screen — the `include` set for
-    score_repair_ab.load_pairs and bench/issue26/verify.py."""
+    score_repair_ab.load_pairs and bench/repair_ab_repro/verify.py."""
     records = json.loads(Path(corpus_path).read_text())
     kept, _ = screen(records)
     return {r["code_sha"] for r in kept}

@@ -1,4 +1,4 @@
-# issue-#26 data schema
+# Repair-loop A/B — data schema
 
 Committed JSON under `bench/corpora/` and `bench/results/repair_ab/`:
 
@@ -12,7 +12,7 @@ Committed JSON under `bench/corpora/` and `bench/results/repair_ab/`:
 | `results/repair_ab/repair_ab_20260830{,_7b}_report.txt` | the human-readable score run |
 | `results/repair_ab/*_chart.png` | the grouped-bar charts |
 | `results/repair_ab/frs_rederive_20260830.txt` | the diagnostic-quality comparison table |
-| `issue26/expected.json` | **object** — the frozen expectations `verify.py` checks (schema 2) |
+| `expected.json` | **object** — the frozen expectations `verify.py` checks (schema 2) |
 
 ---
 

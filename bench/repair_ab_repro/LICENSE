@@ -1,15 +1,15 @@
-issue #26 reproduction package — license
+Repair-loop A/B reproduction package — license
 =======================================
 
 This directory, plus the shared modules it imports, is released under the
 MIT License so the issue #26 result can be independently reproduced:
 
-    bench/issue26/                  (this directory)
+    bench/repair_ab_repro/                  (this directory)
     bench/repair_ab_core.py
     bench/build_repair_corpus.py
     bench/frs_check.py
     bench/score_repair_ab.py
-    bench/frs_rederive_issue26.py
+    bench/frs_rederive.py
     bench/fidelity_gate.py
     bench/results/repair_ab/        (committed A/B result JSONs + summaries)
     llm/error_classes.py

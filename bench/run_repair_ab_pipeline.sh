@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# bench/run_issue26_pipeline.sh — the whole issue-#26 repair-loop A/B, end to end.
+# bench/run_repair_ab_pipeline.sh — the whole faust-rs repair-loop A/B, end to end.
 #
 #   stage 1  build the failing-program corpus     (bench/build_repair_corpus.py)
 #   stage 2  run the paired A/B                    (bench/run_repair_ab.py)
@@ -7,7 +7,7 @@
 #
 # Every stage is --resume-safe and writes incrementally, so this is fine to kill
 # and re-run: it picks up where it left off. Detached from any Claude session —
-# `nohup bench/run_issue26_pipeline.sh &`. All model calls are local ollama, $0.
+# `nohup bench/run_repair_ab_pipeline.sh &`. All model calls are local ollama, $0.
 set -u
 cd "$(dirname "$0")/.."
 
@@ -18,7 +18,7 @@ cd "$(dirname "$0")/.."
 # ~2 generations — so a large value has no cost and just makes the run robust.
 export PLUGINFORGE_GENERATION_BUDGET="${PLUGINFORGE_GENERATION_BUDGET:-900}"
 
-DATE="${ISSUE26_DATE:-$(date +%Y%m%d)}"
+DATE="${REPAIR_AB_DATE:-$(date +%Y%m%d)}"
 CORPUS="bench/corpora/repair_corpus_${DATE}.json"
 AB="bench/results/repair_ab/repair_ab_${DATE}.json"
 SUMMARY="bench/results/repair_ab/repair_ab_${DATE}_summary.json"

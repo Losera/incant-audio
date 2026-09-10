@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """bench/fidelity_gate.py — did the repair keep the program, or just make it compile?
 
-The issue-#26 A/B (bench/repair_ab_core.py, bench/issue26/) measures
+The faust-rs repair-loop A/B (bench/repair_ab_core.py, bench/repair_ab_repro/) measures
 "repaired-within-2-attempts": success == the Faust compiler stopped complaining.
 That number is silent about whether the repaired program still does what the
 prompt asked. This module adds the cheap, compiler-free half of that question:
@@ -17,9 +17,9 @@ prompt asked. This module adds the cheap, compiler-free half of that question:
                    are excluded from the primitives denominator.
 
 Neither tier needs faust or faust-rs.  The render tier (silence / NaN / DC /
-runaway + acoustic compliance) is WP4 in bench/issue26/METHODOLOGY.md and will
+runaway + acoustic compliance) is WP4 in bench/repair_ab_repro/METHODOLOGY.md and will
 land here too; it needs faust2sndfile and is deliberately kept out of
-bench/issue26/verify.py's scipy-only ~1 s closure.
+bench/repair_ab_repro/verify.py's scipy-only ~1 s closure.
 
     python bench/fidelity_gate.py bench/results/repair_ab/repair_ab_20260830.json
     python bench/fidelity_gate.py RESULT.json --out RESULT_fidelity.json
@@ -46,8 +46,8 @@ DEFAULT_CORPUS = _BENCH_DIR / "corpora" / "repair_corpus_20260830.json"
 DEFAULT_PROMPTS = _BENCH_DIR / "prompts" / "tiered_prompts.json"
 # vendored, MIT — effect_id -> expected_primitives, used when tiered_prompts.json
 # (proprietary, full repo only) is absent. Keeps this module standalone so the
-# issue-#26 container and repair_ab_standalone.py can import it.
-VENDORED_PRIMITIVES = _BENCH_DIR / "issue26" / "expected_primitives.json"
+# repro container and repair_ab_standalone.py can import it.
+VENDORED_PRIMITIVES = _BENCH_DIR / "repair_ab_repro" / "expected_primitives.json"
 
 
 def matches_expected_primitives(code: str, expected_primitives: list) -> bool:
@@ -89,7 +89,7 @@ def load_primitives(path: Path) -> dict[str, list[str]]:
     """effect_id -> expected_primitives (any-of substring list).
 
     Reads tiered_prompts.json when present; falls back to the vendored
-    issue26/expected_primitives.json (a plain effect_id -> list map) so this
+    repair_ab_repro/expected_primitives.json (a plain effect_id -> list map) so this
     runs from the reproduction package alone.
     """
     p = Path(path)
