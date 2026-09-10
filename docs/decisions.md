@@ -824,8 +824,8 @@ The plugin remains 100% native JUCE. The browser is a *mirror*, not a component.
 
 | | |
 |---|---|
-| **Status** | Proposed |
-| **Date** | 2026-08-06 |
+| **Status** | **Accepted — 2026-09-09, via ADR-038**, together with the 2026-08-13 amendment below (which is the design of record; the original Decision section's `find_library(faust)` assumption is superseded by it). Phase 2b (sign/notarize) stays deferred. |
+| **Date** | 2026-08-06 (accepted 2026-09-09) |
 
 **Context**
 Users want to share generated plugins beyond the PluginForge host. ADR-022 explicitly deferred "a stripped, single-patch-only build" as a bigger undertaking. The current architecture allows a coarse version (host binary + state file), but a genuine export requires CMake + JUCE + pinned Faust patch + themed UI.
@@ -2361,3 +2361,208 @@ fill a slot in an external pipeline diagram.
 `acceptancePlan` JSON shape, the `bench/evaluate_against_plan.py` CLI surface, and which
 `check.sh` level (if any) runs it by default are implementation-session decisions, not
 settled here.
+
+---
+
+## ADR-038 — Re-sequence generated-face richness and plugin export ahead of Phase 6
+
+| | |
+|---|---|
+| **Status** | **Accepted — 2026-09-09, by explicit user decision.** |
+| **Date** | 2026-09-09 |
+| **Relates to** | ADR-023 (export — this ADR accepts it and its 2026-08-13 amendment as the design of record, and clears its stated blocking prerequisite), ADR-035 (generated faces — this extends its ladder past the floor it stopped at), ADR-022 §3 (`derivePalette` — the no-IR fallback, unchanged), ADR-036 (shell redesign — shares `ArchetypeLayout.h`; not sequenced by this ADR), `docs/phases/phase-6.md` (moves two of its items forward), `docs/sessions/020-generated-faces-v2.md` (the two ladders) |
+
+**Context**
+
+The product's stated north star, in the product-architecture draft under `bench/`
+(untracked, 2026-08-17) and restated by the user 2026-09-09, is: *a musician types a
+prompt, PluginForge
+generates the plugin, and the musician ends up with **a fully standalone plugin they
+can download and modify, with its own unique UI.*** Looking at the running Standalone
+against `docs/design/incant-ui/Generated Plugin Faces.dc.html`, the user asked whether
+the current scope is deliberate and why the project is not moving toward that north
+star faster.
+
+It is deliberate, and it is the roadmap. Two bodies of work sit between here and the
+north star, both currently in Phase 6 ("Deferred by design — opens only after an
+initial supported release exists and holds"):
+
+1. **Generated-face richness.** ADR-035 shipped steps 1–5: `UiIr` schema 3, a
+   theme-scoped `GeneratedFaceLookAndFeel` (colours + one knob geometry + fonts),
+   `ArchetypeLayout.h` (column / split / rail geometry), the `ui_face` producer.
+   `GENERATION_PLAN.md` was explicit that this is the floor: *"Steps 1–3 are shippable
+   without 4: a themed sqrt grid already looks unmistakably per-plugin."* The mockup's
+   visualizers — ADSR bars, response curves, echo trails, the grain-cloud dot field,
+   tape reels, big numeric readouts, toggle-chip rows, signal meters — were never
+   scoped. `ArchetypeLayout.h:249` records the state directly: the texture-field
+   display region is *"reserved… nothing draws there yet."*
+
+2. **Plugin export (PF-053).** `tools/export_repo.py`, the `/export` skill, and
+   `tests/test_export_repo.py` exist. The skill is gated with an explicit refusal
+   message and `docs/phases/phase-6.md` lists it. ADR-023's 2026-08-13 amendment
+   already did the hard architectural design — AOT emission via `libfaust`'s
+   `generateAuxFilesFromString` (`/usr/include/faust/dsp/libfaust.h:117`, symbol
+   confirmed exported in the linked `libfaust.so`), in-process, no subprocess and no
+   new dependency; per-generation `PLUGIN_CODE` from `generateSHA1` (`libfaust.h:42`);
+   and reuse of `UiIr.h` / `ParamCapture` for the exported editor rather than a second
+   renderer. ADR-023 is still **Proposed**.
+
+**What has changed since these were deferred:**
+
+- **ADR-023's one stated blocking prerequisite is cleared.** The amendment says:
+  *"export inherits STATUS.md's Broken #2 — this project has never had a plugin in a
+  DAW… Validating an exported plugin requires first solving host validation for the
+  plugin already shipped."* STATUS.md "Works" now records both plugins running
+  interactively in REAPER (session 017, 2026-08-28) and `pluginval --strictness 5 →
+  SUCCESS` across seeds. The prerequisite is met and nobody has acted on the unblock.
+- **ADR-035 steps 1–5 landed.** The face floor now exists, so an export can inherit
+  `UiIr` + `GeneratedFaceLookAndFeel` — exactly what ADR-023 amendment §3 said to wait
+  for ("Sequence this after ADR-022's amendment… lands, so the exported plugin
+  inherits sectioned layout instead of a parallel implementation").
+
+**The competing work.** `STATUS.md` "Next three things": efficacy evidence (PF-031),
+in-host repro capture (PF-072/PF-074), and the silent-noise-gate defect (PF-032).
+`docs/phases/phase-3.md` has 12 open audible/interaction defects, two high-severity
+(PF-024 `routing_arity` — 22/44 first-attempt failures on the 125-cell grid; PF-032 —
+a generated noise gate renders silent, warm-LP silent 1-in-4 at L4).
+`docs/phases/phase-4.md` (installable release) is *"Release-critical, blocked."*
+
+**Decision**
+
+1. **Accept ADR-023 and its 2026-08-13 amendment** as the export design of record.
+   Move it from Proposed to Accepted. Its blocking prerequisite is now met.
+
+2. **Open a "generated faces v2" track** extending ADR-035's ladder toward the mockup,
+   decomposed in `docs/sessions/020-generated-faces-v2.md` as five independently
+   landable steps F1–F5 and the export as E1–E4. Both are dependency-ordered; the
+   heuristic layout and the Ember-default face stay the floor at every step.
+
+3. **Sequence, explicitly:**
+   - **On the critical path, unchanged:** PF-024 and PF-032 (the two high-severity
+     generation defects) and the Phase-4 installable release.
+   - **In parallel, explicitly off the critical path:** faces-v2 **F1–F3** (knob
+     geometry incl. bipolar rendering; toggle/enum chip rows; bespoke archetype
+     geometry) and export **E1–E3** (AOT emit; wire `processBlock` to the static DSP +
+     fix the `PLUGIN_CODE` collision; prove-sound + un-gate `/export`). None of these
+     adds a component subsystem, a signal tap, or a second renderer.
+   - **Gated behind their own ADRs:** faces-v2 **F4** (a `FaceVisual` drawing layer
+     for ADSR / curves / histograms / meters — real-signal visuals need offline DSP
+     evaluation and/or PF-052 meter plumbing) and export **E4** (emitting the face
+     into the exported plugin — composes F1–F3 with E1–E3). F5 (display typography /
+     readouts) sequences after F3/F4.
+
+4. **F1 is not gated on this ADR.** It is a bugfix on a shipped feature — a bipolar
+   parameter at its centre value currently fills a 144° value arc from the arc start
+   instead of from a centre detent (`GeneratedFaceLookAndFeel::drawRotarySlider`,
+   `host/Source/GeneratedFaceLookAndFeel.h:280-333`). COLLABORATION.md §1: *"a known
+   defect is never gated."* It proceeds regardless of the decision on 1–3.
+
+**Alternatives considered**
+
+1. **Stay the course — finish Phase 3 and Phase 4 before any face-v2 or export work.**
+   Rejected as the sole path, kept as the critical path. Attention is the scarcest
+   resource here (COLLABORATION.md §4), and PF-024/PF-032/Phase-4 genuinely gate a
+   usable release. But F1–F3 and E1–E3 are small, well-specified (ADR-023 did the
+   design; ADR-035 built the substrate), and independently landable — parking them
+   entirely behind a release that is itself blocked trades a cheap parallel win for
+   nothing. The hybrid keeps the release on the critical path and runs the cheap
+   parallel work off it.
+
+2. **Implement the full mockup now — the visualizer subsystem included.** Rejected.
+   The visualizers are ~60% of the mockup's visual weight and the real-signal ones
+   (response curves, live meters) need architecture that does not exist: an offline
+   frequency-response evaluation of the JIT'd DSP, and a metering path that survives
+   PF-052 (`Kind::Meter` zones discarded upstream in `ParamPool`). That is F4's own
+   ADR, not this one.
+
+3. **Pull export forward but not face-v2 (or vice versa).** Rejected — they converge.
+   An exported plugin today renders a `juce::GenericAudioProcessorEditor` (a bare
+   parameter list). Exporting without the face ships a downloadable plugin that has
+   lost the one thing ADR-035 gave it. Doing face-v2 without export leaves the
+   richness trapped inside the host app. The north star is both.
+
+**Adversarial critique**
+
+A bespoke UI and a downloadable artifact built on top of generation that renders
+**silent one run in four** (PF-032) and carries twelve open audible defects is polish
+on a cracked foundation. A musician who downloads a beautiful plugin that sounds wrong
+has a worse first impression than one who never had the download button. Phase 4 is
+release-critical and genuinely blocked; every hour on a knob detent is an hour not on
+that. The honest risk is that "run F1–F3 and E1–E3 in parallel" becomes "run them
+instead," and the release slips because the visible, satisfying work crowded out the
+unglamorous work. Mitigation is in the Consequences: the parallel track pauses if it
+is observed pulling attention off PF-024/PF-032/Phase-4, and that observation is the
+human's to make at each `/orient`.
+
+**Consequences**
+
+- **Two of `docs/phases/phase-6.md`'s items move forward** — richer meters (PF-052,
+  as F4's dependency) and exported standalone projects (PF-053). The phase file is
+  updated to point here.
+- **The `/export` skill's gate is lifted only at E3**, on its own three stated
+  criteria (builds clean, loads in a DAW, makes sound) — not by this ADR. Until E3,
+  `/export` keeps refusing.
+- **Each F and E step lands on a change report + the §3 evidence bar.** F1–F3 and E2
+  are Tier 2 (paint code / a wire contract / the state-blob-adjacent export format).
+- **F4 and E4 do not land on this ADR's acceptance.** New drawing subsystem, possible
+  new audio-thread taps, and a second renderer are all §2 trigger-2 / trigger-3
+  territory and get their own decision records.
+- **Rollback:** this ADR ships no code. If the parallel track is a mistake, it is
+  paused and this ADR is amended; nothing is deployed that needs unwinding.
+- **Revisit if:** PF-032 or PF-024 regress or fail to close on the shipping model
+  (the parallel track pauses until they do); or F4's offline-DSP-evaluation
+  requirement turns out to need Faust-version-specific runtime support this repo does
+  not vendor (same open question ADR-023's amendment flagged for the emitted AOT C++).
+
+**Status note (2026-09-09 — accepted)**
+
+Accepted by explicit user decision, with one stated priority recorded here so a
+later session does not read the hybrid as a licence to trickle: **the north star —
+"prompt → PluginForge → a downloadable plugin with its own face" — is to be
+reached quickly, not treated as background polish.** That biases the decision's
+sequencing three ways:
+
+- **The parallel track runs aggressively.** F1–F3 and E1–E3 are the near-term
+  work, not spare-cycle work. A `/orient` that shows no movement on them is a
+  signal, the same way the "next three things" slots are.
+- **The E ladder does not wait on the Phase-4 release.** E1–E3 is the literal
+  "downloadable" half and its design is already done (ADR-023 amendment). It
+  proceeds in parallel with Phase-4, not after it.
+- **PF-024 / PF-032 gate *what gets exported*, not *whether the export path is
+  built*.** The adversarial critique stands — a downloadable plugin that sounds
+  wrong is a bad first impression — but the response is "do not cut a public
+  release of the export feature while the high-severity generation defects are
+  open," not "do not build E1–E3." The two tracks are decoupled up to the point
+  of a public release.
+
+**First moves:** F1 (the bipolar-knob bugfix, ungated) and E1 (AOT emit — the
+riskiest unknown in the E ladder, since ADR-023's amendment verified the symbol
+but not its emitted output). Run them next, before F2/F3/E2.
+
+**Diagram**
+
+```
+  prompt ──► generate ──► Faust ──► JIT compile ──► capture params
+                                                        │
+                                    ┌───────────────────┤
+                                    ▼                   ▼
+                          ui_face (LLM, opt.)   deriveLayoutFromGroups  ◄── floor
+                                    │                   │
+                                    └────────┬──────────┘
+                                             ▼
+                              GeneratedFaceLookAndFeel + ArchetypeLayout
+                              F1 knob/bipolar · F2 toggles · F3 geometry
+                              F4 visualizers  ─────────────────── (own ADR)
+                                             │
+                                        user accepts
+                                             │
+                                             ▼
+                          /export  ──►  E1 AOT emit (generateAuxFilesFromString)
+                                        E2 wire processBlock + PLUGIN_CODE
+                                        E3 pluginval + render check → un-gate
+                                        E4 emit the face  ──────── (own ADR)
+                                             │
+                                             ▼
+                              downloadable, self-contained VST3 + source
+                              (no libfaust at build or runtime — ADR-023 amendment)
+```
