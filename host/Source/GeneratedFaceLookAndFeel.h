@@ -1,5 +1,6 @@
 #pragma once
 #include "ForgeLookAndFeel.h"
+#include "GKnobGeometry.h"
 #include "ThemeValidate.h"
 #include "UiIr.h"
 #include <cmath>
@@ -309,12 +310,27 @@ public:
         {
             const auto fill = slider.findColour(juce::Slider::rotarySliderFillColourId);
 
-            // GKnob's own guard ("v > 0.004"): a near-zero arc renders as
-            // visible noise at the rounded cap, not as "no value yet".
-            if (sliderPos > 0.004f)
+            // ADR-038 F1: ParamGridPanel::applyPresentation() tags a bipolar
+            // control (its REAL Faust range straddles zero -- Detune, Pan)
+            // with a "bipolarDetent" Component property: the NORMALISED
+            // position of real zero on that control's own range
+            // (-min/(max-min) -- never assumed to be 0.5, a symmetric range
+            // is not guaranteed). See that call site's own comment for why
+            // the tag exists at all rather than reading
+            // slider.getMinimum()/getMaximum() here directly. Absent for a
+            // unipolar control (NamedValueSet::operator[] on a missing key
+            // returns a void var). The angle arithmetic itself lives in
+            // GKnobGeometry.h, tested there without a JUCE dependency.
+            const juce::var detentVar   = slider.getProperties()["bipolarDetent"];
+            const bool      hasDetent   = ! detentVar.isVoid();
+            const float     detent      = hasDetent ? static_cast<float>(detentVar) : 0.0f;
+            const float arcStart =
+                GKnobGeometry::arcStartAngle(hasDetent, detent, rotaryStartAngle, rotaryEndAngle);
+
+            if (GKnobGeometry::arcHasFill(hasDetent, detent, sliderPos))
             {
                 juce::Path value;
-                value.addCentredArc(cx, cy, r, r, 0.0f, rotaryStartAngle, toAngle, true);
+                value.addCentredArc(cx, cy, r, r, 0.0f, arcStart, toAngle, true);
                 g.setColour(fill);
                 g.strokePath(value, juce::PathStrokeType(strokeW, juce::PathStrokeType::curved,
                                                           juce::PathStrokeType::rounded));
