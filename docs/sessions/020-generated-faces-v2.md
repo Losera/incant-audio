@@ -56,27 +56,31 @@ knob looks broken because it is drawing "half full" for "centred".
 
 **The fix.**
 
-1. **Mark bipolar controls at build time.** In `ParamGridPanel::refreshParamKnobs`
-   (`ParamGridPanel.cpp:117-267`), the per-slot loop has the `FaustEngine::ParamInfo`
-   `p` with `p.min` / `p.max` / `p.defaultValue` (`FaustEngine.h:72-79`). After
-   creating the `Slider` (`:248-258`), when `p.min < 0.0f && p.max > 0.0f`, set
-   `sl->getProperties().set("bipolarDetent", -p.min / (p.max - p.min))` — the
-   normalised position of real-zero. This works for the heuristic path too; no
-   LLM or `UiIr` change. `juce::Component::getProperties()` is a `NamedValueSet`
-   readable from `drawRotarySlider`'s `juce::Slider&` argument.
-2. **Draw the value arc from the detent.** In `drawRotarySlider`, read
-   `slider.getProperties().getWithDefault("bipolarDetent", {})`. When present,
-   compute `detentAngle = rotaryStartAngle + detent * (rotaryEndAngle -
-   rotaryStartAngle)` and draw the value arc `detentAngle → toAngle` (either
-   direction — `Path::addCentredArc` takes `fromRadians`/`toRadians` in the
-   sign order given). Keep the near-zero guard, applied to `|sliderPos − detent|`
-   instead of `sliderPos`. Pointer geometry is unchanged.
-3. **Pin the track colour.** The mockup's track is `rgba(255,255,255,.10)` —
-   **ink at 10 % alpha**, not the `line` token (`README.md:253`). The current
-   `trackColour = Theme::outline` / `t.line` (`GeneratedFaceLookAndFeel.h:339`)
-   is a different colour and, on a light face (Iron Strip), potentially the
-   wrong lightness. Set `trackColour` from the validated `text` token at
-   `~0.10f` alpha; verify against all four faces' screenshots.
+1. **Mark bipolar controls at build time — landed, PR #82, `1ad9413`.** In
+   `ParamGridPanel::applyPresentation` (not `refreshParamKnobs` as this entry
+   originally said — the styling decision belongs where every other per-widget
+   property is set, and re-runs on every restyle for the same reason the accent
+   does), when `c.meta.min < 0.0f && c.meta.max > 0.0f`, sets
+   `sl->getProperties().set("bipolarDetent", -c.meta.min / (c.meta.max - c.meta.min))`
+   — the normalised position of real-zero, exactly as spec'd here. Works for the
+   heuristic path too; no LLM or `UiIr` change.
+2. **Draw the value arc from the detent — landed, PR #82, `1ad9413`.** The angle
+   arithmetic (detent angle, and the near-zero guard generalised from
+   `sliderPos` to `|sliderPos − detent|`) was factored into a new header,
+   `host/Source/GKnobGeometry.h` (free functions, no JUCE dependency, so it has
+   its own fast unit test, `GKnobGeometryTest`), rather than inlined in
+   `drawRotarySlider` as sketched here. Pointer geometry is unchanged, as
+   planned.
+3. **Pin the track colour — corrected 2026-09-12: already done, before this
+   entry was even written.** This step described the wrong "current" state.
+   `trackColour = text.withAlpha(0.10f)` (`GeneratedFaceLookAndFeel.h`, the
+   constructor) has been in place since **`487155f`, PR #64, 2026-09-04** — five
+   days before ADR-038 (2026-09-09) and this file. `git blame` on the line
+   confirms it directly; whoever drafted this F1 entry described
+   `Theme::outline`/`t.line` from a stale read rather than the file as it
+   actually stood. Nothing here needs building; the "verify against all four
+   faces' screenshots" half of this item is still genuinely open (untouched by
+   PR #82) if someone wants to close that out.
 
 **Traps.**
 - `setRotaryParameters(pi*1.2f, pi*2.8f)` is set by `ParamGridPanel.cpp`, not the
@@ -93,6 +97,13 @@ unipolar param is unchanged; `EditorSessionTest` asserts the fill start for a
 bipolar vs a unipolar param (a `drawRotarySlider` geometry `ForTest` seam, or a
 snapshot diff); the four faces still read correct in a `tools/ui_iterate.sh`
 contact sheet (human look). `tools/check.sh full` green.
+
+**Status, PR #82 (2026-09-12):** first three items done — pinned at the
+`GKnobGeometry.h`/`GKnobGeometryTest` level (17 checks, no JUCE dependency)
+rather than as an `EditorSessionTest` geometry seam, which this bar names and
+PR #82 does not add. `tools/check.sh full` green. The human look (a real DAW
+session with an actual bipolar control, or a `ui_iterate.sh` contact sheet) is
+the one item still open — in progress the same day, outside this repo.
 
 ### F2 — toggle / enum chip rows
 

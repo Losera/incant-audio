@@ -374,7 +374,15 @@ void ParamGridPanel::applyPresentation(Control& c)
     // applyPresentation() call for the same reason the accent above is, so a
     // style change never leaves a stale tag behind.
     if (c.meta.min < 0.0f && c.meta.max > 0.0f)
+    {
+        // min < 0 < max already forces max - min > 0 by construction (max > 0
+        // > min), so this can never divide by zero under the branch above --
+        // asserted anyway, as a named invariant a future edit to that
+        // condition (e.g. loosening `<`/`>` to `<=`/`>=`) would otherwise
+        // silently depend on without anyone noticing it had to.
+        jassert(c.meta.max > c.meta.min);
         sl->getProperties().set("bipolarDetent", -c.meta.min / (c.meta.max - c.meta.min));
+    }
 
     // ── Style override ──────────────────────────────────────────────────────
     // Rotary and Horizontal are user view choices and win over the Faust Kind.
