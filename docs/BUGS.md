@@ -69,7 +69,7 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-031 | The 25-prompt benchmark's noise floor is unmeasured — no delta can be called significant. **Measured: 4pp rate spread, and only 1 of 5 failing prompts reproduces its class** | medium | fixed | S4 Testing | `bench/run_benchmark.py` | 2026-07-28 | pending commit |
 | PF-033 | Reopening a saved project resets every knob to the patch defaults — the editor's seeding overwrites the restore | high | fixed | S3 Plugin UX | `ParamGridPanel.cpp` `refreshParamKnobs` | 2026-07-28 | `81fc75b` |
 | PF-034 | `EditorSessionTest` scenario 6 raced the message thread — green locally, red on the runner | medium | fixed | S4 Testing | `host/tests/EditorSessionTest.cpp` `loadAndSettle` | 2026-07-28 | pending commit |
-| PF-032 | 2 of 22 compiling patches render SILENT — a warm lowpass and a noise gate. **Measured 07-30: the lowpass (Hz contract) is fixed; the noise gate is not** | high | in-progress | S1 Backend | `llm/prompts/system_prompt.txt` | 2026-07-28 | lowpass closed `a4f942e`; gate open |
+| PF-032 | 2 of 22 compiling patches render SILENT — a warm lowpass and a noise gate. **Measured 07-30: the lowpass (Hz contract) is fixed; the noise gate is not.** **Re-measured 09-12: still silent, 5/6 fresh `ollama` gens — root cause corrected, it's the att/hold/rel time-unit contract, not thresh/`db2linear`** | high | in-progress | S1 Backend | `llm/prompts/system_prompt.txt` | 2026-07-28 | lowpass closed `a4f942e`; gate open, mechanism corrected 09-12 |
 | PF-035 | `min_max_tokens` makes a per-call output budget unenforceable — the judge asks for 300 and silently gets 4096 | low | open | S4 Testing | `bench/score_efficacy.py:465`, `providers.py` `make_generator` | 2026-07-29 | — |
 | PF-036 | libfaust's JIT emits AVX-512 on CI runners that name the ISA but cannot execute it — SIGILL in `computemydsp`. It **was** the CPU; PF-027 closed that hypothesis wrongly | high | fixed | S4 Testing | `host/tools/pf_cpu_shim.cpp`, `.github/workflows/test.yml` | 2026-07-30 | pending commit |
 | PF-037 | Every parameter displays as a raw 0–1 slot number — 800 Hz reads `0.04`. `ParamMap` denormalizes into the DSP and nothing denormalizes for the display | medium | fixed | S3 Plugin UX | `ParamMap.h` `formatZone`, `ParamGridPanel.cpp` `applyPresentation` | 2026-07-28 | pending commit |
@@ -632,6 +632,50 @@ it must be per-class rather than aggregate.
 **Cost, recorded because it constrains the next edit.** Prompt headroom fell 457 → **185
 tokens**; the stdlib block now needs only **10.8%** growth (was ~29%) to 413 every groq
 request. The calibration anchor is 7.9% stale and a re-measure is due — one live generation.
+
+---
+
+**2026-09-12 — re-measured against today's prompt: still fails, but the standing
+hypothesis (the double `ba.db2linear` on `thresh`) was wrong.**
+
+Six fresh `ollama`/`qwen2.5-coder:7b` generations for "a noise gate with threshold and
+hold time" against the current `system_prompt.txt`: **5 of 6 render SILENT** (rms exactly
+`0.00e+00`). The 6th passes the oracle's `is_silent` check but is not actually gating — a
+stuck-open false pass (`ba.sec2samp` applied to `hold`, then the library's own internal
+`*ma.SR` scaling stretches the resulting hold to on the order of days; the render is loud,
+not silent, because the gate never closes). **Zero of six show a correctly functioning
+gate**; this WP1 measurement (`~/.claude/plans/phase3-pf032-silent-noise-gate.md`) lands
+on outcome (c), not (a) or (b).
+
+**The double-`ba.db2linear`-on-`thresh` hypothesis this entry has carried since 2026-07-30
+did not reproduce once.** In every one of the six generations, `thresh` was passed as a
+raw dB literal, untouched — the existing STRICT RULES clause aimed at exactly that mistake
+(`system_prompt.txt:19-22`) is working. The actual, repeating defect is on the **att/hold/rel
+time-constant arguments**, which `misceffects.lib:127-130` documents as **seconds** (its own
+worked example: `att=0.0001s, hold=0.1s, rel=0.02s`). Three variants, all present across the
+six generations (patches retained this session, not committed):
+
+- **ms→samples pre-conversion** (`*(ma.SR/1000.0)` or `ba.sec2samp`) applied to a value the
+  library will *itself* multiply by `ma.SR` again — a ~48,000× overshoot, the same
+  double-conversion shape as the standing hypothesis, just on a different variable (4/6).
+- **Implausible literal seconds** — `att`/`rel` hardcoded to `10` or `20` where the doc's
+  own example is `0.0001`–`0.02` (2/6).
+- **`ba.db2linear` applied to a `[unit:ms]` slider** — a mistake not seen in this entry
+  before: converting a *time* value through a *dB-to-gain* function (2/6, one of them
+  introduced mid-repair, replacing a compile error with this instead).
+
+**Why the existing rule doesn't catch it.** `system_prompt.txt:19-22`'s worked examples are
+Hz-vs-`ma.SR` and dB-vs-`db2linear`; nothing names seconds-vs-milliseconds-vs-samples for a
+time-constant argument, so the model isn't generalizing the rule's own general clause
+("units are whatever the reference says for that argument") to this stdlib function's
+specific contract. This is the same class PF-045 already names for `en.*` envelope times —
+the two defects should share one fix, per that plan's own note.
+
+**Not measured: groq (the shipping model).** This session's mandate didn't authorize a
+paid benchmark run; ollama's 7B has a known instruction-following ceiling (PF-012/PF-043),
+so this alone cannot rule out "fixed on groq, an ollama-only ceiling" (outcome b). Next
+step is WP2 from the drafted plan above, retargeted at the att/hold/rel unit contract
+instead of thresh/`db2linear`, plus the still-owed groq pass.
 
 ---
 
