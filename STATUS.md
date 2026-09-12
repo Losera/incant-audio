@@ -1,7 +1,14 @@
-# PluginForge — Status  (2026-09-09)
+# PluginForge — Status  (2026-09-10)
 
 Rewritten each session per COLLABORATION.md §5. Single writer, no merge conflicts.
 Narrative history lives in git and in `docs/sessions/`.
+
+**2026-09-10 — targeted reconciliation only** (not a rewrite). The 2026-09-09 file still
+carried "Open, not yet landed — PR #65" and a "PR #46 awaiting merge" line after both had
+merged, and had not recorded the ADR-035 A3b–A4 face work (#63/#64/#65/#67/#69), ADR-038
+(#79), or the repro-package rename (#71). Those are folded in below; the Broken /
+Assumed / Next-three picture is unchanged. Local branch + worktree cleanup done the same
+session (see "Waiting on you" #6).
 
 **Start a session with `/orient`**, not by reading this file top to bottom. It injects live
 repo state, **the CI line**, this file's open sections, and a staleness banner if it falls
@@ -90,10 +97,9 @@ One line per capability, each naming its evidence. "Builds clean" is not a capab
   against it with **no `PLUGINFORGE_*` and no `config.json` hand-edit** → the human
   generated a working effect, provider `ollama` (the seeded default; local, zero
   credentials), runtime resolved through the installed `config.json` + venv. PF-065 and
-  PF-071 close on this. **One follow-up** (PR #46): the installer seeds
-  `PLUGINFORGE_PROVIDER=gemini` but omits `google-genai` from `requirements.txt`, so the
-  *seeded default* can't run until #46 lands or the seed changes to `ollama`. Deferred:
-  in-plugin API-key entry (v2).
+  PF-071 close on this. The `google-genai` follow-up (PR #46, `52903d5`, merged 2026-09-01)
+  synced the shipped `requirements.txt` to `bench/requirements.txt` so the seeded `gemini`
+  default runs on a clean install — PF-077 closed. Deferred: in-plugin API-key entry (v2).
 
 **Decisions on record.** ADR-030 (no LangGraph), ADR-031 (no Obsidian infra; ID-resolution
 checks + `tools/kg.py` instead) — both Accepted 2026-08-27, merged PR #30. **ADR-032**
@@ -106,46 +112,66 @@ provider-precedence rule; §3–§5 hygiene) were applied, plus the two 2026-09-
 (re-arm the accept button after `markStale()`; wire the provider picker to
 `onRecommendationInvalidated`) and two dead-branch removals (`target_mismatch` off the plain
 `generate()` path; the `request.get("budget")` fallback). `check.sh full` + CI green.
+**ADR-035** (per-plugin generated faces) — Accepted 2026-09-03, PR #56; pipeline Steps 1–5
+wired end to end by 2026-09-07 (above), Step 6 / A5 open as PR #78. **ADR-038** (re-sequence
+generated-face richness + plugin export ahead of Phase 6) — Accepted 2026-09-09 by explicit
+user decision, PR #79 (`3162647`, docs only). Accepts ADR-023 + its 2026-08-13 amendment as
+the export design of record (`Proposed` → `Accepted`); opens a "faces v2" track and runs its
+cheap steps — **faces F1–F3**, **export E1–E3** — *parallel to* Phases 3–4, not after a
+release. **F4** (visualizer subsystem) and **E4** (face export) are gated behind their own
+ADRs. The critical path — PF-024, PF-032, the Phase-4 release — is explicitly unchanged, and
+export is not cut as a public release while those defects are open. First moves: **F1**
+(bipolar-knob arc bugfix — ungated, a defect on a shipped feature) and **E1** (in-process
+AOT Faust emit via `libfaust`'s `generateAuxFilesFromString`). Ladders:
+`docs/sessions/020-generated-faces-v2.md`.
 
-**Open, not yet landed — PR #65** (`feat/ui-face-wire`, ADR-035 A3b): wires the ui_face
-producer (#59) into the compile-success callback so `GeneratedFaceLookAndFeel` (#61) sees a
-real theme instead of always the Ember default — `PluginEditor.cpp`'s compile callback
-builds the captured param table, calls `promptPanel.requestUiFace()`, applies the result via
-the existing `applyUiIr()`/`applyGeneratedFace()` when it's a valid schema-3 answer, falls
-back to the deterministic layout on any failure. **The redesign this PR actually is:** the
-first attempt gave `ui_face` its own independent subprocess-spawning thread
-(`UiFaceClient`), which reproduced a real `EditorSessionTest` hang (JUCE assertions in
-`juce_TemporaryFile.cpp`/`juce_Component.cpp`, then a stall) — root-caused via gdb thread
-dumps and `/proc/<pid>/task` inspection (ptrace was blocked in this sandbox; `wchan`/
-`anon_pipe_read` on the stuck thread was the actual evidence) to two lifecycle races only a
-**second thread** can create: (1) a real Generate arriving before a ui_face job's
-`ChildProcess` registers is invisible to `activeChild->kill()` — a documented no-op on
-null — so the subprocess started anyway and blocked the worker behind it; (2)
-`ChildProcess::kill()` is SIGKILL to the **direct child only**, so an orphaned grandchild
-(`sleep 30` under `/bin/sh`, exactly `EditorSessionTest` scenario 9's teardown probe) keeps
-the pipe open and `readAllProcessOutput()` blocks on it regardless of the direct child
-already being dead. **Fix:** route `ui_face` through `PromptPanel`'s existing, already-proven
-worker thread as a second, lower-priority job kind instead of a second thread — there is
-exactly one thread in the process that ever spawns a subprocess, same as before this
-session; `UiFaceClient.h/.cpp` and an intermediate `SubprocessForkLock.h` (a narrower,
-insufficient first fix attempt) are gone, not in the PR. Also fixed:
-`FakeGenerator.h`'s capture-based test doubles (`writeSuccessCapturing`,
-`writeRecommendation{,Failure}ThenSuccess`) were letting a background ui_face call clobber
-the `request.json`/`argv.txt` files ~20 pre-existing scenarios assert against, since it hits
-the same installed fake script — patched to bypass `action:"ui_face"` requests without
-touching the capture (a test-harness fix, not production). **Verified:** every `check.sh
-full` harness run directly (the wrapper itself kept getting killed by the sandbox on the
-rebuild step, so each of the ~20 binaries was run by hand with the same flags/env);
-`EditorSessionTest` 428/0 in ~60s (was hanging / 23-50 failures / 4-5 min before both race
-fixes); `PromptPanelThreadingTest` (the PF-006 regression test) 9/0, teardown 423ms;
-`ParamPoolTsanTest`/`AuditionThreadingTest`/`NoteRingTsanTest` clean under ThreadSanitizer;
-every other harness green. PR CI: `test` passed, `build-host` still running as of this
-write. **Not verified:** a real DAW/Standalone session with a live LLM provider —
-`EditorSessionTest`'s `FakeGenerator` is the evidence so far; `docs/sessions/018-incant-ui-faces-and-shell.md` and
-`docs/design/incant-ui/GENERATION_PLAN.md` still call this gap undifferentiated "A3", not
-updated. Tier 2
-(COLLABORATION.md §3, new threading surface) — **needs a human review before merge**, the
-same bar #61 got and didn't (below).
+**Landed 2026-09-04 → 2026-09-07 — the ADR-035 generated-face pipeline is now wired end
+to end** (five PRs on top of #58/#59/#61 below; narrative in `docs/sessions/020-generated-faces-v2.md`):
+
+- **PR #63** (`886be7a`, A4 / ADR-035 gap 4) — `host/Source/ArchetypeLayout.h`: free
+  functions (no JUCE dep), `columns()` / `split()` / `rail()` section-and-control geometry
+  for `synth-panel` / `channel-strip` / `tape-unit` / `texture-field`. `pedal` / `utility` /
+  `""` / unknown keep the existing grid unchanged. Inert until an IR names a supported
+  archetype.
+- **PR #64** (`487155f`, A3d) — `GeneratedFaceLookAndFeel::drawRotarySlider` GKnob arc
+  geometry (1.2π→2.8π, hairline track from `README.md:253`'s ink-alpha rule, 2px pointer).
+  **Real pre-existing bug fixed along the way:** `ParamGridPanel::applyPresentation()`
+  (ADR-022 §3) hardcoded each slider's colours from the old heuristic accent, shadowing
+  *any* LookAndFeel's ColourScheme — a generated face's accent never reached a widget.
+  `faceAccentActive` gate added.
+- **PR #65** (`421821a`, A3b) — `PluginEditor.cpp`'s compile-success callback builds the
+  captured param table, calls `promptPanel.requestUiFace()`, and applies a valid schema-3
+  answer via `applyUiIr()`/`applyGeneratedFace()`, falling back to the deterministic layout
+  on any failure. **The redesign this PR actually is:** a first attempt gave `ui_face` its
+  own subprocess-spawning thread (`UiFaceClient`), which reproduced a real `EditorSessionTest`
+  hang — root-caused via gdb thread dumps + `/proc/<pid>/task` (`anon_pipe_read` on the stuck
+  thread was the evidence) to two lifecycle races only a **second thread** can create:
+  (1) a Generate arriving before the ui_face job's `ChildProcess` registers is invisible to
+  `activeChild->kill()` (a no-op on null), so the subprocess ran anyway and blocked the
+  worker; (2) `ChildProcess::kill()` is SIGKILL to the **direct child only**, so an orphaned
+  `sleep`-under-`/bin/sh` grandchild keeps the pipe open and `readAllProcessOutput()` blocks.
+  **Fix:** route `ui_face` through `PromptPanel`'s existing single worker thread as a
+  lower-priority job kind — `UiFaceClient.h/.cpp` and an interim `SubprocessForkLock.h` are
+  gone. Also patched `FakeGenerator.h` to bypass `action:"ui_face"` capture so a background
+  call can't clobber the `request.json`/`argv.txt` ~20 scenarios assert against.
+  `EditorSessionTest` 428/0 (was hanging); `PromptPanelThreadingTest` 9/0; TSan trio clean;
+  CI green on `421821a`. **Merged directly by the human** — like #61, no formal GitHub
+  review artifact.
+- **PR #67** (`fa85f59`, A3c) — five embedded display/readout typefaces (Space Grotesk,
+  Barlow Condensed, Oswald, Archivo, IBM Plex Mono; OFL, variable fonts instanced to static
+  weights), `GeneratedFaceLookAndFeel` font dispatch, theme-aware `ParamGridPanel` label /
+  heading fonts, `setFaceAccent()` refactored so accent + fonts refresh atomically.
+- **PR #69** (`c8f27b4` + `1b43361`) — layout fix from a live screenshot that reproduced
+  over-sectioning (one heading per knob), `lg`-knob misalignment, and ~5/6 dead panel
+  space on a 4-param generation. `perRowFor(count, span)` packs 1–4 controls per row (a
+  pure function of count, never pixel width — preserves the `contentHeightForSections()`
+  invariant); `layoutFor()` is now **total** (`row()` as `default:`, `isSupported()`
+  deleted); `size:"lg"` renders solo full-width; thin sections merge in
+  `deriveLayoutFromGroups()`. `UiDesignGallery` baseline re-accepted (`1b43361`).
+
+**Not verified:** a real DAW/Standalone session with a live LLM provider driving the face —
+`EditorSessionTest`'s `FakeGenerator` is the evidence so far. **PR #78 (ADR-035 Step 6 / A5,
+open)** is the verification-loop step — see "Waiting on you" #7.
 
 **Landed 2026-09-08 (reconciled by the 2026-09-09 consolidation pass):** **PR #73**
 (`2f03141`, doc corrections to the session-loaded files — `CLAUDE.md` toolchain re-read from
@@ -166,6 +192,15 @@ below `1e-8`; `expected.json` moves 4 bounds, `checks_expected` stays 367; `veri
 REPRODUCED, issue26 suite 101 passed). **PR #74 / PR #75** are reflected in the PF-011
 closure ("Assumed" section) and defect #1 (PF-024) respectively. `/change-report` for all
 four: `docs/records/change-reports-2026-09-08-merges.md`.
+
+**Landed 2026-09-09 → 2026-09-10:** **PR #76** (`1bdb38d`, the consolidation pass itself —
+the four change reports above + the targeted §5 edits for the 09-08 batch); **PR #77**
+(`c2cc779`, the single 25-cell dynamics re-run verifying the #75 fix — result folded into
+defect #1); **PR #71** (`6fe6679`, renamed the issue-#26 repro package to
+`bench/repair_ab_repro/` — the old `bench/issue26/` path no longer exists — and its scripts
+to descriptive names (`frs_rederive_issue26.py` → `frs_rederive.py`,
+`run_issue26_pipeline.sh` → `run_repair_ab_pipeline.sh`, etc.); held for the GRAME handoff,
+merged once the rename was confirmed not to break `verify.py`).
 
 **Landed 2026-09-03 (evening, after PR #57 below):** four PRs, in landing order — **PR #58**
 (`da5594d`, `host/Source/ThemeValidate.h` — WCAG contrast gate for a `UiIr::Theme`: `text` ≥
@@ -382,13 +417,11 @@ PF-069 hardcoded efficacy budget and PF-070 compiler-hang crash (2026-08-29, PR 
 PF-063 CI-staleness banner (2026-08-17); PF-066 stale octave assertion and PF-067 uncapped
 `anthropic` pin (2026-08-25).
 
-**Filed this session, on a branch not yet merged** (so no ID cited here until it lands —
-ADR-031): the installer's `requirements.txt` omits `google-genai`, so the seeded-default
-provider `gemini` can't run on a clean install. Fix + registry row in **PR #46**, `check.sh`
-+ CI green, awaiting merge. Also unfiled: a granular-family observation from the REAPER pass
-— `"pitch synchronous granulizer"` routed to `granular_effect` and the family control gate
+**Unfiled:** a granular-family observation from the REAPER pass — `"pitch synchronous
+granulizer"` routed to `granular_effect` and the family control gate
 (`llm/generate.py:435-448`) rejected every retry for missing required control groups; folds
 into PF-024's family-failure sampling, notes in `scratchpad/pf065-reaper-observations.md`.
+*(The `google-genai` gap that stood here is now PF-077, fixed — PR #46, above.)*
 
 ---
 
@@ -434,6 +467,12 @@ still current. A full 125-cell re-run at n≥3 (PF-031) is still owed for a real
    `~/.claude/plans/phase3-pf032-silent-noise-gate.md` leads with a re-measurement WP to
    see whether `groq`/`gpt-oss-120b` obeys it.
 
+**Authorized, parallel, not blocking the Next three.** ADR-038's cheap steps —
+**F1** (bipolar-knob arc bugfix, ungated), **F2/F3** (chip rows, bespoke archetype
+geometry), **E1–E3** (AOT emit → wire `processBlock` → prove sound + un-gate `/export`).
+One step per session, each independently landable; `docs/sessions/020-generated-faces-v2.md`
+has the order and the `file:line` traps. F4 and E4 are gated behind their own ADRs.
+
 **Displaced, not urgent.** A piano roll (requested, unplanned; needs a note grid *and* a
 clock — no host transport in Standalone).
 
@@ -465,18 +504,51 @@ clock — no host transport in Standalone).
    `phase3-pf024-invalid-generation-families.md`. Each leads with a re-measurement WP: the
    prompt already contains the fix text for all three, and the open question is whether the
    shipping model obeys it.
-6. **The provider-resilience work moved, corrected this session** — it is no longer an
-   uncommitted worktree. It was pushed as `origin/feat/provider-resilience` (`9f260a0`,
-   "WIP: interactive provider resilience (fallback chain) — UNREVIEWED SNAPSHOT") and the
-   worktree removed. Still needs a review/merge decision, just not at risk of being lost.
-   `design/ember-console` + `origin/fix/ember-console-palette` still kept pending your
-   triage (Ember Console repaint) — unchanged.
-7. **PR #65 (A3b) needs a review before merge — this is now the pressing one.** ADR-035
-   flags this step as new UI architecture (AGENTS.md §4); #61 (A3a) merged directly with no
-   GitHub review recorded, and #65 is what actually makes that code live in production, so
-   the gap #61 left open now matters. `~/.worktrees/ui-face-wire` (branch
-   `feat/ui-face-wire`) holds the work; remove the worktree once #65 merges or is
-   abandoned.
+6. **Branch + worktree cleanup, 2026-09-10.** Removed 3 stale worktrees (PRs #79/#77/#71,
+   all clean and merged) and deleted their local branches plus the leftover `pr71` checkout
+   branch. Kept, all with a live reason: `.worktrees/adr035-step6` (#78 open),
+   `.worktrees/shell-command-bar` (ADR-036 WIP, awaiting review),
+   `.worktrees/runtime-agnostic-workflow` (**16 uncommitted files** — an unreviewed
+   "runtime-agnostic workflow" refactor touching AGENTS.md, a new agent-session tool, and
+   the hooks; not in the tree; **needs your triage — commit / stash / discard**),
+   `.worktrees/codex-llm-generation-professional` (Codex research, uncommitted),
+   `.worktrees/main-session` (clean, another session's `main` checkout — left alone).
+
+   **Still owed by a human:** `git push origin --delete` for the 22 merged remote branches
+   below — the destructive-action classifier blocks agents from doing it. Regenerate/verify
+   with `gh pr list --state merged --json headRefName,number` before running.
+
+   ```
+   MERGED — safe to delete:
+     bench/issue26-repro-package            docs/status-pr55
+     chore/dynamics-fix-verification        feat/archetype-layout
+     chore/repair-ab-repro-naming           feat/dynamic-stdlib-retrieval
+     docs/adr-036-amendment-adr-037         feat/generated-face-fonts
+     docs/adr-038-face-export-resequence    feat/generated-face-knob
+     docs/correct-stale-session-loaded-claims  feat/generated-face-lnf
+     feat/recommendation-mvp                feat/theme-validate
+     feat/ui-face                           feat/ui-face-wire
+     fix/issue26-integrity-2                fix/issue26-makefile-smoke-score
+     fix/pedal-layout-packing               fix/provider-precheck-per-request
+     issue26-integrity                      task/efficacy-groq-125
+
+   DO NOT delete:
+     feat/provider-resilience        UNREVIEWED SNAPSHOT (9f260a0) — needs review/merge
+     task/adr035-verification-loop   PR #78 open
+     feat/shell-command-bar          ADR-036 WIP
+     research/llm-generation-professional   Codex research
+     chore/runtime-agnostic-workflow        uncommitted refactor, pending triage
+     fix/ember-console-palette       kept pending your Ember Console repaint triage
+   ```
+7. **PR #78 (ADR-035 Step 6 / A5) needs a semantic-diff review before merge.** #65 (A3b)
+   merged 2026-09-05 — the face pipeline is live. #78 is the verification-loop step: it
+   consumes the persisted `uiIr` on reopen (new `uiIrSourceKey` state-blob attribute, a
+   `juce::String::hashCode64` fixed polynomial hash) so a restored project re-applies the
+   accepted face instead of re-deriving Ember and re-spending a `ui_face` call, plus a
+   gallery quota-leak fix found doing it. Additive v3 amendment, no `kStateSchemaVersion`
+   bump. The PR body marks WP1 **Tier 2 — needs a semantic-diff review** (state-blob
+   surface). Worktree `.worktrees/adr035-step6` (branch `task/adr035-verification-loop`)
+   holds it; remove once #78 merges or is abandoned.
 8. **Untracked personal files left alone**, as always — the two notes at the repo root, the
    unshipped brief skill, the product-architecture draft under bench/. The
    `design_handoff_generated_plugin_faces/` bundle from the last rewrite is **resolved,
