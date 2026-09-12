@@ -4006,6 +4006,254 @@ void scenario48_runtimePathsCallout(const juce::File& tmp)
     if (oldPython.isNotEmpty()) ::setenv("PLUGINFORGE_PYTHON", oldPython.toRawUTF8(), 1);
 }
 
+// 53 — ADR-035 A5. A project saved with a generated face reopens WEARING that
+// face, and WITHOUT asking the producer for a new one. Before this the compile-
+// success callback re-derived the Ember default on every compile (the restore
+// recompile included) and fired a fresh ui_face request each time -- a reopen
+// silently spent provider quota to reproduce a face the user already had.
+void scenario53_savedFaceRestoredWithoutRegenerate(const juce::File& tmp)
+{
+    scenario("53. a saved face is restored on reopen, no regenerate",
+             "ADR-035 A5: the persisted UiIr (keyed to its source) is re-applied "
+             "on the restore recompile; the post-compile ui_face request is "
+             "skipped because the accepted face is already on screen.");
+
+    const int fillId = juce::Slider::rotarySliderFillColourId;
+
+    FakeGenerator::install(FakeGenerator::writeSuccessThenFaceCounted(
+        tmp, "gen53", kFourParamPatch,
+        "#0e0f13" /* surface */, "#eef2ee" /* text */, "#8fe3c1" /* accent */,
+        "pedal", { "Alpha", "Beta" }, { "Gamma", "Delta" }));
+
+    juce::MemoryBlock blob;
+    juce::Colour savedAccent;
+    {
+        Session s;
+        s.editor.submitPromptForTest("a patch worth a face");
+        check(pumpUntil([&] { return s.editor.statusTextForTest().contains("DSP live"); }),
+              "the initial generate compiled");
+        check(pumpUntil([&] { return s.editor.gridFaceActiveForTest(); }),
+              "the post-compile ui_face request attached a face");
+        check(FakeGenerator::uiFaceRequestCount(tmp, "gen53") == 1,
+              "exactly one ui_face request for the initial generate");
+
+        savedAccent = s.editor.gridFaceColourForTest(fillId);
+        check(s.processor.uiIrForTest().schema == 3, "the processor is holding a schema-3 face");
+        check(s.processor.uiIrSourceKeyForTest().isNotEmpty(),
+              "the face was stamped with a source key");
+
+        s.processor.getStateInformation(blob);
+        check(blob.getSize() > 0, "the session serialised");
+    }
+
+    // The reopened project: a fresh processor + editor, restored from the blob.
+    Session s2;
+    s2.processor.setStateInformation(blob.getData(), (int) blob.getSize());
+    check(pumpUntil([&] { return s2.editor.gridControlCountForTest() == 4; }),
+          "the restore recompile rebuilt the grid");
+    check(pumpUntil([&] { return s2.editor.gridFaceActiveForTest(); }),
+          "the reopened grid is wearing a face again");
+
+    check(s2.editor.gridFaceColourForTest(fillId) == savedAccent,
+          "the restored face's accent matches the one that was saved, "
+          "not the Ember default");
+
+    // The whole point: the restore did NOT ask for a new face. Give a
+    // background request every chance to have fired (there is no positive
+    // event for "a call that never happened"), then confirm the counter is
+    // still 1.
+    pumpUntil([&] { return false; }, 500);
+    check(FakeGenerator::uiFaceRequestCount(tmp, "gen53") == 1,
+          "still exactly one ui_face request total -- the reopen re-used the "
+          "saved face instead of regenerating it");
+
+    snapshot(s2.editor, "53_face_restored_no_regen");
+}
+
+// 54 — ADR-035 A5 / Step 2, through the editor. ThemeValidateTest proves the
+// pure per-token substitution; this proves the EDITOR renders it: one
+// unreadable colour is replaced with the Ember token for THAT field while the
+// face's other tokens survive and the face is not rejected wholesale.
+void scenario54_themeRejectedPerToken(const juce::File& tmp)
+{
+    scenario("54. a face with one unreadable token degrades that token only",
+             "a `text` colour that fails the 7:1 contrast gate is swapped for "
+             "the Ember default in the rendered LookAndFeel; `surface` and "
+             "`accent` are kept, and the face still attaches.");
+
+    // surface + accent are fine; `text` #151210 on this dark surface is ~1.1:1,
+    // well under the 7:1 floor (the same shape as ThemeValidateTest's per-token
+    // isolation case).
+    FakeGenerator::install(FakeGenerator::writeSuccessThenFace(
+        tmp, "gen54", kFourParamPatch,
+        "#17140f" /* surface, valid */,
+        "#151210" /* text, fails the gate */,
+        "#e0973f" /* accent, valid */));
+
+    Session s;
+    s.editor.submitPromptForTest("a patch with a barely-legible face");
+    check(pumpUntil([&] { return s.editor.statusTextForTest().contains("DSP live"); }),
+          "the patch compiled");
+    check(pumpUntil([&] { return s.editor.gridFaceActiveForTest(); }),
+          "the face attached -- one bad token does not reject the whole face");
+
+    const auto text = s.editor.gridFaceColourForTest(juce::Label::textColourId);
+    check(text == juce::Colour(Theme::textPrimary),
+          juce::String("the unreadable `text` token was replaced with the Ember "
+                       "default #f5f0e6 -- got ") + text.toDisplayString(true));
+    check(text != juce::Colour::fromString(juce::String("ff151210")),
+          "the rendered text colour is NOT the unreadable value the producer sent");
+
+    const auto surface = s.editor.gridFaceColourForTest(juce::ResizableWindow::backgroundColourId);
+    check(surface == juce::Colour::fromString(juce::String("ff17140f")),
+          "the valid `surface` token was kept verbatim");
+
+    const auto accent = s.editor.gridFaceColourForTest(juce::Slider::rotarySliderFillColourId);
+    check(accent == juce::Colour::fromString(juce::String("ffe0973f")),
+          "the valid `accent` token was kept verbatim");
+    check(accent != juce::Colour(Theme::accent),
+          "the kept accent is the face's, not the Ember fallback");
+
+    snapshot(s.editor, "54_theme_rejected_per_token");
+}
+
+// 55 — ADR-035 A5 / A4. ParamGridLayoutTest proves ArchetypeLayout places
+// every control exactly once for every archetype; this proves the editor
+// ROUTES a schema-3 `archetype` into that path -- the panel takes the LLM's
+// sections, not the heuristic's, and no control is dropped.
+void scenario55_archetypeSectionsReachTheGrid(const juce::File& tmp)
+{
+    scenario("55. an LLM archetype + sections drive the param grid",
+             "applyUiIr() with a schema-3 face routes `archetype` and the "
+             "producer's own sections into the sectioned layout; every "
+             "captured control still appears.");
+
+    FakeGenerator::install(FakeGenerator::writeSuccessThenFaceCounted(
+        tmp, "gen55", kTwoGroupPatch,
+        "#0e1417" /* surface */, "#e6f1f3" /* text */, "#4ec9d6" /* accent */,
+        "channel-strip", { "Freq", "Detune" }, { "Mix", "Depth" }));
+
+    Session s;
+    s.editor.submitPromptForTest("a channel strip");
+    check(pumpUntil([&] { return s.editor.statusTextForTest().contains("DSP live"); }),
+          "the 2-group patch compiled");
+    check(pumpUntil([&] { return s.editor.gridFaceActiveForTest(); }),
+          "the channel-strip face attached");
+
+    const auto& sections = s.editor.gridActiveSectionsForTest();
+    check(sections.size() == 2,
+          juce::String("the panel is holding the producer's two sections, got ")
+              + juce::String((int) sections.size()));
+
+    int placed = 0;
+    for (const auto& sec : sections)
+        placed += (int) sec.controls.size();
+    check(placed == 4,
+          juce::String("every captured control is placed in a section, got ")
+              + juce::String(placed));
+    check(s.editor.gridControlCountForTest() == 4,
+          "the grid still renders all four controls");
+
+    snapshot(s.editor, "55_archetype_sections");
+}
+
+// 56 — PF-078. The UiDesignGallery snapshot harness must not fire a real
+// ui_face LLM request per fixture. The guard is an env var read once in
+// PromptPanel's constructor; this is the "seen failing" evidence for it (a
+// control this project only trusts once it has watched it gate) -- with the
+// var set the request never fires, and the SAME setup without it does.
+void scenario56_uiFaceEnvGuardSuppressesRequest(const juce::File& tmp)
+{
+    scenario("56. PLUGINFORGE_NO_UI_FACE suppresses the post-compile face request",
+             "PF-078: with the var set (as UiDesignGallery sets it) a compile "
+             "makes no ui_face request and no provider subprocess; without it "
+             "the identical setup does.");
+
+    // ── guard ON: no request, no face ────────────────────────────────────────
+    {
+        ::setenv("PLUGINFORGE_NO_UI_FACE", "1", 1);
+        FakeGenerator::install(FakeGenerator::writeSuccessThenFaceCounted(
+            tmp, "gen56on", kFourParamPatch, "#0e0f13", "#eef2ee", "#8fe3c1",
+            "pedal", { "Alpha", "Beta" }, { "Gamma", "Delta" }));
+
+        Session s;   // PromptPanel reads the var here, in its constructor
+        s.editor.submitPromptForTest("a patch whose face must not be requested");
+        check(pumpUntil([&] { return s.editor.statusTextForTest().contains("DSP live"); }),
+              "the patch still compiles with the guard on");
+        pumpUntil([&] { return false; }, 500);   // give a request every chance
+        check(FakeGenerator::uiFaceRequestCount(tmp, "gen56on") == 0,
+              "guard on: zero ui_face requests");
+        check(! s.editor.gridFaceActiveForTest(),
+              "guard on: the deterministic Ember layout stays, no face attached");
+        ::unsetenv("PLUGINFORGE_NO_UI_FACE");
+    }
+
+    // ── guard OFF: the same setup DOES request a face (the red case) ─────────
+    {
+        FakeGenerator::install(FakeGenerator::writeSuccessThenFaceCounted(
+            tmp, "gen56off", kFourParamPatch, "#0e0f13", "#eef2ee", "#8fe3c1",
+            "pedal", { "Alpha", "Beta" }, { "Gamma", "Delta" }));
+
+        Session s;
+        s.editor.submitPromptForTest("a patch whose face IS requested");
+        check(pumpUntil([&] { return s.editor.statusTextForTest().contains("DSP live"); }),
+              "the patch compiled");
+        check(pumpUntil([&] { return s.editor.gridFaceActiveForTest(); }),
+              "guard off: the face request fired and attached a face");
+        check(FakeGenerator::uiFaceRequestCount(tmp, "gen56off") >= 1,
+              "guard off: at least one ui_face request -- the guard is what "
+              "made the difference above");
+    }
+
+    ::unsetenv("PLUGINFORGE_NO_UI_FACE");   // hygiene if scenarios are reordered
+}
+
+// 57 — ADR-035 A5 edge. A project SAVED while the ui_face request is still in
+// flight carries only the derived (schema-2) layout, not an accepted face. On
+// reopen the key matches the source but the layout is not schema 3, so
+// uiIrForRestoredSource's result is not treated as a cached face -- the editor
+// re-derives and re-requests, which is correct: nothing was ever accepted to
+// restore. This is the "regeneration in flight at save" risk, pinned.
+void scenario57_saveBeforeFaceReturnsRegeneratesOnReopen(const juce::File& tmp)
+{
+    scenario("57. saving before the face lands => reopen regenerates it",
+             "the blob keyed to the source carries the schema-2 derived layout; "
+             "a schema<3 restore is not a cached face, so the reopen re-requests.");
+
+    // 2s sleep on the ui_face branch: the request cannot possibly have completed
+    // by the time this scenario saves, right after 'DSP live'.
+    FakeGenerator::install(FakeGenerator::writeSuccessThenFaceCounted(
+        tmp, "gen57", kFourParamPatch, "#0e0f13", "#eef2ee", "#8fe3c1",
+        "pedal", { "Alpha", "Beta" }, { "Gamma", "Delta" }, /* uiFaceSleepSeconds */ 2));
+
+    juce::MemoryBlock blob;
+    {
+        Session s;
+        s.editor.submitPromptForTest("a patch saved before its face returns");
+        check(pumpUntil([&] { return s.editor.statusTextForTest().contains("DSP live"); }),
+              "the patch compiled");
+
+        // Save immediately -- the (slow) ui_face request is still running.
+        s.processor.getStateInformation(blob);
+        check(s.processor.uiIrForTest().schema != 3,
+              "at save time the processor holds the derived layout, not a face");
+        check(FakeGenerator::uiFaceRequestCount(tmp, "gen57") == 0,
+              "the in-flight ui_face request had not completed at save time");
+        check(! s.editor.gridFaceActiveForTest(), "no face was on screen either");
+    }
+
+    // Reopen: no accepted face to restore, so it regenerates (waits out the
+    // fake's 2s sleep -- hence the longer pumpUntil budget).
+    Session s2;
+    s2.processor.setStateInformation(blob.getData(), (int) blob.getSize());
+    check(pumpUntil([&] { return s2.editor.gridControlCountForTest() == 4; }),
+          "the restore recompile rebuilt the grid");
+    check(pumpUntil([&] { return s2.editor.gridFaceActiveForTest(); }, 12000),
+          "the reopen re-requested a face and attached it (nothing was cached)");
+    check(FakeGenerator::uiFaceRequestCount(tmp, "gen57") == 1,
+          "exactly one completed ui_face request -- the reopen's own");
+}
+
 } // namespace
 
 int main()
@@ -4013,7 +4261,7 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInit;
 
     std::printf("EditorSessionTest -- a simulated human session against the real editor\n");
-    std::printf("  50 scenarios, no network, no quota, snapshots to artifacts/images/\n");
+    std::printf("  scenarios, no network, no quota, snapshots to artifacts/images/\n");
 
     auto tmp = juce::File::getSpecialLocation(juce::File::tempDirectory)
                    .getChildFile("pluginforge_editor_session");
@@ -4080,6 +4328,11 @@ int main()
     scenario50_generatedFaceScopedToParamGrid();
     scenario51_uiFaceRequestAppliesGeneratedFace(tmp);
     scenario52_generatedFaceHeadingFont();
+    scenario53_savedFaceRestoredWithoutRegenerate(tmp);
+    scenario54_themeRejectedPerToken(tmp);
+    scenario55_archetypeSectionsReachTheGrid(tmp);
+    scenario56_uiFaceEnvGuardSuppressesRequest(tmp);
+    scenario57_saveBeforeFaceReturnsRegeneratesOnReopen(tmp);
 
     tmp.deleteRecursively();
 

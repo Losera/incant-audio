@@ -343,10 +343,23 @@ public:
     // Message-thread / non-audio only, metaMutex-guarded like the rest of the
     // meta block.
     UiIr::Layout uiIr() const;
-    void         setUiIr(const UiIr::Layout& layout);
+
+    // `sourceKey` binds the layout to the Faust source it describes — see
+    // currentUiIrSourceKey. Pass juce::String(source.hashCode64()); the default
+    // empty key is for callers that do not track a source (tests, and the old
+    // single-arg contract).
+    void         setUiIr(const UiIr::Layout& layout, const juce::String& sourceKey = {});
+
+    // ADR-035 A5. The restored IR IFF `sourceKey` is non-empty and matches the
+    // key stored beside it — i.e. the saved face still belongs to this patch.
+    // Returns UiIr::empty() otherwise. The caller decides what to do with the
+    // result (the editor only re-applies a schema-3 LLM face, never a derived
+    // schema-0/2 layout it would rebuild anyway).
+    UiIr::Layout uiIrForRestoredSource(const juce::String& sourceKey) const;
 
     // Test-only alias, same pattern as currentSourceForTest().
     UiIr::Layout uiIrForTest() const { return uiIr(); }
+    juce::String uiIrSourceKeyForTest() const;
 
     // Test-only. The live slot->label map. This used to be observable only by
     // serialising a blob and counting <SlotLabels> children; that node was
@@ -471,6 +484,16 @@ private:
     // restored by setStateInformation(). Default schema 0 == "no IR", the state
     // every patch was in before this field existed. Not read by the audio path.
     UiIr::Layout       currentUiIr;
+
+    // ADR-035 A5: the key of the Faust source currentUiIr describes, so a restore
+    // can tell whether the saved face still belongs to the patch that just
+    // compiled (juce::String::hashCode64 of the source — a fixed polynomial hash,
+    // safe to persist, unlike std::hash). Stamped by setUiIr() at the moment the
+    // layout is set, NOT computed at save time: a face regeneration can be in
+    // flight when the project is saved, and the key must track the layout it was
+    // bound to, not whatever currentFaustSource happens to be. Empty when no IR
+    // was ever pushed, and in every pre-2026-09-08 blob.
+    juce::String       currentUiIrSourceKey;
 
     // Slot -> ParamIdentity id for the live patch, POOL_SIZE entries, empty
     // string for a free slot. Written in the compile callback beside
