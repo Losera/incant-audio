@@ -93,6 +93,8 @@ void testCleanJsonParses(const juce::File& tmp)
         expectTrue(response.results[0].providerId == "abc123", "clean JSON: provider_id survives");
         expectTrue(response.results[0].title == "Rain", "clean JSON: name survives");
         expectTrue(response.results[0].license == "CC0", "clean JSON: metadata.license survives");
+        expectTrue(response.results[0].durationSeconds == 12.5,
+                  "clean JSON: metadata.duration survives (present in the stub, never asserted before)");
     }
 }
 
@@ -281,6 +283,89 @@ void testSearchAndDownloadArguments(const juce::File& tmp)
               "download argv: manifest, provider id, outdir and JSON flag are ordered");
 }
 
+// ── Soundfetch 0.4.0 upgrade: Openverse is credential-free and unaffected by
+// PF-056 (docs/BUGS.md:95), so SampleBrowserPanel now defaults to it. The
+// argv shape is identical to archive/freesound -- `provider` is a pass-
+// through token (SoundfetchClient.cpp's search()) -- but a golden proves that
+// stays true rather than assuming it.
+void testOpenverseSearchArguments(const juce::File& tmp)
+{
+    installStub(tmp, "sf_openverse.sh",
+        "[ \"$1\" = 'openverse' ] && [ \"$2\" = 'search' ] && [ \"$3\" = 'rain' ] &&\n"
+        "[ \"$4\" = '--outdir' ] && [ \"$6\" = '--max-results' ] &&\n"
+        "[ \"$7\" = '10' ] && [ \"$8\" = '--json' ] || exit 81\n"
+        "echo '{\"ok\":true,\"manifest\":\"m.jsonl\",\"results\":"
+        "[{\"provider_id\":\"ov-1\",\"name\":\"Rain\",\"provider\":\"openverse\","
+        "\"metadata\":{\"license\":\"by\"}}]}'\n");
+
+    SoundfetchClient client(tmp.getChildFile("cache_openverse"));
+    auto response = client.search("openverse", "rain");
+
+    expectTrue(response.ok, "openverse argv: provider, query, outdir, limit and JSON flag are ordered");
+    expectTrue(response.results.size() == 1 && response.results[0].provider == "openverse",
+              "openverse argv: provider field round-trips");
+}
+
+// ── PF-056 legibility preflight: SoundfetchClient::status() ────────────────
+// soundfetch cli.py:606-651 emits two mutually exclusive shapes. archive and
+// openverse (status_hint providers) report only {"ok","provider","hint"};
+// freesound and video report a nested "status" object keyed by credential
+// name. These three cases exercise both, plus the specific clobbered-field
+// shape confirmed live against the real CLI this session (2026-09-13).
+
+void testProviderStatusArgvAndNoCredentialsNeeded(const juce::File& tmp)
+{
+    installStub(tmp, "sf_status_hint.sh",
+        "[ \"$1\" = 'archive' ] && [ \"$2\" = 'status' ] && [ \"$3\" = '--json' ] || exit 82\n"
+        "echo '{\"ok\":true,\"provider\":\"archive\","
+        "\"hint\":\"no configuration required (Internet Archive downloads need no auth)\"}'\n");
+
+    SoundfetchClient client(tmp.getChildFile("cache_status_hint"));
+    auto status = client.status("archive");
+
+    expectTrue(status.ok, "status hint shape: response.ok is true");
+    expectTrue(status.credentialsConfigured,
+              "status hint shape (no \"status\" key at all): credentialsConfigured defaults true");
+    expectContains(status.hint, "no configuration required", "status hint shape: hint text survives");
+}
+
+void testProviderStatusCredentialsMissing(const juce::File& tmp)
+{
+    // Exact shape captured live from `soundfetch freesound status --json`
+    // against 0.4.0 with no FREESOUND_API_KEY set: "oauth_token" is present
+    // as {"expired": false} (cli.py:623-632's unconditional overwrite),
+    // never carrying a "configured" field. This is the regression guard that
+    // SoundfetchClient::status() reads "api_key" specifically and is not
+    // confused by that neighboring, differently-shaped key.
+    installStub(tmp, "sf_status_missing.sh",
+        "echo '{\"ok\":true,\"provider\":\"freesound\",\"status\":{"
+        "\"api_key\":{\"configured\":false},"
+        "\"client_id\":{\"configured\":false},"
+        "\"client_secret\":{\"configured\":false},"
+        "\"oauth_token\":{\"expired\":false}}}'\n");
+
+    SoundfetchClient client(tmp.getChildFile("cache_status_missing"));
+    auto status = client.status("freesound");
+
+    expectTrue(status.ok, "status missing-key shape: response.ok is true");
+    expectTrue(! status.credentialsConfigured,
+              "status missing-key shape: api_key.configured:false is read despite oauth_token noise");
+}
+
+void testProviderStatusCredentialsConfigured(const juce::File& tmp)
+{
+    installStub(tmp, "sf_status_set.sh",
+        "echo '{\"ok\":true,\"provider\":\"freesound\",\"status\":{"
+        "\"api_key\":{\"configured\":true},"
+        "\"oauth_token\":{\"expired\":false}}}'\n");
+
+    SoundfetchClient client(tmp.getChildFile("cache_status_set"));
+    auto status = client.status("freesound");
+
+    expectTrue(status.ok && status.credentialsConfigured,
+              "status configured shape: api_key.configured:true is read");
+}
+
 } // namespace
 
 int main()
@@ -304,6 +389,10 @@ int main()
     testMissingModuleReportsUnavailable(tmp);
     testSearchAndDownloadArguments(tmp);
     testConfigInterpreterFallback(tmp);
+    testOpenverseSearchArguments(tmp);
+    testProviderStatusArgvAndNoCredentialsNeeded(tmp);
+    testProviderStatusCredentialsMissing(tmp);
+    testProviderStatusCredentialsConfigured(tmp);
 
     ::unsetenv("SOUNDFETCH_BIN");
     ::unsetenv("XDG_CONFIG_HOME");

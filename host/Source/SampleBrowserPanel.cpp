@@ -4,9 +4,17 @@ SampleBrowserPanel::SampleBrowserPanel(std::function<void(const juce::File&)> ca
                                        std::function<void(int)> modeCallback)
     : onSampleReady(std::move(callback)), onModeChanged(std::move(modeCallback))
 {
+    // Openverse is the default (id 3, not 1): it is the only source that is
+    // both credential-free (soundfetch providers/openverse/provider.py:134,
+    // auth_required: False) and unaffected by PF-056 (docs/BUGS.md:95, the
+    // Freesound key is 403-rejected) -- a first run now succeeds with no
+    // setup. Existing ids 1/2 are kept unchanged rather than renumbered:
+    // beginSearch()'s provider mapping below and EditorSessionTest scenario
+    // 38 both reference them.
     provider.addItem("Internet Archive", 1);
     provider.addItem("Freesound", 2);
-    provider.setSelectedId(1);
+    provider.addItem("Openverse", 3);
+    provider.setSelectedId(3);
     query.setTextToShowWhenEmpty("Search free sounds...", Theme::textSecondary);
     query.setReturnKeyStartsNewLine(false);
     results.setTextWhenNothingSelected("Search results");
@@ -148,20 +156,55 @@ void SampleBrowserPanel::beginSearch()
 {
     const auto text = query.getText().trim();
     if (text.isEmpty()) return;
-    const auto providerId = provider.getSelectedId() == 2 ? juce::String("freesound")
-                                                          : juce::String("archive");
+    const int selectedId = provider.getSelectedId();
+    const auto providerId = selectedId == 2 ? juce::String("freesound")
+                           : selectedId == 3 ? juce::String("openverse")
+                                             : juce::String("archive");
     setStatusText("Searching...");
     startWork([this, providerId, text]
     {
+        // PF-056 preflight (docs/BUGS.md:95): a missing Freesound key and a
+        // 403-rejected one both used to surface only as "no JSON" -- neither
+        // named the provider nor said why. This distinguishes them before
+        // spending a network round trip on a search that cannot succeed.
+        // archive/openverse always report credentialsConfigured == true
+        // (SoundfetchClient::status), so this adds no round trip for them.
+        if (providerId == "freesound")
+        {
+            auto probe = client.status(providerId);
+            if (probe.ok && ! probe.credentialsConfigured)
+            {
+                finishWork([this]
+                {
+                    setStatusText("Freesound needs an API key. Set FREESOUND_API_KEY in "
+                                  "the environment PluginForge was launched from, or use "
+                                  "Openverse / Internet Archive instead.");
+                    results.setEnabled(false);
+                });
+                return;
+            }
+        }
         auto response = client.search(providerId, text);
-        finishWork([this, response = std::move(response)]() mutable
+        finishWork([this, providerId, response = std::move(response)]() mutable
         {
             results.clear();
             currentResults = std::move(response.results);
             manifestPath = response.manifestPath;
             if (! response.ok)
             {
-                setStatusText(response.error);
+                // PF-056's remaining half: a configured-but-rejected Freesound
+                // key surfaces from SoundfetchClient only as {"error":
+                // {"message": "HTTP 403 <detail> (<url>)"}} (soundfetch
+                // net.py:17,46-78 -- 403 is not in RETRYABLE_STATUS, so it
+                // raises HttpError immediately) with no provider name
+                // attached. Name it here instead of showing the raw message
+                // as if it were self-explanatory -- but only for an actual
+                // 403; a timeout or a malformed-JSON error is not a key
+                // problem and must not be relabelled as one.
+                setStatusText(providerId == "freesound" && response.error.contains("403")
+                    ? "Freesound rejected the configured API key (" + response.error
+                      + "). The key is set but not accepted -- replace it at freesound.org."
+                    : response.error);
                 results.setEnabled(false);
                 return;
             }
