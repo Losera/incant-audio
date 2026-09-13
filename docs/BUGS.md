@@ -78,7 +78,7 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-040 | Every macro slot was quantised to 100 positions — JUCE's `AudioParameterFloat` min/max convenience ctor hardcodes `interval 0.01`, so a patch default usually could not be represented (800 Hz became 819 Hz) | high | fixed | S1 Backend | `PluginProcessor.cpp` `createParameterLayout` | 2026-07-30 | pending commit |
 | PF-041 | ~~The semantic judge grades L4 against a ground truth **byte-identical to the L4 generation prompt** (10/10), so L4 scores 2.00/2.00 tautologically and the tier gradient is confounded~~ | high | fixed | S4 Testing | `bench/score_efficacy.py` `JUDGE_RUBRIC`, `run_judge`, `bench/prompts/acceptance_specs.json` | 2026-07-30 | 2026-08-16 |
 | PF-042 | ~~The judge's 0/1/2 rubric collapses to binary in practice — score `1` used **once in 44** gradings, so "partially implements" is not a category the instrument actually returns~~ | medium | fixed | S4 Testing | `bench/score_efficacy.py:458-490` | 2026-07-30 | 2026-08-16 |
-| PF-043 | ollama's stock 4096-token context cannot hold the ~3.3k system prompt plus the 4096 output floor (PF-035), leaving ~480 tokens of generation headroom on the repo's own declared default model | medium | open | S4 Testing | `llm/providers.py:330-343` | 2026-07-30 | — |
+| PF-043 | ollama's stock 4096-token context cannot hold the ~3.3k system prompt plus the 4096 output floor (PF-035), leaving ~480 tokens of generation headroom on the repo's own declared default model | medium | fixed | S4 Testing | `llm/providers.py:393-410,513` | 2026-07-30 | this session (2026-09-13) |
 | PF-044 | `run_benchmark.py` recorded `provider` but never `model`, so a cross-model study could not identify its own subject from its own archives — while `model_for()`'s docstring says numbers are "only comparable per model" | medium | fixed | S4 Testing | `bench/run_benchmark.py:267` | 2026-07-30 | pending commit |
 | PF-045 | Generated envelopes convert ms→samples for `en.*`, whose time arguments are in **seconds** — a 1000 ms release becomes 48000 s, so the patch holds sustain forever as DC | medium | open | S2 Prompt | `bench/results/results.json` (sawtooth+ADSR record) | 2026-07-31 | — |
 | PF-046 | `check.sh audio` gates on `bench/results/results.json`, which every benchmark run overwrites — so the level goes red on whatever the model last happened to emit, not on the change under test | medium | fixed | S4 Testing | `tools/check.sh` `level_audio`, `bench/ladder_corpus.json` | 2026-07-31 | `24e6064` |
@@ -1108,6 +1108,30 @@ document the requirement in the spec's `notes`.
 **Verified by canary, not assumed.** A token planted at the head of the system prompt was
 echoed back intact at 3,614 prompt tokens, which is how the no-truncation claim above is
 known rather than inferred from ollama's silence.
+
+**FIXED 2026-09-13 — the durable fix, not just the workaround.** `providers.py`'s ollama
+`ProviderSpec` now declares `default_model="qwen2.5-coder:7b-16k"` (was
+`"qwen2.5-coder:7b"`), and `_OLLAMA_NUM_CTX`'s own default changed from `"4096"` to
+`"16384"` to match — a developer who has not set `PLUGINFORGE_OLLAMA_NUM_CTX` now gets
+correct preflight admission math out of the box instead of the stock-4096 figure.
+
+**Verified by the server's own log, not assumed.** `PLUGINFORGE_PROVIDER=ollama python3
+llm/generate.py --prompt "a warm analog-style chorus effect with rate, depth, and mix
+controls"` returned `success: true`, `attempts: 1`, a syntactically complete patch (ends
+`process = chorusCh(rate), chorusCh(rate * 1.13);`, not a mid-token cutoff), and Faust
+compile validation passed. `journalctl -u ollama` for that request shows
+`n_ctx_slot = 16384` (the 16k Modelfile override was actually loaded, not just declared),
+`task.n_tokens = 3358` (the real system-prompt-sized request), and — the load-bearing
+line — `stop processing: n_tokens = 3573, truncated = 0`. Ollama's own scheduler is the
+authority on whether it truncated, and it reports it did not.
+
+`tests/test_providers_unit.py`'s `test_ollama_default_matches_pf_043_fix` (renamed from
+`test_ollama_stock_default_matches_pf_043`) now asserts the 16384 figure and the new default
+model, so a regression back to the stock model or context would fail loudly. The `-16k`
+model still has to be created once per machine (`README.md` "Known generation
+limitations" has the exact command) — PluginForge cannot read a Modelfile's `num_ctx` back
+from the running ollama server, so a machine that has only ever pulled the stock
+`qwen2.5-coder:7b` will fail to find `qwen2.5-coder:7b-16k` and needs that one-time step.
 
 **What this does and does not close.** PF-013 had two halves. *"`--judge` has never executed"*
 is closed. *"Semantic fidelity is unmeasured"* is **not**, for two independent reasons: the

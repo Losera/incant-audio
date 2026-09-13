@@ -605,15 +605,18 @@ class TestProviderAwarePreflight:
         assert providers.preflight_prior_source(
             "system", huge, 4096, provider="not-a-real-provider") is False
 
-    def test_ollama_stock_default_matches_pf_043(self):
-        """PF-043 cross-reference: stock ollama (no num_ctx override — verified
-        2026-08-13 via `ollama show qwen2.5-coder:7b`, which prints no
-        Parameters/num_ctx line for the repo's declared default model) gets
-        request_token_budget=4096 unless PLUGINFORGE_OLLAMA_NUM_CTX overrides
-        it. This assumes the running test process has not set that override,
-        same assumption tests/conftest.py already makes about PLUGINFORGE_*.
+    def test_ollama_default_matches_pf_043_fix(self):
+        """PF-043 cross-reference: the repo's declared default model is now
+        qwen2.5-coder:7b-16k, whose own Modelfile carries `PARAMETER num_ctx
+        16384` (verified live 2026-09-13 via `ollama show
+        qwen2.5-coder:7b-16k`) — so request_token_budget defaults to 16384,
+        matching that model's real context, unless PLUGINFORGE_OLLAMA_NUM_CTX
+        overrides it. This assumes the running test process has not set that
+        override, same assumption tests/conftest.py already makes about
+        PLUGINFORGE_*.
         """
-        assert providers.PROVIDERS["ollama"].request_token_budget == 4096
+        assert providers.PROVIDERS["ollama"].request_token_budget == 16384
+        assert providers.PROVIDERS["ollama"].default_model == "qwen2.5-coder:7b-16k"
 
 
 class TestListModels:

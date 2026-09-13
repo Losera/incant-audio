@@ -38,9 +38,10 @@ Selection
                            preflight admission math below — it does not itself
                            configure ollama's num_ctx; that still requires a
                            Modelfile (README.md "Known generation limitations").
-                           Defaults to 4096, ollama's stock runtime default,
-                           which the repo's declared default model
-                           (qwen2.5-coder:7b) does not override.
+                           Defaults to 16384, matching the repo's declared
+                           default model qwen2.5-coder:7b-16k's own
+                           `PARAMETER num_ctx 16384` (PF-043, fixed 2026-09-13
+                           — verified live via `ollama show`).
 
 generate.py loads PluginForge/.env before reading these, and juce::ChildProcess
 inherits the environment, so setting PLUGINFORGE_PROVIDER in .env reaches the plugin
@@ -393,14 +394,20 @@ class ProviderSpec:
 # PF-060/PF-043: ollama's per-request budget depends on the SELECTED MODEL's
 # context, and unlike gemini's inputTokenLimit it cannot be read back live from
 # the OpenAI-compat chat-completions endpoint this adapter uses (no models.list
-# equivalent exposes num_ctx). Default to 4096: `ollama show qwen2.5-coder:7b`
-# (checked 2026-08-13) prints no "Parameters / num_ctx" line, meaning the
-# repo's declared default model has no override and gets ollama's stock
-# runtime default — which is exactly the PF-043 defect (open, not fixed here).
-# README.md already tells a developer wanting more to create a model with
-# `num_ctx 16384`; this override is how that choice reaches the preflight math
-# without PluginForge trying to parse Modelfiles.
-_OLLAMA_NUM_CTX = int(os.environ.get("PLUGINFORGE_OLLAMA_NUM_CTX", "4096"))
+# equivalent exposes num_ctx). `ollama show qwen2.5-coder:7b` (checked
+# 2026-08-13) prints no "Parameters / num_ctx" line — the stock 4096-token
+# runtime default plus the 4096-token min_max_tokens output floor left ~480
+# tokens of headroom against the 3,614-token system prompt (PF-043).
+# PF-043 FIX (2026-09-13): the repo's declared default model is now
+# qwen2.5-coder:7b-16k, which carries `PARAMETER num_ctx 16384` baked into its
+# own Modelfile (`ollama show qwen2.5-coder:7b-16k` prints "Parameters /
+# num_ctx 16384" — verified live, not assumed). The default below now matches
+# that model's real context instead of ollama's stock default, so a developer
+# who has not set PLUGINFORGE_OLLAMA_NUM_CTX still gets accurate preflight
+# admission math. Anyone pointing PLUGINFORGE_MODEL at a different local model
+# must still set this override themselves — PluginForge cannot read a
+# Modelfile's num_ctx back from the running server.
+_OLLAMA_NUM_CTX = int(os.environ.get("PLUGINFORGE_OLLAMA_NUM_CTX", "16384"))
 
 PROVIDERS: dict[str, ProviderSpec] = {
     "gemini": ProviderSpec(
@@ -510,7 +517,13 @@ PROVIDERS: dict[str, ProviderSpec] = {
     "ollama": ProviderSpec(
         name="ollama",
         kind="openai_compat",
-        default_model="qwen2.5-coder:7b",
+        # PF-043 (fixed 2026-09-13): qwen2.5-coder:7b (stock, 4096-token
+        # context) left ~480 tokens of generation headroom against the
+        # 3,614-token system prompt — silent truncation past that. The -16k
+        # variant carries `PARAMETER num_ctx 16384` in its own Modelfile
+        # (verified via `ollama show qwen2.5-coder:7b-16k`), matching
+        # _OLLAMA_NUM_CTX's own default below.
+        default_model="qwen2.5-coder:7b-16k",
         env_var=None,
         base_url="http://localhost:11434/v1",
         signup_url="https://ollama.com",
@@ -520,7 +533,10 @@ PROVIDERS: dict[str, ProviderSpec] = {
         min_max_tokens=4096,
         request_token_budget=_OLLAMA_NUM_CTX,
         notes="Fully local: no key, no quota, works offline, can never be billing "
-              "blocked. Needs `sudo pacman -S ollama` + `ollama pull <model>`.",
+              "blocked. Needs `sudo pacman -S ollama` + `ollama pull qwen2.5-coder:7b` "
+              "+ a Modelfile `FROM qwen2.5-coder:7b` / `PARAMETER num_ctx 16384` "
+              "saved as `qwen2.5-coder:7b-16k` (PF-043) — the stock 4096-context "
+              "pull alone truncates generation.",
     ),
     "anthropic": ProviderSpec(
         name="anthropic",
