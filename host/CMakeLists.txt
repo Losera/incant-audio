@@ -511,6 +511,22 @@ target_compile_options(ParamGridLayoutTest PRIVATE -fsanitize=address,undefined 
 target_link_options(ParamGridLayoutTest PRIVATE -fsanitize=address,undefined)
 
 # ---------------------------------------------------------------------------
+# GKnobGeometryTest -- the bipolar-knob arc-start math
+# (host/Source/GKnobGeometry.h, host/tests/GKnobGeometryTest.cpp), ADR-038 F1.
+#
+# Same shape as ParamGridLayoutTest immediately above: GKnobGeometry.h was
+# factored OUT of GeneratedFaceLookAndFeel::drawRotarySlider specifically so
+# this arithmetic could have a fast, no-JUCE test, since GeneratedFaceLookAndFeel.h
+# itself pulls in juce_gui_basics for every other method and could never be
+# this build's translation unit. Pure float arithmetic, no dependency on
+# either JUCE or libfaust.
+# ---------------------------------------------------------------------------
+add_executable(GKnobGeometryTest tests/GKnobGeometryTest.cpp)
+target_compile_features(GKnobGeometryTest PRIVATE cxx_std_17)
+target_compile_options(GKnobGeometryTest PRIVATE -fsanitize=address,undefined -g -O1)
+target_link_options(GKnobGeometryTest PRIVATE -fsanitize=address,undefined)
+
+# ---------------------------------------------------------------------------
 # NoteRingTest / NoteRingTsanTest -- the message->audio note queue
 # (host/Source/NoteRing.h, host/tests/NoteRingTest.cpp).
 #

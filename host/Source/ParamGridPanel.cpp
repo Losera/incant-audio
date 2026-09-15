@@ -353,6 +353,37 @@ void ParamGridPanel::applyPresentation(Control& c)
     sl->setColour(juce::Slider::trackColourId, accent);
     sl->setColour(juce::Slider::rotarySliderFillColourId, accent);
 
+    // ── Bipolar detent (ADR-038 F1) ──────────────────────────────────────────
+    // When this control's REAL Faust range straddles zero (Detune, Pan), its
+    // value arc should fill from a CENTRE detent, not from the rotary's start
+    // angle the way every other control does. The detent is the NORMALISED
+    // position of real zero on the control's own range, `-min/(max-min)` --
+    // never assumed to be 0.5. A perfectly symmetric range is not guaranteed
+    // (session 020's own trap: "Iron Strip EQ is ±12 dB, but a drive-offset
+    // might be −0.5..+1.0"), and `meta.min`/`meta.max` are the real Faust
+    // bounds, not the pooled slot's own range: every macro slot's underlying
+    // AudioParameterFloat is registered with an explicit, uniform
+    // NormalisableRange<float>(0.0f, 1.0f) (PluginProcessor.cpp, PF-040's own
+    // load-bearing comment says this must stay explicit), so
+    // `sl->getMinimum()`/`getMaximum()` report 0..1 for every control
+    // regardless of the real Faust range -- the true range only survives in
+    // `meta`.
+    // Stashed as a Component property because
+    // GeneratedFaceLookAndFeel::drawRotarySlider only ever receives a bare
+    // juce::Slider&, never this Control/meta pair; re-set on every
+    // applyPresentation() call for the same reason the accent above is, so a
+    // style change never leaves a stale tag behind.
+    if (c.meta.min < 0.0f && c.meta.max > 0.0f)
+    {
+        // min < 0 < max already forces max - min > 0 by construction (max > 0
+        // > min), so this can never divide by zero under the branch above --
+        // asserted anyway, as a named invariant a future edit to that
+        // condition (e.g. loosening `<`/`>` to `<=`/`>=`) would otherwise
+        // silently depend on without anyone noticing it had to.
+        jassert(c.meta.max > c.meta.min);
+        sl->getProperties().set("bipolarDetent", -c.meta.min / (c.meta.max - c.meta.min));
+    }
+
     // ── Style override ──────────────────────────────────────────────────────
     // Rotary and Horizontal are user view choices and win over the Faust Kind.
     // Reaching here at all means the widget is a Slider, so the toggle kinds are

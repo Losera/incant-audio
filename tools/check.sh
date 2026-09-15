@@ -148,7 +148,8 @@ level_full() {
               OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery \
               ParamIdentityTest NoteRingTest NoteRingTsanTest ValidationGateTest \
               SoundfetchClientTest GenerationProfilesAutoTest UiIrTest \
-              ThemeValidateTest PromptPanelPathResolutionTest ParamGridLayoutTest
+              ThemeValidateTest PromptPanelPathResolutionTest ParamGridLayoutTest \
+              GKnobGeometryTest
 
     # ── Three harnesses that existed and ran nowhere ─────────────────────────
     # Found 2026-07-30 while surveying the measurement surface: OutputGuardTest
@@ -210,11 +211,16 @@ level_full() {
     # this exact filename as never having existed since it was written; this is
     # that filename. ArchetypeLayout.h (host/Source/) is pure section/rect
     # arithmetic, same "no JUCE dependency" shape as ParamIdentityTest beside it.
+    # GKnobGeometryTest joined with ADR-038 F1, in the commit that created it --
+    # GKnobGeometry.h was factored out of GeneratedFaceLookAndFeel.h's
+    # drawRotarySlider specifically so the bipolar-arc-start arithmetic could
+    # run at this rung; GeneratedFaceLookAndFeel.h itself pulls in
+    # juce_gui_basics and could never be this build's translation unit.
     local pure
     for pure in OutputGuardTest ParamMapTest StatePersistenceTest ParamIdentityTest \
                 NoteRingTest ValidationGateTest SoundfetchClientTest \
                 GenerationProfilesAutoTest UiIrTest ThemeValidateTest \
-                PromptPanelPathResolutionTest ParamGridLayoutTest; do
+                PromptPanelPathResolutionTest ParamGridLayoutTest GKnobGeometryTest; do
       local bin
       bin="$(find host/build -type f -name "$pure" 2>/dev/null | head -n1)"
       if [[ -n "$bin" ]]; then
