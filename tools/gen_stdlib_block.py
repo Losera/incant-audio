@@ -124,13 +124,20 @@ CURATED: list[tuple[str, list[tuple[str, str, str]]]] = [
         # and rendered EXACTLY 0.0. thresh is dB (misceffects.lib:129,164;
         # compressors.lib:140) and the library converts internally at
         # misceffects.lib:188 -- so a pre-conversion is applied twice.
-        ("co", "compressor_mono",         "mono compressor; thresh in dB, pass it raw"),
-        ("co", "compressor_stereo",       "stereo compressor, linked; thresh in dB, raw"),
+        # PF-032 (retargeted, WP1 2026-09-14/15): att/hold/rel are documented as
+        # raw SECONDS (misceffects.lib:127-130) and carried NO unit annotation
+        # here at all -- the model reliably applies *(0.001) to att/rel when it
+        # declares its OWN slider (the compressor few-shot below), but reuses an
+        # existing ms-labelled slider raw, or scales by ma.SR/1000 as if
+        # converting to samples, when no annotation says otherwise. 5/6 fresh
+        # control-arm generations against the unannotated text were broken.
+        ("co", "compressor_mono",         "mono compressor; thresh dB raw, att/rel SECONDS"),
+        ("co", "compressor_stereo",       "stereo compressor, linked; thresh dB raw, att/rel SECONDS"),
         ("co", "limiter_1176_R4_mono",    "1176-style limiter, mono"),
         ("co", "limiter_1176_R4_stereo",  "1176-style limiter, stereo"),
-        ("ef", "gate_mono",               "noise gate, mono; thresh in dB, pass it raw"),
-        ("ef", "gate_stereo",             "noise gate, stereo; thresh in dB, pass it raw"),
-        ("an", "amp_follower_ar",         "envelope follower with attack/release"),
+        ("ef", "gate_mono",               "noise gate, mono; thresh dB raw, att/hold/rel SECONDS"),
+        ("ef", "gate_stereo",             "noise gate, stereo; thresh dB raw, att/hold/rel SECONDS"),
+        ("an", "amp_follower_ar",         "envelope follower; att/rel SECONDS"),
     ]),
     ("Distortion / saturation", [
         ("ef", "cubicnl",            "cubic nonlinearity -- soft saturation / drive"),
@@ -157,16 +164,27 @@ CURATED: list[tuple[str, list[tuple[str, str, str]]]] = [
     ]),
     ("Conversions and helpers", [
         ("ba", "db2linear",  "decibels to linear gain"),
-        ("ba", "linear2db",  "linear gain to decibels"),
         ("ba", "midikey2hz", "MIDI note number to Hz"),
-        ("ba", "sec2samp",   "seconds to samples"),
         ("ba", "bypass1",    "bypass switch around a mono effect"),
         ("ba", "bypass2",    "bypass switch around a stereo effect"),
         ("si", "smoo",       "one-pole smoothing -- use on slider values to avoid zipper noise"),
         ("ma", "SR",         "current sample rate; no arguments"),
-        ("ma", "PI",         "pi; no arguments"),
     ]),
 ]
+# PF-032 (retargeted, 2026-09-15): ba.sec2samp, ma.PI and ba.linear2db dropped
+# from the EFFECT profile (not touched in CURATED_INSTRUMENT) to pay for the
+# att/hold/rel unit-contract fix above -- test_prompt_headroom.py's "mild
+# growth guard" needs real margin, not just slack > 0. None of the three is
+# used by any few-shot in either prompt and no test asserts their presence.
+# sec2samp is additionally adjacent to the exact error class this fix
+# targets (a seconds->samples conversion where the library wants raw
+# seconds). ba.midikey2hz stays per this file's own note above: an absent
+# entry invites an invented one, and it has no safe alternate spelling a
+# model would reach for instead -- db2linear (kept, used constantly by every
+# dB-labelled slider few-shot) is the same case. linear2db is its rarely-
+# needed inverse (meter/analysis direction, not signal processing) and a
+# model that needs it can write the formula inline without a plausible wrong
+# name to invent. Re-check this reasoning before trimming further.
 
 
 # ── Instrument selection ──────────────────────────────────────────────────────

@@ -21,8 +21,9 @@ STRICT RULES:
   : si.smoo — otherwise parameter changes produce audible zipper noise.
 - Units are whatever the reference says for that argument. A frequency documented
   in Hz must NOT be divided by ma.SR; a threshold documented in dB must NOT be run
-  through ba.db2linear first, because the library does that itself. Both mistakes
-  compile cleanly and render SILENCE.
+  through ba.db2linear first; an att/hold/rel time is documented in SECONDS — a ms
+  slider takes *(0.001), never ma.SR, never ba.sec2samp. All three compile
+  cleanly and render SILENCE.
 - A stdlib effect takes only its CONTROL arguments; the audio arrives by
   composition. Write _,_ : co.compressor_stereo(ratio,thr,att,rel) : _,_ —
   never co.compressor_stereo(ratio,thr,att,rel,_,_) or ef.gate_stereo(t,a,h,r,_,_),
@@ -116,14 +117,14 @@ Modulation effects:
 
 Dynamics:
   co.compressor_mono(ratio, thresh, att, rel, x)
-                                                mono compressor; thresh in dB, pass it raw
+                                                mono compressor; thresh dB raw, att/rel SECONDS
   co.compressor_stereo(ratio, thresh, att, rel, x, y)
-                                                stereo compressor, linked; thresh in dB, raw
+                                                stereo compressor, linked; thresh dB raw, att/rel SECONDS
   co.limiter_1176_R4_mono(x)                    1176-style limiter, mono
   co.limiter_1176_R4_stereo(x, y)               1176-style limiter, stereo
-  ef.gate_mono(thresh, att, hold, rel, x)       noise gate, mono; thresh in dB, pass it raw
-  ef.gate_stereo(thresh, att, hold, rel, x, y)  noise gate, stereo; thresh in dB, pass it raw
-  an.amp_follower_ar(att, rel)                  envelope follower with attack/release
+  ef.gate_mono(thresh, att, hold, rel, x)       noise gate, mono; thresh dB raw, att/hold/rel SECONDS
+  ef.gate_stereo(thresh, att, hold, rel, x, y)  noise gate, stereo; thresh dB raw, att/hold/rel SECONDS
+  an.amp_follower_ar(att, rel)                  envelope follower; att/rel SECONDS
 
 Distortion / saturation:
   ef.cubicnl(drive, offset)                     cubic nonlinearity -- soft saturation / drive
@@ -150,14 +151,11 @@ Envelopes:
 
 Conversions and helpers:
   ba.db2linear(l)                               decibels to linear gain
-  ba.linear2db(g)                               linear gain to decibels
   ba.midikey2hz(mk)                             MIDI note number to Hz
-  ba.sec2samp(d)                                seconds to samples
   ba.bypass1(bpc, e)                            bypass switch around a mono effect
   ba.bypass2(bpc, e)                            bypass switch around a stereo effect
   si.smoo                                       one-pole smoothing -- use on slider values to avoid zipper noise
   ma.SR                                         current sample rate; no arguments
-  ma.PI                                         pi; no arguments
 
 # END GENERATED STDLIB REFERENCE
 
@@ -256,6 +254,13 @@ thresh = hslider("Threshold [unit:dB]", -18, -60, 0, 0.1);
 att    = hslider("Attack [unit:ms]", 10, 1, 100, 1) : *(0.001);
 rel    = hslider("Release [unit:ms]", 120, 10, 1000, 1) : *(0.001);
 process = _,_ : co.compressor_stereo(ratio, thresh, att, rel);
+
+USER: a noise gate with threshold and hold time
+FAUST:
+import("stdfaust.lib");
+thresh = hslider("Threshold [unit:dB]", -40, -80, 0, 1);
+hold   = hslider("Hold [unit:ms]", 100, 1, 500, 1) : *(0.001);
+process = _,_ : ef.gate_stereo(thresh, 0.001, hold, 0.02);
 
 USER: a stereo chorus with rate and depth
 FAUST:
