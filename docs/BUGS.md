@@ -59,7 +59,7 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-021 | Stale error persists in PromptPanel across a new Generate (never cleared on submit) | medium | fixed | S2 Prompting UX | `PromptPanel.cpp:195-200` | 2026-07-24 | `18e862e` (2026-07-25) |
 | PF-022 | `currentFaustSource`/`currentPrompt` committed before compile success — a failed generate poisons the source-of-record and any later save/restore | high | fixed | S1 Backend | `PluginProcessor.cpp:148,180-181` | 2026-07-24 | `4a84c1c` (2026-07-25) |
 | PF-023 | `FaustEngine::process()` has no `activeDSP` null guard (latent audio-thread segfault; defense-in-depth) | medium | fixed | S1 Backend | `FaustEngine.cpp` `process()` | 2026-07-24 | `4a84c1c` (2026-07-25) |
-| PF-024 | Generation produces invalid Faust for stereo routing / unbounded delays / ping-pong / artist-reference prompts (P6 #2,#6,#9,#10) | high | in-progress | S1 Backend | `llm/prompts/system_prompt.txt` | 2026-07-24 | `a4f942e` prompt-side; unmeasured |
+| PF-024 | Generation produces invalid Faust for stereo routing / unbounded delays / ping-pong / artist-reference prompts (P6 #2,#6,#9,#10). **09-15: named-mono-in-stereo-chain sub-pattern targeted, mixed free-tier result (2/5 clear, 1 ambiguous, 1 shifted, 1 unchanged)** | high | in-progress | S1 Backend | `llm/prompts/system_prompt.txt` | 2026-07-24 | `a4f942e` prompt-side; dynamics sub-case mitigated PR #75; named-mono sub-case WP2a/b on `fix/pf024-named-mono-routing`, groq still owed |
 | PF-025 | Benchmark harness has no concurrency guard and overwrites `results.json` unconditionally — two runs destroy each other's evidence and share one rate limit | high | fixed | S4 Testing | `bench/run_benchmark.py:32-115,296-322` | 2026-07-27 | pending commit |
 | PF-026 | CI red on four consecutive pushes and no artifact in the loop reported it — the digest, the Broken list and `check.sh` were all silent | high | fixed | S4 Testing | `tools/status_digest.sh` | 2026-07-28 | pending commit |
 | PF-027 | `OfflineRenderTest` dies with SIGILL (exit 132) on the CI runner — missing MessageManager. **Its "not the CPU" conclusion was wrong; see PF-036** | high | fixed | S4 Testing | `host/tests/OfflineRenderTest.cpp` `main()` | 2026-07-28 | `144e023` (green run `30409357504`) |
@@ -632,6 +632,32 @@ it must be per-class rather than aggregate.
 **Cost, recorded because it constrains the next edit.** Prompt headroom fell 457 → **185
 tokens**; the stdlib block now needs only **10.8%** growth (was ~29%) to 413 every groq
 request. The calibration anchor is 7.9% stale and a re-measure is due — one live generation.
+
+**2026-09-15 — WP1 classified from stored data; WP2a fixed a real contradiction, WP2b
+extended the routing rule. Free-tier, mixed, per-observation.**
+
+Re-classifying every attempt (not just first errors) in `efficacy_ollama_20260828.json`
+finds 38 `routing_arity` failures; the largest single shape is a 2-out→1-in sequential
+composition (7, five outside dynamics) — a named mono definition fed a stereo signal, e.g.
+`dynamics-03`: `gate = ef.gate_mono(...); process = _,_ : gate;`.
+
+**WP2a (fixed):** the generated stdlib block rendered signatures with trailing audio params
+(`ef.gate_mono(thresh,att,hold,rel,x)`), contradicting STRICT RULES' composition-only rule
+two screens above — `dynamics-03` copied it verbatim. `gen_stdlib_block.py:find_signature()`
+now strips a trailing x/y; token-negative (+32); pinned by
+`test_no_curated_entry_ends_in_a_bare_audio_param`.
+
+**WP2b:** the mono-in-stereo rule now names a NAMED definition explicitly. Both halves
+compile-verified by hand (`faust`: broken form → exact claimed arity error; `par(i,2,gate)`
+form → exit 0) — **not** wired into `test_prompt_claims.py`'s fixture, its quoted-span
+extractor doesn't cover this clause. Recorded as the unverified-automation remainder.
+
+**Free-tier re-run, the 5 affected cells:** trivial-04, dynamics-03 now emit exactly the
+taught pattern, clean; trivial-03 now compiles (attribution unclear); trivial-05 fails
+differently (syntax, not arity); trivial-02 still fails the same arity class across all 3
+retries. **2/5 clear, 1 ambiguous, 1 shifted, 1 unchanged.**
+
+**Not measured:** groq. Out of scope: `recursive composition A~B`/Karplus-Strong.
 
 ---
 

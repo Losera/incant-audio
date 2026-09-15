@@ -59,7 +59,8 @@ programs fail after inventing a function name.
   si.bus(N)     N straight wires.
 
 - To apply a MONO effect to a stereo signal use par(i, 2, E). Writing _,_ : E is a
-  "2 outputs must equal 1 input" error, because : requires matching counts.
+  "2 outputs must equal 1 input" error, because : requires matching counts — same
+  for a NAMED definition: _,_ : gate fails identically; write par(i, 2, gate).
 - All feedback goes through ~. A definition that refers to itself directly, like
   d = d : *(0.5);, is a compile-time cycle and fails with "endless evaluation
   cycle" — it is not a delay line.
@@ -92,7 +93,7 @@ Filters:
   fi.highpass(N, fc)                            Butterworth high-pass; order is a constant
   fi.bandpass(Nh, fl, fu)                       Butterworth band-pass
   fi.resonlp(fc, Q, gain)                       resonant low-pass -- the workhorse for 'filter with resonance'
-  fi.resonhp(fc, Q, gain, x)                    resonant high-pass
+  fi.resonhp(fc, Q, gain)                       resonant high-pass
   fi.notchw(width, freq)                        notch filter, width in Hz
   fi.peak_eq(Lfx, fx, B)                        peaking EQ band, gain in dB
   fi.lowshelf(N, L0, fx)                        low shelf, gain in dB
@@ -101,11 +102,11 @@ Filters:
 
 Virtual-analog filters:
   ve.moog_vcf(res, fr)                          Moog ladder VCF; fr in Hz, res normalised 0-1
-  ve.moogLadder(normFreq, Q, x)                 Moog ladder; normFreq is 0-1, NOT Hz
+  ve.moogLadder(normFreq, Q)                    Moog ladder; normFreq is 0-1, NOT Hz
 
 Delays:
-  de.delay(n, d, x)                             integer-sample delay; first arg is the MAXIMUM delay
-  de.fdelay(n, d, x)                            fractional-sample delay (interpolated) -- use for modulated delays
+  de.delay(n, d)                                integer-sample delay; first arg is the MAXIMUM delay
+  de.fdelay(n, d)                               fractional-sample delay (interpolated) -- use for modulated delays
 
 Modulation effects:
   pf.flanger_mono(dmax, curdel, depth, fb, invert)
@@ -116,14 +117,12 @@ Modulation effects:
                                                 vibrato
 
 Dynamics:
-  co.compressor_mono(ratio, thresh, att, rel, x)
-                                                mono compressor; thresh dB raw, att/rel SECONDS
-  co.compressor_stereo(ratio, thresh, att, rel, x, y)
-                                                stereo compressor, linked; thresh dB raw, att/rel SECONDS
-  co.limiter_1176_R4_mono(x)                    1176-style limiter, mono
-  co.limiter_1176_R4_stereo(x, y)               1176-style limiter, stereo
-  ef.gate_mono(thresh, att, hold, rel, x)       noise gate, mono; thresh dB raw, att/hold/rel SECONDS
-  ef.gate_stereo(thresh, att, hold, rel, x, y)  noise gate, stereo; thresh dB raw, att/hold/rel SECONDS
+  co.compressor_mono(ratio, thresh, att, rel)   mono compressor; thresh dB raw, att/rel SECONDS
+  co.compressor_stereo(ratio, thresh, att, rel) stereo compressor, linked; thresh dB raw, att/rel SECONDS
+  co.limiter_1176_R4_mono                       1176-style limiter, mono
+  co.limiter_1176_R4_stereo                     1176-style limiter, stereo
+  ef.gate_mono(thresh, att, hold, rel)          noise gate, mono; thresh dB raw, att/hold/rel SECONDS
+  ef.gate_stereo(thresh, att, hold, rel)        noise gate, stereo; thresh dB raw, att/hold/rel SECONDS
   an.amp_follower_ar(att, rel)                  envelope follower; att/rel SECONDS
 
 Distortion / saturation:
