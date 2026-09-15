@@ -1459,6 +1459,24 @@ under-declaration, not adding a dependency"). PF-067 is the cautionary neighbour
 ADR-031"). Acceptance records the decision not to adopt; it does not foreclose a future
 reconsideration under the reopen trigger above.
 
+**Amendment (2026-09-13) — two stale claims corrected, and the reopen count as of ADR-039.**
+`RETRY_HINT` no longer "carries exactly one entry by design (`llm/error_classes.py:130-131`)"
+— PR #75 (`a778853`) added a second entry, `ROUTING_ARITY`; both now live at
+`llm/error_classes.py:155-179`. This does not change the ADR's conclusion: the consumer is
+still a single `dict.get()` concatenation (`llm/generate.py:192-193`), not a branch — see
+ADR-039's discussion of item 1. Separately, this ADR's own line citations for the retry loop
+and its state have drifted (cited `llm/generate.py:568` / `:279-292` / `:540-560`; the loop is
+now at `:585`, the kind/prior_source comments at `:281-294`, and `prior_source_dropped` — one
+of the "four scalars" claimed at `:1380-1381` — is in fact set once *before* the loop at `:561`
+and `:572`, not loop-carried; the genuinely loop-carried state is three scalars). Corrected
+here rather than re-editing the numbers above, so the record shows what changed and when.
+**Reopen-trigger status:** ADR-039 proposes item 3 (provider-failover routing, restricted to
+cloud→local). ADR-037 self-declares as item 2 (`docs/decisions.md:2253`, its own "Relates to"
+line) but remains Proposed with no shipped code as of this amendment. Landing ADR-039 alone
+therefore brings the count to **1 of 3** — this ADR's own reopen trigger does **not** fire, and
+`langgraph` remains declined. If ADR-037 is later accepted, the count becomes 2 and the
+trigger fires; ADR-039 flags this explicitly rather than leaving it for a reviewer to notice.
+
 ---
 
 ## ADR-031 — Knowledge tooling: an ID-resolution test and a headless graph emitter, not an Obsidian vault
@@ -2566,3 +2584,376 @@ but not its emitted output). Run them next, before F2/F3/E2.
                               downloadable, self-contained VST3 + source
                               (no libfaust at build or runtime — ADR-023 amendment)
 ```
+
+## ADR-039 — Cross-provider failover: cloud rate limits fall back to local only
+
+| | |
+|---|---|
+| **Status** | Proposed |
+| **Date** | 2026-09-13 |
+| **Relates to** | ADR-012 (free-tier-only default — the boundary this ADR must not cross), ADR-030 (declines `langgraph`; this ADR is its reopen-trigger item 3, landed alone at 1 of 3 — see that ADR's 2026-09-13 amendment), ADR-032 (**reverses** its rejected alternative 4, "auto-failover," for the cloud→local direction only — everything else in ADR-032 stands), ADR-037 (self-declared item 2 of 3, Proposed/no code — the one-ADR-away tripwire this ADR names), PF-043 (the ollama context fix this session that makes a local fallback survivable), PF-060 (the provider-aware preflight machinery this ADR reuses), PF-076 (the local-model reliability data ADR-040's ladder is not allowed to ignore) |
+
+**Context**
+
+The user asked for "robust local model orchestration and fall-backs… to prevent ourselves
+from being rate limited by cloud" — concretely: groq's free tier is 200,000 tokens/day
+(`llm/providers.py:451`, ~57 generations/day at ~3,493 tokens each), and today a rate limit or
+exhausted daily quota simply fails the generation. There is no cross-provider fallback
+anywhere: `llm/providers.py` has zero matches for `fallback|failover|next_provider`, and
+`provider` is a single value resolved once per request (`llm/generate.py:510`).
+
+**This is not a fresh question.** Auto-failover was already proposed and rejected twice:
+
+- **ADR-032** (Accepted 2026-08-29, **implemented** 2026-08-31, PRs #42/#43), Alternatives
+  considered item 4 (`docs/decisions.md:1623-1625`): *"**Auto-failover between providers when
+  one errors.** Rejected (research §4.3): it can disclose a private prompt and generated
+  source to a second vendor and incur unexpected cost. A provider error stays a provider
+  error."*
+- The research dossier it cites,
+  `docs/research/plugin-evolution-ui-provider-architecture-2026-08-13.md:404-406`: *"Never
+  auto-fail over to another provider: that can disclose private prompts/source to another
+  vendor and incur unexpected cost."* Reinforced in its acceptance criteria at `:610` ("no
+  automatic cross-provider failover occurs") and its immutable-profile-snapshot requirement
+  at `:408-410`.
+
+Both objections are about **a second vendor** and **unexpected cost**. Neither describes
+failing over to the local `ollama` provider already in the registry: `env_var=None`
+(`llm/providers.py:514`), `base_url="http://localhost:11434/v1"` (no data leaves the machine),
+and its own note — *"Fully local: no key, no quota, works offline, can never be billing
+blocked"* (`:522-523`). This ADR proposes only that direction, and treats it as **reversing
+ADR-032's rejected alternative 4 for the cloud→local case**, not reopening the general question
+ADR-032 already settled for cloud→cloud.
+
+**Also on record, unactioned:** `docs/architecture_review_2026-07-21.md:371-392` §3.3③,
+"Model-escalating retry" — attempt 1 primary, attempt 2 primary+stderr, attempt 3
+secondary+stderr — called *"the cheapest large win"* (`:513-514`) and listed as recommended-
+sequence items 8–9. This ADR is that recommendation, narrowed to a local-only target and
+reconciled against ADR-032, which landed after that review and rejected the general case.
+
+**The gap that must close before this can work.** A failover keyed on
+`except providers.RateLimited` would miss most real groq rate limits:
+
+- `RateLimited` is raised only when the shared wall-clock `Budget` refuses to allow another
+  sleep (`llm/providers.py:860` SDK path, `:916` HTTP path). With budget remaining, a 429 is
+  slept through; after 5 tries `_post_with_backoff` falls out of the loop and raises a **bare
+  `RuntimeError`** (`:922`) — untyped.
+- Groq's non-retryable 413 ("Request too large", `:79-87`) is neither a 429 nor a ≥500, so it
+  `break`s at `:920` into the same bare `RuntimeError`.
+- `generate_json` catches only `RateLimited` / `BudgetExhausted` / `OutputTruncated`
+  (`llm/generate.py:600-613`); a bare `RuntimeError` propagates out, is caught by
+  `_run_subprocess_mode`'s blanket handler (`:918`), and is flattened by `_exception_response`
+  to `reason="error"` (`:763-771`) — indistinguishable from any other crash.
+- `_is_daily_quota` / `_is_retryable` (`llm/providers.py:815-828`), the classifiers that
+  already know how to tell a daily-quota exhaustion from a transient throttle, are reachable
+  **only** via `_call_with_retry` (`:831`), which serves **only** anthropic and gemini.
+  Groq, openrouter and ollama's own HTTP path (`_post_with_backoff`) never consults them.
+
+**Decision**
+
+1. **Type the terminal HTTP outcomes in `_post_with_backoff` before writing any failover
+   code.** Reuse `_is_daily_quota`/`_is_retryable`'s existing string-matching, but raise a
+   typed exception (a new `QuotaExceeded` distinct from the budget-driven `RateLimited`, or
+   extend `RateLimited` to cover the terminal 429/413/5xx-exhausted cases) instead of falling
+   through to a bare `RuntimeError` at `:922`. This is a prerequisite bugfix, independent of
+   failover, and should be verified and merged on its own before step 2.
+
+2. **A fallback is attempted only on that typed rate-limit/quota class**, never on auth
+   failure, Faust-validation failure, or any other error. A provider error that is not a
+   capacity problem stays a provider error, per ADR-032's own framing.
+
+3. **The only automatic target is local `ollama`.** No cloud→cloud fallback in either
+   direction (this would re-trigger ADR-032's rejected alternative 4 exactly as written), and
+   the paid `anthropic` provider is never auto-reachable — `assert_free()` / `check_credentials()`
+   must be called against the fallback candidate explicitly, since today both run only against
+   the originally requested provider (`llm/generate.py:895`, `:905`) and a chain that skipped
+   this would reopen the hole the 2026-09-04 fix closed (`llm/generate.py:845-871`).
+
+4. **Failover starts a clean attempt, never a continued repair chain.** `error_ctx`
+   (`llm/generate.py:582`, set `:637`) and `truncated` carry no provider identity; continuing
+   them into provider B would hand it *"fix this compiler error"* about code B never wrote
+   (`:302`) — the same class of harm the fixed-routing invariant already guards against
+   (`:281-294`, *"Every attempt in a retry loop must pass the SAME kind… re-routing… would let
+   a retry silently switch prompts mid-generation and repair the code against rules the first
+   attempt never saw"*). A provider switch does not violate that invariant's literal subject —
+   the system prompt is passed explicitly per attempt (`:599`) and is provider-independent —
+   but reusing A's error-feedback state on B would be the same mistake in a new place.
+
+5. **Preflight is re-run against B, never reused from A.** `preflight_prior_source(...,
+   provider)` (`llm/providers.py:200-223`, sole call site `llm/generate.py:568-569`) computes
+   provider-specific admission. Measured this session: `request_ceiling(4096, "groq") = 3904`
+   vs `request_ceiling(4096, "ollama") = 12288`; on a representative dynamic-stdlib prompt,
+   headroom is `groq: +451` vs `ollama: +8835` tokens, and PF-060's own 2,043-char trial
+   payload (~630 estimated tokens) is refused on groq and admitted on ollama. Reusing A's
+   refusal would throw away a request B could serve; forgetting to thread the provider name
+   silently falls back to groq's own 8000-token ceiling (`:168-176`), which is a real footgun
+   for whoever implements this.
+
+6. **`model` is dropped, not inherited, on failover.** `generate_json` passes
+   `request["model"]` unchanged to every attempt (`llm/generate.py:513`, `:595`); a
+   user-pinned cloud model id (e.g. `openai/gpt-oss-120b`) must not be sent to ollama.
+   `PLUGINFORGE_MODEL` has the identical hazard globally (`llm/providers.py:572`) and should
+   be scoped per-provider if failover ships.
+
+7. **Reachability is probed before switching, not discovered via budget exhaustion.**
+   There is no reachability check today; a failover to a dead local daemon hits
+   `httpx.RequestError` (`llm/providers.py:888`) and backs off 1/2/4/8s until
+   `BudgetExhausted` (`:892-894`) — turning a clean `rate_limited` (with an actionable
+   `retry_after`) into an opaque `timeout`, after spending the remaining budget. Use
+   `list_models("ollama")` (`:976-995`, already live, already enumerates every locally-pulled
+   model with no key) as a cheap up-front liveness check. It cannot report `num_ctx`
+   (`:393-403`), so it answers "is the daemon reachable," not "will this model fit."
+
+8. **Budget policy is explicit, not implied.** One `Budget` per generation
+   (`llm/generate.py:515`, 140 s total, ~41.7 s per attempt, arithmetic guarded by
+   `tests/test_generation_budget.py::TestTerminatesUnderTheHostCap`). Provider A's backoff
+   sleeps consume that budget before B ever starts, so a shared budget may hand B very little
+   time. This ADR proposes a **fresh, separate budget for the local fallback leg** — bounded
+   independently (see ADR-040 for what that bound should be on measured hardware), reported
+   as its own phase rather than folded into the 140 s/180 s host-cap arithmetic that governs
+   the cloud attempt. The alternative (shared budget) is simpler but was rejected here because
+   it makes the fallback's success probability depend on how much of A's budget the rate limit
+   already consumed — an unpredictable, hard-to-test failure mode.
+
+9. **Failover fires only when the user's provider choice is `auto`, never overriding an
+   explicit pick.** The wire already distinguishes the two: `PromptPanel` omits the `provider`
+   field entirely when the in-plugin picker is unset (`host/Source/PromptPanel.cpp:1250-1256`,
+   `INTERFACE.md:74-77`), but `llm/generate.py:510`'s `request.get("provider",
+   DEFAULT_PROVIDER)` collapses that distinction on the way in. Making failover conditional on
+   "no explicit `provider` key was sent" requires **no wire change**, respects ADR-032 §5's
+   immutable-per-generation preference snapshot (`docs/decisions.md:1648-1651`), and is the
+   cheapest correct design available.
+
+10. **The response says which provider actually ran.** Neither the success response
+    (`llm/generate.py:627-629`) nor `_failure` (`:710-721`) carries a `provider` key today,
+    and `statusForReason()` (`host/Source/PromptPanel.cpp:53-73`) has no vocabulary for a
+    substitution — so an unannounced failover would be invisible to the user. Add an additive
+    `provider`/`used_fallback` response field (precedent: `llm/recommendation.py:164`'s
+    provider/model echo; the additive-key pattern already established by `kind`, `:618-629`,
+    and `prior_source_dropped`, `:630-635`) and a status string in `statusForReason()`.
+
+**Alternatives considered**
+
+1. **LangGraph as the orchestration layer.** Rejected — ADR-030 stands; this ADR (item 3)
+   alone brings the reopen count to 1 of 3, below the ≥2 threshold ADR-030 itself sets. See
+   this ADR's own note under "Interaction with ADR-030's reopen trigger" below.
+2. **LiteLLM as a client/router layer.** Rejected on the same grounds as ADR-030 and research
+   §4.1 (`docs/decisions.md:1620-1622`): it hides the per-provider token/limit/finish-reason
+   differences this project deliberately keeps visible, for a five-entry registry that already
+   does the job.
+3. **General cloud↔cloud failover (any direction, any pair).** Rejected — this is exactly
+   ADR-032's rejected alternative 4 and research §4.3's objection, unmodified: it can disclose
+   a private prompt/generated source to a second vendor and incur unexpected cost. This ADR
+   does not reopen that question; it narrows to the one direction those objections do not
+   describe.
+4. **Do nothing — a rate limit stays a hard failure.** The status quo. Rejected only because
+   the user asked for this specifically and the local-only design clears both prior
+   objections; if the fresh-budget/reachability-probe/visibility work in the Decision above is
+   judged too much for the win, this remains the fallback position.
+
+**Interaction with ADR-030's reopen trigger**
+
+ADR-030 (`docs/decisions.md:1436-1446`) names provider-failover routing as reopen item 3 of
+3, requiring **≥2** landed items before `langgraph` is re-evaluated against a hand-rolled
+dispatch table. Verified this session: item 1 (a faust-rs `--check` advisor branching repair
+strategy) has **zero** shipped-code presence in `llm/` — the nearest measured variant, faust-rs
+diagnostics fed to the repair loop, was closed as *harmful* (PF-076, `docs/BUGS.md:114`:
+repaired-within-2 fell from 75%→44% on the 3B model, 72%→50% on 7B). Item 2 (an offline
+critic/decompose pass before or between attempts) is not landed as ADR-030 means it: ADR-033's
+`recommend` action is a shipped decompose pass, but it is a separate user-initiated action in
+its own subprocess round-trip, off by default, and reaches generation only as prompt text
+before the loop starts (`llm/generate.py:575-581`, `:649-657`;
+`host/Source/PromptPanel.cpp:348-350,658-663`) — it never runs *between* attempts. The
+ADR that self-declares as item 2, ADR-037 (`docs/decisions.md:2253`), is Proposed with zero
+shipped code (`bench/evaluate_against_plan.py` does not exist).
+
+**This ADR is item 3.** Landing it alone brings the count to **1 of 3** — ADR-030's own
+reopen trigger does not fire, and `langgraph` stays declined on ADR-030's own terms. Stated
+here explicitly so a reviewer does not have to reconstruct the count: **if ADR-037 is later
+accepted, the count becomes 2 and the trigger fires**, obligating a fresh ADR re-evaluating
+`langgraph` against a hand-rolled dispatch table before any further orchestration work. That
+is a live, one-ADR-away tripwire, not a hypothetical.
+
+**Adversarial critique**
+
+The local-only framing is the load-bearing move in this ADR, and it deserves scrutiny rather
+than being asserted once and moved past. Three weaknesses:
+
+- **The disclosure/cost objection is narrower than "another vendor," if read strictly.** A
+  fallback that runs on the *user's own machine* still changes where the prompt and generated
+  code end up — on disk, in ollama's own logs — without the user necessarily expecting a
+  cloud-configured request to silently become a local one. This is a smaller version of the
+  same "not what the user asked for" concern, not a data-leaves-the-building concern. The
+  mitigation this ADR already proposes (item 9: fire only on `auto`, never override an
+  explicit pick) directly addresses it, but the ADR should be honest that "local" does not
+  mean "consequence-free," only "consequence-free in the specific ways ADR-032 named."
+- **A hand-rolled fallback risks becoming the ad-hoc client-construction duplication ADR-012
+  was written to prevent**, if the typed-error work in Decision item 1 and the budget/preflight
+  correctness in items 5, 7, 8 are not built with the same care as the registry itself. The
+  registry has 98+ passing unit tests behind it (`tests/test_providers_unit.py`) precisely
+  because provider edge cases are easy to get subtly wrong; a failover wrapper is new surface
+  of the same kind and should get comparable test investment before it ships, not after.
+- **This does not give the project circuit-breaker semantics.** A provider that is flaky
+  rather than cleanly rate-limited (intermittent 5xx, say) could be retried into failover
+  repeatedly with no cooldown bookkeeping — LiteLLM's `Router` gets this for free via
+  `allowed_fails`/`cooldown_time`. If flakiness (as opposed to clean quota exhaustion) turns
+  out to be the actual failure mode in practice, a small time-boxed spike testing whether
+  LiteLLM's `Router` class drops in cleanly is worth doing before extending the hand-rolled
+  version further — this ADR's recommendation is the minimal correct step, not a claim that
+  hand-rolling always beats a library.
+
+**Consequences**
+
+- **Item 1 (typed HTTP outcomes) is a real bugfix independent of failover** and should be
+  proposed as its own change, verified with its own tests
+  (`tests/test_providers_unit.py::TestPostBackoff`, `TestIsRetryable`), before failover logic
+  is written on top of it.
+- **`tests/conftest.py`'s `PLUGINFORGE_PROVIDER=anthropic` pin and its
+  `TestSuiteHermeticity.test_session_provider_is_pinned_to_anthropic` assertion** will need a
+  test-only way to express "the request explicitly names no provider" without the suite
+  reaching the network — the existing `setdefault` behavior (`tests/conftest.py:16`) already
+  permits an override; failover tests need to exercise both the "auto" and "explicit" paths
+  without weakening the hermeticity guarantee. Note also `PLUGINFORGE_ALLOW_PAID=1` is
+  suite-wide (`:32`) — a test asserting "the chain never reaches anthropic" would pass
+  spuriously under the default fixture and must follow `TestRequestFileMode`'s pattern of
+  popping the key from its own copied environment (`tests/conftest.py:29-31`).
+- **`min_max_tokens` is uniform at 4096 across all five `ProviderSpec` entries today**
+  (`llm/providers.py:416,440,497,520,539`), so a provider switch does not change the output
+  budget at HEAD — this is convenient for a first implementation but is an accident of the
+  current registry, not a guarantee the fallback logic should depend on.
+- **No migration implication** — this ADR ships no code. Rollback, if implemented and later
+  reverted, is deleting the wrapper and the two new response fields; the registry itself is
+  unchanged by this proposal.
+- **Revisit if:** the typed-error prerequisite (item 1) turns out to require touching
+  `_call_with_retry`'s SDK path as well as `_post_with_backoff`'s HTTP path, which would widen
+  this from "one function" to "the shared retry contract" and may warrant its own ADR; or if
+  ADR-037 is accepted, which fires ADR-030's reopen trigger and requires the `langgraph`
+  re-evaluation named above before any further orchestration work proceeds.
+
+## ADR-040 — Hardware envelope for local generation: measure before optimizing
+
+| | |
+|---|---|
+| **Status** | Proposed |
+| **Date** | 2026-09-13 |
+| **Relates to** | ADR-039 (this ADR's envelope selects ADR-039's local fallback model and bounds its budget), PF-043 (the context-window fix whose hardware cost this ADR measures honestly), PF-076 (`docs/BUGS.md:114` — existing evidence that a faster local model is not automatically a better one) |
+
+**Context**
+
+The user asked, concretely: *"how would my Computer's RTX A2000 work with this
+orchestration? How would we test this for multiple devices and optimize to actually achieve a
+generation regardless of hardware?"* This is a real question with a measured answer on the
+one machine available this session, and the answer is not comfortable:
+
+- This machine's GPU is an **RTX A2000 Laptop, 4096 MiB total, ~3.7 GiB free**
+  (`nvidia-smi --query-gpu=name,memory.total`).
+- The model PF-043 made this session's registry default, `qwen2.5-coder:7b-16k`, projects a
+  **5205 MiB** requirement (4168 MiB weights + 896 MiB KV cache at 16k context + 141 MiB
+  compute) against 3727 MiB free. Ollama's own scheduler responded by offloading **13 of 29
+  layers to GPU**, running the remaining 2769 MiB on CPU (`journalctl -u ollama`:
+  `common_params_fit_impl`, `offloaded 13/29 layers to GPU`).
+- Measured live, one real generation through this exact configuration: **768 tok/s prompt
+  eval, 9.21 tok/s generation**; 3358 prompt tokens + 216 completion tokens = **33.8 s
+  wall-clock for one successful attempt**, `truncated = 0` (ollama's own log, the load-bearing
+  field).
+- `PLUGINFORGE_GENERATION_BUDGET` is 140 s total (`llm/providers.py`'s `generation_budget()`
+  path cited from `llm/generate.py:147-156`), ~41.7 s per attempt across 3 attempts. At 33.8 s
+  per attempt, **roughly two of three attempts fit** on this hardware — a full 3-attempt local
+  retry chain does not, before any fallback logic is even added on top.
+- Ollama selected the **Vulkan** backend for this GPU, not CUDA (`library=Vulkan` in the
+  scheduler log) — noted as an open optimization question this ADR does not resolve, not a
+  decision it makes.
+
+**An honest accounting of PF-043's cost.** Raising the declared local-provider context from
+4096 to 16384 tokens (this session, to stop silent prompt truncation) grew the KV cache from
+~224 MiB to 896 MiB — which is what pushed layers off this 4 GB card. The fix is correct: a
+model that cannot hold its own system prompt is not a usable fallback target regardless of
+speed. But it has a real, measured throughput cost on small-VRAM hardware, and this ADR is
+where that tradeoff gets owned rather than left as a side effect of a different ADR.
+
+**The scoping decisions the user made this session govern this ADR's shape:** the generation
+budget stays fixed at its current value rather than being stretched for local hardware — model
+selection is the lever, not the schedule — and hardware coverage is tested via a **`num_gpu`
+layer-offload sweep as the primary proxy curve**, since faithfully emulating a named GPU model
+is not practical, **validated against 1–2 genuinely different remote GPUs** so the proxy is
+checked against reality rather than trusted on its own.
+
+**Decision**
+
+1. **Build a bench harness, alongside the existing measurement tooling in `bench/`**, that
+   sweeps ollama's `num_gpu` parameter (0 = fully CPU-bound, through 29 = fully GPU-resident
+   for this model family) crossed with model choice, quantization, and context length. Any
+   real device — this laptop, a smaller integrated GPU, a larger discrete card — lands
+   somewhere on that curve, so the sweep brackets the achievable range instead of requiring a
+   named-hardware matrix that can never be exhaustive.
+2. **Record, per configuration:** tokens/sec (prompt eval and generation, separately — they
+   differ by roughly 80× in this session's one measurement), time-to-first-successful-attempt,
+   and the derived yes/no — **does a full 3-attempt generation fit inside the existing
+   140 s budget at this configuration.**
+3. **Validate the `num_gpu` proxy against 1–2 real, different GPUs** (a genuinely
+   different card — not just a re-run on this same laptop) to confirm the sweep predicts real
+   devices rather than only describing this one machine's curve.
+4. **Do not prejudge which model wins the resulting ladder.** Raw speed is not the only
+   variable: PF-076 (`docs/BUGS.md:114`) already measured that a smaller/faster local model
+   (`qwen2.5-coder:3b`) has a *lower* repaired-within-2 success rate than the 7B model (75%→44%
+   vs 72%→50% under one repair-loop condition, McNemar p<1e-3 both). A model that finishes an
+   attempt faster but fails more of them is not automatically the right fallback choice inside
+   a fixed budget — the envelope's job is to make that tradeoff visible per configuration, not
+   to declare a winner in advance.
+5. **The resulting table selects ADR-039's local fallback model and per-attempt budget
+   bound for the hardware it is run on**, rather than hand-picking `qwen2.5-coder:7b-16k` (this
+   session's PF-043 default) as a permanent choice. On this machine's measured envelope, that
+   model already consumes roughly two-thirds of the local fallback's available budget for one
+   attempt — worth stating plainly rather than carrying forward as an unexamined default.
+
+**Alternatives considered**
+
+1. **Test against a fixed matrix of named GPUs (e.g. "RTX A2000, RTX 4090, integrated Iris
+   Xe").** Rejected as the primary method — it cannot generalize to hardware not in the
+   matrix, and the project has exactly one physical GPU available this session. Kept as a
+   secondary validation step (decision item 3), not the primary method.
+2. **Constrain the real GPU's visible VRAM and let ollama's own fitting logic react**, rather
+   than setting `num_gpu` by hand. Considered and not chosen as the primary axis — this session
+   confirmed the offload count (`13/29 layers`) is what ollama's scheduler actually decided
+   given a VRAM constraint, so `num_gpu` is the more direct and more portable variable to
+   sweep; VRAM-capping remains a reasonable secondary check on whether the fitting logic itself
+   behaves as expected at the boundary.
+3. **Stretch the generation budget for local hardware instead of adapting model choice.**
+   Rejected per the user's explicit scoping decision this session — the budget is a
+   user-observable wait time with an existing host-side cap (180 s hard kill,
+   `llm/generate.py`'s cited host cap), and hardware variance should be absorbed by *which*
+   model runs, not by how long the user waits.
+
+**Adversarial critique**
+
+The `num_gpu` sweep is a real, controllable, and honestly-labeled proxy — but it is still a
+proxy, and this ADR should not overstate what it proves. Two real gaps:
+
+- **`num_gpu` conflates VRAM capacity with compute throughput.** Two real GPUs that land at
+  the same offload count for a given model can have meaningfully different core counts and
+  memory bandwidth, so "offload count N behaves like this" is not the same claim as "this named
+  card behaves like this." The remote-GPU validation step (decision item 3) exists specifically
+  to catch this gap, and its result should be reported honestly even if it shows the proxy
+  curve diverges from real hardware more than expected — that would be a genuine finding, not
+  a harness bug to explain away.
+- **This machine is a laptop GPU under thermal and power constraints** (`Pwr:Usage/Cap 14W /
+  60W` observed at idle) that a desktop card would not share; sustained generation load may
+  behave differently than the single-shot measurement this ADR's Context section reports. The
+  bench harness should include a sustained/repeated-attempt run, not only single-shot
+  measurements, before the envelope is treated as trustworthy for the 3-attempt-in-budget
+  question it exists to answer.
+
+**Consequences**
+
+- **This ADR is evidence-producing** by the project's own stated metric (CLAUDE.md's
+  `assumed` count) — it retires "local generation hardware envelope" from unmeasured to
+  measured, on at least this machine plus 1–2 validation devices.
+- **It directly gates ADR-039's local fallback design**: ADR-039's Decision item 8 (a fresh,
+  separate budget for the local leg) needs this ADR's per-attempt timing numbers to set that
+  budget correctly rather than guessing.
+- **No migration or rollback implication** — this ADR proposes a bench harness, not a change
+  to shipped behavior.
+- **Revisit if:** the remote-GPU validation step shows the `num_gpu` proxy diverges materially
+  from real hardware (in which case the primary sweep axis needs reconsidering, not just more
+  data points); or if ollama's Vulkan-vs-CUDA backend selection turns out to be a larger
+  throughput lever than the offload sweep itself, which would mean this ADR measured the wrong
+  primary variable and should be amended before ADR-039 depends on its numbers.
