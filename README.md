@@ -98,10 +98,16 @@ create a versioned archive or install a packaged build locally, see
 
 ### Known generation limitations
 
-- The default Ollama model needs a larger context than its stock 4096-token
-  setting. Create/use a model with `num_ctx 16384` before selecting Ollama; the
-  stock configuration can truncate generated Faust silently. See PF-043 in
-  [`docs/BUGS.md`](docs/BUGS.md).
+- The registry's declared default Ollama model is `qwen2.5-coder:7b-16k`, not
+  the stock `qwen2.5-coder:7b` pull — the stock model's 4096-token context
+  leaves too little room for the system prompt and can truncate generated
+  Faust silently. Create the larger-context model once, after pulling the
+  base model:
+  ```
+  ollama pull qwen2.5-coder:7b
+  printf 'FROM qwen2.5-coder:7b\nPARAMETER num_ctx 16384\n' | ollama create qwen2.5-coder:7b-16k -f -
+  ```
+  See PF-043 in [`docs/BUGS.md`](docs/BUGS.md).
 - A known generated noise-gate fixture compiles but renders silence because its
   threshold is converted from dB twice. Compile success alone does not establish
   audible output; see PF-032 in [`docs/BUGS.md`](docs/BUGS.md).
