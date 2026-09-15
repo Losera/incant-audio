@@ -346,7 +346,18 @@ def find_signature(lib_path: Path, func: str, all_libs: list[Path],
 
     params = _params_of(text, func)
     if params is not None:
-        return "(" + ", ".join(params) + ")"
+        # PF-024: a function declared with its audio signal(s) as explicit
+        # trailing params (gate_mono(thresh,att,hold,rel,x), not point-free)
+        # renders that param here, directly contradicting STRICT RULES'
+        # "audio arrives by composition" rule -- the 2026-08-28 grid's
+        # dynamics-03 failure copied exactly this shape:
+        # `gate = ef.gate_mono(threshold, attack, 0.1, release, _); process =
+        # _,_ : gate : _,_;`. Strip trailing x/y -- Faust's own near-universal
+        # convention for "this position is the audio signal, not a control" --
+        # same treatment the genuinely point-free functions above already get.
+        while params and params[-1] in ("x", "y"):
+            params.pop()
+        return "(" + ", ".join(params) + ")" if params else ""
 
     if _depth < 4:
         alias = _alias_of(text, func)

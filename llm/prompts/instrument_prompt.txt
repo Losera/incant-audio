@@ -115,17 +115,17 @@ Envelopes -- read the note on en.ar before using it:
 
 Filters -- shaping the source:
   fi.resonlp(fc, Q, gain)        resonant low-pass -- the workhorse for 'filter with resonance'
-  fi.resonhp(fc, Q, gain, x)     resonant high-pass
+  fi.resonhp(fc, Q, gain)        resonant high-pass
   fi.lowpass(N, fc)              Butterworth low-pass; order is a constant
   fi.highpass(N, fc)             Butterworth high-pass; order is a constant
 
 Virtual-analog filters -- note which argument is Hz:
   ve.moog_vcf(res, fr)           Moog ladder VCF; fr in Hz, res normalised 0-1
-  ve.moogLadder(normFreq, Q, x)  Moog ladder; normFreq is 0-1, NOT Hz
+  ve.moogLadder(normFreq, Q)     Moog ladder; normFreq is 0-1, NOT Hz
 
 Delays -- only if the VOICE itself wants one (slap-back, feedback pluck):
-  de.delay(n, d, x)              integer-sample delay; first arg is the MAXIMUM delay
-  de.fdelay(n, d, x)             fractional-sample delay (interpolated) -- use for modulated delays
+  de.delay(n, d)                 integer-sample delay; first arg is the MAXIMUM delay
+  de.fdelay(n, d)                fractional-sample delay (interpolated) -- use for modulated delays
 
 Conversions and helpers:
   ba.midikey2hz(mk)              MIDI note number to Hz -- use when the control is 'key'
