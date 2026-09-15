@@ -59,15 +59,18 @@ using ArchetypeLayout::Rect;
 using ArchetypeLayout::Result;
 using ArchetypeLayout::SectionInput;
 
-// Every rect this Result produced -- headings AND controls -- pairwise
-// non-overlapping. A section heading overlapping its own or another
+// Every rect this Result produced -- headings, controls AND visual regions --
+// pairwise non-overlapping. A section heading overlapping its own or another
 // section's controls, or two columns bleeding into each other, would both
-// show up here.
+// show up here; so would a VisualRegion (ADR-041 step 1) landing on top of a
+// control it was supposed to be reserved space AWAY from.
 void expectNoOverlaps(const Result& r, const std::string& label)
 {
     std::vector<Rect> all = r.headings;
     for (const auto& c : r.controls)
         all.push_back(c.bounds);
+    for (const auto& v : r.visuals)
+        all.push_back(v.bounds);
 
     for (size_t i = 0; i < all.size(); ++i)
         for (size_t j = i + 1; j < all.size(); ++j)
@@ -303,7 +306,36 @@ void testRailNoOverlapAndFullCoverage()
         for (const auto& h : r.headings)
             minX = std::min(minX, h.x);
         expectTrue(minX > 0, "rail: a display region is reserved left of the rail column");
+
+        // ADR-041 step 1: that reserved region is now an actual VisualRegion
+        // in r.visuals, not just an inferable gap -- exactly one, spanning
+        // x=0 to the rail column's own left edge, at the content's full
+        // height (the "one height function" rule: the display region is not
+        // a second, independent height source).
+        expectEq(static_cast<int>(r.visuals.size()), 1, "rail/" + label + ": exactly one VisualRegion");
+        if (r.visuals.size() == 1)
+        {
+            const auto& v = r.visuals[0];
+            expectTrue(v.id == "display", "rail/" + label + ": VisualRegion is named \"display\"");
+            expectEq(v.bounds.x, 0, "rail/" + label + ": VisualRegion starts at x=0");
+            expectEq(v.bounds.w, minX, "rail/" + label + ": VisualRegion width matches the rail column's left edge");
+            expectEq(v.bounds.h, r.contentHeight, "rail/" + label + ": VisualRegion height matches contentHeight");
+        }
     }
+}
+
+// Only rail()/"texture-field" reserves a VisualRegion today -- columns(),
+// split() and row() have nothing analogous, and must not silently start
+// fabricating one.
+void testOnlyRailProducesAVisualRegion()
+{
+    const auto sections = eighteenParamSynth();
+    expectTrue(ArchetypeLayout::columns(sections, kWidth, kRowH, kHeadingH, kGapH).visuals.empty(),
+               "columns: no VisualRegion");
+    expectTrue(ArchetypeLayout::split(sections, kWidth, kRowH, kHeadingH, kGapH).visuals.empty(),
+               "split: no VisualRegion");
+    expectTrue(ArchetypeLayout::row(sections, kWidth, kRowH, kHeadingH, kGapH).visuals.empty(),
+               "row: no VisualRegion");
 }
 
 void testLayoutForDispatchesConsistently()
@@ -367,6 +399,11 @@ void testNarrowWidthDegradesRailGracefully()
     expectFullCoverage(r, sections, "rail/narrow-width");
     expectTrue(r.headings[0].x >= 0, "rail: narrow width never produces a negative x");
     expectTrue(r.headings[0].w <= 100, "rail: narrow width never widens past the available width");
+
+    // ADR-041 step 1: the degraded case (rail takes the entire width, x=0)
+    // must NOT produce a zero-width VisualRegion -- a reserved region with no
+    // area is worse than no region at all.
+    expectTrue(r.visuals.empty(), "rail: narrow width produces no VisualRegion, not a zero-width one");
 }
 
 } // namespace
@@ -379,6 +416,7 @@ int main()
     testColumnsNoOverlapAndFullCoverage();
     testSplitNoOverlapAndFullCoverage();
     testRailNoOverlapAndFullCoverage();
+    testOnlyRailProducesAVisualRegion();
     testLayoutForDispatchesConsistently();
     testSpanWidensColumn();
     testEmptySectionsDoesNotCrash();

@@ -85,10 +85,26 @@ struct PlacedControl
     Rect bounds;
 };
 
+// A reserved non-control region (ADR-041 step 1) -- a rect an archetype sets
+// aside for something other than a section heading or a placed control, e.g.
+// rail()'s texture-field display strip. `id` is stable within one Result so a
+// caller (ParamGridPanel today; a FaceVisual, ADR-041 step 3, later) can find
+// the region it wants by name rather than by position. Nothing in this header
+// draws into it -- that is deliberately a later, separate step; this struct
+// only stops the rect from being computed and then discarded, which is what
+// rail() did until now (its own header comment used to read "no rects placed
+// into it -- nothing draws there yet").
+struct VisualRegion
+{
+    std::string id;
+    Rect bounds;
+};
+
 struct Result
 {
     std::vector<Rect> headings;            // one per input section, same index
     std::vector<PlacedControl> controls;   // every control, exactly once
+    std::vector<VisualRegion> visuals;     // reserved non-control regions, if any
     int contentHeight = 0;                 // total scrollable height at this width
 };
 
@@ -246,14 +262,16 @@ inline Result split(const std::vector<SectionInput>& sections,
 }
 
 // ── rail: texture-field ──────────────────────────────────────────────────────
-// A reserved display region on the left (no rects placed into it -- nothing
-// draws there yet; session 019's finding F5 keeps any such display
-// non-committal) and every section stacked in one narrow column on the
-// right. Rail width is a third of the available width, clamped to [160, 320]
-// so it neither vanishes at a small window nor swallows the whole grid at a
-// large one; if the available width is narrower than the floor, the rail
-// simply takes the entire width (degrades to a single full-width column
-// rather than producing a negative-width display region).
+// A reserved display region on the left, now returned as a VisualRegion
+// (ADR-041 step 1 -- previously computed and discarded, "no rects placed into
+// it -- nothing draws there yet"; something can now actually be placed there,
+// even though this function still draws nothing itself) and every section
+// stacked in one narrow column on the right. Rail width is a third of the
+// available width, clamped to [160, 320] so it neither vanishes at a small
+// window nor swallows the whole grid at a large one; if the available width
+// is narrower than the floor, the rail simply takes the entire width
+// (degrades to a single full-width column, and NO VisualRegion is produced --
+// a zero-width reserved region would be worse than none).
 inline Result rail(const std::vector<SectionInput>& sections,
                     int width, int rowH, int headingH, int sectionGapH)
 {
@@ -272,6 +290,14 @@ inline Result rail(const std::vector<SectionInput>& sections,
     int y = 0;
     stackColumn(sections, all, x, railW, rowH, headingH, sectionGapH, out, y);
     out.contentHeight = y;
+
+    // Height matches the section column's own final content height -- the
+    // display region is not a second, independent height source, the same
+    // "one height function" principle stackColumn's own header comment
+    // states one level up.
+    if (x > 0)
+        out.visuals.push_back({ "display", Rect{ 0, 0, x, out.contentHeight } });
+
     return out;
 }
 
