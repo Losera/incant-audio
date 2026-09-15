@@ -135,6 +135,11 @@ On compile failure, append the Faust compiler's stderr to the next LLM message a
 | **Status** | Accepted |
 | **Date** | 2026-04-29 |
 
+**Status note (2026-09-15 — reclassified).** Recorded here as a routine metric choice, not
+architectural direction under COLLABORATION.md §2 trigger-2 — no option an open ADR holds
+open was foreclosed. Left in place for the historical record; future instances of this kind
+of decision belong in STATUS.md, not a new ADR.
+
 **Context**  
 We need a quantitative signal to compare DSL options and LLM providers during the architecture evaluation phase (Days 1–2).
 
@@ -1028,6 +1033,11 @@ ADR renders, not a layout-IR change itself.
 | **Status** | Proposed |
 | **Date** | 2026-08-06 |
 
+**Status note (2026-09-15 — reclassified).** Recorded here as a routine deferral, not
+architectural direction under COLLABORATION.md §2 trigger-2 — no option an open ADR holds
+open was foreclosed. Left in place for the historical record; future instances of this kind
+of decision belong in STATUS.md, not a new ADR.
+
 **Context**
 Instrument plugins (synths) and effects are the immediate targets. Samplers and drum
 machines are a natural next category, but they require sample playback, which has
@@ -1169,6 +1179,11 @@ unattended runs against, which is the actual, still-live cost of ADR-021's defer
 |---|---|
 | **Status** | Accepted 2026-08-21 |
 | **Date** | 2026-08-21 |
+
+**Status note (2026-09-15 — reclassified).** Recorded here as a routine process/infra
+decision, not architectural direction under COLLABORATION.md §2 trigger-2 — no option an
+open ADR holds open was foreclosed. Left in place for the historical record; future
+instances of this kind of decision belong in STATUS.md, not a new ADR.
 
 **Context**
 Context clears are the one session boundary this project had no instrument for.
@@ -1367,6 +1382,11 @@ Tier 2 evidence bar — this entry authorizes the direction, not a bypass of eit
 | **Status** | Accepted 2026-08-27 |
 | **Date** | 2026-08-27 |
 
+**Status note (2026-09-15 — reclassified).** Recorded here as a routine tooling decision,
+not architectural direction under COLLABORATION.md §2 trigger-2 — no option an open ADR
+holds open was foreclosed. Left in place for the historical record; future instances of
+this kind of decision belong in STATUS.md, not a new ADR.
+
 **Context**
 
 The question raised: should `langgraph` (LangChain's graph-orchestration library, used
@@ -1485,6 +1505,11 @@ trigger fires; ADR-039 flags this explicitly rather than leaving it for a review
 |---|---|
 | **Status** | Accepted 2026-08-27 |
 | **Date** | 2026-08-27 |
+
+**Status note (2026-09-15 — reclassified).** Recorded here as a routine tooling decision,
+not architectural direction under COLLABORATION.md §2 trigger-2 — no option an open ADR
+holds open was foreclosed. Left in place for the historical record; future instances of
+this kind of decision belong in STATUS.md, not a new ADR.
 
 **Context**
 
@@ -1829,6 +1854,11 @@ deterministic and host-authoritative. The panel stays editor-local and transient
 | **Status** | Accepted — 2026-09-01, by explicit user decision |
 | **Date** | 2026-09-01 |
 | **Relates to** | ADR-030 (does *not* trip its reopen trigger — see Reasons), ADR-031 (same "nothing depends on it" constraint) |
+
+**Status note (2026-09-15 — reclassified).** Recorded here as a routine process/infra
+decision, not architectural direction under COLLABORATION.md §2 trigger-2 — no option an
+open ADR holds open was foreclosed. Left in place for the historical record; future
+instances of this kind of decision belong in STATUS.md, not a new ADR.
 
 **Context**
 
@@ -2390,6 +2420,12 @@ settled here.
 | **Date** | 2026-09-09 |
 | **Relates to** | ADR-023 (export — this ADR accepts it and its 2026-08-13 amendment as the design of record, and clears its stated blocking prerequisite), ADR-035 (generated faces — this extends its ladder past the floor it stopped at), ADR-022 §3 (`derivePalette` — the no-IR fallback, unchanged), ADR-036 (shell redesign — shares `ArchetypeLayout.h`; not sequenced by this ADR), `docs/phases/phase-6.md` (moves two of its items forward), `docs/sessions/020-generated-faces-v2.md` (the two ladders) |
 
+**Status note (2026-09-15 — reclassified).** Recorded here as a routine scheduling/
+resequencing decision, not architectural direction under COLLABORATION.md §2 trigger-2 —
+this ADR's own content re-orders when existing, separately-decided work happens; it does
+not itself foreclose an option an open ADR holds open. Left in place for the historical
+record; future instances of this kind of decision belong in STATUS.md, not a new ADR.
+
 **Context**
 
 The product's stated north star, in the product-architecture draft under `bench/`
@@ -2836,6 +2872,11 @@ than being asserted once and moved past. Three weaknesses:
 | **Status** | Proposed |
 | **Date** | 2026-09-13 |
 | **Relates to** | ADR-039 (this ADR's envelope selects ADR-039's local fallback model and bounds its budget), PF-043 (the context-window fix whose hardware cost this ADR measures honestly), PF-076 (`docs/BUGS.md:114` — existing evidence that a faster local model is not automatically a better one) |
+
+**Status note (2026-09-15 — reclassified).** Recorded here as a routine measurement
+methodology note, not architectural direction under COLLABORATION.md §2 trigger-2 — no
+option an open ADR holds open was foreclosed. Left in place for the historical record;
+future instances of this kind of decision belong in STATUS.md, not a new ADR.
 
 **Context**
 
