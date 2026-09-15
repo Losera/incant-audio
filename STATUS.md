@@ -365,7 +365,17 @@ tier that compiles renders +79.6 dB runaway; the sidechain compressor fails ever
   modes and this closed one. n=1 keeps it short of a verdict (PF-031 wants ≥3).
 
 **2. The noise gate still renders silent.** *(PF-032's surviving half, high, open.)* Warm-LP
-renders silent 1/4 at L4 on the grid.
+renders silent 1/4 at L4 on the grid. **Re-measured 2026-09-12, the gate itself, directly:**
+6 fresh `ollama` generations against today's prompt, 5/6 silent, 0/6 correctly gating. The
+standing hypothesis (thresh double-converted through `ba.db2linear`) did not reproduce even
+once — `thresh` was always a clean raw dB literal. The real, repeating defect is the
+att/hold/rel time-constant arguments (`misceffects.lib` wants seconds; the model variously
+pre-converts to samples, writes implausible whole-second literals, or runs a time value
+through `ba.db2linear`) — same unit-contract class as PF-045's `en.*` envelope times, not
+yet named in the prompt's two worked examples. Detail: `docs/BUGS.md` PF-032. Not measured:
+groq (no paid-spend authorization this session) — so "ollama-only ceiling" (outcome b)
+isn't ruled out. Next: WP2 of `~/.claude/plans/phase3-pf032-silent-noise-gate.md`,
+retargeted at att/hold/rel.
 
 **3. The DAW still sees raw slots.** *(follow-up to PF-037, medium, open, unfiled.)* No
 section grouping / titled cards in the host parameter view.
