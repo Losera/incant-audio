@@ -1,4 +1,4 @@
-# PluginForge — Status  (2026-09-10)
+# PluginForge — Status  (2026-09-15)
 
 Rewritten each session per COLLABORATION.md §5. Single writer, no merge conflicts.
 Narrative history lives in git and in `docs/sessions/`.
@@ -126,10 +126,11 @@ generated-face richness + plugin export ahead of Phase 6) — Accepted 2026-09-0
 user decision, PR #79 (`3162647`, docs only). Accepts ADR-023 + its 2026-08-13 amendment as
 the export design of record (`Proposed` → `Accepted`); opens a "faces v2" track and runs its
 cheap steps — **faces F1–F3**, **export E1–E3** — *parallel to* Phases 3–4, not after a
-release. **F4** (visualizer subsystem) and **E4** (face export) are gated behind their own
-ADRs. The critical path — PF-024, PF-032, the Phase-4 release — is explicitly unchanged, and
-export is not cut as a public release while those defects are open. First moves: **F1**
-(bipolar-knob arc bugfix — ungated, a defect on a shipped feature) and **E1** (in-process
+release. **F4** (visualizer subsystem) is now ADR-041 (Accepted 2026-09-15, PR #86) — see
+below. **E4** (face export) remains gated behind its own future ADR. The critical path —
+PF-024, PF-032, the Phase-4 release — is explicitly unchanged, and export is not cut as a
+public release while those defects are open. **F1 landed** (PR #82, `b73c860`, 2026-09-12 —
+bipolar-knob arc fill + centre detent, `GKnobGeometry.h`). Next: F2/F3, and **E1** (in-process
 AOT Faust emit via `libfaust`'s `generateAuxFilesFromString`). Ladders:
 `docs/sessions/020-generated-faces-v2.md`.
 
@@ -373,17 +374,20 @@ tier that compiles renders +79.6 dB runaway; the sidechain compressor fails ever
   modes and this closed one. n=1 keeps it short of a verdict (PF-031 wants ≥3).
 
 **2. The noise gate still renders silent.** *(PF-032's surviving half, high, open.)* Warm-LP
-renders silent 1/4 at L4 on the grid. **Re-measured 2026-09-12, the gate itself, directly:**
-6 fresh `ollama` generations against today's prompt, 5/6 silent, 0/6 correctly gating. The
-standing hypothesis (thresh double-converted through `ba.db2linear`) did not reproduce even
-once — `thresh` was always a clean raw dB literal. The real, repeating defect is the
-att/hold/rel time-constant arguments (`misceffects.lib` wants seconds; the model variously
-pre-converts to samples, writes implausible whole-second literals, or runs a time value
-through `ba.db2linear`) — same unit-contract class as PF-045's `en.*` envelope times, not
-yet named in the prompt's two worked examples. Detail: `docs/BUGS.md` PF-032. Not measured:
-groq (no paid-spend authorization this session) — so "ollama-only ceiling" (outcome b)
-isn't ruled out. Next: WP2 of `~/.claude/plans/phase3-pf032-silent-noise-gate.md`,
-retargeted at att/hold/rel.
+renders silent 1/4 at L4 on the grid. The gate: real defect is the att/hold/rel
+time-constant arguments (`misceffects.lib` wants seconds; the model variously pre-converts
+to samples, writes implausible whole-second literals, or runs a time value through
+`ba.db2linear`) — not the standing thresh/`db2linear` hypothesis, which did not reproduce.
+**2026-09-15: WP2 landed** (`fix/pf032-gate-time-units`) — the STRICT RULES unit-contract
+clause and `gen_stdlib_block.py`'s Dynamics descriptions now name the seconds contract
+explicitly, plus a new worked gate few-shot; paid for by trimming three unused stdlib
+entries from the effect profile. **Free-tier result: 6/6 pass** vs. a confound-corrected
+control's 5/6 broken (the original 2026-09-12 5/6-silent number ran on ollama's stock
+4096-token context, before PF-043's fix — re-measured clean before claiming the delta).
+Honest caveat: most passing generations reproduced the new few-shot near-verbatim, so this
+is a real but not yet a generalization-proven result. **Groq (the shipping model) is still
+not measured** — needs `--i-authorize-spend`, gated on separate authorization per this
+project's own consult rule. Detail: `docs/BUGS.md` PF-032.
 
 **3. The DAW still sees raw slots.** *(follow-up to PF-037, medium, open, unfiled.)* No
 section grouping / titled cards in the host parameter view.
@@ -402,7 +406,10 @@ experience regardless.
 latched (silence) or missed it. `OfflineSynthRenderTest` is 184/0 on fixtures, so it is a
 specific patch under a specific runtime state.
 
-**7. The declared ollama model cannot hold its own prompt.** *(PF-043, medium, open.)*
+**7. ~~The declared ollama model cannot hold its own prompt.~~** *(PF-043, medium,
+**fixed** `c9655da` 2026-09-13 — default model raised to `qwen2.5-coder:7b-16k`,
+16384-token context. Still listed here because this list wasn't reconciled against
+`docs/BUGS.md` until 2026-09-15; remove entirely on the next full STATUS.md rewrite.)*
 
 **8. `score_efficacy.py --judge` spends quota.** *(unfiled, medium, open.)* Takes a lock
 (`bench/score_efficacy.py:558,569`); the quota cost is the real remaining half.
@@ -480,16 +487,21 @@ still current. A full 125-cell re-run at n≥3 (PF-031) is still owed for a real
    currently unactionable — each needs the triggering patch source and the action
    immediately before. Needs an interactive host session; until then they can only be
    re-observed.
-3. **PF-032 silent noise gate — re-measure on the shipping model.** Highest-severity open
-   generation defect (#2). The prompt already carries the fix text; the drafted plan
-   `~/.claude/plans/phase3-pf032-silent-noise-gate.md` leads with a re-measurement WP to
-   see whether `groq`/`gpt-oss-120b` obeys it.
+3. **PF-032 silent noise gate — groq re-measurement.** Highest-severity open generation
+   defect (#2). WP2 (retargeted at att/hold/rel, not the original thresh/`db2linear`
+   hypothesis) landed 2026-09-15 on `fix/pf032-gate-time-units` with a clean free-tier
+   result (6/6 vs. a confound-corrected control's 5/6 broken); the one step left is the
+   shipping-model (`groq`) benchmark, gated on separate spend authorization.
 
 **Authorized, parallel, not blocking the Next three.** ADR-038's cheap steps —
-**F1** (bipolar-knob arc bugfix, ungated), **F2/F3** (chip rows, bespoke archetype
-geometry), **E1–E3** (AOT emit → wire `processBlock` → prove sound + un-gate `/export`).
-One step per session, each independently landable; `docs/sessions/020-generated-faces-v2.md`
-has the order and the `file:line` traps. F4 and E4 are gated behind their own ADRs.
+**F1 landed** (PR #82, bipolar-knob arc fill), **F2/F3** (chip rows, bespoke archetype
+geometry) still open, **E1–E3** (AOT emit → wire `processBlock` → prove sound + un-gate
+`/export`). One step per session, each independently landable;
+`docs/sessions/020-generated-faces-v2.md` has the order and the `file:line` traps.
+**F4 is now ADR-041 (Accepted 2026-09-15, PR #86)** — its own landing ladder (prep commit →
+`FaceContext` → `FaceVisual`/F4a → PF-052 split → offline eval/F4b → ring buffer/F4c) is
+the next thing to pick from once F2/F3/E1–E3 are further along. E4 remains gated behind its
+own future ADR.
 
 **Displaced, not urgent.** A piano roll (requested, unplanned; needs a note grid *and* a
 clock — no host transport in Standalone).

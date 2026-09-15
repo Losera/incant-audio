@@ -69,7 +69,7 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-031 | The 25-prompt benchmark's noise floor is unmeasured — no delta can be called significant. **Measured: 4pp rate spread, and only 1 of 5 failing prompts reproduces its class** | medium | fixed | S4 Testing | `bench/run_benchmark.py` | 2026-07-28 | pending commit |
 | PF-033 | Reopening a saved project resets every knob to the patch defaults — the editor's seeding overwrites the restore | high | fixed | S3 Plugin UX | `ParamGridPanel.cpp` `refreshParamKnobs` | 2026-07-28 | `81fc75b` |
 | PF-034 | `EditorSessionTest` scenario 6 raced the message thread — green locally, red on the runner | medium | fixed | S4 Testing | `host/tests/EditorSessionTest.cpp` `loadAndSettle` | 2026-07-28 | pending commit |
-| PF-032 | 2 of 22 compiling patches render SILENT — a warm lowpass and a noise gate. **Measured 07-30: the lowpass (Hz contract) is fixed; the noise gate is not.** **Re-measured 09-12: still silent, 5/6 fresh `ollama` gens — root cause corrected, it's the att/hold/rel time-unit contract, not thresh/`db2linear`** | high | in-progress | S1 Backend | `llm/prompts/system_prompt.txt` | 2026-07-28 | lowpass closed `a4f942e`; gate open, mechanism corrected 09-12 |
+| PF-032 | 2 of 22 compiling patches render SILENT — a warm lowpass and a noise gate. **Measured 07-30: the lowpass (Hz contract) is fixed; the noise gate is not.** **Re-measured 09-12: still silent, 5/6 fresh `ollama` gens — root cause corrected, it's the att/hold/rel time-unit contract.** **WP2 landed 09-15 (att/hold/rel SECONDS rule + gate few-shot): 6/6 free-tier pass, confound-corrected control re-confirmed 5/6 broken; groq still owed** | high | in-progress | S1 Backend | `llm/prompts/system_prompt.txt` | 2026-07-28 | lowpass closed `a4f942e`; gate WP2 on `fix/pf032-gate-time-units`, free-tier only |
 | PF-035 | `min_max_tokens` makes a per-call output budget unenforceable — the judge asks for 300 and silently gets 4096 | low | open | S4 Testing | `bench/score_efficacy.py:465`, `providers.py` `make_generator` | 2026-07-29 | — |
 | PF-036 | libfaust's JIT emits AVX-512 on CI runners that name the ISA but cannot execute it — SIGILL in `computemydsp`. It **was** the CPU; PF-027 closed that hypothesis wrongly | high | fixed | S4 Testing | `host/tools/pf_cpu_shim.cpp`, `.github/workflows/test.yml` | 2026-07-30 | pending commit |
 | PF-037 | Every parameter displays as a raw 0–1 slot number — 800 Hz reads `0.04`. `ParamMap` denormalizes into the DSP and nothing denormalizes for the display | medium | fixed | S3 Plugin UX | `ParamMap.h` `formatZone`, `ParamGridPanel.cpp` `applyPresentation` | 2026-07-28 | pending commit |
@@ -676,6 +676,73 @@ paid benchmark run; ollama's 7B has a known instruction-following ceiling (PF-01
 so this alone cannot rule out "fixed on groq, an ollama-only ceiling" (outcome b). Next
 step is WP2 from the drafted plan above, retargeted at the att/hold/rel unit contract
 instead of thresh/`db2linear`, plus the still-owed groq pass.
+
+**2026-09-15 — WP1's own baseline was confounded, re-measured clean, and WP2 (retargeted)
+landed with a free-tier result. Groq still owed.**
+
+**The 5/6-silent number above is not a clean baseline.** WP1 ran 2026-09-12 against
+ollama's stock `num_ctx=4096`; PF-043's fix (`c9655da`, 2026-09-13) raised the default
+model's context to 16384 because the prompt (~3,358 tokens) plus a 4,096-token output
+floor sat inside the truncation zone. Some fraction of WP1's failures could have been
+truncation, not a generation error.
+
+**Control arm re-run, 6 fresh generations against the current (still-unedited at the time)
+prompt, post-PF-043:** 5/6 still broken, using `rms_ratio_db`/`env_db_final` rather than
+bare `is_silent` — `is_silent`'s `rms < 1e-5` threshold under-reports a near-dead gate
+(one control generation measured `rms_ratio_db = -43.9 dB`, clearly non-functional, but
+`is_silent: false`). Confirms WP1's finding survives the confound correction. Failure
+modes, by grep + inspection of each source: `hold` (a `[unit:ms]` slider) reused raw,
+unconverted, for both `att` and `hold` (1); `hold` scaled `*(ma.SR/1000.0)` — samples
+conversion misapplied to a seconds argument (2); implausible whole-second literals for
+`att`/`rel` (2, one combined with the `ma.SR` case); `thresh` run through `ba.db2linear`
+— the *original* PF-032 hypothesis, reappearing once in 6 even though WP1's own 6-sample
+run saw it zero times, consistent with small-n sampling noise on both sides, not with the
+hypothesis being definitively closed either way. One generation, structured with its own
+declared `att`/`rel` sliders using `*(0.001)` (the pattern the existing compressor
+few-shot already teaches — `system_prompt.txt`'s "a stereo bus compressor" example),
+passed cleanly — the prompt's ms→seconds pattern transfers to a function's own fresh
+sliders but not reliably to a *reused* `[unit:ms]` slider or to the `hold` argument,
+which had no worked example anywhere in the prompt.
+
+**WP2 fix, landed (free-tier verified, `fix/pf032-gate-time-units` branch):** three parts
+— (a) `tools/gen_stdlib_block.py`'s Dynamics-group curated descriptions for
+`gate_mono`/`gate_stereo`/`compressor_mono`/`compressor_stereo`/`amp_follower_ar` now
+state `att/hold/rel SECONDS` explicitly (previously unannotated); (b) the STRICT RULES
+unit-contract clause (`system_prompt.txt`) extended to name the seconds case alongside
+the existing Hz/dB ones; (c) a new worked few-shot, "a noise gate with threshold and hold
+time," modelled on the existing compressor example. Paid for by dropping `ba.sec2samp`,
+`ma.PI`, and `ba.linear2db` from the *effect* profile's curated list — none used by any
+few-shot in either prompt, none asserted by a test, and `ba.midikey2hz`/`ba.db2linear`
+stay per this file's own standing "an absent entry invites an invented one" rule.
+`tests/test_prompt_headroom.py`'s full suite (6 tests, including the "mild growth guard"
+that the raw slack number alone does not satisfy) passes; base slack is 79 tokens.
+
+**Treatment arm, same 6 prompts against the edited prompt: 6/6 pass**
+(`rms_ratio_db ≈ 0 dB`, `env_db_final ≈ -220 dB` — a fully open gate on-signal, fully
+closed during the tail, on every generation). **Stated honestly, not just as a clean
+win:** 5 of the 6 passing generations reproduced the new few-shot **byte-for-byte**,
+including for a prompt ("a stereo noise gate") that was not the few-shot's own wording —
+a meaningful share of this result is "the model found and copied the closest worked
+example," not proven generalization. Only one generation (prompt: "a gate with attack and
+release") produced a structurally different patch — it declared its own `attack`/`release`
+sliders, put them in the `hold`/`rel` argument positions without `*(0.001)`, and still
+rendered correctly only because those particular slider ranges (≤50ms, ≤1000ms) didn't
+trip a visible failure inside the render's evaluation window. That is the single most
+meaningful data point for generalization and it is **n=1**.
+
+**What this does NOT verify:** the shipping model (groq) has not been measured against
+either the confound-corrected control or the fix — this free-tier result cannot rule out
+"fixed on ollama's copy-the-example behavior, unproven on groq's more varied phrasing."
+That is WP2's own next step, `bench/run_benchmark.py --provider groq
+--i-authorize-spend`, and per this project's consult gate it is not run without separate
+authorization.
+
+**The trailing-`_,_` probation above is closed, in the keep direction — do not revert
+it.** Its stated condition ("retained pending a groq run... reverted if a groq run shows
+no benefit") is met: PR #77 measured the exact targeted pattern
+(`X_stereo(...,_,_)`-family arity errors) going **8/25 → 0/25** on a groq re-run, and
+PR #75 hardened the rule's own wording to cover the compressor alongside the gate. Do not
+spend tokens reverting a rule with a measured effect.
 
 ---
 
