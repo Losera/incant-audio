@@ -2957,3 +2957,286 @@ proxy, and this ADR should not overstate what it proves. Two real gaps:
   data points); or if ollama's Vulkan-vs-CUDA backend selection turns out to be a larger
   throughput lever than the offload sweep itself, which would mean this ADR measured the wrong
   primary variable and should be amended before ADR-039 depends on its numbers.
+---
+
+## ADR-041 — A `FaceVisual` drawing layer for generated plugin faces
+
+| | |
+|---|---|
+| **Status** | **Accepted — 2026-09-15, by explicit user decision.** |
+| **Date** | 2026-09-14 |
+| **Relates to** | ADR-038 (gated this work behind its own ADR — "F4"), ADR-035 (the face substrate this extends: `UiIr`, `ThemeValidate.h`, `GeneratedFaceLookAndFeel.h`, `ArchetypeLayout.h`), ADR-022 §3 (`derivePalette()` no-IR fallback — unchanged), ADR-019 (no WebView — unchanged, the alternative this ADR closes again), ADR-024 (`UiIr`'s versioned-schema precedent), the ADR-023 amendment (export E4 composes with this once both exist), `docs/sessions/020-generated-faces-v2.md` (the F1–F5 decomposition this ADR reconciles against), `docs/BUGS.md` PF-052 |
+
+**Context**
+
+`ArchetypeLayout::Result` (`host/Source/ArchetypeLayout.h:88-92`) carries exactly three
+fields — `headings`, `controls`, `contentHeight` — and nothing else. `rail()`
+(`ArchetypeLayout.h:248-276`), the layout function for the `texture-field` archetype,
+computes a reserved display region on the left (`railW`, `x = width - railW`) and then
+never places a single `Rect` into it — its own header comment says so directly: *"no rects
+placed into it -- nothing draws there yet."* The region isn't merely unused; there is no
+field in `Result` that could carry it back to a caller even if `rail()` wanted to return it.
+For any generated plugin routed to `texture-field`, a third of the panel is reserved and
+permanently blank.
+
+This is one instance of a broader gap. Three more:
+
+- **PF-052.** `ParamPool::remap` (`ParamPool.cpp:69-77`) marks every `Kind::Meter` param
+  ineligible for a pool slot before assignment, gated on `FaustEngine::isWritable`
+  (`FaustEngine.h:57`, `return k != Kind::Meter;`) — "pushToFaust consequently never sees
+  them" in that file's own words. No live meter value reaches any renderer. A parallel
+  boolean-only path exists (`ParamGridPanel::deriveComponents`, `ParamGridPanel.cpp:764-778`)
+  that sets `UiIr::Components::meter` from the *raw* param list, but that function's own
+  header comment (`:748-763`) documents it as dead in production: the per-slot view
+  `refreshParamKnobs` actually receives has already had every meter stripped four calls
+  upstream. There is a fact, and a wire to carry it, but no data on the wire.
+- **`GeneratedFaceLookAndFeel.h:26-37`** already records, as a deferred-not-delivered
+  refactor from ADR-035, that an attached face duplicates ten embedded typefaces (~2–4 MB)
+  for as long as it's attached, because sharing ownership with `ForgeLookAndFeel` was judged
+  a bigger change than ADR-035's Step 3 scope. `faceLnf` is currently the only per-face
+  *owned* object in the editor, so every new per-face concern has defaulted onto it; the
+  typeface duplication is the first symptom of that, not an isolated memory question.
+- **No offline DSP evaluation exists anywhere.** `host/Source/FaustEngine.h`/`.cpp` expose
+  `prepare`/`release`/`process`/`compile` and one live `createDSPInstance()` call
+  (`FaustEngine.cpp:841`); there is no second, non-realtime instance, no impulse sweep, no
+  FFT utility. A response-curve visual has nothing to read from today.
+
+`docs/sessions/020-generated-faces-v2.md:153-168` already names this whole area "F4 — the
+visualizer subsystem *(ARCHITECTURE GATE — own ADR)*" and states plainly: *"Do not start
+without its own ADR — it is a new component subsystem and, for the real-signal visuals, a
+new audio-thread surface."* ADR-038 (`docs/decisions.md:2497-2503`) gated it the same way,
+for the same reason. This ADR is that gate being resolved.
+
+**Decision**
+
+1. **Accept a three-class visual ladder as direction, not as implementation.** Each class
+   below lands independently, on its own Tier review (COLLABORATION.md §3), per the landing
+   table in clause 5. This ADR's acceptance authorizes none of the code in clause 4 or 5 by
+   itself — the same pattern ADR-035 and ADR-038 both already used for multi-step work.
+
+2. **Reconcile the class split against this project's own prior art rather than silently
+   replacing it.** Session 020 already splits F4 into two buckets — **Derivable** (pure
+   functions of param values the panel already holds: ADSR bars, echo-trail/grain
+   histograms, tape reels, the grain-cloud dot field) and **Real-signal** (the filter/EQ
+   response curve, the output meter, a gain-reduction histogram — each needing new
+   plumbing). This ADR's finer three-way split is **a subdivision of session 020's
+   Real-signal bucket by plumbing kind**, not a competing taxonomy: F4a = session 020's
+   Derivable bucket, unchanged; F4b = the response-curve half of Real-signal (needs offline
+   DSP evaluation); F4c = the meter/histogram half of Real-signal (needs a live audio-thread
+   tap). The two framings agree on every example; this ADR only adds the b/c distinction
+   because the two need materially different architecture and different review tiers.
+
+3. **The grain-cloud dot field is classified F4a** — session 020 already places it there
+   (a pure function of density/spread params the panel holds), and this ADR affirms that
+   explicitly rather than let it drift toward looking live without being live. A future,
+   genuinely audio-driven version of the same visual would be F4c and would need its own
+   later decision, not a silent upgrade.
+
+4. **The architecture — one new owned object, one slimmed object, one new interface:**
+
+   - **`FaceContext`**, owned by `PluginEditor`, outliving `paramGridPanel`, reset wholesale
+     on every recompile (the same clock `applyGeneratedFace()` already uses). It owns the
+     theme, a reference to a shared `TypefaceRegistry`, and the set of live `FaceVisual`
+     instances. This is the per-face *data* owner `faceLnf` was never designed to be.
+   - **`GeneratedFaceLookAndFeel` slims down** to a `ColourScheme` plus
+     `getTypefaceForFont`, holding a `const FaceContext&` rather than owning fonts or
+     visuals itself. `TypefaceRegistry` is the typeface-sharing refactor ADR-035 deferred,
+     pulled forward here because F4 would otherwise double what the LookAndFeel owns.
+   - **`FaceVisual`** becomes a real, owned `juce::Component`, placed by `ArchetypeLayout`
+     (clause 5's `VisualRegion` addition) rather than painted by a stateless LookAndFeel
+     method — a curve needs data the `draw*` call signatures have nowhere to put.
+   - **`SignalSource`** is one interface (`bool read(SignalFrame&)`, non-blocking, no
+     allocation on any hot path) with three producers: param-derived (F4a, reads APVTS
+     values already held), offline-evaluated (F4b, reads `FaustEngine::evaluateResponse()`
+     results off a worker thread), and live/ring-buffer (F4c, reads audio-thread-written
+     samples). One data shape for every `FaceVisual`, so the drawing layer can be built and
+     tested entirely against F4a before F4b or F4c exist. The editor's existing 30 Hz
+     `displayLevel` tick (`PluginEditor.cpp:661`, message-thread-only peak/decay) is the
+     one live-signal precedent already in the codebase — not a `SignalSource`
+     implementation itself, but evidence the live-tap pattern this ADR proposes for F4c has
+     working precedent to build from, not a blank page.
+
+5. **Landing order — six independently-reviewable steps, all off the PF-024/PF-032/Phase-4
+   critical path:**
+
+   | # | Step | Touches | Tier | Why that tier | Critical path |
+   |---|---|---|---|---|---|
+   | 1 | Prep: `ArchetypeLayout::VisualRegion` + `Result::visuals` (sibling of `controls`); `rail()` returns its region instead of discarding it; extend `host/tests/ParamGridLayoutTest.cpp` (exists since PR #63 — this step extends it, does not create it) | `ArchetypeLayout.h`, `host/tests/ParamGridLayoutTest.cpp` | Tier 1 | Pure C++, no audio thread, no atomics, no wire contract | Off |
+   | 2 | `FaceContext` + `TypefaceRegistry`; slim `GeneratedFaceLookAndFeel` | `GeneratedFaceLookAndFeel.h`, `ParamGridPanel.cpp` | Tier 1 (large) | UI-thread ownership/paint restructure only — a big diff is not automatically a Tier-2 one | Off — **pause trigger**: the largest single refactor here; pauses if it's observed crowding out PF-024/PF-032 |
+   | 3 | `FaceVisual` + `ParamDerivedSource` (F4a ships) | new `FaceVisual.*`, `ParamGridPanel.cpp` | Tier 1 (Tier 2 only if a `UiIr` schema bump rides along — see clause 6) | Reads APVTS values already held, message thread only | Off |
+   | 4 | PF-052 split — meter values actually reach the UI | `ParamPool.cpp:69-77`, `FaustEngine.h:57`, `ParamGridPanel.cpp:764-778` | Tier 2 | APVTS↔Faust param-mapping change; the read path is audio-thread-adjacent | Off — pause trigger |
+   | 5 | `FaustEngine::evaluateResponse()` + response curves (F4b ships) | `FaustEngine.h`/`.cpp` (new) | Tier 2 | Instantiates and evaluates DSP; must prove no contact with the live instance or the audio thread; carries the nonlinear-patch caveat (clause 7) | Off — pause trigger |
+   | 6 | Lock-free ring buffer + scopes/gain-reduction histogram (F4c ships) | `PluginProcessor::processBlock`, new tap | Tier 2 | Audio-thread write, `std::atomic`/explicit memory ordering, `check_rt_safety.py` scope | Off — pause trigger |
+
+   All six restate ADR-038's own sequencing clause: nothing here is on the PF-024/PF-032/
+   Phase-4 critical path, and each pause trigger is the same one ADR-038 already named —
+   *"paused if observed pulling attention off PF-024/PF-032/Phase-4, and that observation is
+   the human's to make at each `/orient`."*
+
+6. **`UiIr` schema 4 is sketched, not bumped, by this ADR.** `UiIr.h:188` hard-clamps
+   `parse()`'s schema to `[1,3]`; a `visuals` field would need a schema bump to persist and
+   restore. F4a works today via `deriveLayoutFromGroups()` without one. A schema bump is a
+   persisted-state wire contract on its own (§2 trigger 3, Tier 2 on its own terms) —
+   landing it inside step 1 or 3 would needlessly upgrade an otherwise-Tier-1 step. It lands
+   only when a visual actually needs to survive a project reopen, as its own reviewed change,
+   following the same additive-defaulting precedent schema 3 already set.
+
+7. **The riskiest unknown, named first, the way ADR-038 named E1's:** not offline evaluation
+   itself (hard, but a known problem — sweep, capture, FFT), but **semantic binding.**
+   Nothing in this pipeline guarantees a generated Faust patch exposes a nameable handle for
+   what a visual should show — `ui_face.py` receives labels, ranges and kinds, and binding a
+   response curve to "the filter" today can only mean label-string matching, the same class
+   of heuristic PF-024 and PF-032 already show is unreliable. Its sharpest instance: **for
+   any nonlinear patch, a frequency response is not well-defined at all.** Distortion,
+   saturation and compression are common, ordinary prompt classes; an impulse-plus-FFT sweep
+   on a waveshaper produces a plot that renders confidently and means nothing — indistinguishable
+   from a correct one without already knowing the patch is nonlinear. This exact blind spot
+   already has an unflagged instance in the repo: `bench/render_oracle.py:318-319`'s own
+   docstring — *"Flat-spectrum noise by default, so any patch's frequency response is
+   directly readable off the output spectrum"* — is true only for LTI patches and is not
+   qualified as such anywhere the oracle is used. No `PF-###` covers this risk; filing one
+   is listed as an optional side-deliverable below. Knowing when to **refuse to draw** a
+   response curve is itself part of the semantic-binding gap, which is why it is named above
+   the offline-evaluation risk rather than beside it — the refactor in clause 4 buys F4's
+   architecture, not F4's correctness on an arbitrary LLM-authored patch.
+
+8. **Visuals are host-derived from the captured param table, never LLM-chosen** — the same
+   rule `lastDerivedComponentsForUiFace` already enforces for `Components::meter`
+   (`face.components = ...; // NEVER LLM-chosen`, `PluginEditor.cpp`). The model picks
+   archetype and theme; the host decides which visuals a patch's own param table supports.
+
+9. **Degradation is per-visual and whole-object — a deliberate divergence from ADR-035's
+   per-field policy, stated here rather than left to be silently inherited.** ADR-035's
+   "substitute the one bad field, never reject the whole layout" rule is right for
+   independent colour/enum fields. A visual's type, region and data binding are not
+   independent: degrading them per-field could bind an ADSR display to a filter cutoff —
+   confidently wrong, which is worse than blank. This ADR's rule instead: **drop the visual,
+   keep the layout, reflow the region** (the same `contentHeight` recompute `ArchetypeLayout`
+   already performs for a resize).
+
+**Alternatives considered**
+
+1. **Keep visuals on `GeneratedFaceLookAndFeel`, as another `draw*` override.** Rejected —
+   `juce::LookAndFeel` is a stateless painter; every `draw*` signature ends in a widget
+   reference that already owns its data (a knob has one float, `Slider` holds it). A
+   response curve needs hundreds of bins and no widget in this codebase carries them. This
+   is the actual defect clause 4 fixes, not a style preference.
+2. **Reopen the WebView decision (ADR-019) for the visualizer layer.** Rejected — curves,
+   meters and a dot field are exactly what `juce::Graphics`/`Path` already does well, and the
+   live-signal case (F4c) gets strictly worse across a bridge marshalling audio-derived
+   buffers at 60 Hz rather than better. ADR-019 stands, unreopened, for the second time since
+   ADR-035 also declined to touch it.
+3. **Defer F4 further, past Phase 4.** Rejected as the sole path — `rail()`'s discarded
+   region (Context) is a live gap today, not a hypothetical one, and PF-052's dead boolean
+   path already exists half-built. Nothing forces urgency, but nothing is served by leaving
+   a returned-but-unused `Result` field pattern to be rediscovered later either.
+4. **Adopt session 020's two-bucket Derivable/Real-signal split as-is, without the F4b/F4c
+   refinement.** Rejected — Real-signal's two members (response curves, meters) need
+   materially different plumbing (an offline evaluation worker vs. a live audio-thread ring
+   buffer) and different review tiers (clause 5). Collapsing them into one bucket would hide
+   that a "Real-signal" step could mean either a Tier-1-adjacent worker-thread feature or a
+   genuine Tier-2 audio-thread tap, with no way to tell which from the label alone.
+5. **Ship F4a only, with no ladder for F4b/F4c.** Rejected as the *sole* scope — it is,
+   however, the mandatory first visible step (clause 5, step 3), and this ADR does not
+   require F4b/F4c to land in any particular timeframe, only that their architecture is
+   decided now rather than improvised per-visual later.
+
+**Adversarial critique**
+
+ADR-038 already put this plainly for face richness in general: shipping a bespoke UI on top
+of a generation pipeline that renders silent one run in four (PF-032) and fails to compile
+on a dominant pattern within one prompt class (PF-024, `routing_arity`) is "polish on a
+cracked foundation." A multi-hundred-line refactor — a new owned `FaceContext`, a slimmed
+`GeneratedFaceLookAndFeel`, a shared `TypefaceRegistry` — makes that risk *sharper*, not
+milder, while PF-024 and PF-032 both remain open as of this writing. There are now two
+things that can plausibly crowd out the release instead of one: the visible, satisfying
+feature work, and the invisible, unglamorous refactor underneath it. The honest risk is that
+"run this off the critical path" quietly becomes "run this instead of the critical path,"
+exactly as ADR-038 already warned for F1–F3/E1–E3. This ADR does not have a stronger
+mitigation than ADR-038 already stated — the pause trigger in clause 5 is that same
+mitigation, restated, not improved — and that repetition is itself the honest answer: there
+is no cleverer control than a human checking at every `/orient` whether the parallel track
+has become the only track.
+
+A second, sharper critique specific to this ADR: clause 7 names semantic binding as the
+riskiest unknown and proposes no resolution for it, only a policy of refusal-when-uncertain.
+That policy has never been tested against real LLM-authored patches at scale. It is entirely
+possible F4b ships, refuses to draw a curve for most nonlinear patches (a large and ordinary
+fraction of what this product generates — distortion, saturation, compression), and the
+"real-signal visualizer" feature mostly renders "no visual available" on exactly the plugins
+a user would most want to see one on. That would not be a bug in this ADR's architecture; it
+would be this ADR's architecture working exactly as designed, and still being a
+disappointing product outcome. Nothing in clause 4 through 6 fixes that — only the
+unfiled `PF-###` this ADR recommends (below) and whatever it eventually finds can.
+
+**Consequences**
+
+- Each step in clause 5's table lands on its own change report and its own stated review
+  tier, per COLLABORATION.md §3 — this ADR's acceptance authorizes direction, not any of the
+  six steps' code.
+- `docs/phases/phase-6.md` is owed the same *"updated to point here"* treatment ADR-038
+  promised for PF-052/PF-053 — **only once this ADR is Accepted, not while it is Proposed**;
+  editing it now would foreclose an option this ADR is still holding open, exactly what
+  COLLABORATION.md §2 trigger 2 warns against.
+- E4 (`ADR-038`'s "emit the face into the exported plugin") depends on F4 landing first for
+  any visual to be present in what gets exported — unchanged from ADR-038's own diagram.
+- `ThemeValidate.h:279-281,341-343`'s three WCAG thresholds are surface-contrast checks only
+  (text 7:1, dim text 4.5:1, accent-as-fill 3:1); **no stroke-width-aware check exists.** A
+  hairline stroke at `accent` for a curve or meter needle is only ever checked against the
+  3:1 large-object threshold. Recorded here as an explicit unverified remainder for F4b/F4c,
+  not as a new interface this ADR builds — a stroke-aware floor is a candidate follow-up, not
+  committed to by this decision.
+- **Rollback:** this ADR ships no code by itself. Step 3 (F4a) alone is revertible as one
+  commit if it doesn't pan out; steps 4–6 are independent enough of each other and of step 3
+  to be individually reverted without unwinding the others.
+- **Revisit if:** PF-024 or PF-032 regress or fail to close on the shipping model (the same
+  condition ADR-038 already names); or offline evaluation (step 5) turns out to need
+  Faust-version-specific runtime support this repo does not vendor — the identical open
+  question ADR-023's amendment already flagged for AOT export's emitted C++.
+
+**Status note (2026-09-14 — proposed)**
+
+Drafted at the user's request, following an independently-run adversarial architecture
+review against this codebase. Every technical claim above was re-verified against
+`origin/main` at `55fc78d` before this text was written, including one correction to the
+source review: `host/tests/ParamGridLayoutTest.cpp` already exists (400 lines, landed in PR
+#63, `886be7a`) — clause 5 step 1 extends it, it does not create it.
+
+**First moves, if accepted:** step 1 — the `ArchetypeLayout::VisualRegion` prep commit. It
+is the direct fix for this ADR's own motivating Context gap, requires no new subsystem, and
+unblocks nothing it depends on.
+
+**Status note (2026-09-15 — accepted)**
+
+Accepted by explicit user decision, on the drafted text above with no changes. Clause 5's
+landing table stands as the authorization for each step's own future review — acceptance of
+this ADR authorizes direction only, not any of the six steps' code, per clause 1. `docs/
+phases/phase-6.md` is now owed the "updated to point here" treatment named in Consequences.
+
+**Diagram**
+
+```
+                         PluginEditor owns
+                              │
+                              ▼
+                        FaceContext ──────────────────────┐
+                    (theme, TypefaceRegistry&,             │
+                     vector<unique_ptr<FaceVisual>>)       │
+                              │                             │
+                              ▼                             ▼
+                   GeneratedFaceLookAndFeel        ArchetypeLayout::VisualRegion
+                 (ColourScheme + fonts only,          (placement, clause 5 step 1)
+                  holds const FaceContext&)                 │
+                                                              ▼
+                                                        FaceVisual (owned Component)
+                                                              ▲
+                                                              │ SignalSource::read()
+                                    ┌─────────────────────────┼─────────────────────────┐
+                                    ▼                          ▼                          ▼
+                          ParamDerivedSource        OfflineEvalSource            LiveTapSource
+                             F4a — step 3         F4b — step 5, Tier 2         F4c — step 6, Tier 2
+                        (APVTS values held,    FaustEngine::evaluateResponse    ring buffer, audio
+                         message thread)        worker thread, no live-DSP        thread write
+                                                      or audio-thread contact
+```
+
