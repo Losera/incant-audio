@@ -499,8 +499,11 @@ geometry) still open, **E1–E3** (AOT emit → wire `processBlock` → prove so
 `/export`). One step per session, each independently landable;
 `docs/sessions/020-generated-faces-v2.md` has the order and the `file:line` traps.
 **F4 is now ADR-041 (Accepted 2026-09-15, PR #86)** — its own landing ladder (prep commit →
-`FaceContext` → `FaceVisual`/F4a → PF-052 split → offline eval/F4b → ring buffer/F4c) is
-the next thing to pick from once F2/F3/E1–E3 are further along. E4 remains gated behind its
+`FaceContext` → `FaceVisual`/F4a → PF-052 split → offline eval/F4b → ring buffer/F4c).
+**Step 1 (prep commit) landed** — `ArchetypeLayout::VisualRegion` + `Result::visuals`,
+`rail()` returns its reserved display region instead of discarding it. Next: step 2
+(`FaceContext` + `TypefaceRegistry`) once F2/F3/E1–E3 are further along — that step's own
+pause trigger applies if it's seen crowding out PF-024/PF-032. E4 remains gated behind its
 own future ADR.
 
 **Displaced, not urgent.** A piano roll (requested, unplanned; needs a note grid *and* a
