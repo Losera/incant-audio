@@ -40,8 +40,16 @@ One line per capability, each naming its evidence. "Builds clean" is not a capab
   closed 2026-08-06; `EditorSessionTest` scenario 25 is the red-then-green proof.
 - **State persistence** (save patch + knob values, reopen, recompile). Implemented `c34bbb6`;
   covered by `EditorSessionTest`.
-- **Sample search via Internet Archive.** PF-054/PF-055 fixed 2026-08-13, `SoundfetchClientTest`
-  + a live venv smoke test. (Freesound still 403s on a dead key — PF-056, Waiting on you.)
+- **Sample search via Internet Archive and Openverse, credential-free.** PF-054/PF-055
+  fixed 2026-08-13; upgraded to soundfetch 0.4.0 2026-09-13 (the installed 0.4.0 *build*
+  predated `src/soundfetch/__main__.py`, so `python -m soundfetch` — the argv PluginForge
+  builds — failed on it despite the matching version string; the 0.4.0 *tag*, `651b021`,
+  has it). Openverse added and made the sample browser's default: no credentials, unaffected
+  by PF-056. `SoundfetchClientTest` (32 checks) + `EditorSessionTest` scenario 38 + a live
+  network smoke test (`openverse search "rain"`, real result). (Freesound still 403s on a
+  dead key — PF-056, Waiting on you — but the failure is now legible: a non-network
+  `status --json` preflight distinguishes "no key configured" from "key configured but
+  rejected", and a 403 names Freesound instead of showing the raw message unattributed.)
 - **The full 125-cell efficacy grid runs end to end.** 2026-08-28, `ollama qwen2.5-coder:7b`
   (CPU), PF-041/PF-042-fixed judge — `bench/results/efficacy/efficacy_ollama_20260828_judged.json`.
   Compile rate 84–92% retry-corrected and tier-independent; semantic fidelity declines

@@ -101,11 +101,18 @@ juce::var SoundfetchClient::run(const juce::StringArray& args, juce::String& err
         // lookup fails: Python writes that diagnostic to stderr (deliberately
         // not captured because normal soundfetch logging would corrupt JSON),
         // exits non-zero and leaves stdout empty.
+        // Not "install soundfetch 0.4+": a 2026-08-12 wheel and the 0.4.0 tag
+        // both call themselves 0.4.0, and only the tag has src/soundfetch/
+        // __main__.py -- the version string alone cannot tell them apart
+        // (confirmed live 2026-09-13: `pip show` on the stale build reports
+        // "Version: 0.4.0" while `python -m soundfetch` still fails on it).
+        // Point at a runnable check instead of a number.
         error = "Soundfetch is unavailable or could not start: \""
               + command.joinIntoString(" ")
-              + "\" returned no JSON. Install soundfetch 0.4+ so `<python> -m soundfetch` "
-                "resolves, then set PLUGINFORGE_SOUNDFETCH_PYTHON (or SOUNDFETCH_BIN) "
-                "to point at it.";
+              + "\" returned no JSON. Run `<python> -m soundfetch sources --json` directly "
+                "to check the install (a version number alone does not prove `-m soundfetch` "
+                "works), then set PLUGINFORGE_SOUNDFETCH_PYTHON (or SOUNDFETCH_BIN) to point "
+                "at a working interpreter.";
         juce::Logger::writeToLog("PluginForge: " + error);
         return {};
     }
@@ -169,6 +176,34 @@ SoundfetchClient::DownloadResponse SoundfetchClient::download(const juce::String
         response.ok = false;
         response.error = "Soundfetch completed without returning a local audio path.";
     }
+    return response;
+}
+
+SoundfetchClient::ProviderStatus SoundfetchClient::status(const juce::String& provider)
+{
+    ProviderStatus response;
+    juce::String error;
+    auto value = run({ provider, "status", "--json" }, error);
+    response.error = error;
+    response.ok = value.getProperty("ok", false) && error.isEmpty();
+    response.hint = value.getProperty("hint", {}).toString();
+
+    // Two mutually exclusive payload shapes (soundfetch cli.py:606-651):
+    // archive/openverse report only {"ok","provider","hint"} -- no "status"
+    // key, because they need no credentials. freesound/video report a nested
+    // "status" object keyed by credential name, each {"configured": bool}.
+    // getProperty's default-value fallback (juce_Variant.cpp:683-689) makes
+    // this safe to chain through a missing "status" or a missing "api_key"
+    // without a null check: both fall through to isVoid() == true below.
+    //
+    // Deliberately read "api_key" and nothing else. cli.py:623-632 writes
+    // "oauth_token" as {"expired": bool} unconditionally, clobbering any
+    // "configured" field that key might otherwise have carried -- confirmed
+    // live 2026-09-13 against soundfetch 0.4.0: a no-credential freesound
+    // install emits "oauth_token": {"expired": false}, never "configured".
+    auto apiKey = value.getProperty("status", {}).getProperty("api_key", {});
+    response.credentialsConfigured = apiKey.isVoid()
+        || static_cast<bool>(apiKey.getProperty("configured", true));
     return response;
 }
 
