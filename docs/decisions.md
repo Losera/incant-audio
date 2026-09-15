@@ -2963,7 +2963,7 @@ proxy, and this ADR should not overstate what it proves. Two real gaps:
 
 | | |
 |---|---|
-| **Status** | **Proposed — 2026-09-14. Drafted per COLLABORATION.md §2 trigger 2 ("the drafting is not gated — the decision is"); awaiting explicit user decision.** |
+| **Status** | **Accepted — 2026-09-15, by explicit user decision.** |
 | **Date** | 2026-09-14 |
 | **Relates to** | ADR-038 (gated this work behind its own ADR — "F4"), ADR-035 (the face substrate this extends: `UiIr`, `ThemeValidate.h`, `GeneratedFaceLookAndFeel.h`, `ArchetypeLayout.h`), ADR-022 §3 (`derivePalette()` no-IR fallback — unchanged), ADR-019 (no WebView — unchanged, the alternative this ADR closes again), ADR-024 (`UiIr`'s versioned-schema precedent), the ADR-023 amendment (export E4 composes with this once both exist), `docs/sessions/020-generated-faces-v2.md` (the F1–F5 decomposition this ADR reconciles against), `docs/BUGS.md` PF-052 |
 
@@ -3205,6 +3205,13 @@ source review: `host/tests/ParamGridLayoutTest.cpp` already exists (400 lines, l
 **First moves, if accepted:** step 1 — the `ArchetypeLayout::VisualRegion` prep commit. It
 is the direct fix for this ADR's own motivating Context gap, requires no new subsystem, and
 unblocks nothing it depends on.
+
+**Status note (2026-09-15 — accepted)**
+
+Accepted by explicit user decision, on the drafted text above with no changes. Clause 5's
+landing table stands as the authorization for each step's own future review — acceptance of
+this ADR authorizes direction only, not any of the six steps' code, per clause 1. `docs/
+phases/phase-6.md` is now owed the "updated to point here" treatment named in Consequences.
 
 **Diagram**
 
