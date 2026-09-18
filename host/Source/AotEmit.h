@@ -45,6 +45,18 @@ struct EmitResult
 // generateAuxFilesFromString. `className` must match what a consuming
 // PluginProcessor instantiates (ADR-023 amendment step 1); `appName` is
 // libfaust's `name_app` and only affects the header's `metadata()` comment.
+//
+// OPEN QUESTION, BLOCKING for E2: thread-safety vs. FaustEngine's JIT path
+// was not checked. FaustEngine.cpp:827 notes createDSPFactoryFromString "is
+// not thread-safe (per llvm-dsp.h header comment)" — generateAuxFilesFromString
+// runs the same Faust parser/compiler internals and may share the same global
+// state (this file's own AotEmitTest run showed the parser leaking process-
+// global buffers on every call, consistent with shared statics). Nothing
+// today calls emitHeader() from anywhere concurrent with FaustEngine::compile(),
+// so no lock was added. Before E2 (or anything else) calls this from a path
+// that can run alongside a live FaustEngine compile, that must be resolved —
+// either confirm the two are safe to interleave, or serialize them (e.g. under
+// FaustEngine's own compileMutex, FaustEngine.cpp:826) before wiring it in.
 inline EmitResult emitHeader(const std::string& faustSource,
                               const std::string& className = "mydsp",
                               const std::string& appName = "PluginForgeExport")
