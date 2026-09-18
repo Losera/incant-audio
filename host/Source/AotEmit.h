@@ -1,12 +1,7 @@
 #pragma once
 #include <faust/dsp/libfaust.h>
 
-#include <cstdio>
-#include <cstdlib>
-#include <fstream>
-#include <sstream>
 #include <string>
-#include <unistd.h>
 #include <vector>
 
 // ── AotEmit — in-process Faust source → compilable AOT C++ header ────────────
@@ -16,13 +11,33 @@
 // `libfaust.so` (confirmed via `nm -D`) but never exercised its actual output —
 // this is that exercise.
 //
-// `generateAuxFilesFromString` does not return the generated source directly:
-// confirmed against its only in-tree usage example,
-// `/usr/share/faust/cmajor/cmajor-tools.h`, which calls it for a side effect
-// (a file written at the path named by its `-o` argv) and reads that file back.
-// "In-process, no subprocess" therefore means no `faust` CLI process is
-// spawned — libfaust does the compilation inside this process — not that no
-// file is touched; a real temp path is still required for the `-o` target.
+// Uses `generateAuxFilesFromString2` (`/usr/include/faust/dsp/libfaust.h:132`),
+// not the plain `generateAuxFilesFromString` the ADR-023 amendment originally
+// checked for: `...2` takes the identical name_app/dsp_content/argc/argv shape
+// but returns the generated source directly as a `std::string` ("or an empty
+// string in case of failure") instead of writing it to a path named by an `-o`
+// argv — confirmed empirically this session (no in-tree usage example of `...2`
+// existed to confirm against, unlike the file-based variant): called against a
+// real effect source with no `-o` arg, it returned a complete
+// `class mydsp : public dsp { ... }` header with no file ever touched; called
+// against deliberately invalid source, it returned an empty string plus a
+// populated error message. An earlier version of this file used the
+// file-based variant with a `mkstemp`/reopen/read-back/remove round trip —
+// pure overhead once `...2` is confirmed to do the same thing in memory, and
+// it also removed a `/tmp`-path TOCTOU window and three duplicated cleanup
+// call sites this file no longer has.
+//
+// KNOWN SIDE EFFECT, verified empirically this session: omitting `-o` from
+// argv (required to get the string back at all — see below) makes
+// `generateAuxFilesFromString2` also echo the full generated header to
+// **stdout** as a side effect of every call. Confirmed both ways: passing an
+// `-o <path>` argv suppresses the stdout echo but also makes the function
+// return an empty string instead of the header (the two behaviours are
+// mutually exclusive, not independent flags) — so there is no argv
+// combination that gets the in-memory string without the stdout write.
+// Harmless today (AotEmitTest's stdout isn't asserted on), but whoever wires
+// E2 should decide whether to redirect stdout around the call or accept it —
+// don't let it surface unnoticed in the actual export/plugin path.
 //
 // The emitted header is intentionally NOT self-contained: `faust -lang cpp`
 // output assumes `faust/dsp/dsp.h`, `faust/gui/UI.h`, `faust/gui/meta.h` (and,
@@ -42,13 +57,22 @@ struct EmitResult
 };
 
 // Turns accepted Faust source into a compilable AOT header via libfaust's
-// generateAuxFilesFromString. `className` must match what a consuming
+// generateAuxFilesFromString2. `className` must match what a consuming
 // PluginProcessor instantiates (ADR-023 amendment step 1); `appName` is
 // libfaust's `name_app` and only affects the header's `metadata()` comment.
 //
+// argv is explicitly null-terminated even though argc is also passed
+// correctly: the only confirmed real-world caller of this function family,
+// `/usr/share/faust/cmajor/cmajor-tools.h:108`, does the same despite already
+// passing a correct argc — matching that convention rather than relying on
+// this build's specific behaviour (empirically, running this file's own test
+// under ASan/UBSan showed no out-of-bounds read either way, so this is
+// defensive alignment with the known-good reference, not a fix for an
+// observed bug).
+//
 // OPEN QUESTION, BLOCKING for E2: thread-safety vs. FaustEngine's JIT path
 // was not checked. FaustEngine.cpp:827 notes createDSPFactoryFromString "is
-// not thread-safe (per llvm-dsp.h header comment)" — generateAuxFilesFromString
+// not thread-safe (per llvm-dsp.h header comment)" — generateAuxFilesFromString2
 // runs the same Faust parser/compiler internals and may share the same global
 // state (this file's own AotEmitTest run showed the parser leaking process-
 // global buffers on every call, consistent with shared statics). Nothing
@@ -64,42 +88,20 @@ inline EmitResult emitHeader(const std::string& faustSource,
     EmitResult result;
     result.className = className;
 
-    char tmpTemplate[] = "/tmp/pluginforge_aot_XXXXXX";
-    int fd = mkstemp(tmpTemplate);
-    if (fd < 0)
-    {
-        result.error = "mkstemp failed for AOT header temp file";
-        return result;
-    }
-    ::close(fd);
-    const std::string outPath(tmpTemplate);
-
-    std::vector<const char*> argv = { "-lang", "cpp", "-cn", className.c_str(), "-o", outPath.c_str() };
+    std::vector<const char*> argv = { "-lang", "cpp", "-cn", className.c_str(), nullptr };
+    const int argc = static_cast<int>(argv.size()) - 1;    // exclude the null terminator
     std::string errorMsg;
-    const bool generated = generateAuxFilesFromString(
-        appName, faustSource, static_cast<int>(argv.size()), argv.data(), errorMsg);
+    result.header = generateAuxFilesFromString2(appName, faustSource, argc, argv.data(), errorMsg);
 
-    if (!generated)
+    if (result.header.empty())
     {
-        result.error = errorMsg;
-        std::remove(outPath.c_str());
+        result.error = errorMsg.empty()
+            ? "generateAuxFilesFromString2 returned an empty header with no error message"
+            : errorMsg;
         return result;
     }
 
-    std::ifstream in(outPath, std::ios::binary);
-    if (!in)
-    {
-        result.error = "generateAuxFilesFromString reported success but " + outPath
-                        + " could not be read back";
-        std::remove(outPath.c_str());
-        return result;
-    }
-    std::ostringstream buf;
-    buf << in.rdbuf();
-    result.header = buf.str();
     result.ok = true;
-
-    std::remove(outPath.c_str());
     return result;
 }
 

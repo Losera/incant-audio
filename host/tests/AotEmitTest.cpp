@@ -1,9 +1,10 @@
 // ---------------------------------------------------------------------------
-// AotEmitTest — ADR-038 E1: exercise generateAuxFilesFromString end to end.
+// AotEmitTest — ADR-038 E1: exercise generateAuxFilesFromString2 end to end.
 //
 // The 2026-08-13 amendment to ADR-023 (docs/decisions.md) verified the symbol
-// exists and links but never ran it. This test does three things the
-// amendment left open:
+// `generateAuxFilesFromString` exists and links but never ran it. AotEmit.h
+// uses the sibling `...2` variant instead (see its own header comment for
+// why); this test does three things the amendment left open:
 //
 //   1. Calls AotEmit::emitHeader on real Faust source and asserts it produced
 //      a `class <name> : public dsp` header, not just a non-empty string.
@@ -20,7 +21,7 @@
 //
 // NOT covered here (deliberately, per ADR-038 E1's scope): wiring an emitted
 // header into `processBlock` (E2), running the exported plugin under
-// pluginval or producing sound (E3), and whether `generateAuxFilesFromString`
+// pluginval or producing sound (E3), and whether `generateAuxFilesFromString2`
 // is safe to call concurrently with `FaustEngine`'s own JIT compiles —
 // `createDSPFactoryFromString`'s header comment says it is not thread-safe
 // (FaustEngine.cpp's own comment at the call site) and nothing here checked
@@ -42,7 +43,7 @@
 
 // libfaust leaks its parser buffers on every compile (FAUST_scan_buffer, inside
 // libfaust.so) — same defect StatePersistenceTest.cpp already suppresses for
-// FaustEngine's JIT path; generateAuxFilesFromString shares the same parser.
+// FaustEngine's JIT path; generateAuxFilesFromString2 shares the same parser.
 // Third-party and not reachable from anything this repo can free. Matched on
 // the library so a leak in OUR code still fails the test.
 extern "C" const char* __lsan_default_suppressions()
@@ -74,6 +75,24 @@ void expectContains(const std::string& haystack, const std::string& needle, cons
         std::cerr << "FAIL  " << what << "\n"
                   << "      expected to find: " << needle << "\n";
     }
+}
+
+// Writes `content` to a fresh mkstemp'd path matching `templatePattern` (a
+// mutable buffer ending in XXXXXX, per mkstemp's contract) and returns the
+// path, or an empty string on failure. Shared by the two temp files
+// testEmittedHeaderCompiles() needs — previously hand-duplicated once per file.
+std::string writeTempFile(char* templatePattern, const std::string& content, const std::string& what)
+{
+    int fd = mkstemp(templatePattern);
+    expectTrue(fd >= 0, what);
+    if (fd < 0)
+        return {};
+    {
+        std::ofstream out(templatePattern, std::ios::trunc);
+        out << content;
+    }
+    close(fd);
+    return std::string(templatePattern);
 }
 
 // A minimal but non-trivial effect: import + a gain multiply, matching the
@@ -119,47 +138,35 @@ void testEmittedHeaderCompiles()
         return;
 
     char headerTemplate[] = "/tmp/aotemittest_header_XXXXXX";
-    int headerFd = mkstemp(headerTemplate);
-    expectTrue(headerFd >= 0, "mkstemp for the emitted header succeeds");
-    if (headerFd < 0)
+    const std::string headerPath =
+        writeTempFile(headerTemplate, result.header, "mkstemp for the emitted header succeeds");
+    if (headerPath.empty())
         return;
-    {
-        std::ofstream out(headerTemplate, std::ios::trunc);
-        out << result.header;
-    }
-    close(headerFd);
-    const std::string headerPath(headerTemplate);
 
+    // Include order matters: the emitted header assumes dsp/UI/meta are
+    // already declared, confirmed by compiling each combination in
+    // isolation while writing this test (see AotEmit.h's header comment).
+    const std::string stubMain =
+        "#include <faust/dsp/dsp.h>\n"
+        "#include <faust/gui/UI.h>\n"
+        "#include <faust/gui/meta.h>\n"
+        "#include <faust/gui/MapUI.h>\n"
+        "#include \"" + headerPath + "\"\n"
+        "int main() {\n"
+        "    mydsp d;\n"
+        "    MapUI ui;\n"
+        "    d.init(48000);\n"
+        "    d.buildUserInterface(&ui);\n"
+        "    return 0;\n"
+        "}\n";
     char mainTemplate[] = "/tmp/aotemittest_main_XXXXXX";
-    int mainFd = mkstemp(mainTemplate);
-    expectTrue(mainFd >= 0, "mkstemp for the stub main succeeds");
-    if (mainFd < 0)
+    const std::string mainPath =
+        writeTempFile(mainTemplate, stubMain, "mkstemp for the stub main succeeds");
+    if (mainPath.empty())
     {
         std::remove(headerPath.c_str());
         return;
     }
-    {
-        std::ofstream out(mainTemplate, std::ios::trunc);
-        // Include order matters: the emitted header assumes dsp/UI/meta are
-        // already declared, confirmed by compiling each combination in
-        // isolation while writing this test (see AotEmit.h's header comment).
-        out << "#include <faust/dsp/dsp.h>\n"
-               "#include <faust/gui/UI.h>\n"
-               "#include <faust/gui/meta.h>\n"
-               "#include <faust/gui/MapUI.h>\n"
-               "#include \""
-            << headerPath
-            << "\"\n"
-               "int main() {\n"
-               "    mydsp d;\n"
-               "    MapUI ui;\n"
-               "    d.init(48000);\n"
-               "    d.buildUserInterface(&ui);\n"
-               "    return 0;\n"
-               "}\n";
-    }
-    close(mainFd);
-    const std::string mainPath(mainTemplate);
 
     const std::string objPath = mainPath + ".o";
     // -x c++: mainPath has no .cpp suffix (mkstemp's template can't carry one
