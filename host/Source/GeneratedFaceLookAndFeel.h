@@ -147,6 +147,23 @@ public:
         // oversight; a light face's track will read slightly fainter than its
         // own mockup until that is revisited.
         trackColour = text.withAlpha(0.10f);
+
+        // ADR-038 F2: chip-styled ToggleButton colours, stored for the same
+        // reason trackColour is -- drawToggleButton() below needs them on
+        // every paint and neither is a ColourScheme UIColour slot. `onAccent`
+        // (just computed above for the highlightedText slot) is reused
+        // verbatim rather than hard-coding `surface`: the mockup's own words
+        // are "surface text colour when on", but this class already resolved
+        // the WCAG-aware choice between surface and text for "text sitting on
+        // the accent fill", and a light-theme face (Iron Strip) can have an
+        // accent surface itself doesn't read against -- reusing onAccent
+        // keeps chip-on-text and every other accent-backed label in this face
+        // consistent instead of introducing a second, possibly-disagreeing
+        // rule for the same visual situation.
+        chipOnFill  = accent;
+        chipOnText  = onAccent;
+        chipOffLine = line;
+        chipOffText = text.withAlpha(0.6f);
     }
 
     // The SAME validated accent this constructor just built its ColourScheme
@@ -348,11 +365,62 @@ public:
         }
     }
 
+    // ADR-038 F2 (docs/sessions/020-generated-faces-v2.md, Track F): chip-
+    // styled toggle. Replaces LookAndFeel_V4's default -- a small rounded
+    // tick box plus a left-aligned label (juce_LookAndFeel_V4.cpp:328-350,
+    // `drawToggleButton` calling `drawTickBox` at a fixed 4px inset) -- with
+    // a full-bounds filled-or-outlined chip, matching the mockup's SAW/SQR/TRI
+    // and FREEZE/REVERSE rows. `ForgeLookAndFeel`'s own audit (this file's
+    // parent, see its header comment) said ColourScheme alone covered
+    // drawToggleButton; that was true for a plain checkbox-style toggle and
+    // is no longer true for a chip, which needs to be selectable-pill shaped,
+    // not tick-plus-label -- so this is the first bespoke override for it in
+    // either class.
+    //
+    // Applies to EVERY ToggleButton this LookAndFeel draws, not only ChipRow
+    // members: a lone Button/CheckButton-kind param (ParamGridPanel.cpp's
+    // ToggleButton branch, unchanged by F2) gets the same chip look, which is
+    // exactly right for a mockup pair like FREEZE/REVERSE -- two independent
+    // boolean params drawn side by side, not one ChipRow.
+    void drawToggleButton(juce::Graphics& g, juce::ToggleButton& button,
+                          bool /*shouldDrawButtonAsHighlighted*/, bool /*shouldDrawButtonAsDown*/) override
+    {
+        const auto bounds = button.getLocalBounds().toFloat().reduced(1.0f);
+        constexpr float corner = 3.0f;
+
+        if (button.getToggleState())
+        {
+            g.setColour(chipOnFill);
+            g.fillRoundedRectangle(bounds, corner);
+            g.setColour(chipOnText);
+        }
+        else
+        {
+            g.setColour(chipOffLine);
+            g.drawRoundedRectangle(bounds, corner, 1.0f);
+            g.setColour(chipOffText);
+        }
+
+        // GKnob.dc.html's chip spec: mono readout family, 9-10px, ~.1em
+        // tracking. readoutFont() is this class's own public method (above),
+        // theme-aware the same way every other label in this face is.
+        g.setFont(readoutFont(9.5f).withExtraKerningFactor(0.1f));
+        g.drawFittedText(button.getButtonText(), bounds.getSmallestIntegerContainer(),
+                         juce::Justification::centred, 1);
+    }
+
 private:
     // A3d: see drawRotarySlider() above. Not a ColourScheme UIColour --
     // computed once in the constructor, reused on every paint of every
     // rotary this LookAndFeel draws.
     juce::Colour trackColour = Theme::outline;
+
+    // ADR-038 F2: see drawToggleButton() above. Same "computed once in the
+    // constructor, not a ColourScheme slot" shape as trackColour.
+    juce::Colour chipOnFill  = Theme::accent;
+    juce::Colour chipOnText  = Theme::background;
+    juce::Colour chipOffLine = Theme::outline;
+    juce::Colour chipOffText = Theme::textPrimary;
 
     // A3c: the five typefaces new to this class, loaded once per attach --
     // see the COST note at the top of this file's header comment. Same

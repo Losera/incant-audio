@@ -652,6 +652,16 @@ juce::String PluginForgeEditor::gridControlLabelFontNameForTest(int i) const
     return paramGridPanel.controlLabelFontNameForTest(i);
 }
 
+int PluginForgeEditor::gridChipSelectedIndexForTest(int i) const
+{
+    return paramGridPanel.chipSelectedIndexForTest(i);
+}
+
+void PluginForgeEditor::clickGridChipForTest(int i, int chipIndex) const
+{
+    paramGridPanel.clickChipForTest(i, chipIndex);
+}
+
 void PluginForgeEditor::timerCallback()
 {
     // Instant attack, exponential release — the standard meter ballistics that
