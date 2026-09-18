@@ -155,17 +155,29 @@ public release while those defects are open. **F1 landed** (PR #82, `b73c860`, 2
 bipolar-knob arc fill + centre detent, `GKnobGeometry.h`). Next: F2/F3, and **E1** (in-process
 AOT Faust emit via `libfaust`'s `generateAuxFilesFromString`) — **not yet started as of
 2026-09-18**, ahead of ADR-038's own explicit sequencing (dispatched today, see the rewrite
-note above). Ladders: `docs/sessions/020-generated-faces-v2.md`.
+note above). Ladders: `docs/sessions/020-generated-faces-v2.md`. **ADR-038 itself carries a
+2026-09-15 reclassification note** (below, PR #88) — "recorded here as a routine
+scheduling/resequencing decision, not architectural direction under COLLABORATION.md §2
+trigger-2." That downgrades the *decision record*, not the work it authorized: F1–F3/E1–E3
+still describe what's actually landing and in what order, and nothing above should be read
+as still-live architectural weight beyond that.
 
-**ADR-039** (cross-provider failover: cloud rate limits fall back to local only) and
-**ADR-040** (hardware envelope for local generation — measure before optimizing) —
-both **Proposed**, PR #85 (docs only, 2026-09-13). **ADR-041** (a `FaceVisual` drawing
-layer for generated faces — ADR-038's F4, six independently-reviewable steps, each its own
-Tier review) — **Accepted 2026-09-15 by explicit user decision, PR #86**; step 1
-(`ArchetypeLayout::VisualRegion` + `Result::visuals`, `rail()` returns its reserved display
-region instead of discarding it) **landed same day, PR #90**. Eight prior decisions that
-were routine scheduling/sequencing calls dressed as ADRs were reclassified as such in their
-own status notes, not deleted — **PR #88**, branch docs/adr-reclassify-routine.
+**ADR-039** (cross-provider failover: cloud rate limits fall back to local only) —
+**Proposed**, PR #85 (docs only, 2026-09-13), not reclassified. **ADR-040** (hardware
+envelope for local generation — measure before optimizing) — also PR #85, but **carries the
+same 2026-09-15 reclassification as ADR-038 above** (PR #88): "a routine measurement
+methodology note," not live architectural direction, despite still showing status
+`Proposed` in `docs/decisions.md` itself. **ADR-041** (a `FaceVisual` drawing layer for
+generated faces — ADR-038's F4, six independently-reviewable steps, each its own Tier
+review) — **Accepted 2026-09-15 by explicit user decision, PR #86**, not reclassified;
+step 1 (`ArchetypeLayout::VisualRegion` + `Result::visuals`, `rail()` returns its reserved
+display region instead of discarding it) **landed same day, PR #90**. **Eight prior
+decisions — ADR-006, 026, 028, 030, 031, 034, 038, 040 — were reclassified as routine
+scheduling/sequencing/methodology calls dressed as ADRs, in their own status notes, nothing
+removed or reworded** — **PR #88** (`98b7906`), branch docs/adr-reclassify-routine; per that
+commit's own message, triggered by the maintainer's doc-output-pollution concern. The first
+version of this rewrite named PR #88 without connecting it back to ADR-038/040 above —
+fixed here.
 
 **Landed 2026-09-04 → 2026-09-07 — the ADR-035 generated-face pipeline is now wired end
 to end** (five PRs on top of #58/#59/#61 below; narrative in `docs/sessions/020-generated-faces-v2.md`):
@@ -626,9 +638,18 @@ clock — no host transport in Standalone).
    **Do not touch — live work, discovered this pass:** `.worktrees/efficacy-pf031`
    (branch bench/efficacy-groq-n3-20260915) already has an uncommitted n≥3 checkpoint
    (`efficacy_groq_n3_rep1_20260915.json`) toward "Next three things" #1 below — somebody's
-   mid-run; `.worktrees/pf032-remeasure` (`chore/pf032-remeasure-noise-gate`) is a separate,
-   still-uncommitted PF-032 remeasurement attempt, not the same as the merged WP2 gate-fix
-   above. **Three more added today** by this session's own dispatch, all active:
+   mid-run. **Correction to this rewrite's first pass:** `.worktrees/pf032-remeasure`
+   (`chore/pf032-remeasure-noise-gate`) was wrongly described here as uncommitted live work
+   — it is not. `git status` in that worktree shows a clean tree, fully pushed to origin;
+   its one commit (`182996d`) carries the *identical* commit message to already-merged PR
+   #81's `7ba7d8c` ("bench: re-measure PF-032 noise gate — root cause was wrong (WP1)"), but
+   `git diff 7ba7d8c 182996d` shows `182996d` is missing 391 lines `7ba7d8c` has in
+   `docs/decisions.md` — it branched off an older point and never picked up what landed
+   there since. **Not safe to protect as live work, and not safe to delete unreviewed
+   either** — merging it as-is today would delete 391 lines of `docs/decisions.md`. Needs a
+   human to look at it (rebase and re-check whether the WP1 content still differs from what
+   #81 shipped, or discard) rather than sitting in either "protect" or "safe to delete."
+   **Three more added today** by this session's own dispatch, all active:
    `.worktrees/truth-reconcile` (this rewrite), `.worktrees/e1-aot-emit` and
    `.worktrees/capture-harness` (the two peer-session assignments — see the artifact linked
    at the top of this file).
@@ -665,10 +686,17 @@ clock — no host transport in Standalone).
      research/llm-generation-professional   Codex research
      chore/runtime-agnostic-workflow        uncommitted refactor, pending triage
      bench/efficacy-groq-n3-20260915        LIVE — uncommitted n≥3 checkpoint, do not remove
-     chore/pf032-remeasure-noise-gate       uncommitted PF-032 remeasurement, do not remove
      feat/e1-aot-emit                       dispatched today, active
      feat/interactive-capture-harness       dispatched today, active
      docs/truth-reconcile-2026-09-18        this rewrite
+
+   NEITHER — needs your call, not a mechanical delete or keep:
+     chore/pf032-remeasure-noise-gate       clean, pushed, NOT uncommitted (corrected above);
+                                             diverged from an older base than merged PR #81's
+                                             7ba7d8c — a raw delete could be fine or could lose
+                                             something #81 doesn't have; a raw merge would
+                                             regress docs/decisions.md by 391 lines. Look before
+                                             either.
    ```
 7. **Untracked personal files left alone**, as always — the two notes at the repo root, the
    unshipped brief skill, the product-architecture draft under bench/. The
