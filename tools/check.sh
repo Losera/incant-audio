@@ -149,7 +149,7 @@ level_full() {
               ParamIdentityTest NoteRingTest NoteRingTsanTest ValidationGateTest \
               SoundfetchClientTest GenerationProfilesAutoTest UiIrTest \
               ThemeValidateTest PromptPanelPathResolutionTest ParamGridLayoutTest \
-              GKnobGeometryTest
+              GKnobGeometryTest AotEmitTest
 
     # ── Three harnesses that existed and ran nowhere ─────────────────────────
     # Found 2026-07-30 while surveying the measurement surface: OutputGuardTest
@@ -216,11 +216,19 @@ level_full() {
     # drawRotarySlider specifically so the bipolar-arc-start arithmetic could
     # run at this rung; GeneratedFaceLookAndFeel.h itself pulls in
     # juce_gui_basics and could never be this build's translation unit.
+    # AotEmitTest joined with ADR-038 E1 (docs/sessions/020-generated-faces-v2.md
+    # Track E), in the commit that created it. Same principle as every entry
+    # above: a test that exists and never runs is this project's own recurring
+    # defect. No display; it does shell out to a local `g++ -c` to round-trip
+    # the emitted AOT header, but that is a build-time dependency already
+    # required to build this repo at all, not a new one -- still deterministic
+    # and fast (well under a second).
     local pure
     for pure in OutputGuardTest ParamMapTest StatePersistenceTest ParamIdentityTest \
                 NoteRingTest ValidationGateTest SoundfetchClientTest \
                 GenerationProfilesAutoTest UiIrTest ThemeValidateTest \
-                PromptPanelPathResolutionTest ParamGridLayoutTest GKnobGeometryTest; do
+                PromptPanelPathResolutionTest ParamGridLayoutTest GKnobGeometryTest \
+                AotEmitTest; do
       local bin
       bin="$(find host/build -type f -name "$pure" 2>/dev/null | head -n1)"
       if [[ -n "$bin" ]]; then
