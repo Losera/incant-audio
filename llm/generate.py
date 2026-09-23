@@ -828,6 +828,27 @@ def log_user_prompt(request: dict, response: dict) -> None:
         print(f"[prompt-log] not recorded: {exc}", file=sys.stderr)
 
 
+def _capture(request: dict, response: dict) -> None:
+    """Opt-in interactive capture harness (`PLUGINFORGE_CAPTURE=1`), see
+    bench/capture.py. The env check happens BEFORE the import so a normal
+    (capture-off) run never pays for numpy/scipy/render_oracle being pulled
+    into this process — those are bench/'s dependencies, not llm/'s.
+
+    FAIL-OPEN, same contract as log_user_prompt just above: a capture that
+    cannot be written must never cost the caller their generation.
+    """
+    if os.environ.get("PLUGINFORGE_CAPTURE", "").strip().lower() not in {"1", "true", "on", "yes"}:
+        return
+    try:
+        bench_dir = str(Path(__file__).resolve().parent.parent / "bench")
+        if bench_dir not in sys.path:
+            sys.path.insert(0, bench_dir)
+        import capture as capture_mod
+        capture_mod.capture_generation(request, response)
+    except Exception as exc:  # noqa: BLE001 - see FAIL-OPEN above
+        print(f"[capture] not recorded: {exc}", file=sys.stderr)
+
+
 def _read_request_file(path: str) -> dict:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
@@ -914,6 +935,7 @@ def _run_subprocess_mode(build_request):
         # recommendation flow invokes this subprocess twice for one generation.
         if request.get("action", "generate") == "generate":
             log_user_prompt(request, response)
+            _capture(request, response)
         print(json.dumps(response))
     except Exception as exc:  # noqa: BLE001 - convert to ADR-011 JSON, never a stdout traceback
         traceback.print_exc(file=sys.stderr)
@@ -923,6 +945,7 @@ def _run_subprocess_mode(build_request):
         # returned above, before this try block.
         if request.get("action", "generate") == "generate":
             log_user_prompt(request, response)
+            _capture(request, response)
         print(json.dumps(response))
 
 
