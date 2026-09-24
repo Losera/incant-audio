@@ -347,6 +347,23 @@ repaired-within-2 on `qwen2.5-coder:3b`). Caveat: all of it is small models on C
 
 Registry with IDs, severity, discovery dates: `docs/BUGS.md`.
 
+**Added 2026-09-24, not yet folded into the ranking below — read this first.** *(PF-079,
+high, open.)* The compile gate this whole ladder is ranked against systematically overstates
+success: real render-safety runs 25–40pp below compile rate on the committed groq/ollama
+125-cell archives (`docs/records/efficacy-adversarial-review-2026-09-23.md` §B1). Two
+`dynamics`-category idioms fail identically across two independent generator models and are
+now root-caused directly against the Faust stdlib (not "unidentified" as first filed): an
+**upward expander's makeup gain has no ceiling** (`gain_db = select2(level_db < threshold, 0,
+(threshold-level_db)*(ratio-1))` — `ba.linear2db` floors at −758.6 dB single-precision,
+so the gain follows the signal to +728.6 dB at the silence limit; measured +715 dB), and a
+**brick-wall limiter's `select2` arms are inverted** (`select2(c,a,b)` returns `a` when `c`
+is *false* — every sample at or below threshold gets replaced by the threshold constant,
+0.98855 at the default; measured DC 0.95–0.98). Both are promptable; neither fix is landed
+yet (`docs/BUGS.md` PF-079). Also landed this date: PF-076's public mechanism
+(caret-anchoring) was withdrawn — the A/B *result* is unchanged, the *causal story* was
+wrong, because the repair loop (and the shipping Fresh-mode retry path, PF-081) never shows
+the model the program it is repairing. See PF-076/PF-080/PF-081 in `docs/BUGS.md`.
+
 **1. One generation defect is evidenced; the rest is sampling.** *(PF-024/PF-032, high,
 open.)* Karplus-Strong's `recursion_cycle` fails to compile across every archive and the one
 tier that compiles renders +79.6 dB runaway; the sidechain compressor fails every run with a
@@ -452,7 +469,14 @@ into PF-024's family-failure sampling, notes in `scratchpad/pf065-reaper-observa
 
 ## Assumed, never checked
 
-*(none.)* PF-011 — "the efficacy tier gradient on the shipping model" — closed 2026-09-08:
+**The compile gate was assumed to track real plugin success; checked 2026-09-23, and it
+doesn't.** *(PF-079, high, open.)* `faust -lang cpp` accept/reject overstates render-safety
+by 25–40pp on the committed archives — see "Broken" above for the number and the two
+root-caused failure classes. This is exactly the kind of claim this section exists to track;
+it was missing from here even after the defect was filed, which is its own small instance of
+the thing `check.sh assumed` is supposed to catch.
+
+PF-011 — "the efficacy tier gradient on the shipping model" — closed 2026-09-08:
 the groq / `openai/gpt-oss-120b` grid completed all 125 cells and was scored ($0). Result
 in "Works" above: no monotonic tier gradient (L2–L4 flat ~84% first-try), a sharp L1
 metaphor-only trough (48%), and a category-level `dynamics` weakness at every tier. The
@@ -513,15 +537,23 @@ clock — no host transport in Standalone).
 
 ## Waiting on you
 
-1. **Post the GRAME reply.** `~/issue26-reply.md` — read in full this session, current and
-   not stale: it cites `1ad968a` (PR #60, the *second* integrity pass — supersedes #55's
-   `78fb9db`) and the corrected 58%/4% caret-preservation mechanism, not the earlier "edit
-   at that spot and re-break it" framing #60 found backwards. Every link resolves
-   anonymously; a cold clone at `1ad968a` runs `verify.py` green (367 checks). COLLABORATION.md
-   §2 — **a human reviews the wording and posts it** (Claude must not `gh issue comment`).
-   Delete the draft after. Then (deferred to a later session): edit the existing
-   `issue-26-repro` release body **in place** to mark it superseded and repoint its Method
-   link at `1ad968a`; optionally cut a new non-prerelease `issue-26-repro-v2` at `1ad968a`.
+1. **Post a correction to the GRAME reply — the earlier draft was already sent, and one of
+   its claims is now known wrong.** *(Corrected 2026-09-24; this item's prior text was
+   stale.)* The reply this item used to describe **was already posted 2026-09-08**
+   (comment 4 on `Losera/incant-audio#26`), citing commit `704963a`, not `1ad968a` as
+   previously recorded here — `~/issue26-reply.md` no longer exists (deleted per its own
+   "delete the draft after" instruction). But that posted comment's mechanism claim — *"the
+   caret is precise enough that the small model treats the quoted line as correct and
+   rewrites around it"* — has since been **verified false against source** (2026-09-24,
+   prompted by an external adversarial review): neither arm's request contains the program
+   being repaired, so there is no visible caret to rewrite around. The A/B *result* it was
+   attached to is unchanged. A correction is needed on the thread. COLLABORATION.md §2 — **a
+   human reviews the wording and posts it** (Claude must not `gh issue comment`). The two
+   repro paths given to Letz in that comment (`docker-verify`, `bench/issue26/`) were also
+   found broken and are fixed as of this session (PF-080) — worth a line in the same
+   correction rather than a separate follow-up. Then (deferred to a later session): edit the
+   existing `issue-26-repro` release body **in place** to mark it superseded and repoint its
+   Method link at the current pin; optionally cut a new non-prerelease `issue-26-repro-v2`.
    **Do not move the existing tag** (`f50daa8`).
 2. **A listening pass on the interactive-session patches.** COLLABORATION.md §1 — whether a
    generated plugin *sounds like what was asked for* has no instrument and is not delegable.
@@ -546,6 +578,13 @@ clock — no host transport in Standalone).
    the hooks; not in the tree; **needs your triage — commit / stash / discard**),
    `.worktrees/codex-llm-generation-professional` (Codex research, uncommitted),
    `.worktrees/main-session` (clean, another session's `main` checkout — left alone).
+
+   **Not inventoried above and found 2026-09-24 — added now:**
+   `.worktrees/efficacy-semantics` (branch `bench/efficacy-semantics-2026-09-23`; live —
+   this is where the 2026-09-23/24 faust-rs + efficacy work landed; **not yet pushed to
+   `origin`**, keep until a PR merges it), `.worktrees/efficacy-pf031` (branch
+   `bench/efficacy-groq-n3-20260915`, **zero commits**; held the orphaned n≥3 partial-rep-1
+   data, now rescued into `efficacy-semantics` — safe to prune once that's confirmed merged).
 
    **Still owed by a human:** `git push origin --delete` for the 22 merged remote branches
    below — the destructive-action classifier blocks agents from doing it. Regenerate/verify

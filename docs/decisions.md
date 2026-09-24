@@ -140,6 +140,15 @@ architectural direction under COLLABORATION.md §2 trigger-2 — no option an op
 open was foreclosed. Left in place for the historical record; future instances of this kind
 of decision belong in STATUS.md, not a new ADR.
 
+**Status note (2026-09-24 — metric accuracy, not choice, now in question).** PF-079
+(`docs/BUGS.md`) measured that this metric — first-try compile rate — overstates real
+render-safety by 25–40pp on the committed groq/ollama archives, with two named DSP-idiom
+defect classes (unbounded makeup gain, inverted `select2` threshold) sitting inside what this
+metric calls success. Per the note directly above, this is tracked in STATUS.md ("Broken" and
+"Assumed, never checked"), not as a further ADR revision — the decision here (use compile rate
+as *a* signal) is not being reversed, only shown to need a render-safety companion metric
+before "compiles" is read as "works." See PF-079 for the open remediation.
+
 **Context**  
 We need a quantitative signal to compare DSL options and LLM providers during the architecture evaluation phase (Days 1–2).
 
