@@ -218,7 +218,16 @@ scoring (`load_pairs` → `_aggregate_cell`, WP1); K=1 is a strict no-op.
 
 The one hard part is building `faust` (C++) and `faust-rs` (Rust). The image
 does both — `faust` from the Arch package **asserted** at 2.85.9, `faust-rs`
-pinned to tag 0.8.0 — and the build fails loudly if either drifts. The base
+pinned to **commit `47dfb3e89b`** (the `0.8.0` tag's own commit) — and the
+build fails loudly if either drifts. `faust-rs` is pinned by commit, not tag:
+a 2026-09-23 audit (`docs/records/faust-rs-delta-2026-09-23.md`) found that
+`faust-rs`'s own `--version` string does not change across 216 commits of
+`main` history past this tag, so a tag-only pin cannot prove what actually got
+built — confirmed the hard way, since the binary this project's own published
+numbers were measured with (built 2026-08-30) also reported `0.8.0` and was
+never actually verified to be the tag. The Dockerfile's guard now checks for
+`--dump-sig-dag`, a flag this exact commit does not have and any later build
+does — a check that can actually fail, unlike the version string. The base
 (`archlinux:base-devel`) is a rolling tag and is deliberately **not**
 digest-pinned: a pinned old Arch base running `pacman -Syu` against today's
 mirrors is the classic partial-upgrade breakage, so the image will eventually
@@ -283,7 +292,8 @@ Shared with the in-repo harness (not duplicated), all MIT:
 - Corpus + result JSONs were produced in PluginForge commit **`c1e9370`**
   (PR #41). The system prompt as used is vendored as `system_prompt.txt`
   (sha256[:16] `a2d909565e3c2fd2`, unchanged in `llm/prompts/` since).
-- Compilers: **Faust 2.85.9**, **faust-rs 0.8.0**.
+- Compilers: **Faust 2.85.9**, **faust-rs `0.8.0`** — but see the caveat below: the
+  version string alone does not prove which faust-rs commit this actually was.
 - Repair models: `qwen2.5-coder:3b` (Q4_K_M, ollama) and
   `qwen2.5-coder:7b-instruct-q3_K_S`. The 7B run is a 120-program (115 screened)
   first-error-class-stratified subset.
@@ -321,3 +331,19 @@ Full list, with the planned follow-up for each, is in
    program" instruction bears directly on the caret-line-preservation reading.
    Median feedback length is 97 / 637 / 262 chars (A/B/C). WP3.
 7. **n=1 per cell, determinism unaudited** (WP5).
+8. **The historical build's exact commit could not be recovered.** A
+   2026-09-23 audit (`docs/records/faust-rs-delta-2026-09-23.md`) found that
+   `faust-rs --version` reports `0.8.0` for the true tag AND for every build up
+   to and including current `main` — the Cargo package version was never
+   bumped in that span. The binary this repo's published PF-076/issue-#26
+   numbers were actually measured with (built 2026-08-30) also reports `0.8.0`
+   but, checked directly, carries a flag (`--dump-sig-dag`) that does not exist
+   at the tag — so it was never really the tag, and its exact commit is not
+   recoverable (the source checkout that built it is gone). Re-derived
+   directly against the true tag, that same 2026-08-30 binary, and current
+   `main` (`bench/frs_build_compare.py`): all three agree 191/191 on the full
+   screened corpus and reproduce the 15-cell diagnostic-quality figures above
+   bit-for-bit. So this is a **provenance gap, not (as far as this audit can
+   tell) a correctness gap** — the Dockerfile is now pinned by commit and
+   guarded by flag-presence rather than version string, which the true tag can
+   pass and any later build cannot.

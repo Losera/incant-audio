@@ -43,7 +43,22 @@
 FROM archlinux:base-devel
 
 ARG FAUST_VERSION=2.85.9
-ARG FAUST_RS_REF=0.8.0
+# A COMMIT, not a tag. 2026-09-23 audit (docs/records/faust-rs-delta-2026-09-23.md):
+# `cargo install --git --tag 0.8.0` and a build of `main` 216 commits later both
+# self-report `faust-rs 0.8.0` — the Cargo package version was never bumped past
+# 0.8.0 on `main` in that span, so `--version` cannot tell a genuine tag build
+# from any later one. This is not hypothetical: the binary this project actually
+# measured the published corpus with (built 2026-08-30, its source checkout now
+# gone) ALSO reports `0.8.0` and, checked directly, carries `--dump-sig-dag` — a
+# flag that does not exist at the tag (landed 3822718e, three days after the
+# tag). That build was therefore never actually the pinned tag, and the OLD
+# guard below would have passed it anyway. `--rev` pins an exact commit;
+# `47dfb3e89b` is the tag 0.8.0's own commit, re-verified this session to
+# reproduce the published diagnostic-quality figures bit-for-bit
+# (docs/records/faust-rs-delta-2026-09-23.md §3) — the one commit this image can
+# now defensibly claim, since the actual historical build's SHA cannot be
+# recovered.
+ARG FAUST_RS_REF=47dfb3e89b589ccf0c626129d14034621a4f70c0
 ARG FAUST_RS_REPO=https://github.com/grame-cncm/faust-rs
 # Provenance — the Makefile fills these from `git`; harmless if built by hand.
 ARG SOURCE_COMMIT=unknown
@@ -55,20 +70,33 @@ RUN pacman -Syu --noconfirm \
     && pacman -Scc --noconfirm
 
 # faust-rs: pure Rust, no LLVM / libfaust. Package `compiler` → binary `faust-rs`
-# (crates/compiler/Cargo.toml at tag 0.8.0). Pinned to the tag the corpus used.
-RUN cargo install --git "${FAUST_RS_REPO}" --tag "${FAUST_RS_REF}" --locked \
+# (crates/compiler/Cargo.toml at this commit). `--rev`, not `--tag` — see the
+# ARG comment above for why a tag alone cannot prove what got built.
+RUN cargo install --git "${FAUST_RS_REPO}" --rev "${FAUST_RS_REF}" --locked \
         --root /usr/local compiler
 
 # Assert both compilers are the versions the published corpus was measured with.
 # A mismatch here means the numbers in the README no longer describe this image,
 # so fail the build rather than let the oracle drift silently.
+#
+# faust-rs is checked by FLAG PRESENCE, not `--version` — the whole point of
+# this audit is that the version string does not move when the binary does.
+# `--dump-sig-dag` landed at 3822718e (2026-08-16), three days after the
+# 47dfb3e8 commit this image pins; a build that is genuinely at-or-before that
+# commit must NOT have the flag. Demonstrated failing both ways this session
+# (docs/records/faust-rs-delta-2026-09-23.md): the true tag build lacks it, a
+# `main`-tip build has it — so this check can actually catch the drift the old
+# `--version` grep could not.
 RUN set -eu; \
     faust --version; faust-rs --version; \
     if ! faust --version | grep -qF "${FAUST_VERSION}"; then \
         echo "FATAL: faust is not ${FAUST_VERSION} (Arch moved ahead — see Dockerfile header)" >&2; exit 1; \
     fi; \
-    if ! faust-rs --version | grep -qF "${FAUST_RS_REF}"; then \
-        echo "FATAL: faust-rs is not ${FAUST_RS_REF}" >&2; exit 1; \
+    if faust-rs --help 2>&1 | grep -q -- "--dump-sig-dag"; then \
+        echo "FATAL: faust-rs has --dump-sig-dag, which does not exist at" >&2; \
+        echo "       ${FAUST_RS_REF} (the pinned commit) -- this build is" >&2; \
+        echo "       from a later point in faust-rs history than requested." >&2; \
+        exit 1; \
     fi
 
 # The reproduction package + the shared modules it imports. Copied, not cloned,
