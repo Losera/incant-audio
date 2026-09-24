@@ -262,7 +262,7 @@ jobs:
       # with CI green, and running it catches a fixture that will not compile
       # or a grid that never settles (see the "Run UiDesignGallery" step below).
       - name: Build behavioural test harnesses
-        run: cmake --build build-ci --target OfflineRenderTest OfflineSynthRenderTest PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery ParamIdentityTest NoteRingTest NoteRingTsanTest AuditionThreadingTest ValidationGateTest SoundfetchClientTest GenerationProfilesAutoTest UiIrTest ThemeValidateTest PromptPanelPathResolutionTest ParamGridLayoutTest GKnobGeometryTest
+        run: cmake --build build-ci --target OfflineRenderTest OfflineSynthRenderTest PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery ParamIdentityTest NoteRingTest NoteRingTsanTest AuditionThreadingTest ValidationGateTest SoundfetchClientTest GenerationProfilesAutoTest UiIrTest ThemeValidateTest PromptPanelPathResolutionTest ParamGridLayoutTest GKnobGeometryTest AotEmitTest
 
       # ── PF-036: pin the JIT's target CPU for every harness that JITs ────────
       # GitHub's hosted fleet mixes EPYC 7763 (Zen 3, no AVX-512), Xeon 8573C
@@ -347,9 +347,13 @@ jobs:
       # GKnobGeometryTest joined with ADR-038 F1: the bipolar-knob arc-start
       # math, factored out of GeneratedFaceLookAndFeel.h so it could run here
       # instead of only inside a full JUCE build. Pure float arithmetic.
-      - name: Run the pure harnesses (OutputGuard, ParamMap, StatePersistence, ParamIdentity, NoteRing, ValidationGate, SoundfetchClient, GenerationProfilesAuto, UiIr, ThemeValidate, PromptPanelPathResolution, ParamGridLayout, GKnobGeometry)
+      # AotEmitTest joined with ADR-038 E1 (docs/sessions/020-generated-faces-v2.md
+      # Track E): round-trips generateAuxFilesFromString's emitted AOT header
+      # through a real `g++ -c` against a stub main. No display; shells out to
+      # the compiler already required to build this repo, not a new dependency.
+      - name: Run the pure harnesses (OutputGuard, ParamMap, StatePersistence, ParamIdentity, NoteRing, ValidationGate, SoundfetchClient, GenerationProfilesAuto, UiIr, ThemeValidate, PromptPanelPathResolution, ParamGridLayout, GKnobGeometry, AotEmit)
         run: |
-          for t in OutputGuardTest ParamMapTest StatePersistenceTest ParamIdentityTest NoteRingTest ValidationGateTest SoundfetchClientTest GenerationProfilesAutoTest UiIrTest ThemeValidateTest PromptPanelPathResolutionTest ParamGridLayoutTest GKnobGeometryTest; do
+          for t in OutputGuardTest ParamMapTest StatePersistenceTest ParamIdentityTest NoteRingTest ValidationGateTest SoundfetchClientTest GenerationProfilesAutoTest UiIrTest ThemeValidateTest PromptPanelPathResolutionTest ParamGridLayoutTest GKnobGeometryTest AotEmitTest; do
             BIN="$(find build-ci -type f -name "$t" | head -n 1)"
             if [ -z "$BIN" ]; then
               echo "$t binary not found" >&2

@@ -979,6 +979,28 @@ target_compile_options(JitTargetTest PRIVATE -fno-rtti -g -O1)
 target_link_libraries(JitTargetTest PRIVATE ${LIBFAUST_LIB} ${CMAKE_DL_LIBS})
 
 # ---------------------------------------------------------------------------
+# AotEmitTest -- ADR-038 E1, the AOT-emit spike (host/Source/AotEmit.h,
+# host/tests/AotEmitTest.cpp). Exercises generateAuxFilesFromString end to
+# end: the ADR-023 amendment verified the symbol exists and links but never
+# ran it. Round-trips the emitted header through a real `g++ -c` against a
+# stub main, per the E1 "done when" in docs/sessions/020-generated-faces-v2.md.
+#
+# Same shape as JitTargetTest immediately above -- calls a libfaust API
+# directly with no JUCE -- but unlike JitTargetTest this TU never touches
+# libfaust's own polymorphic C++ types (dsp/llvm_dsp/llvm_dsp_factory), only
+# the free functions generateAuxFilesFromString/generateSHA1 over plain
+# strings, so ASan/UBSan carries no vptr risk here the way the
+# FaustEngine.cpp-linking harnesses have (see StatePersistenceTest's comment
+# for that case) and needs no -fno-sanitize=vptr escape hatch. -fno-rtti still
+# matches libfaust.so's own build.
+# ---------------------------------------------------------------------------
+add_executable(AotEmitTest tests/AotEmitTest.cpp)
+target_compile_features(AotEmitTest PRIVATE cxx_std_17)
+target_compile_options(AotEmitTest PRIVATE -fno-rtti -fsanitize=address,undefined -g -O1)
+target_link_options(AotEmitTest PRIVATE -fsanitize=address,undefined)
+target_link_libraries(AotEmitTest PRIVATE ${LIBFAUST_LIB})
+
+# ---------------------------------------------------------------------------
 # UiDesignGallery -- the design instrument for docs/ui_design_plan.md §3
 # (host/tests/UiDesignGallery.cpp). Renders the real editor against the fixture
 # matrix in tests/ui_fixtures/*.dsp and writes artifacts/ui_gallery/{*.png,
