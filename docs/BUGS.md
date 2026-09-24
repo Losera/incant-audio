@@ -910,7 +910,21 @@ does not edit a program it can see. `feedback_for` (`:84`) passes `code` as `ren
 `source` argument, which **splices the offending line into arm B/C's feedback only**
 (`frs_check.py:222` `_source_caret`). So arm B was *handed* the caret line; arm A never saw
 it. The 58%/4% figure measures whether that supplied line is copied, not whether the model
-"rewrites around" a program it can inspect — there was no program to inspect.
+"rewrites around" a program it can inspect.
+
+**Refinement, same day — "there was no program to inspect" for arm A overstates it.** An
+independent re-audit of this very correction (2026-09-24, before anything was built on top of
+it) found that arm A's raw C++ stderr is not a clean zero-visibility baseline: Faust's
+box-expression dump leaks literal widget-constructor text in **76/207 (37%)** of failing
+records, rising to **61/84 (73%) for `routing_arity`** — the class driving the strongest
+A-vs-B/C effect — and to **14/15 (93%) for `duplicate_symbol`**, where the compiler reprints
+*two full, syntactically valid Faust definition lines verbatim*, strictly more raw source than
+arm B/C's single spliced line. The `routing_arity` leak is a fragment buried in an unreadable
+desugared dump, not a readable line, so the qualitative "arm A sees prose about the program,
+arm B/C sees one line of it" distinction still holds for the dominant class — but the literal
+"arm A never sees any part of the program" claim (`bench/repair_ab_repro/METHODOLOGY.md` L12,
+now corrected) did not. See L14 in that file for the full breakdown and what it means for the
+WP3 re-run design.
 
 **The A/B result is unaffected — repaired-within-2 still drops 75%→44% (3B) / 72%→50% (7B),
 McNemar p<1e-3, confirmed via the Dockerfile provenance audit that the compiler build was not

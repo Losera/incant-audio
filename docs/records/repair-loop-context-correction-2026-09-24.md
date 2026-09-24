@@ -124,3 +124,30 @@ The version assertion is kept as a secondary check behind the pin.
   Accepted architectural decision and this session's mandate is correction, not redesign.
 - **The GRAME correction itself** — drafted for the human to review and post
   (COLLABORATION.md trigger 1); this session does not call `gh issue comment`.
+
+## Addendum, same day — §1's "zero visibility" claim for arm A was itself an overclaim
+
+Per this project's own rule that a point-in-time record carries a date and then stops
+changing, the text above is untouched; this addendum documents what a follow-up check found
+before anything was built on top of §1.
+
+Before pre-registering the WP3 re-run this record's §6 queues, the correction itself was
+re-audited independently (fresh session, no access to the reasoning that produced §1). It
+confirmed §1's core claim — `user_message` never contains the failing program in either arm —
+but found the follow-on claim, that arm A therefore has "zero visibility into the program,"
+does not hold uniformly. Measured against the full 207-record failing corpus
+(`bench/corpora/repair_corpus_20260830.json`): **37% of arm A's raw C++ stderr contains a
+literal widget-constructor string** (label, numeric range — the model's own written
+arguments), via Faust's box-expression dump. By class: **`routing_arity` 73%** (the class
+driving the strongest measured effect, McNemar *p* ≈ 5e-6) — but as an unreadable fragment
+buried in desugared internal notation, not a source line; **`duplicate_symbol` 93%**, where
+the compiler reprints **two full, syntactically valid Faust lines verbatim** — genuinely more
+raw source than arm B/C's single spliced line.
+
+**Disposition:** §1's headline claim (the A/B result is unaffected, the caret-anchoring
+*mechanism* is withdrawn) is unaffected by this. What changes is the replacement framing this
+record proposed — "arm A: 0 lines, arm B/C: 1 line" is not a clean controlled binary and
+cannot be asserted as one in the WP3 experimental design or in any GRAME-facing correction.
+Full breakdown: `bench/repair_ab_repro/METHODOLOGY.md` L14. The WP3 pre-registration written
+after this addendum measures per-record visibility rather than assuming it by arm.
+

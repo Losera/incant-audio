@@ -18,11 +18,13 @@ original prompt, not from a visible copy of the failing code. So there's no prog
 model to "rewrite around."
 
 What *is* true, and asymmetric: faust-rs's diagnostic quotes one source line under the caret,
-and that line gets folded into the feedback text I send back. The raw C++ error doesn't quote
-any source. So the 58%/4% figure I gave you is real, but it measures whether a line the
-harness itself handed to the model gets copied forward — not whether the model is anchoring
-on a caret inside code it can actually see. Your instinct that this sounded
-"somewhat counter-intuitive" was the right read.
+and that line gets folded into the feedback text I send back, every time. The raw C++ error
+sometimes echoes fragments of the program too — Faust's box-expression dump on an arity error
+leaks the model's own widget declarations — but buried in desugared internal notation a model
+can't read as source, not a clean line. So the 58%/4% figure I gave you is real, but it
+measures whether a *readable* line the harness itself handed to the model gets copied
+forward — not whether the model is anchoring on a caret inside code it can actually see. Your
+instinct that this sounded "somewhat counter-intuitive" was the right read.
 
 The result itself is unchanged — fix-within-2-attempts is still 74%→43% on the 3B and
 73%→49% on the 7B, same significance. Just not for the reason I gave.
