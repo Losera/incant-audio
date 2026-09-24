@@ -40,17 +40,27 @@ import frs_check  # noqa: E402
 
 CORRECTIVE_ATTEMPTS = 2          # product loop is 3 total = 1 initial + 2 corrective
 
-# arm A: byte-for-byte the product / efficacy-harness wording (llm/generate.py:300).
+# arm A: byte-for-byte the product / efficacy-harness wording (llm/generate.py:302).
 ARM_A_TEMPLATE = "\n\nYour previous output had this compiler error — fix it:\n{feedback}"
 # arms B and C: frs_check.render*() already end with "Fix this and re-emit the
 # complete program.", so they only need a lead-in.
 ARM_FRS_TEMPLATE = "\n\n{feedback}"
 
-# The three feedback regimes.
+# WP3 (bench/repair_ab_repro/WP3_PROTOCOL.md): every WP3 arm shares ONE wrapper,
+# byte-identical to ARM_A_TEMPLATE so A2 doubles as a determinism check against
+# arm A rather than introducing a new confound of its own.
+WP3_TEMPLATE = ARM_A_TEMPLATE
+
+# The original three feedback regimes.
 #   A  raw C++ `faust` stderr (status quo)
 #   B  frs_check.render()          — faust-rs full: code, arities, caret, notes, help
 #   C  frs_check.render_minimal()  — faust-rs core: code, one-line message, caret only
-ARMS = ("A", "B", "C")
+# WP3's five, all matched-wrapper (framing=False), crossing content x visibility:
+#   A2   raw C++ stderr (reference; leak rate measured post-hoc, not designed)
+#   B2   render(),         source shown    | B2n  render(),         source withheld
+#   C2   render_minimal(), source shown    | C2n  render_minimal(), source withheld
+WP3_ARMS = ("A2", "B2", "B2n", "C2", "C2n")
+ARMS = ("A", "B", "C") + WP3_ARMS
 
 # compile step: (code) -> (ok, stderr_or_empty). Injected by the caller.
 ValidateFn = Callable[[str], "tuple[bool, str]"]
@@ -73,13 +83,24 @@ def load_corpus(path: Path) -> list[dict]:
 
 def feedback_for(arm: str, code: str, cpp_stderr: str) -> tuple[str, str | None]:
     """(feedback_text, frs_primary_code) for the given arm and current program."""
-    if arm == "A":
+    if arm in ("A", "A2"):
         return cpp_stderr, None
     res = frs_check.check(code)
     if res is None or res.ok:
         # faust-rs unavailable or (shouldn't happen) accepts it — fall back to
         # C++ stderr so a faust-rs arm is never emptier than arm A.
         return cpp_stderr, None
+    if arm in WP3_ARMS:
+        # Matched wrapper for every WP3 arm (framing=False — repair_loop's own
+        # WP3_TEMPLATE supplies the shared lead-in/closer instead). Visibility is
+        # an EXPLICIT toggle here, not inferred from what `code` would allow: a
+        # "…n" arm never sees the source line, regardless of what render() could
+        # otherwise splice in — isolating diagnostic content from source
+        # visibility is the entire point of WP3_PROTOCOL.md.
+        renderer = frs_check.render_minimal if arm.startswith("C2") else frs_check.render
+        show_source = not arm.endswith("n")
+        return (renderer(res, code if show_source else None, framing=False),
+                res.codes[0] if res.codes else None)
     renderer = frs_check.render_minimal if arm == "C" else frs_check.render
     return renderer(res, code), (res.codes[0] if res.codes else None)
 
@@ -103,7 +124,10 @@ def repair_loop(entry: dict, arm: str, generate: GenerateFn,
 
     for n in range(1, CORRECTIVE_ATTEMPTS + 1):
         feedback_text, frs_code = feedback_for(arm, code, cpp_stderr)
-        template = ARM_A_TEMPLATE if arm == "A" else ARM_FRS_TEMPLATE
+        if arm in WP3_ARMS:
+            template = WP3_TEMPLATE
+        else:
+            template = ARM_A_TEMPLATE if arm == "A" else ARM_FRS_TEMPLATE
         user_message = prompt + template.format(feedback=feedback_text)
 
         started = time.monotonic()
