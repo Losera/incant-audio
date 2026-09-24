@@ -39,6 +39,10 @@ cell; arm A also needed fewer attempts. Trimming faust-rs to code + message +
 caret (arm C) did not change this, so it is not verbosity. **Untested: a
 frontier model** — the gap already narrowed from the 3B to the 7B.
 
+**⚠ 2026-09-24 correction — read this before the mechanism section below.**
+The result above (74%→43%, 73%→49%, p<1e-8) is unchanged. The *why* is not
+what an earlier version of this README said. See "Why" below.
+
 ---
 
 ## The finding in one table
@@ -84,22 +88,43 @@ Same direction, same size, in the stratum where arm A got the *full* error. A
 byte-matched A/B (capping faust-rs too, or uncapping arm A) needs a model re-run
 and is WP3 in [`METHODOLOGY.md`](METHODOLOGY.md).
 
-### Why (mechanism, from reading the repair trajectories)
+### Why — corrected 2026-09-24
 
-faust-rs pins the failure to an exact token and **quotes the offending source
-line back** under a caret. A small model shown that line tends to treat it as
-fixed and edit *around* it; the terse, unlocalised C++ stderr instead makes the
-model **discard and rewrite** — often "simplify / delete the broken
-sub-expression" — which compiles more often. Four signatures, all from the
-committed 3B run, all checked by `verify.py`:
+**The paragraph that used to open this section is withdrawn.** It read:
+*"faust-rs pins the failure to an exact token and quotes the offending source
+line back under a caret. A small model shown that line tends to treat it as
+fixed and edit around it."* That describes a model editing a program it can
+see. **Neither arm's request contains the program being repaired.**
+`bench/repair_ab_core.py:107` builds `user_message = prompt + feedback` —
+`prompt` is the original natural-language request; the failing `code` is used
+only to compute the diagnostic (`:105`), never placed in the message, and
+there is no conversation history. Every corrective attempt **regenerates from
+the spec**, it does not edit a visible program.
+
+What *does* differ by arm: `feedback_for` (`:84`) passes `code` into
+`render()`'s `source` argument, which **splices the offending line into arm
+B/C's own feedback text** (`frs_check.py:222`) — arm A gets no part of the
+program; arm B/C gets one quoted line of it, inside the feedback, not inside
+a visible program. So the caret-line-preservation statistics below are real
+and unchanged, but they measure **whether a line supplied in the feedback
+gets copied into the next attempt**, not whether the model "anchors" on a
+caret inside code it can inspect. This was found by verifying an external
+adversarial review's objection directly against source, rather than taking
+either the review or the original write-up on faith. Full trace: `docs/BUGS.md`
+PF-076 (2026-09-24 entry) and [`METHODOLOGY.md`](METHODOLOGY.md) L12.
+
+The measured signatures below still stand as *measurements* — four of them,
+all from the committed 3B run, all checked by `verify.py` — only the causal
+story above them has changed:
 
 - **Caret-line preservation.** Of the 161 programs where the faust-rs feedback
   quoted a source line, that exact line survived **verbatim** into attempt 1 in
   **94 / 161 (58%)** of arm-B rewrites — against **7 / 161 (4%)** of arm A's
   (McNemar exact *p* ≈ 2e-22; discordant 91 vs 4). It replicates on the 7B
   (53 / 99 vs 4 / 99, *p* ≈ 2e-12). Arm **C** — faust-rs's caret with *no* prose
-  notes — behaves like arm B (91 / 161, 57%), so it is the quoted line, not the
-  verbosity, that anchors the model.
+  notes — behaves like arm B (91 / 161, 57%), so it is the quoted line, not
+  the verbosity, that gets copied forward (not, as originally framed, "anchors
+  the model" — see the correction above).
 - **Same-class recidivism.** Of arm A's 49 failed repairs, 21 (**54%** of the 39
   that got a corrective attempt) ended on the same error class they started on;
   arm B 83 / 106 (**78%**), arm C 81 / 107 (**76%**).
@@ -112,13 +137,17 @@ committed 3B run, all checked by `verify.py`:
   (≈ 2e-3) — and the one class where faust-rs is nominally *better* is
   `unclassified` (n = 17, *p* = 0.29), where C++ stderr carries no location.
 
-**Caveats on the preservation reading.** Both arms mostly re-emit the whole
-program — the preserved line sits inside an otherwise-rewritten patch — so this
-is a *tendency*, not a clean patch-vs-rewrite dichotomy. And the two arms'
-correction templates differ in wording (arm A appends "…fix it:"; arms B/C end
-"Fix this and re-emit the complete program."), an uncontrolled difference that
-bears directly on a *preservation* claim; closing it needs a model re-run
-(**WP3** in [`METHODOLOGY.md`](METHODOLOGY.md)).
+**Caveats on the preservation reading.** Source-line visibility is not matched
+between arms — arm A sees none of the program it is repairing, arm B/C sees
+one quoted line of it via the feedback text, never the program itself (the
+correction above). Both arms mostly re-emit the whole program — the preserved
+line sits inside an otherwise-rewritten patch — so this is a *tendency*, not a
+clean patch-vs-rewrite dichotomy. And the two arms' correction templates
+differ in wording (arm A appends "…fix it:"; arms B/C end "Fix this and
+re-emit the complete program."), an uncontrolled difference that also bears on
+a *preservation* claim. Closing both needs a model re-run varying source
+visibility and wrapper wording independently (**WP3** in
+[`METHODOLOGY.md`](METHODOLOGY.md), L12/L13).
 
 ### What this does *not* claim
 
