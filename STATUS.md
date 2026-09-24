@@ -580,10 +580,10 @@ clock — no host transport in Standalone).
    `.worktrees/main-session` (clean, another session's `main` checkout — left alone).
 
    **Not inventoried above and found 2026-09-24 — added now:**
-   `.worktrees/efficacy-semantics` (branch `bench/efficacy-semantics-2026-09-23`; live —
+   `.worktrees/efficacy-semantics` (branch bench/efficacy-semantics-2026-09-23; live —
    this is where the 2026-09-23/24 faust-rs + efficacy work landed; **not yet pushed to
    `origin`**, keep until a PR merges it), `.worktrees/efficacy-pf031` (branch
-   `bench/efficacy-groq-n3-20260915`, **zero commits**; held the orphaned n≥3 partial-rep-1
+   bench/efficacy-groq-n3-20260915, **zero commits**; held the orphaned n≥3 partial-rep-1
    data, now rescued into `efficacy-semantics` — safe to prune once that's confirmed merged).
 
    **Still owed by a human:** `git push origin --delete` for the 22 merged remote branches
