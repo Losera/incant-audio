@@ -3281,3 +3281,81 @@ phases/phase-6.md` is now owed the "updated to point here" treatment named in Co
                                                       or audio-thread contact
 ```
 
+---
+
+## ADR-042 — Efficacy-record schema: add a repetition field and provenance hashes
+
+| | |
+|---|---|
+| **Status** | Accepted — 2026-09-23, by explicit user decision |
+| **Date** | 2026-09-23 |
+| **Relates to** | PF-011 / PF-031 (the n≥3 re-run this unblocks), `docs/records/efficacy-adversarial-review-2026-09-23.md` (findings F1, A1, A9 — the review that found this), COLLABORATION.md §2 trigger 3 (names "the efficacy-record schema" as a gated multi-consumer contract, so this decision, not its drafting, needs the human's agreement) |
+
+**Context**
+
+STATUS.md's reserved evidence slot (`*(evidence)*`, enforced by
+`tests/test_control_wiring.py::TestStatusReservesAnEvidenceSlot`) has read "re-run the groq
+efficacy grid at n≥3 (PF-031)" for over a week. This session's adversarial review
+(`docs/records/efficacy-adversarial-review-2026-09-23.md`, finding F1) found it cannot be run at
+any budget, because `bench/run_efficacy_study.py:307-337`'s `prepare_resume` raises
+`ValueError(f"duplicate existing record for {key!r}")` the moment a second sample at the same
+`(effect_id, tier)` is attempted — the record schema has no field to distinguish repeat #1 from
+repeat #2. A 2026-09-15 attempt to work around this (`bench/results/efficacy/
+efficacy_groq_n3_rep1_20260915.json`, sitting untracked, stalled at 38/125 cells) used a
+filename-suffix convention (`_rep1`) instead, which is exactly the kind of fragile, unenforced
+convention CLAUDE.md's "a control counts only once it has been seen failing" section exists to
+replace with something mechanical.
+
+Two more gaps compound the first: (A9) a record pins `provider`/`model`/`prompt` but not the
+system-prompt content hash or the Faust version it compiled against, and `llm/prompts/
+system_prompt.txt` has already drifted under a live baseline once this quarter
+(`STATUS.md:465-472`) with no mechanical way to detect it in the archive itself; and (A1) even
+with a `rep` field, a majority-vote collapse across repeats (the pattern `score_repair_ab.
+_aggregate_cell` already uses for a *paired* design) would be the wrong estimator for a *rate*
+question — it discards information and biases toward 0/1 at small n.
+
+**Decision**
+
+1. Add three fields to the record schema `run_efficacy_study.py` writes:
+   - `rep: int` (0-indexed repeat number within a cell), defaulting to `0` for a schema-migration
+     no-op — every archive on disk today reads as `rep=0` under this default, and any script
+     that does not know about the field keeps working unchanged.
+   - `system_prompt_sha: str` — a content hash of `llm/prompts/system_prompt.txt` at generation
+     time (reusing `bench/frs_check.sha`'s convention, not inventing a second one).
+   - `faust_version: str` — from `faust --version`, so a future Faust bump is visible in the
+     archive itself rather than inferred from a git-log date.
+2. `prepare_resume` keys on `(effect_id, tier, rep)` instead of `(effect_id, tier)`; a duplicate
+   at the same triple stays an error (still a real bug, just no longer the only bug this check
+   can express).
+3. `score_efficacy.py` gains a per-cell collapse across `rep` that reports **the pooled
+   proportion with a cluster-aware interval** (effect = cluster) for rate questions, alongside —
+   not instead of — a majority-vote binary where a genuinely binary per-cell verdict is wanted
+   (mirroring, deliberately, why `score_repair_ab.py`'s majority-vote collapse is right for its
+   own paired design and would be wrong here — see A1 in the review).
+
+**Alternatives considered**
+
+- **A separate n≥3 driver, schema unchanged.** Rejected: still needs *some* per-cell identity to
+  avoid exactly the collision `prepare_resume` already guards against; duplicating the guard in
+  a second script is the two-implementations problem `render_oracle.analyse_corpus`'s own
+  docstring already warns against, transplanted to a new file.
+- **Majority-vote only, no proportion estimator.** Rejected on A1's grounds above: this study's
+  headline quantity is a rate (first-try / retry-corrected compile rate, render-safety rate),
+  not a binary per-cell verdict, and majority-of-3 is a biased estimator of a rate.
+- **Filename-convention reps (what the stalled 2026-09-15 attempt did).** Already tried, already
+  fragile, already the thing this ADR replaces.
+
+**Consequences**
+
+- Every archive on disk is unaffected (`rep` defaults to 0 for old records with no such field;
+  `system_prompt_sha`/`faust_version` absent on old records reads as "not recorded," never as a
+  false claim — same absence-of-claim discipline `render_oracle.py` already applies to its own
+  gate fields).
+- Blast radius: `bench/run_efficacy_study.py`, `bench/score_efficacy.py`, and their unit tests
+  (`tests/test_efficacy_unit.py`). No product code, no C++, no schema outside `bench/`.
+- **Unverified until implemented:** whether the cluster-aware interval is worth the added
+  reporting complexity at n=3 specifically (it matters more as n grows) — a judgment call for
+  whoever lands this, not resolved here.
+- This ADR does not itself run the n≥3 grid. It removes the reason PF-031 cannot be attempted;
+  the attempt still costs groq quota and is a separate, later decision.
+
