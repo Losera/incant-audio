@@ -662,14 +662,14 @@ clock — no host transport in Standalone).
    and `.worktrees/main-session` unchanged, left alone.
 
    **Not inventoried above:** `.worktrees/efficacy-semantics` (branch
-   `bench/efficacy-semantics-2026-09-23`) — the 2026-09-23/24 faust-rs + efficacy work,
+   bench/efficacy-semantics-2026-09-23) — the 2026-09-23/24 faust-rs + efficacy work,
    **now pushed and PR #94 open** (was local-only when this file was rewritten 2026-09-18).
    Add to the "DO NOT delete" list below once merged, remove once the PR lands.
 
    **Correction to "do not touch" below, 2026-09-24:** a point-in-time snapshot of
    `.worktrees/efficacy-pf031`'s uncommitted n≥3 checkpoint (38/125 cells,
    `efficacy_groq_n3_rep1_20260915.json` + one stray record) is **now also committed**, as-is
-   and unscored, on `bench/efficacy-semantics-2026-09-23`
+   and unscored, on bench/efficacy-semantics-2026-09-23
    (`bench/results/efficacy/efficacy_groq_n3_rep1_20260915.json` +
    `…PROVENANCE.md`) — a backup against the exact "somebody's mid-run, don't lose it" risk
    this section already named, done by *copying*, not moving. **The live worktree itself is
