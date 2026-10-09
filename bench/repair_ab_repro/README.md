@@ -43,6 +43,17 @@ frontier model** — the gap already narrowed from the 3B to the 7B.
 The result above (74%→43%, 73%→49%, p<1e-8) is unchanged. The *why* is not
 what an earlier version of this README said. See "Why" below.
 
+**Status: qualified — pending WP3.** The *numbers* above are not withdrawn. The
+*comparative* reading — "faust-rs's diagnostic, as such, makes the loop worse" — is, until
+WP3 runs: arm B's wrapper is unmatched (L3), its source visibility differs from arm A's in a
+way that isn't a clean 0/1 (L12/L14), and for the `syntax` subgroup specifically, 87% of
+arm B's feedback had faust-rs's own suggested fix deleted before the model saw it (L15). What
+survives untouched by any of that: arm A beats arm B/C, paired, on this corpus, at this
+significance. What is *not yet shown*: that faust-rs's diagnostic *content*, fairly presented
+with faust-rs's own remedy included, under a matched wrapper, is what's driving it rather than
+the wrapper or the asymmetric visibility. `bench/repair_ab_repro/run_wp3.py` implements the
+test; it has not been run (no `wp3_*.json` exists in `bench/results/repair_ab/`).
+
 ---
 
 ## The finding in one table

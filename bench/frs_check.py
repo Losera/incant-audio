@@ -36,6 +36,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -119,7 +120,22 @@ class FrsResult:
         return [d.code for d in self.diagnostics]
 
 
+_SUPPORTED_SCHEMA_VERSION = 2
+
+
 def _parse_payload(payload: dict) -> FrsResult:
+    # Adversarial-review finding: this module never checked `schema_version`
+    # and reads line/col solely from `compatibility_span` (a field whose own
+    # name says it is a compatibility shim). A future faust-rs that bumps the
+    # schema or drops that field would silently degrade every caret to "no
+    # location" rather than fail loudly. Warn once, don't hard-fail — the
+    # harness's own rule (frs_check.py module docstring) is that faust-rs is a
+    # measurement tool, not a dependency this project controls the pace of.
+    sv = payload.get("schema_version")
+    if sv is not None and sv != _SUPPORTED_SCHEMA_VERSION:
+        print(f"[frs_check] WARNING: faust-rs schema_version={sv!r}, "
+              f"this module was written against {_SUPPORTED_SCHEMA_VERSION}. "
+              f"Diagnostics below may be parsed incorrectly.", file=sys.stderr)
     diags: list[FrsDiagnostic] = []
     for d in payload.get("diagnostics", []):
         if d.get("severity") != "error":
@@ -182,14 +198,21 @@ def check(dsp_source: str, *, bin_path: str | None = None) -> FrsResult | None:
     return _parse_payload(payload)
 
 
-def _clean_message(msg: str) -> str:
+def _clean_message(msg: str, *, strip_repairs: bool = True) -> str:
     """Trim faust-rs's noisiest message tail — the FRS-PARSE-0001 LR-parser
     'Repair sequences found' token-insertion list, which runs 20+ lines and is
-    parser internals, not a repair the model can act on."""
-    for marker in ("Repair sequences found", "No repair sequences found"):
-        idx = msg.find(marker)
-        if idx != -1:
-            return msg[:idx].rstrip().rstrip(".")
+    parser internals, not a repair the model can act on.
+
+    `strip_repairs=False` keeps that list. Added for WP3 arm B2r
+    (METHODOLOGY.md L13/L15): for `FRS-PARSE-0001`, the stripped list IS
+    faust-rs's only suggested fix — every published A/B measured faust-rs's
+    diagnostics minus that fix, never with it. Default stays True so no
+    already-published number moves."""
+    if strip_repairs:
+        for marker in ("Repair sequences found", "No repair sequences found"):
+            idx = msg.find(marker)
+            if idx != -1:
+                return msg[:idx].rstrip().rstrip(".")
     return msg
 
 
@@ -206,7 +229,8 @@ def _source_caret(source: str, line: int | None, col: int | None) -> list[str]:
     return out
 
 
-def render(result: FrsResult, source: str | None = None, *, max_notes: int = 4) -> str:
+def render(result: FrsResult, source: str | None = None, *, max_notes: int = 4,
+           framing: bool = True, strip_repairs: bool = True) -> str:
     """The arm-B feedback string: what the model sees INSTEAD of raw C++ stderr.
 
     Human-readable, not raw JSON — dumping JSON at a 7B would test our
@@ -214,13 +238,23 @@ def render(result: FrsResult, source: str | None = None, *, max_notes: int = 4) 
     (arities included), the source line:col, a spliced caret line when `source`
     is given, the prose notes, and the `help` remedy lines. Drops: the
     box-expression dumps and the LR-parser repair-sequence list.
+
+    `framing`: when False, drops the leading "The Faust compiler rejected your
+    program. " and the trailing "Fix this and re-emit the complete program."
+    — added for WP3 (bench/repair_ab_repro/WP3_PROTOCOL.md), where every arm
+    shares one wrapper supplied by the caller instead of each arm carrying its
+    own. `source` is unaffected by this flag — visibility and wrapper wording
+    are independent toggles, which is the entire point of WP3's design.
+
+    `strip_repairs`: see `_clean_message` — False keeps faust-rs's own
+    repair-suggestion list (WP3 arm B2r). Independent of `framing`/`source`.
     """
     diag = result.primary
     if diag is None:
         return "faust-rs reported no actionable diagnostic."
 
-    lines = [f"The Faust compiler rejected your program. "
-             f"[{diag.code}] {_clean_message(diag.message)}"]
+    head = f"The Faust compiler rejected your program. " if framing else ""
+    lines = [f"{head}[{diag.code}] {_clean_message(diag.message, strip_repairs=strip_repairs)}"]
 
     loc = diag.primary_line
     if loc:
@@ -241,28 +275,33 @@ def render(result: FrsResult, source: str | None = None, *, max_notes: int = 4) 
         others = ", ".join(d.code for d in result.diagnostics[1:])
         lines.append(f"  (also reported: {others})")
 
-    lines.append("Fix this and re-emit the complete program.")
+    if framing:
+        lines.append("Fix this and re-emit the complete program.")
     return "\n".join(lines)
 
 
-def render_minimal(result: FrsResult, source: str | None = None) -> str:
+def render_minimal(result: FrsResult, source: str | None = None, *,
+                    framing: bool = True) -> str:
     """A/B arm C: faust-rs's STRUCTURED CORE only — stable code, the one-line
     message (arities included), source line:col, and a caret. No notes, no
     `help`, no "did you mean". Tests whether it is faust-rs's content or its
     human-programmer verbosity that hurt a small model in arm B.
+
+    `framing`: see `render()` — same meaning, same WP3 motivation.
     """
     diag = result.primary
     if diag is None:
         return "faust-rs reported no actionable diagnostic."
-    lines = [f"The Faust compiler rejected your program. "
-             f"[{diag.code}] {_clean_message(diag.message)}"]
+    head = f"The Faust compiler rejected your program. " if framing else ""
+    lines = [f"{head}[{diag.code}] {_clean_message(diag.message)}"]
     loc = diag.primary_line
     if loc:
         col = diag.primary_col
         lines.append(f"  at line {loc}" + (f", column {col}" if col else ""))
         if source:
             lines.extend(_source_caret(source, loc, col))
-    lines.append("Fix this and re-emit the complete program.")
+    if framing:
+        lines.append("Fix this and re-emit the complete program.")
     return "\n".join(lines)
 
 
