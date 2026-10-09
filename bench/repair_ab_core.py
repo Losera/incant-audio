@@ -55,11 +55,15 @@ WP3_TEMPLATE = ARM_A_TEMPLATE
 #   A  raw C++ `faust` stderr (status quo)
 #   B  frs_check.render()          — faust-rs full: code, arities, caret, notes, help
 #   C  frs_check.render_minimal()  — faust-rs core: code, one-line message, caret only
-# WP3's five, all matched-wrapper (framing=False), crossing content x visibility:
+# WP3's six, all matched-wrapper (framing=False), crossing content x visibility:
 #   A2   raw C++ stderr (reference; leak rate measured post-hoc, not designed)
 #   B2   render(),         source shown    | B2n  render(),         source withheld
 #   C2   render_minimal(), source shown    | C2n  render_minimal(), source withheld
-WP3_ARMS = ("A2", "B2", "B2n", "C2", "C2n")
+#   B2r  render() WITH faust-rs's own repair-suggestion list kept (strip_repairs=
+#        False), source shown — tests L13/L15: every other faust-rs arm, in every
+#        prior run including the four above, strips that list before the model
+#        sees it. For FRS-PARSE-0001 it is faust-rs's only suggested fix.
+WP3_ARMS = ("A2", "B2", "B2n", "C2", "C2n", "B2r")
 ARMS = ("A", "B", "C") + WP3_ARMS
 
 # compile step: (code) -> (ok, stderr_or_empty). Injected by the caller.
@@ -99,7 +103,10 @@ def feedback_for(arm: str, code: str, cpp_stderr: str) -> tuple[str, str | None]
         # visibility is the entire point of WP3_PROTOCOL.md.
         renderer = frs_check.render_minimal if arm.startswith("C2") else frs_check.render
         show_source = not arm.endswith("n")
-        return (renderer(res, code if show_source else None, framing=False),
+        kwargs = {"framing": False}
+        if arm == "B2r":
+            kwargs["strip_repairs"] = False
+        return (renderer(res, code if show_source else None, **kwargs),
                 res.codes[0] if res.codes else None)
     renderer = frs_check.render_minimal if arm == "C" else frs_check.render
     return renderer(res, code), (res.codes[0] if res.codes else None)

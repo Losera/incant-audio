@@ -840,12 +840,27 @@ re-checked with `faust-rs 0.8.0 --check --error-format json` against the *same f
 C++ rejected. **Accept/reject agreement 15/15.** C++ carried a source location on 8/15
 *(re-derived 2026-08-30 as 8, recorded as 9 on 2026-08-28 — a stderr-scoring-heuristic
 difference plus Faust 2.85.5→2.85.9; not material)*; faust-rs on **15/15**, plus a stable
-`FRS-*` code on **15/15** (C++: 0). The 6 `routing_arity` failures — C++'s worst case, no
+`FRS-*` code on **15/15** (C++: 0 — ⚠ *`frs_rederive.py`'s `cpp_code += 0` is hard-coded, not
+counted from a scan of C++ stderr; near-certainly true (C++ stderr has no stable-code
+convention) but published as an observed count and it isn't one. Fix: scan for one before
+asserting it, or caveat the cell*). The 6 `routing_arity` failures — C++'s worst case, no
 location + a Box-expression dump — map 1:1 to `FRS-PROP-0002` with a caret and the arities as
 numbers. Reproducible from a clean checkout via `bench/frs_rederive.py`
 (replaces the uncommitted-and-lost `scratchpad/frs_annotate.py`; measurement-only, faust-rs
 is not a project dependency). The 36-program hand-built corpus behind the "51/51" figure was
-in the same lost scratchpad and is **not** recoverable — 15/51 re-derives.
+in the same lost scratchpad and is **not** recoverable — 15/51 re-derives. **This 15/51 figure
+and the hard-coded C++ code-count were posted externally (issue #26, 2026-08-29) and have
+never been corrected on that thread — see the correction draft, item 3.**
+
+**faust-rs's own repair-suggestion list is stripped from every arm that uses it** (`L13`,
+`bench/frs_check.py:185-193`, `_clean_message` truncates at `"Repair sequences found"`). Sized
+this session, not just asserted: of the 202 distinct failing programs, the `syntax` class (61
+raw / 52 screened) loses its *entire* remedy in **53/61 (87%)** of cases — `FRS-PARSE-0001`'s
+only actionable content for that class *is* the repair-sequence list, so those programs' arm-B
+feedback degraded to the bare message + caret, nothing else. `routing_arity` loses it in 2/81
+(2%); every other class 0. `syntax` is the #2 strongest significant per-class cell (3B: A
+44/52 vs B 21/52, McNemar p≈5.65e-06) — on 87% of that subgroup, arm B was never tested with
+faust-rs's actual suggested fix. See the correction draft, item 4.
 
 **Loop-level result (PF-076, 2026-08-30):** feeding those diagnostics *back to the model* in
 place of C++ stderr made the repair loop **worse** — 75%→44% repaired-within-2 on

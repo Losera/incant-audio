@@ -92,6 +92,37 @@ def test_render_trims_lr_parser_repair_sequence_list():
     assert "Insert PAR" not in out
 
 
+def test_render_strip_repairs_false_keeps_the_list():
+    # L13/L15 (METHODOLOGY.md) / WP3 arm B2r: for FRS-PARSE-0001 the stripped
+    # list IS faust-rs's suggested fix. Seen-failing both ways, so a future
+    # default flip can't silently stop testing what it claims to.
+    #
+    # parse_0001_multidef.json's PRIMARY diagnostic (diagnostics[0], the
+    # "multiple definitions" one) carries no repair-sequence text — that text
+    # is only on its secondary diagnostics, which render() never emits. So this
+    # builds a payload where the marker is on the primary diagnostic's own
+    # message, matching the real FRS-PARSE-0001 shape (frs_rederive_cells.json
+    # / docs/BUGS.md's 87%-stripped finding).
+    payload = {
+        "compiler": {"name": "faust-rs", "target": "x86_64-linux", "version": "0.8.0"},
+        "diagnostics": [{
+            "category": "user_code", "code": "FRS-PARSE-0001",
+            "severity": "error",
+            "message": "Parsing error at line 3 column 35. Repair sequences found:\n"
+                        "   1: Insert PAR\n   2: Insert CUT",
+            "labels": [], "notes": [], "help": [],
+        }],
+        "status": "failed",
+    }
+    res = frs_check._parse_payload(payload)
+    stripped = frs_check.render(res, strip_repairs=True)
+    kept = frs_check.render(res, strip_repairs=False)
+    assert "Repair sequences found" not in stripped
+    assert "Insert PAR" not in stripped
+    assert "Repair sequences found" in kept
+    assert "Insert PAR" in kept
+
+
 def test_render_on_success_result_is_harmless():
     assert "no actionable diagnostic" in frs_check.render(_load("success"))
 

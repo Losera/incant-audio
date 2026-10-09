@@ -41,6 +41,35 @@ Two other things, while I'm correcting the record:
 2. The obvious next experiment is separating "does the model see the failing source" from
    "which diagnostic format it gets" as two independent factors, rather than the single
    diagnostic-format comparison I ran. That's queued on our side; no numbers to report yet.
+3. The very first number I gave you — 51/51 accept/reject agreement, with the 9/15 (later
+   8/15) vs 15/15 source-location table — needs two corrections of its own, found re-auditing
+   this week. First: that table's 36-program half (the hand-built corpus behind "51") was built
+   in a scratchpad I never committed, and it's gone — I can only re-derive 15 of the 51 from
+   what's on disk, so I can no longer stand behind the full figure, only the 15. Second: the
+   "C++: 0/15 stable error codes" cell in that table wasn't counted from the runs — the script
+   that produces it hard-codes a 0 instead of checking, on the (near-certain, but unverified)
+   assumption that `faust -lang cpp`'s stderr never carries a stable code. I'd rather tell you
+   that than have you treat it as measured. I'm restating the table on just the 15 I can
+   reproduce, with that caveat on the code-count cell, in the linked repo.
+4. One more, and it's the one I'd flag hardest: my harness strips faust-rs's own
+   repair-suggestion list out of the feedback text before the model ever sees it, on every
+   program where faust-rs's parser offers one. I checked how often that matters on the 202-
+   program corpus — for the `syntax`-class failures specifically (52 of the 192 screened
+   programs, one of the subgroups where arm B's result is statistically significant), 87% of
+   them had their diagnostic reduced to the bare parse error plus a caret, nothing else, e.g.:
+
+   ```
+   The Faust compiler rejected your program. [FRS-PARSE-0001] Parsing error at line 3 column 35
+     at line 3, column 35
+        3 | process = _,_ : select2(flip, _, -_);
+          |                                   ^
+   Fix this and re-emit the complete program.
+   ```
+
+   So on that subgroup, the comparison was never really "C++ stderr vs faust-rs's diagnostic"
+   — it was "C++ stderr vs faust-rs's diagnostic with its own suggested fix deleted." I don't
+   yet know whether putting that list back changes the result; it's queued alongside the
+   visibility experiment above.
 
 Thanks for pushing on this — the counter-intuitive result held up, but my explanation for it
 didn't, and I'd rather you have the corrected version than let the first one stand
