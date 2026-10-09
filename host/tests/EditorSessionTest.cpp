@@ -4254,6 +4254,99 @@ void scenario57_saveBeforeFaceReturnsRegeneratesOnReopen(const juce::File& tmp)
           "exactly one completed ui_face request -- the reopen's own");
 }
 
+// 58 — PF-082. A WINDOW reopen, not a project reload: the processor stays
+// alive and already holds a live, faced patch; only the editor is destroyed
+// and a fresh one constructed over the SAME processor, with no
+// setStateInformation anywhere in the scenario. This is what a real VST3
+// host does on tab-away/tab-back (removed()/attached() destroy and recreate
+// just the ContentWrapperComponent+editor -- JUCE's own VST3 client code,
+// not this plugin's). Session (used everywhere else in this file) cannot
+// express that: it constructs processor and editor together and ties their
+// lifetimes, so this scenario hand-declares the processor itself, the same
+// way scenario 25's restore-before-editor half had to.
+//
+// Before the PF-082 fix: the only code that ever called refreshParamKnobs/
+// applyUiIr/applyGeneratedFace was the compile-success callback, which does
+// not fire on a bare construction. The second editor came up with an empty
+// grid, no face, the literal title "PluginForge", and a window shrunk by
+// updateWindowSizeForParams() to its empty-grid height -- which is what
+// reads as "the GUI disappeared" when it happens inside a real host.
+void scenario58_windowReopenRebuildsGridAndFace(const juce::File& tmp)
+{
+    scenario("58. closing and reopening the EDITOR (not the project) keeps "
+             "the grid and face",
+             "PF-082: processor.lastPublishedParamsForReplay() lets a freshly "
+             "constructed editor rebuild the grid/face over an already-live "
+             "processor, with no compile and no setStateInformation involved.");
+
+    FakeGenerator::install(FakeGenerator::writeSuccessThenFaceCounted(
+        tmp, "gen58", kFourParamPatch, "#0e0f13", "#eef2ee", "#8fe3c1",
+        "pedal", { "Alpha", "Beta" }, { "Gamma", "Delta" }));
+
+    PluginForgeProcessor processor;
+    processor.prepareToPlay(48000.0, 512);
+
+    int savedHeight = 0;
+    juce::String savedTitle;
+    const int fillId = juce::Slider::rotarySliderFillColourId;
+    juce::Colour savedAccent;
+    {
+        PluginForgeEditor e1 { processor };
+        e1.setSize(900, 500);
+        e1.submitPromptForTest("a patch worth keeping its face on reopen");
+        check(pumpUntil([&] { return e1.statusTextForTest().contains("DSP live"); }),
+              "the initial generate compiled");
+        check(pumpUntil([&] { return e1.gridFaceActiveForTest(); }),
+              "the post-compile ui_face request attached a face");
+        check(e1.gridControlCountForTest() == 4, "the first editor shows all 4 controls");
+
+        savedHeight = e1.getHeight();
+        savedTitle  = e1.gridTitleForTest();
+        savedAccent = e1.gridFaceColourForTest(fillId);
+        check(savedTitle != "PluginForge",
+              "the generated title replaced the shell default on the first editor");
+
+        // e1 is destroyed here -- the window-close half of a tab-away, with
+        // `processor` (declared outside this scope) surviving untouched.
+    }
+
+    // The reopen: a brand-new editor over the SAME, already-live processor.
+    // No compile happens (nothing changed), and no setStateInformation runs
+    // (this is not a project reload) -- the only thing that can rebuild the
+    // grid is PF-082's constructor replay. Deliberately NO setSize() call
+    // here (unlike e1, which needs one before its generate ever runs): the
+    // constructor's own replay already calls updateWindowSizeForParams() for
+    // the grid it just rebuilt, and overriding that back to the constructor's
+    // initial 900x500 is exactly the empty-shell height this scenario exists
+    // to rule out.
+    PluginForgeEditor e2 { processor };
+
+    check(e2.gridControlCountForTest() == 4,
+          "the reopened editor shows all 4 controls with no compile and no "
+          "restore -- the grid was replayed from the processor's snapshot");
+    check(e2.gridFaceActiveForTest(),
+          "the reopened editor is wearing a generated face again");
+    check(e2.gridTitleForTest() == savedTitle,
+          "the reopened title matches what was generated, not the "
+          "\"PluginForge\" shell default an empty grid would show");
+    check(e2.gridFaceColourForTest(fillId) == savedAccent,
+          "the reopened face's accent matches the one the first editor had, "
+          "not the Ember default an empty/unfaced grid would fall back to");
+    check(e2.getHeight() == savedHeight,
+          "the reopened window is the SAME height as the first editor's, not "
+          "the ~400px empty-grid shell updateWindowSizeForParams() produces "
+          "for zero controls");
+
+    // No new ui_face request: a window reopen should cost no quota, the same
+    // invariant scenario 53 proves for a project reopen.
+    pumpUntil([&] { return false; }, 500);
+    check(FakeGenerator::uiFaceRequestCount(tmp, "gen58") == 1,
+          "still exactly one ui_face request total -- reopening the WINDOW "
+          "did not trigger a second one");
+
+    snapshot(e2, "58_window_reopen_face_preserved");
+}
+
 } // namespace
 
 int main()
@@ -4333,6 +4426,7 @@ int main()
     scenario55_archetypeSectionsReachTheGrid(tmp);
     scenario56_uiFaceEnvGuardSuppressesRequest(tmp);
     scenario57_saveBeforeFaceReturnsRegeneratesOnReopen(tmp);
+    scenario58_windowReopenRebuildsGridAndFace(tmp);
 
     tmp.deleteRecursively();
 

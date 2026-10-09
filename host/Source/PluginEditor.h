@@ -344,6 +344,42 @@ private:
     // window never violates setResizeLimits; past the cap the grid Viewport scrolls.
     void updateWindowSizeForParams();
 
+    // PF-082: build the knob grid and attach the generated face from a
+    // ParamList, the shared core of what the compile-success callback has
+    // always done. Factored out so the editor CONSTRUCTOR can call the same
+    // sequence over a snapshot the processor already holds, when it is built
+    // over an already-live processor (a window reopen, not a fresh compile --
+    // see processor.lastPublishedParamsForReplay()'s header comment). Returns
+    // the layout that was derived/applied, which the constructor needs to
+    // decide whether a ui_face request would be worth making (it is not, on a
+    // reopen: PluginForgeEditor has nothing to offer requestUiFace() that is
+    // different from what onFaustCompileSuccess already offered this exact
+    // source, and firing it again would duplicate a quota-spending request
+    // CodeEditorPanel/PromptPanel never needed because they do not call this).
+    //
+    // Deliberately does NOT touch codeEditorPanel, promptPanel's refine modes,
+    // or requestUiFace() -- those already self-seed from the processor in
+    // their own constructors (see PromptPanel.h's comment on exactly this
+    // hazard) and are out of scope for the grid/face lifetime bug this fixes.
+    struct FaceRebuildResult
+    {
+        UiIr::Layout layout;
+        // True iff `layout` is the ADR-035 A5 CACHED face (restored from the
+        // state blob for this exact source), false if it is the fresh
+        // ParamGridPanel::deriveLayoutFromGroups() derivation. The
+        // compile-success callback uses this to decide whether a ui_face
+        // request is still worth making; the constructor-replay path uses it
+        // for nothing but completeness (a reopen never requests a face).
+        bool usedCachedFace = false;
+        // The Components half of the FRESH derivation (not `layout` -- that
+        // may be the cached face instead). The compile-success callback needs
+        // this verbatim for lastDerivedComponentsForUiFace regardless of which
+        // branch `layout` took, same as the pre-PF-082 code read
+        // derivedLayout.components unconditionally.
+        UiIr::Components derivedComponents;
+    };
+    FaceRebuildResult rebuildGridAndFace(const FaustEngine::ParamList& params);
+
     // Show/hide the read-only Faust view and re-run the window sizing, which
     // already accounts for Chrome::codeH when the panel is visible. Pushes the live
     // source in on the way up so a view revealed after a compile is not blank.
