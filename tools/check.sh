@@ -83,6 +83,14 @@ level_full() {
   run "presentation prompt variant is not stale" \
       python tools/gen_presentation_prompt.py --check
 
+  # $0, no faust, no display, no build, no lock -- pure document parsing
+  # (docs/BUGS.md, docs/decisions.md, STATUS.md). Wired in here, not left as
+  # a comment-only mention (see tools/health_report.py's own "LANES AND WHY
+  # THEY ARE SEPARATE" docstring) -- it had run exactly once, by hand, before
+  # this. See docs/HEALTH_SCHEMA.md for what this lane measures and why.
+  run "product-health lane (defect burden, planned work, known drifts)" \
+      python tools/health_report.py --lane product
+
   if have faust; then
     run "stdlib block resolves against installed faust" \
         python tools/gen_stdlib_block.py --check

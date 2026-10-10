@@ -429,3 +429,248 @@ class TestMalformedJsonInputs:
         assert out["status"] == "ran"
         assert out["compiling_records"] == 1
         assert out["errored"] + out["unsupported"] + out["passed"] + out["failed"] == 1
+
+
+# ── Product lane: document-derived (docs/BUGS.md, docs/decisions.md, STATUS.md) ──
+
+
+def _write(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+
+
+class TestScanBugsRegistry:
+    """_scan_bugs_registry() reuses tests/test_bugs_registry_integrity.py's own
+    parse_registry()/_REGISTRY_ROW_RE rather than a second parser (see
+    docs/HEALTH_SCHEMA.md's "reuse, don't reimplement"), so these fixtures are
+    shaped exactly like that module's own: 8-column registry rows."""
+
+    def _bugs_md(self, root: Path, rows: str) -> None:
+        _write(root / "docs" / "BUGS.md", "# Bug Registry\n\n## Registry\n\n"
+               "| ID | Title | Sev | Status | Lane | File:line | Discovered | Closed |\n"
+               "|---|---|---|---|---|---|---|---|\n" + rows)
+
+    def test_counts_and_open_rows(self, tmp_path):
+        self._bugs_md(tmp_path, (
+            "| PF-001 | A fixed defect | high | fixed | S1 | `a.cpp:1` | 2026-01-01 | 2026-01-02 |\n"
+            "| PF-002 | An open high-severity defect | high | open | S1 | `b.cpp:2` | 2026-01-01 | — |\n"
+            "| PF-003 | An in-progress low defect | low | in-progress | S2 | `c.cpp:3` | 2026-01-01 | — |\n"
+        ))
+        out = hr._scan_bugs_registry(tmp_path)
+        assert out["status"] == "ran"
+        assert out["counts"] == {"fixed": 1, "open": 1, "in-progress": 1}
+        ids = {r["id"] for r in out["open"]}
+        assert ids == {"PF-002", "PF-003"}
+        # Severity-ranked: high before low.
+        assert [r["id"] for r in out["open"]] == ["PF-002", "PF-003"]
+
+    def test_fixed_rows_are_not_in_the_open_list(self, tmp_path):
+        self._bugs_md(tmp_path, (
+            "| PF-010 | Closed long ago | medium | wontfix | S1 | `x.cpp:1` | 2026-01-01 | 2026-01-02 |\n"
+        ))
+        out = hr._scan_bugs_registry(tmp_path)
+        assert out["open"] == []
+        assert out["counts"] == {"wontfix": 1}
+
+    def test_missing_file_is_absent(self, tmp_path):
+        out = hr._scan_bugs_registry(tmp_path)
+        assert out == {"status": "absent", "reason": "docs/BUGS.md missing"}
+
+
+class TestScanAdrs:
+    def _decisions_md(self, root: Path, body: str) -> None:
+        _write(root / "docs" / "decisions.md", body)
+
+    def test_finds_proposed_and_accepted(self, tmp_path):
+        self._decisions_md(tmp_path, (
+            "## ADR-001 — An accepted decision\n\n"
+            "| | |\n|---|---|\n"
+            "| **Status** | Accepted — 2026-01-01 |\n"
+            "| **Date** | 2026-01-01 |\n\n"
+            "## ADR-002 — A proposed decision\n\n"
+            "| | |\n|---|---|\n"
+            "| **Status** | Proposed (2026-02-01) |\n"
+            "| **Date** | 2026-02-01 |\n"
+        ))
+        out = hr._scan_adrs(tmp_path)
+        assert out["status"] == "ran"
+        assert out["total"] == 2
+        assert [a["id"] for a in out["proposed"]] == ["ADR-002"]
+        assert out["proposed"][0]["title"] == "A proposed decision"
+
+    def test_amended_proposed_status_still_counts_as_proposed(self, tmp_path):
+        """ADR-036's real shape: 'Proposed (date). Amended ...: §1/§2
+        superseded.' -- the scan reports the leading word, not the nuance
+        (docs/HEALTH_SCHEMA.md explains why: the amendment prose is what a
+        reader should go read, not what a health report should compress)."""
+        self._decisions_md(tmp_path, (
+            "## ADR-036 — Something amended\n\n"
+            "| | |\n|---|---|\n"
+            "| **Status** | Proposed (2026-09-03). "
+            "**Amended 2026-09-04: direction picked; §1/§2 superseded.** |\n"
+        ))
+        out = hr._scan_adrs(tmp_path)
+        assert [a["id"] for a in out["proposed"]] == ["ADR-036"]
+
+    def test_no_adr_headers_is_ran_with_zero(self, tmp_path):
+        self._decisions_md(tmp_path, "# Not an ADR file\n\nJust prose.\n")
+        out = hr._scan_adrs(tmp_path)
+        assert out == {"status": "ran", "total": 0, "proposed": []}
+
+    def test_missing_file_is_absent(self, tmp_path):
+        out = hr._scan_adrs(tmp_path)
+        assert out == {"status": "absent", "reason": "docs/decisions.md missing"}
+
+
+class TestScanStatusNextThree:
+    def test_extracts_numbered_items_and_stops_at_next_heading(self, tmp_path):
+        _write(tmp_path / "STATUS.md", (
+            "## Broken — ranked\n\nsome other section\n\n"
+            "## Next three things\n\n"
+            "1. First thing.\n"
+            "2. Second thing.\n"
+            "3. Third thing.\n\n"
+            "## Waiting on you\n\n"
+            "1. Not part of Next three -- must not be captured.\n"
+        ))
+        out = hr._scan_status_next_three(tmp_path)
+        assert out["status"] == "ran"
+        assert out["count"] == 3
+        assert out["items"][0] == "First thing."
+        assert "Not part of" not in " ".join(out["items"])
+
+    def test_section_absent_when_heading_missing(self, tmp_path):
+        _write(tmp_path / "STATUS.md", "## Something else\n\nno next-three here\n")
+        out = hr._scan_status_next_three(tmp_path)
+        assert out["status"] == "absent"
+
+    def test_missing_file_is_absent(self, tmp_path):
+        out = hr._scan_status_next_three(tmp_path)
+        assert out == {"status": "absent", "reason": "STATUS.md missing"}
+
+
+class TestCheckAssumedDrift:
+    """The known, previously-real drift: tools/check.sh's level_assumed() only
+    counts '- **bolded**' LIST bullets; a section rewritten to lead with a
+    bolded SENTENCE in plain prose undercounts against what a human reading
+    it would call a named claim."""
+
+    def test_bulleted_claims_agree_with_the_counter(self, tmp_path):
+        _write(tmp_path / "STATUS.md", (
+            "## Assumed, never checked\n\n"
+            "- **A bulleted claim.** Some detail.\n"
+            "- **Another bulleted claim.** More detail.\n\n"
+            "## Next three things\n\nnothing here\n"
+        ))
+        out = hr._check_assumed_drift(tmp_path)
+        assert out["status"] == "ran"
+        assert out["counter_value"] == 2
+        assert out["bold_claims_in_prose"] == 2
+        assert out["drifted"] is False
+
+    def test_a_prose_only_bold_claim_drifts(self, tmp_path):
+        """This is the real historical shape (PF-079's claim): the section
+        opens with a bolded sentence that is NOT a '- ' bullet."""
+        _write(tmp_path / "STATUS.md", (
+            "## Assumed, never checked\n\n"
+            "**A claim written as plain prose, not a bullet.** Supporting detail "
+            "follows in the same paragraph.\n\n"
+            "## Next three things\n\nnothing here\n"
+        ))
+        out = hr._check_assumed_drift(tmp_path)
+        assert out["status"] == "ran"
+        assert out["counter_value"] == 0
+        assert out["bold_claims_in_prose"] == 1
+        assert out["drifted"] is True
+        assert out["note"] is not None
+
+    def test_no_claims_at_all_is_not_a_drift(self, tmp_path):
+        _write(tmp_path / "STATUS.md", (
+            "## Assumed, never checked\n\n*(none.)*\n\n## Next three things\n\nx\n"
+        ))
+        out = hr._check_assumed_drift(tmp_path)
+        assert out["counter_value"] == 0
+        assert out["bold_claims_in_prose"] == 0
+        assert out["drifted"] is False
+
+    def test_missing_file_is_absent(self, tmp_path):
+        out = hr._check_assumed_drift(tmp_path)
+        assert out == {"status": "absent", "reason": "STATUS.md missing"}
+
+
+class TestLaneProduct:
+    """lane_product() wires the four scans together; this just confirms the
+    wiring, not the scans' own logic (covered above)."""
+
+    def test_all_four_fields_present_and_ran(self, tmp_path):
+        _write(tmp_path / "docs" / "BUGS.md", "# Bugs\n\n## Registry\n\n"
+               "| ID | Title | Sev | Status | Lane | File:line | Discovered | Closed |\n"
+               "|---|---|---|---|---|---|---|---|\n"
+               "| PF-001 | x | high | open | S1 | `a:1` | 2026-01-01 | — |\n")
+        _write(tmp_path / "docs" / "decisions.md",
+               "## ADR-001 — x\n\n| | |\n|---|---|\n| **Status** | Proposed |\n")
+        _write(tmp_path / "STATUS.md", (
+            "## Assumed, never checked\n\n*(none.)*\n\n"
+            "## Next three things\n\n1. Do a thing.\n\n## Waiting on you\n\nx\n"
+        ))
+
+        out = hr.lane_product(tmp_path)
+        assert out["lane"] == "product"
+        assert out["bugs"]["status"] == "ran"
+        assert out["adrs"]["status"] == "ran"
+        assert out["status_next_three"]["status"] == "ran"
+        assert out["assumed_drift"]["status"] == "ran"
+        assert "started" in out and "finished" in out
+
+    def test_missing_docs_report_absent_per_field_not_a_crash(self, tmp_path):
+        out = hr.lane_product(tmp_path)
+        assert out["bugs"]["status"] == "absent"
+        assert out["adrs"]["status"] == "absent"
+        assert out["status_next_three"]["status"] == "absent"
+        assert out["assumed_drift"]["status"] == "absent"
+
+
+class TestCollectIncludesProductLane:
+    """collect() runs the product lane INLINE when no lanes/product.json
+    exists, rather than defaulting it to absent the way dsp/ui/ai are
+    defaulted -- it is $0 and document-only, so there is no reason to make a
+    caller run `--lane product` separately first (docs/HEALTH_SCHEMA.md)."""
+
+    def test_collect_computes_product_lane_without_a_separate_run(
+        self, tmp_path, monkeypatch
+    ):
+        outdir = tmp_path / "artifacts" / "health"
+        lanedir = outdir / "lanes"
+        monkeypatch.setattr(hr, "OUTDIR", outdir)
+        monkeypatch.setattr(hr, "LANEDIR", lanedir)
+        lanedir.mkdir(parents=True)
+        (lanedir / "dsp.json").write_text(json.dumps({"lane": "dsp", "harnesses": {}}))
+        (lanedir / "ui.json").write_text(json.dumps({"lane": "ui", "harnesses": {}}))
+        (lanedir / "ai.json").write_text(json.dumps({"lane": "ai", "status": "ran"}))
+        # Deliberately no lanes/product.json written.
+
+        hr.collect(strict=False)
+
+        date = __import__("datetime").date.today().strftime("%Y%m%d")
+        report = json.loads((outdir / f"health_{date}.json").read_text())
+        assert "product" in report["lanes"]
+        assert report["lanes"]["product"]["lane"] == "product"
+
+    def test_an_explicit_product_lane_file_is_honoured_over_the_inline_fallback(
+        self, tmp_path, monkeypatch
+    ):
+        outdir = tmp_path / "artifacts" / "health"
+        lanedir = outdir / "lanes"
+        monkeypatch.setattr(hr, "OUTDIR", outdir)
+        monkeypatch.setattr(hr, "LANEDIR", lanedir)
+        lanedir.mkdir(parents=True)
+        for name in ("dsp", "ui", "ai"):
+            (lanedir / f"{name}.json").write_text(json.dumps({"lane": name}))
+        sentinel = {"lane": "product", "marker": "explicit-run-not-overwritten"}
+        (lanedir / "product.json").write_text(json.dumps(sentinel))
+
+        hr.collect(strict=False)
+
+        date = __import__("datetime").date.today().strftime("%Y%m%d")
+        report = json.loads((outdir / f"health_{date}.json").read_text())
+        assert report["lanes"]["product"] == sentinel
