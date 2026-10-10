@@ -1,7 +1,47 @@
-# PluginForge — Status  (2026-09-18)
+# PluginForge — Status  (2026-10-10)
 
 Rewritten each session per COLLABORATION.md §5. Single writer, no merge conflicts.
 Narrative history lives in git and in `docs/sessions/`.
+
+**2026-10-10 — targeted reconciliation, not a from-scratch rewrite.** Three weeks of
+merges (PRs #95–#98) had landed with nothing here reflecting them. Folded in below:
+
+1. **PF-082 fixed** (PR #96) — a plug-in window reopen (REAPER tab-away/tab-back, not a
+   project reload) was destroying and recreating the editor without replaying the
+   generated grid/face; the editor now replays from a processor-held snapshot.
+   `EditorSessionTest` scenario 58 is the red-then-green proof. Two adjacent lifetime
+   bugs found during that fix were filed, not folded in: **PF-083** (medium, open —
+   compile callbacks never cleared in the editor destructor) and **PF-084** (low, open —
+   two simultaneously-open editors race on one callback slot).
+2. **The health schema landed** (PR #97) — `tools/health_report.py` had run exactly once
+   since July; it now has a fourth `product` lane ($0, document-only) wired into
+   `tools/check.sh full`, scoring defect burden, every `Proposed` ADR, and two known
+   drifts. One of those drifts is this file's own "Assumed" counter — see that section
+   below; it is now a *named*, not a silent, gap. See `docs/HEALTH_SCHEMA.md`.
+3. **ADR-043 and ADR-044 drafted, both `Proposed`, neither decided** (PR #98). ADR-043
+   (model routing) scopes landing PF-081 *before* any routing change — nothing in it has
+   landed. ADR-044 (GUI generation) diagnoses the shipping `UiIr`/`ui_face` path as
+   capped by vocabulary, not by archetype count, and proposes raising it to a design
+   system rather than widening the archetype list. Full research grounding, a competitor
+   audit, and five additional shell-GUI recommendations (none yet an ADR) are in the
+   session artifact: `https://claude.ai/code/artifact/b20c80d3-4762-4fb5-b9b0-4ca129f994fa`.
+4. **A sibling session corrected the faust-rs study** (PR #95, merged the same day) —
+   the published repair-loop *mechanism* (PF-076) was withdrawn (the A/B result stands,
+   the caret-anchoring explanation does not — neither arm's request ever contains the
+   program being repaired), and a new finding was added: faust-rs's own repair-suggestion
+   list is stripped from the feedback text 87% of the time for `syntax`-class failures.
+   **The GRAME correction draft needs this finding added before posting** — see "Waiting
+   on you" #1, which was last touched 2026-09-24 and predates PR #95.
+5. **A sibling session is live right now, do not disturb it.** `.worktrees/efficacy-semantics`
+   is on branch docs/adr-045-usage-pattern-axis, **PR #99 open, not merged** ("a usage-pattern
+   axis for efficacy studies"), and an untracked bench/results/repair_ab/wp3_20261009.json
+   suggests the pre-registered WP3 experiment (named in PR #95 as "implemented, never
+   run") may now be running or done. Check that worktree's own state before assuming
+   either way.
+6. **Worktree cleanup, partial.** The three worktrees this session's own work used
+   (`pf082-gui-reopen`, `health-schema`, `adr-drafts`) are removed — their branches are
+   fully merged. The nine flagged stale-but-unremoved below from 2026-09-12→15 are
+   untouched; still a human/future-session call, not mechanical from here.
 
 **2026-09-18 — full rewrite, reconciled against `origin/main` (`d54d8fe`) and `docs/BUGS.md`.**
 Prompted by an adversarial review this session ran across all three concurrently-running
@@ -505,6 +545,18 @@ the disambiguating held-chord test (all 5 sustain vs 4 decay) has not been run.
 
 **10. Knob ordering is Faust's own.** *(PF-038, low, open.)*
 
+**11. A compile finishing while the editor window is closed is silently dropped.**
+*(PF-083, medium, open, found 2026-10-09.)* `~PluginForgeEditor` never clears
+`processor.onFaustCompileSuccess`/`onFaustCompileFailure`/`onUiStyleChanged` — the
+`SafePointer` null check makes the stale callback a no-op rather than a crash, but the
+result is never replayed when a new editor later appears. Same root cause as the fixed
+PF-082, different trigger; not fixed.
+
+**12. Two simultaneously-open editors race on one callback slot.** *(PF-084, low, open,
+found 2026-10-09.)* A REAPER FX-chain editor plus a floating window, or two hosts
+embedding the same instance, both overwrite the processor's single-slot compile
+callbacks — only the last-constructed editor's grid/face updates on a later compile.
+
 **11. MIDI-fidelity gaps in a real session.** *(triaged 2026-08-16, all pre-existing, none a
 regression.)* Monophonic by design (`FaustEngine.cpp:519-524`, deliberate), block-granularity
 MIDI (~10.7 ms jitter, documented in-code), a hardcoded 2.0 s tail (`PluginProcessor.h:85`),
@@ -523,7 +575,9 @@ PF-069 hardcoded efficacy budget and PF-070 compiler-hang crash (2026-08-29, PR 
 PF-063 CI-staleness banner (2026-08-17); PF-066 stale octave assertion and PF-067 uncapped
 `anthropic` pin (2026-08-25); **PF-043** (ollama's stock 4096-token context couldn't hold
 the system prompt — default model raised to `qwen2.5-coder:7b-16k`, 16384-token context;
-2026-09-13, PR #84, `c9655da`).
+2026-09-13, PR #84, `c9655da`); **PF-082** (a reopened plugin window lost its generated
+grid and face — the editor constructor now replays a processor-held snapshot;
+2026-10-09, PR #96, `f3ffe10`, `EditorSessionTest` scenario 58 red→green).
 
 **Unfiled:** a granular-family observation from the REAPER pass — `"pitch synchronous
 granulizer"` routed to `granular_effect` and the family control gate
@@ -591,9 +645,9 @@ still current. A full 125-cell re-run at n≥3 (PF-031) is still owed for a real
    #6, do not disturb it.
 2. **Capture repros for PF-072 and PF-074.** The two medium in-host findings are
    currently unactionable — each needs the triggering patch source and the action
-   immediately before. Needs an interactive host session; until then they can only be
-   re-observed. **A capture harness to make that session count for PF-072/073/074/075
-   together was dispatched today** — `feat/interactive-capture-harness`, not yet landed.
+   immediately before. **The capture harness landed** (PR #93, `bench/capture.py`,
+   `PLUGINFORGE_CAPTURE=1`) — what's still missing is the interactive host session
+   itself to run it in, which needs a human in a DAW, not more code.
 3. **PF-032 silent noise gate — groq re-measurement.** Highest-severity open generation
    defect (#2). WP2 (retargeted at att/hold/rel, not the original thresh/`db2linear`
    hypothesis) landed 2026-09-15 on `fix/pf032-gate-time-units` with a clean free-tier
@@ -637,7 +691,16 @@ clock — no host transport in Standalone).
    correction rather than a separate follow-up. Then (deferred to a later session): edit the
    existing `issue-26-repro` release body **in place** to mark it superseded and repoint its
    Method link at the current pin; optionally cut a new non-prerelease `issue-26-repro-v2`.
-   **Do not move the existing tag** (`f50daa8`).
+   **Do not move the existing tag** (`f50daa8`). **This item is itself now stale as of
+   2026-10-10** — PR #95 added a fourth correction point (faust-rs's own repair-suggestion
+   list stripped from 87% of `syntax`-class feedback) and softened two numbers in the
+   original "51/51" claim (the 36-program corpus is unrecoverable, only 15/51 re-derives;
+   the "C++: 0/15 stable error codes" cell was a hard-coded `+= 0`, not a measured count).
+   The draft to post is `docs/records/issue26-correction-draft-2026-09-24.md`, but it
+   predates PR #95 and needs those two additions before a human posts it. PR #95 also
+   drafted three separate, narrower upstream-actionable issues (version pinning,
+   `FRS-EVAL-0099` misdiagnosis, a contradictory cause-note) — none filed yet, same
+   "a human reviews and posts" rule applies.
 2. **A listening pass on the interactive-session patches.** COLLABORATION.md §1 — whether a
    generated plugin *sounds like what was asked for* has no instrument and is not delegable.
    The render oracle proved the WP6 patches were not broken; it cannot tell you they were
@@ -728,7 +791,8 @@ clock — no host transport in Standalone).
      fix/pf-043-ollama-context                 docs/adr-039-040-on-device-orchestration
      docs/adr-041-face-visual-layer            fix/pf032-gate-time-units
      docs/adr-reclassify-routine               fix/pf024-named-mono-routing
-     feat/adr041-step1-visual-region
+     feat/adr041-step1-visual-region           fix/pf082-gui-reopen
+     feat/health-schema-product-lane           docs/adr-043-044-routing-and-gui
 
    DO NOT delete:
      feat/provider-resilience        UNREVIEWED SNAPSHOT, now pushed — still needs review/merge
@@ -736,10 +800,16 @@ clock — no host transport in Standalone).
      research/llm-generation-professional   Codex research
      chore/runtime-agnostic-workflow        uncommitted refactor, pending triage
      bench/efficacy-groq-n3-20260915        LIVE — uncommitted n≥3 checkpoint, do not remove
-     feat/e1-aot-emit                       dispatched today, active
-     feat/interactive-capture-harness       dispatched today, active
-     docs/truth-reconcile-2026-09-18        this rewrite
-     bench/efficacy-semantics-2026-09-23    PR #94 open, not yet merged
+     docs/status-md-2026-10-10-reconciliation   this rewrite
+
+   MERGED since 2026-09-18, confirmed by PR search (squash-merges don't show as
+   ancestors, don't trust `git branch --merged` alone for these): feat/e1-aot-emit
+   (#92), feat/interactive-capture-harness (#93), docs/truth-reconcile-2026-09-18 (#91),
+   bench/efficacy-semantics-2026-09-23 (#95) — all four safe to delete, add to the list
+   above. **The `.worktrees/efficacy-semantics` directory is NOT safe to touch** — it is
+   checked out to a *different*, new, unmerged branch now (branch
+   docs/adr-045-usage-pattern-axis, PR #99 open) by a live sibling session; only the OLD
+   branch name is dead.
 
    NEITHER — needs your call, not a mechanical delete or keep:
      chore/pf032-remeasure-noise-gate       clean, pushed, NOT uncommitted (corrected above);
