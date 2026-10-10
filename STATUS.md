@@ -33,8 +33,8 @@ merges (PRs #95–#98) had landed with nothing here reflecting them. Folded in b
    **The GRAME correction draft needs this finding added before posting** — see "Waiting
    on you" #1, which was last touched 2026-09-24 and predates PR #95.
 5. **A sibling session is live right now, do not disturb it.** `.worktrees/efficacy-semantics`
-   is on `docs/adr-045-usage-pattern-axis`, **PR #99 open, not merged** ("a usage-pattern
-   axis for efficacy studies"), and an untracked `bench/results/repair_ab/wp3_20261009.json`
+   is on branch docs/adr-045-usage-pattern-axis, **PR #99 open, not merged** ("a usage-pattern
+   axis for efficacy studies"), and an untracked bench/results/repair_ab/wp3_20261009.json
    suggests the pre-registered WP3 experiment (named in PR #95 as "implemented, never
    run") may now be running or done. Check that worktree's own state before assuming
    either way.
@@ -807,8 +807,9 @@ clock — no host transport in Standalone).
    (#92), feat/interactive-capture-harness (#93), docs/truth-reconcile-2026-09-18 (#91),
    bench/efficacy-semantics-2026-09-23 (#95) — all four safe to delete, add to the list
    above. **The `.worktrees/efficacy-semantics` directory is NOT safe to touch** — it is
-   checked out to a *different*, new, unmerged branch now (`docs/adr-045-usage-pattern-axis`,
-   PR #99 open) by a live sibling session; only the OLD branch name is dead.
+   checked out to a *different*, new, unmerged branch now (branch
+   docs/adr-045-usage-pattern-axis, PR #99 open) by a live sibling session; only the OLD
+   branch name is dead.
 
    NEITHER — needs your call, not a mechanical delete or keep:
      chore/pf032-remeasure-noise-gate       clean, pushed, NOT uncommitted (corrected above);
