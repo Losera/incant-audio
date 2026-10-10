@@ -652,6 +652,23 @@ void PluginForgeProcessor::loadFaustCode(const juce::String& faustCode,
                 // thread can never observe a blob whose values, labels and
                 // assignment came from different compiles.
                 currentSlotIds = remapResult.slotIds;
+
+                // PF-082: a zone-stripped replay copy, captured in the same
+                // critical section for the same reason as currentSlotIds above.
+                // `zone` is this DSP instance's live memory and dangles the
+                // moment it is replaced; `params` (= paramPool.publishedSlots())
+                // is only safe to read for the rest of THIS compile-thread call
+                // (PluginEditor.cpp's own comment on the onFaustCompileSuccess
+                // callback says the same thing about its copy). Every entry
+                // gets a non-null sentinel in place of its real zone so a
+                // later reader's `zone != nullptr` occupancy check -- the only
+                // thing any consumer does with zone outside pushToFaust --
+                // keeps working without ever storing something dereferenceable.
+                lastPublishedParamsSnapshot = params;
+                static FAUSTFLOAT replaySentinel = 0.0f;
+                for (auto& p : lastPublishedParamsSnapshot)
+                    if (p.zone != nullptr)
+                        p.zone = &replaySentinel;
             }
 
             // A new patch gets a clean verdict: clear any latched mute from the
@@ -861,6 +878,12 @@ juce::String PluginForgeProcessor::uiIrSourceKeyForTest() const
 {
     std::lock_guard<std::mutex> lock(metaMutex);
     return currentUiIrSourceKey;
+}
+
+FaustEngine::ParamList PluginForgeProcessor::lastPublishedParamsForReplay() const
+{
+    std::lock_guard<std::mutex> lock(metaMutex);
+    return lastPublishedParamsSnapshot;
 }
 
 void PluginForgeProcessor::getStateInformation(juce::MemoryBlock& destData)

@@ -18,8 +18,11 @@
 //   - A Kind::Meter param is never writable
 //   - Any compiled param not in the IR is appended to a trailing grid section
 //
-// Phase 1a: hand-authored IRs only. The LLM does NOT emit this yet.
-// Phase 1b (gated on headroom): the prompt teaches the LLM to produce this.
+// Phase 1a (hand-authored IRs only) is done. Phase 1b shipped with ADR-035
+// §5 (`llm/ui_face.py`, `llm/prompts/ui_face_prompt.md`): the LLM emits this
+// schema today, post-compile, via PromptPanel::requestUiFace(). This comment
+// previously read "the LLM does NOT emit this yet" -- stale since ADR-035
+// landed; corrected 2026-10-09 during the PF-082 diagnosis.
 namespace UiIr
 {
 
