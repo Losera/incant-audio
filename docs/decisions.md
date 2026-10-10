@@ -3368,3 +3368,328 @@ question — it discards information and biases toward 0/1 at small n.
 - This ADR does not itself run the n≥3 grid. It removes the reason PF-031 cannot be attempted;
   the attempt still costs groq quota and is a separate, later decision.
 
+
+## ADR-043 — Model routing for generation efficacy: show the model its own failing program before escalating it
+
+| | |
+|---|---|
+| **Status** | Proposed — 2026-10-09 |
+| **Date** | 2026-10-09 |
+| **Relates to** | PF-081 (the retry loop's blindness — this ADR's prerequisite), PF-079 (compile rate overstates render-safety by 25-40pp — the metric this ADR must be scored on), PF-076 (faust-rs diagnostics A/B — mechanism withdrawn 2026-09-24, result stands), ADR-039 (cross-provider failover, Proposed, overlaps and is absorbed here), ADR-005 (the 3-attempt retry loop this amends), ADR-030 (declined LangGraph; names failover as reopen-item 3 of 3), ADR-032 (rejected *general* auto-failover — this ADR must say why escalation-on-typed-failure is not what that refused), ADR-006/PR #88 (compile rate reclassified as a routine decision, not load-bearing), ADR-042 (the n≥3 repetition schema this ADR's measurement gate depends on), `docs/research/R1-grammar-constrained-decoding.md`, `R2-restricted-faust-dialect.md`
+
+**Context**
+
+Three questions motivated this ADR: how PluginForge should route between its five
+registered providers, whether constrained decoding or an intermediate language would
+reduce invalid Faust, and whether the corrective-retry loop is actually correcting. The
+third question turned out to dominate the other two.
+
+**There is no routing today.** `provider` is resolved once per request
+(`llm/generate.py:510-513`) and passed unchanged through every retry (`:595`) by explicit
+invariant (`:281-294`). `llm/providers.py`'s `PROVIDERS` registry holds five specs behind
+three adapters, with `make_generator()` (`:943-987`) the single seam and `_call_api`
+(`generate.py:250-262`) the single dispatch point. The retry loop (ADR-005) is 3 attempts
+total, same model, same prompt, single-turn `[system, user]` — no conversation history
+anywhere in the pipeline.
+
+**PF-081, found 2026-09-24 via external adversarial review and verified against source
+directly: the retry loop never shows the model the program it is repairing.**
+`bench/repair_ab_core.py:107` builds `user_message = prompt +
+template.format(feedback=feedback_text)` — `prompt` is the original natural-language
+request; the failing `code` (`:91`) is used only to *compute* the diagnostic (`:105`) and
+is never placed in the message. There is no conversation history, so every corrective
+attempt **regenerates from the original spec** rather than editing a visible program. The
+shipping product mirrors this exactly: `llm/generate.py:560` reads `prior_source` only from
+an Iterate/refine host request; a Fresh-mode compile-error retry sends `prompt +
+error_context` (`:301-302`) with the same blindness. The symptom was already on record
+without the cause named — `llm/generate.py:183-186`, *"a simple reverb" failed the
+IDENTICAL delay-range error 3 attempts in a row* despite the fix already being in the
+system prompt, which is exactly what blind regeneration from an unchanged spec produces.
+
+This discovery **falsified PF-076's published mechanism** (corrected in `docs/BUGS.md`
+2026-09-24). PF-076's A/B measured raw C++ stderr vs. `faust-rs --check` diagnostics fed to
+a weak local model's repair loop: repaired-within-2 dropped 75%→44% (`qwen2.5-coder:3b`,
+n=202) and 72%→50% (7b, n=120), McNemar p<1e-3 both. The original explanation — "precise
+localisation makes the model edit at the caret and re-break it" — assumed the model could
+see the caret in context. It cannot, in either arm: the model is never shown the program.
+**The A/B result stands; the explanation is withdrawn.** Corrected framing: regenerating
+blind from the spec with a filtered diagnostic did worse than with raw stderr, on a weak
+local model. This is a finding about how to use faust-rs, not a defect in it — and the
+faust-rs efficacy study belongs to a separate, currently active agentic session (issue #26,
+PR #94, PF-080); this ADR cites PF-076/081 and must not re-measure them.
+
+**PF-079, found 2026-09-23: the compile gate overstates success by 25-40 percentage
+points.** A render-oracle pass over all four committed efficacy archives (325 compiled
+cells, $0) found real render-safety far below `faust -lang cpp` accept/reject, with two
+`dynamics` idioms failing identically across two independent generator models. ADR-006's
+"first-try compile rate as the primary benchmark metric" was one of 8 decisions PR #88
+reclassified as routine rather than load-bearing. **Any efficacy claim this ADR enables must
+be scored on render-safety, never on compile rate.**
+
+**The tier structure already measured is the one free routing signal available.** The
+125-cell groq grid (`efficacy_groq_20260831.json`) shows retry-corrected compile flat at
+84-96% across tiers, while judge-scored fidelity falls monotonically 1.57/2 (L4) → 0.36/2
+(L0). First-try tells a sharper story: L2/L3/L4 sit at 84%, **L1 collapses to 48%**, L0
+recovers to 72%. L1 is "sensory metaphor only, no effect or parameter names"; L0 is "named
+artist/gear reference" — a concrete device name is more actionable to the model than an
+abstract metaphor, and L1's failures classify SEMANTIC 9 / SYNTAX 4 against 2-4 elsewhere.
+This is estimable from the prompt text before any generation runs.
+
+**ADR-039 (cross-provider failover, still Proposed) cannot be implemented as written,
+because its own prerequisite is unlanded.** Its Decision item 1 observes that
+`_post_with_backoff` cannot be failed over *on* because its terminal outcomes are untyped:
+with budget remaining a 429 is slept through, and after 5 tries the loop raises a bare
+`RuntimeError` (`providers.py:938`), which escapes `generate_json`'s typed catch
+(`generate.py:600-613`) and flattens to `reason="error"` — indistinguishable from a crash.
+The classifiers that could separate daily-quota exhaustion from transient throttle
+(`_is_daily_quota`/`_is_retryable`, `providers.py:831-844`) are reachable only from
+`_call_with_retry`, which serves anthropic and gemini only; groq/openrouter/ollama's
+`_post_with_backoff` never consults them.
+
+**External literature, weighted below the above because PluginForge's own measurements are
+more specific to this pipeline than any general-purpose finding:**
+
+- Grammar/schema-constrained decoding gives near-perfect syntactic validity, with gains up
+  to ~27pt pass@1 concentrated in *small* models — but the explicit finding across this
+  literature is a scale-dependent semantic gap: structural failures vanish, semantic ones
+  do not (arXiv:2609.23742, arXiv:2605.26128). This matches what PluginForge's own grid
+  already shows: compile is flat, semantics is not.
+- Faust is a low-resource DSL in the sense this literature studies; the two interventions
+  with evidence are grammar prompting and an intermediate language natural to the model,
+  compiled down (arXiv:2410.03981, arXiv:2305.19234). `docs/research/R1`/`R2` already cover
+  this ground for Faust specifically.
+- Cascades retain ~97-99% of the strongest model's accuracy at materially lower cost, with
+  escalation thresholds set by calibrated uncertainty rather than a fixed rule
+  (arXiv:2606.27457, arXiv:2605.18796, arXiv:2605.06350).
+- Iterative execution-feedback loops lift pass@1 by staging compile → static → test
+  feedback, and trace-level feedback beats bare pass/fail (arXiv:2603.23613).
+- Best-of-N with a cheap verifier buys quality through sampling rather than a bigger model
+  (arXiv:2307.06857) — and `bench/render_oracle.py` is already a $0 verifier PluginForge
+  owns and PF-079 just showed is the honest signal to screen on.
+
+**Decision**
+
+Land in the order below; each step is independently landable and the measurement gate
+applies to all of them.
+
+1. **PF-081 first, before anything else in this ADR.** Carry prior failing source into
+   Fresh-mode retries the same way Iterate mode already does, reusing the existing
+   token-budget guard `preflight_prior_source` (`llm/generate.py:568`). This is a handful
+   of lines and is not itself a routing change, but every routing measurement below is
+   invalid until the baseline it is measured against stops regenerating blind.
+2. **Type `_post_with_backoff`'s terminal outcomes** (absorbing ADR-039's Decision item 1).
+   Replace the bare `RuntimeError` on retry exhaustion and on a non-retryable 413 with
+   typed outcomes `generate_json` can distinguish, matching what `_call_with_retry` already
+   does for anthropic/gemini. Prerequisite for every later step, not a feature on its own —
+   no escalation policy is implementable against an untyped failure.
+3. **Model-escalating retry.** Attempt 1 on the configured primary; attempt 3 (of the
+   existing 3-attempt budget) on a stronger model, gated on the typed failure from step 2.
+   Already on record as "the cheapest large win" (`docs/architecture_review_2026-07-21.md`
+   §3.3③), unactioned since July. Requires `provider`/`model` echoed in the success and
+   `_failure()` responses (`generate.py:627-629`, `:710-721`) so a substitution is visible —
+   `recommendation.py:164` and `ui_face.py:276` already do this and are the precedent to
+   follow, not invent.
+4. **Route on measured prompt-abstraction tier.** Before generation, estimate which of
+   L0-L4 a prompt resembles (the signal is already characterised; this is a classification
+   step, not new modeling) and treat an L1-shaped prompt as a semantic-risk case — route to
+   the stronger model or expand the metaphor into named terms first, rather than spending
+   retries on a model ill-suited to it.
+5. **Grammar-prompt the Faust envelope; spend the model's budget on meaning.** Per the
+   literature above and PluginForge's own grid, structure is the cheap half to fix and
+   meaning is not — `docs/research/R1`/`R2` are the starting point, not a fresh design.
+6. **Best-of-N over `render_oracle.py` before escalating to a costlier model.** The verifier
+   is already written, costs $0, and PF-079 established render-safety as the metric that
+   actually matters; screening N candidates through it is the natural use of a verifier
+   this pipeline already owns.
+7. **This ADR supersedes ADR-039.** ADR-039's cross-provider-failover goal is retained as
+   step 3 above, scoped specifically to escalation on a *typed* failure — not the *general*
+   auto-failover ADR-032 already rejected (`docs/decisions.md:1623-1625`). Landing step 3
+   alone does not reopen ADR-030's "adopt an orchestration framework" question, because
+   ADR-030 names provider failover as one of three independent reopen-items, not a package.
+
+**Measurement gate — applies to every step above, no exceptions**
+
+No step in this ADR may be reported as an improvement until:
+- PF-081 has landed (step 1), since it changes the baseline every later measurement is
+  compared against; and
+- the n≥3 grid re-run (STATUS.md "Next three things" #1, enabled by ADR-042's repetition
+  schema) establishes a real baseline, because the measured noise floor between two
+  back-to-back identical runs is a **4.0% spread** (PF-031) — any claimed gain smaller than
+  that is not distinguishable from sampling; and
+- the metric used is render-safety (PF-079's render-oracle verdict), never bare compile
+  rate.
+
+**Consequences**
+
+- `llm/generate.py`, `llm/providers.py`, `llm/error_classes.py` gain the typed-outcome and
+  escalation logic; no change to the IPC JSON contract's required fields, only additive
+  optional ones (`provider`/`model` echo), so ADR-011's schema is extended, not broken.
+- `llm/router.py`'s deterministic keyword-based prompt-kind classification is explicitly
+  **not** reopened by this ADR — a separate, already-considered decision with its own
+  documented rationale (an LLM classifier would be a third round trip inside a 100s budget
+  on a ~20 req/day free tier, "and it would also fail exactly when the network is the
+  problem").
+- `bench/run_repair_ab.py`'s A/B harness and the faust-rs efficacy study are untouched by
+  this ADR; the two efforts are related but owned separately.
+- Grammar-prompting (step 5) and best-of-N (step 6) are prompt/bench-only changes with no
+  product contract impact; model-escalating retry (step 3) and typed outcomes (step 2) are
+  Tier 2 territory under COLLABORATION.md §3 and need the two-tier evidence bar on landing.
+- **Unverified until implemented:** whether tier-routing's classification step (4) is cheap
+  enough to run inside the existing generation budget without itself becoming a second
+  round trip — this needs a profiled implementation, not a design-time guess.
+
+## ADR-044 — Professional-grade generated GUIs: an authored design system, art-directed by the model
+
+| | |
+|---|---|
+| **Status** | Proposed — 2026-10-09 |
+| **Date** | 2026-10-09 |
+| **Relates to** | ADR-024 (`UiIr`'s renderer-agnostic schema — this ADR proposes bumping it), ADR-035 (per-plugin generated faces — the shipping path this ADR diagnoses as capped, not wrong), ADR-038/ADR-041 (the `FaceVisual` drawing-layer ladder — steps 2 and 4-6 are retained as infrastructure this needs regardless; step 3's motif list is what this ADR would supersede with a real widget library), ADR-022 (the no-IR heuristic fallback — unchanged, still the degrade-to path), ADR-019 (no WebView — this ADR is the strongest case yet to re-examine that, not a decision to reopen it unilaterally), PF-052 (meters never reach any renderer — blocks every signal-bound widget this ADR proposes), the editor-lifetime defect this session also diagnosed and fixed separately (a window reopen losing the generated grid/face, filed and landed on its own branch) — `FaceContext`, planned in ADR-041 step 2, must not repeat its lifetime mistake
+
+**Context**
+
+The operator's explicit instruction, given after reviewing the shipping path: *"the IR GUI
+even if it's shipping does not seem to be what we originally intended. We want fully
+professional GUI generation."* This ADR is the research response — a diagnosis of why the
+shipping path caps out, and a proposed architecture to clear that ceiling, not an
+incremental widening of what exists.
+
+**What already ships is real and should not be mistaken for the gap.** `host/Source/UiIr.h`
+schema 3 (decided in ADR-024: renderer-agnostic, string-keyed, no JUCE types, no pixel
+coordinates) is produced by an LLM today, post-compile, via ADR-035 §5
+(`llm/ui_face.py` → `PromptPanel::requestUiFace()` → `ThemeValidate.h` → `applyUiIr()` +
+`applyGeneratedFace()`). A deterministic floor (`ParamGridPanel::deriveLayoutFromGroups()`)
+renders first and is never regressed by a failed or late LLM call; degradation is per-token,
+never whole-layout; a restore never spends quota (the accepted face rides the state blob
+keyed to the source hash). These properties were each paid for by a real defect and must
+be inherited by anything that replaces the motif layer, not rediscovered.
+
+**The diagnosis: `UiIr` is a parameter-layout vocabulary, not a visual-design vocabulary.**
+It can say "put these five knobs in two columns and tint them amber." It cannot say "this is
+a brushed-steel compressor with a backlit VU needle and a 7-segment gain-reduction readout."
+Widening the archetype set — currently 6 names (`llm/ui_face.py:52-54`) collapsing to 4 real
+geometry functions in `ArchetypeLayout::layoutFor()` (`:337-348`; `columns()` serves both
+`synth-panel` and `channel-strip`, `pedal`/`utility`/unknown all fall to `row()`) — does not
+touch this ceiling, because the ceiling is in the IR's nouns, not in how many values one
+field accepts. Three further structural gaps against a professional baseline (FabFilter,
+Valhalla, Soundtoys, Arturia):
+
+- **No resolution independence.** The layout packer (`ArchetypeLayout.h:123-196`) is a pure
+  function of control count and span, deliberately never of pixel width — correct for
+  determinism, but it forecloses true vector scaling.
+- **One widget family.** Four knob styles, no needle meters, LED ladders, segment readouts,
+  curve displays, scopes, or transport furniture.
+- **No material or lighting model.** Seven flat colour strings and four enums
+  (`ui_face.py:55-61`). Depth, bevel, glass, texture, shadow, and real type pairing — most of
+  what reads as "designed" rather than "a tinted grid" — have no representation.
+
+**Generated drawing code is not the fix, and current evidence is specific about why.** LLMs
+emitting SVG treat it as a flat token sequence with no structural model of the medium —
+coordinates are not known to form pairs belonging to a command belonging to a path — which
+produces hallucinated primitives and wrong paint order, and *every* model benchmarked
+degrades as complexity rises, proprietary models included (arXiv:2506.03139,
+arXiv:2412.11102). A plugin face is exactly the high-complexity, occlusion-sensitive case
+this literature flags as the hard one. Independent of quality, generated drawing code or
+geometry would put untrusted generated logic into the plugin process, inside a host, beside
+an audio thread — a new safety surface this project has no reason to open for a cosmetic
+feature when a data-only alternative exists.
+
+**PF-052 blocks every signal-bound widget regardless of architecture.**
+`ParamPool::remap` (`ParamPool.cpp:69-77`) marks every `Kind::Meter` ineligible for a slot
+via `FaustEngine::isWritable` (`FaustEngine.h:57`); no live meter value reaches any
+renderer today. A needle meter or gain-reduction readout is unbuildable until this closes,
+independent of which GUI architecture wins.
+
+**Decision**
+
+Raise the IR from a layout schema to a design-system schema. The model acts as art director
+over professionally-authored, human-written C++: it selects and parameterizes material,
+palette, type pairing, widget choice, and composition intent; authored code renders every
+pixel. This is the division of labour the UI-generation literature argues for directly — a
+constrained intermediate representation, generated by the model, rendered by a separate
+programmatic component, rather than free-form code generation that loses intent between
+iterations (arXiv:2508.20263, arXiv:2509.07334, arXiv:2512.18996) — and it is the same shape
+PluginForge already committed to with `UiIr`/ADR-024, extended rather than replaced.
+
+```
+                 ┌─ model decides (validated, data only) ──────────┐
+prompt + params →│ material · palette · type pairing · widget      │→ face_spec (schema 4+)
+                 │ selection · composition intent · identity/badge │
+                 └───────────────────────────────────────────────┘
+                                   ↓ validate (C++, authoritative — unchanged from ADR-035)
+                 ┌─ authored once, by a human, in C++ ─────────────┐
+                 │ material/lighting model · bespoke widget library │→ rendered face
+                 │ constraint layout solver · typography registry  │
+                 └───────────────────────────────────────────────┘
+```
+
+Four research tracks, each a reviewable deliverable in its own right:
+
+1. **Material & lighting substrate.** An authored material model — surface treatment
+   (brushed, anodized, matte, glass, wood), a light direction with consistent bevel/shadow
+   derivation, and a typography registry with real pairings — replacing seven flat colour
+   strings. Sequence with ADR-041 step 2's `TypefaceRegistry`, which already exists as a
+   planned deliverable and is the natural owner of the latter half.
+2. **A bespoke widget library.** Needle/VU meters, LED ladders, scaled rotaries, segment
+   readouts, curve displays, scopes, transport furniture — `GKnobGeometry.h`'s
+   free-function-geometry pattern is the precedent for testability. Each widget declares
+   what it can bind to, making PF-052 and ADR-041 steps 4-6 (real signal) a *capability* of
+   the library rather than a precondition for starting it.
+3. **Layout freedom.** Evaluate a constraint/grid solver in place of the four hardcoded
+   geometry functions. Hard constraint to preserve: `contentHeightForSections()` calls
+   `layoutFor()` at width 0, before the shell grants a size, and must get the same answer
+   (`ArchetypeLayout.h:28-36`) — any solver must stay a pure function of content. This track
+   is the one most likely to conclude "not yet," and that is a legitimate finding, not a
+   failure to report back.
+4. **Identity.** Generated name, badge, consistent accent logic, so a face reads as a
+   product. ADR-022's deterministic `derivePalette()`/`deriveTitle()`
+   (`ParamGridPanel.cpp:850-874`) remains the fallback this must degrade to on any failure.
+
+**Immediate, low-risk complement, evaluable inside this ADR's research rather than waiting
+for it:** Faust's own UI metadata — `hgroup`/`vgroup`/`tgroup` plus
+`[style:knob|led|numerical|radio|menu]`, `[scale:log|exp]`, `[tooltip:]`, `[hidden:]` — is a
+second declarative channel PluginForge already partially reads (group nesting) but
+currently ignores (`style:`, `scale:`). The generating model can express widget intent
+in-band with the DSP it is already writing, at zero extra round trip.
+
+**Four decisions this ADR puts to the operator rather than pre-deciding, per policy §4:**
+
+1. **`UiIr` schema 4+ is a persisted-state contract change** (COLLABORATION.md §2 trigger
+   3). A design-system schema is a materially larger bump than ADR-041's sketched `visuals`
+   field; old sessions must stay recoverable.
+2. **Whether to re-examine ADR-019's WebView closure.** A professional target is the
+   strongest case yet to reopen it, and ADR-024's renderer-agnostic IR was explicitly built
+   as the seam for exactly this. The cost is real and should be weighed, not assumed away: a
+   second renderer, a materially larger in-process attack surface, and packaging
+   consequences for a product that currently ships no web runtime at all.
+3. **Where ADR-041 ends and this ADR begins.** Its steps 2 and 4-6 (`FaceContext`,
+   `TypefaceRegistry`, PF-052's split, signal sources) are infrastructure this needs
+   regardless and should land on their existing schedule. Step 3's `FaceVisual` motif list
+   is specifically what track 2 above would supersede with a real widget library.
+4. **Asset strategy.** Textures and typefaces carry size, licensing, and packaging
+   implications (policy §4 trigger 4). An authored material model mostly avoids bundled
+   bitmaps — this should be confirmed as the chosen route, not assumed.
+
+**Evaluation — and its honest limit**
+
+`host/tests/UiDesignGallery.cpp` (18 fixtures → `artifacts/ui_gallery/`, a PNG plus a
+machine-readable record each, diffed by `tools/ui_iterate.sh`/`tools/ui_layout_diff.py`) is
+the right instrument and is deliberately not a test (*"EditorSessionTest asserts; this
+reports"*). It proves a face **rendered**; it cannot prove a face **looks professional**.
+That judgment has no instrument today, in the same sense CLAUDE.md already concedes for
+sound (COLLABORATION.md §1) — it is a human operator pass, not a hook or a model's job, and
+any claim of success under this ADR must be backed by one, not inferred from the gallery
+alone.
+
+**Consequences**
+
+- `host/Source/UiIr.h`, `llm/ui_face.py`, `llm/prompts/ui_face_prompt.md` all grow
+  materially; the schema-version bump is Tier 2 territory under COLLABORATION.md §3.
+- The deterministic floor, per-token degradation, C++-side validation authority, and
+  quota-free restore — all four non-negotiable, inherited verbatim from ADR-035/041, not
+  renegotiated by this ADR.
+- No change to the audio thread, the build's dependency closure (absent an asset-strategy
+  decision to the contrary), or the IPC contract's required fields.
+- **This ADR lands no code.** It is a research deliverable: a diagnosis, a proposed
+  architecture, and four explicit decision points for the operator. Implementation is a
+  later, separately reviewed step per track.
