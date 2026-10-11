@@ -3693,3 +3693,101 @@ alone.
 - **This ADR lands no code.** It is a research deliverable: a diagnosis, a proposed
   architecture, and four explicit decision points for the operator. Implementation is a
   later, separately reviewed step per track.
+
+
+## ADR-045 — A usage-pattern axis for efficacy studies: what the user does, not just what they say
+
+| | |
+|---|---|
+| **Status** | Proposed |
+| **Date** | 2026-10-10 |
+| **Relates to** | `docs/prompt_efficacy_study.md` (the phrasing-tier axis L0–L4 this ADR adds a second axis alongside, not a replacement for), ADR-042 (the efficacy-record schema this ADR's new fields extend, per that ADR's own precedent for schema growth), PF-076 / `docs/records/efficacy-adversarial-review-2026-10-09.md` (the session that surfaced the gap this ADR closes — see "Context"), `score_efficacy.py`'s judge (the existing pattern this ADR's "simulated user" reuses), COLLABORATION.md §2 (a new multi-consumer schema field is Tier-2/consult territory, same class of decision as ADR-042) |
+
+**Context**
+
+`docs/prompt_efficacy_study.md`'s L0–L4 tiers (§2) model one axis of real-world usage
+variation: how much domain vocabulary a prompt carries, from "DSP engineer" down to
+"artist/song reference only." They say nothing about a second, orthogonal axis: **what the
+user does after the first generation attempt.** A developer who reads a compiler error and
+issues a precise follow-up, an automation client that only uses the product's own bounded
+retry loop, an enthusiast who never retries at all, and a beginner who can't act on an error
+message are all currently the same thing to every study in this repo — one `generate()` call,
+scored once. `grep -c "persona" bench/*.py` returns zero; nothing varies interaction behavior.
+
+This gap was named, not invented, during this session's adversarial review of the faust-rs
+efficacy study (`docs/records/efficacy-adversarial-review-2026-10-09.md`) and the user's own
+framing afterward: a wish to "simulate high-scale usage of PluginForge by a variety of
+people (developers, agents, enthusiasts, beginners)" and use what's found to improve the
+product. That is a usage-*pattern* question, not a phrasing question, and the existing
+harness has no axis for it.
+
+**Decision**
+
+1. **Add a second axis, crossed sparingly with the existing tier axis — not a full product.**
+   Four named personas, each a fixed (tier, interaction-policy) pair, not a cross of every
+   tier × every policy:
+
+   | Persona | Tier | Interaction policy | What it tests |
+   |---|---|---|---|
+   | `dsp_engineer_iterate` | L4 | Reads the real compiler/render-oracle result, issues a targeted follow-up via Iterate mode, up to 5 turns | Convergence for a sophisticated, precise user |
+   | `enthusiast_oneshot` | L2 | Stops after attempt 1, success or not — **no** retry, including the product's own | The product's unaided first-impression rate, with no credit for the built-in loop |
+   | `agent_noreview` | any | Uses only `llm/generate.py`'s existing bounded auto-retry (currently up to 3 attempts), then stops | Whether the built-in loop alone is sufficient with zero human or escalation in it |
+   | `beginner_confused` | L0/L1 | On failure, a cheap LLM call (same shape as `score_efficacy.py`'s judge, different job) decides: retry with a vaguer restatement, or abandon — its system prompt is instructed not to understand compiler jargon | Graceful degradation when the user cannot act on feedback |
+
+2. **Reuse the real pipeline, not a second implementation.** Every persona calls
+   `llm/generate.py` directly (both Fresh and Iterate modes), the real `render_oracle.py`, the
+   real `fidelity_gate.py` tiers — the same discipline PF-076's adversarial review enforced
+   retroactively (arm A's wrapper had to match the product's real loop) is a *design*
+   constraint here from the start, not a correction applied later.
+3. **The "simulated user" step is a sibling of the existing judge, not a new primitive.**
+   `beginner_confused`'s next-turn decision and `dsp_engineer_iterate`'s follow-up instruction
+   are both one LLM call with a persona-specific system prompt, mirroring `score_efficacy.py`'s
+   judge call (same cost/quota shape, same "it is a model grading/driving a model" caveat).
+4. **Schema: extend, don't replace.** Add `persona_id`, `turn_index`, `stopped_reason`
+   (`converged` / `abandoned` / `exhausted_retries`) to the efficacy-record schema
+   `run_efficacy_study.py` writes, following ADR-042's own precedent (default to absent/`None`
+   for every existing record — absence-of-claim, not a false claim, same discipline
+   `render_oracle.py` already applies).
+5. **Runs on hosted free-tier providers (groq/gemini), scheduled via GitHub Actions cron —
+   not local ollama.** This axis measures behavior, not weak-local-model diagnostic quality
+   (that is PF-076/WP3's separate, already-slow-for-good-reason question); there is no reason
+   to inherit a 27-hour local-CPU runtime for a question that doesn't need a local model at
+   all. A cron cadence must stay inside existing provider rate limits — this is the same open
+   quota-pressure risk `score_efficacy.py --judge` already carries, multiplied by a schedule,
+   and must be throttled explicitly, not assumed safe because each individual call is free.
+
+**Alternatives considered**
+
+- **Full cross of all tiers × all policies.** Rejected: combinatorial explosion divides the
+  per-cell sample budget the same way every added axis has in this repo's prior studies
+  (PF-031's noise-floor finding); four fixed, deliberately chosen combinations are more
+  statistically honest than twenty thin ones.
+- **A new, bespoke harness instead of calling `llm/generate.py` directly.** Rejected on
+  PF-076's own lesson: a second implementation of the generation loop drifts from the
+  product's real behavior and reintroduces exactly the wrapper-mismatch confound that
+  session's adversarial review spent most of its effort correcting after the fact.
+- **Running this on local ollama for consistency with PF-076/WP3.** Rejected: those studies
+  are *about* a weak local model; this axis is about user/agent behavior and gains nothing
+  from local inference except WP3's own 27-hour runtime problem. Hosted free-tier is both
+  cheaper in wall-clock and the right instrument for the question being asked.
+- **A standing cloud VM or self-hosted CI runner, provisioned now, to run this "continuously."**
+  Rejected for now, per CLAUDE.md §12 (scope control — "every additional abstraction layer
+  must solve a demonstrated problem"): this ADR proposes the design, not the infrastructure
+  to run it unattended forever. A small pilot (one effect, all four personas, ~20 runs) should
+  run and be reviewed before any cron/standing-infra decision is made.
+
+**Consequences**
+
+- Every archive on disk is unaffected — the new schema fields default to absent, exactly as
+  ADR-042's `rep`/`system_prompt_sha`/`faust_version` did.
+- Blast radius if implemented: `bench/run_efficacy_study.py` (or a sibling driver),
+  `bench/prompts/` (a new persona-definition file alongside `tiered_prompts.json`),
+  `tests/test_efficacy_unit.py`. No product code, no C++, no change to `llm/generate.py`
+  itself — personas are callers of the existing pipeline, not modifications to it.
+- **The simulated-user LLM's behavior is not validated against real users by construction.**
+  "How our simulated beginner behaves" is a claim about the simulation, not about real
+  beginners, until checked against real session data (if any exists) or a human reviewer's
+  judgment that the transcripts are plausible. Any report drawn from this axis must carry that
+  caveat explicitly — the same bar this repo already holds every other study to.
+- **This ADR lands no code.** It is a design proposal, written up for hand-off, pending the
+  pilot run and the human's decision on whether/how it becomes a scheduled, continuous study.
