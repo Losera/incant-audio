@@ -6,6 +6,13 @@ Losera/incant-audio#26, addressed to Stéphane Letz (GRAME), following up on the
 
 Edit freely before posting — this is a starting draft, not a final text. Delete this file
 after posting, per the same convention the prior (already-posted) draft used.
+
+⚠ SUPERSEDED 2026-10-11, never posted. WP3 ran and found the actual mechanism (not just
+that this draft's "cause unknown" framing was incomplete) — see
+`docs/records/issue26-correction-draft-2026-10-11.md`, which supersedes this draft in full
+(it restates items 1/3/4 below plus the real answer to item 2). Post that one, not this one.
+Kept here, unposted, as the record of what this session's draft said before the WP3 result
+came in.
 -->
 
 Hi Stéphane — a correction to what I told you on 08-09.

@@ -31,28 +31,25 @@ error than the C++ Faust compiler — does that make the
 *generate → compile → correct* loop converge faster? Can the LLM better
 understand what the corrected DSP has to be, so fewer retries are needed?
 
-**Answer, so far:** for a small local repair model, **no — it makes the loop
-worse.** Feeding faust-rs's diagnostic text back to the model verbatim lowered
+**Answer (as originally measured, uncontrolled):** for a small local repair model,
+feeding faust-rs's diagnostic text back to the model verbatim lowered
 *repaired-within-2-attempts* from **74% → 43%** on `qwen2.5-coder:3b` and
 **73% → 49%** on `qwen2.5-coder:7b` (Q3), McNemar exact *p* < 1e-8 on every 3B
 cell; arm A also needed fewer attempts. Trimming faust-rs to code + message +
-caret (arm C) did not change this, so it is not verbosity. **Untested: a
-frontier model** — the gap already narrowed from the 3B to the 7B.
+caret (arm C) did not change this, so it is not verbosity. These numbers are
+real and unchanged below — what changed, twice, is the explanation for them.
 
-**⚠ 2026-09-24 correction — read this before the mechanism section below.**
-The result above (74%→43%, 73%→49%, p<1e-8) is unchanged. The *why* is not
-what an earlier version of this README said. See "Why" below.
-
-**Status: qualified — pending WP3.** The *numbers* above are not withdrawn. The
-*comparative* reading — "faust-rs's diagnostic, as such, makes the loop worse" — is, until
-WP3 runs: arm B's wrapper is unmatched (L3), its source visibility differs from arm A's in a
-way that isn't a clean 0/1 (L12/L14), and for the `syntax` subgroup specifically, 87% of
-arm B's feedback had faust-rs's own suggested fix deleted before the model saw it (L15). What
-survives untouched by any of that: arm A beats arm B/C, paired, on this corpus, at this
-significance. What is *not yet shown*: that faust-rs's diagnostic *content*, fairly presented
-with faust-rs's own remedy included, under a matched wrapper, is what's driving it rather than
-the wrapper or the asymmetric visibility. `bench/repair_ab_repro/run_wp3.py` implements the
-test; it has not been run (no `wp3_*.json` exists in `bench/results/repair_ab/`).
+**⚠ 2026-10-11 — the real answer to Stéphane's question: it was never about faust-rs
+specifically.** WP3 (pre-registered 2026-09-24, run 2026-10-10/11,
+`docs/records/wp3-results-2026-10-11.md`) held the correction wrapper fixed across every
+arm and made source-line visibility an explicit, controlled toggle — something the original
+A/B never did. Result: **faust-rs's diagnostic content alone, fairly presented, shows NO
+significant effect** (B2n vs A2, p = 0.545). What drives the whole original result is
+**showing the model one caret-quoted line of its own broken program** — true whether that
+line arrives via faust-rs's full renderer (B2 vs B2n, p = 5.32e-10) or faust-rs's minimal
+one (C2 vs C2n, p = 1.86e-13). Visibility, not faust-rs, is the mechanism. The 2026-09-24
+correction below (caret-anchoring withdrawn, cause unknown) was a real and necessary fix at
+the time; WP3 supersedes it with an actual answer rather than leaving the mechanism open.
 
 ---
 
