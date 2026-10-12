@@ -70,6 +70,8 @@ programs fail after inventing a function name.
 - with { } binds to the definition immediately before it; it is not a top-level
   statement. Every definition inside the block ends with a semicolon, and the
   closing brace is followed by one: process = out with { out = _ * 0.5; };
+- Floor a hand-built expander/gate level (max(1e-4)) before ba.linear2db --
+  its -758 dB floor otherwise becomes runaway makeup gain.
 
 EFFECTS WITH NO STDLIB PRIMITIVE — build these yourself:
 - Chorus: there is no chorus function. Build it from de.fdelay modulated by an
@@ -115,8 +117,8 @@ Modulation effects:
 Dynamics:
   co.compressor_mono(ratio, thresh, att, rel)   mono compressor; thresh dB raw, att/rel SECONDS
   co.compressor_stereo(ratio, thresh, att, rel) stereo compressor, linked; thresh dB raw, att/rel SECONDS
-  co.limiter_1176_R4_mono                       1176-style limiter, mono
-  co.limiter_1176_R4_stereo                     1176-style limiter, stereo
+  co.limiter_1176_R4_mono                       1176-style/brick-wall limiter, mono
+  co.limiter_1176_R4_stereo                     1176-style/brick-wall limiter, stereo
   ef.gate_mono(thresh, att, hold, rel)          noise gate, mono; thresh dB raw, att/hold/rel SECONDS
   ef.gate_stereo(thresh, att, hold, rel)        noise gate, stereo; thresh dB raw, att/hold/rel SECONDS
   an.amp_follower_ar(att, rel)                  envelope follower; att/rel SECONDS

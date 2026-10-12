@@ -976,6 +976,38 @@ def _check_never_decays(r: dict) -> tuple[bool, str]:
                   f"env_final={t['env_db_final']:+.1f}dB")
 
 
+def _check_expander_runaway(r: dict) -> tuple[bool, str]:
+    """PF-079: an unfloored dB-domain expander formula, driven near silence.
+
+    basics.lib:163's `linear2db(g) = 20*log10(max(ma.MIN, g))` floors at -758 dB
+    (single precision) -- a divide-by-zero guard, not a silence floor. A gain
+    formula built directly on that value explodes into hundreds of dB of makeup
+    gain the instant the tracked level is quiet; +715 dB was measured live
+    against two independent models (docs/BUGS.md PF-079). Accepts nan_inf too:
+    which specific code fires is a precision-mode detail, not the defect.
+    """
+    m = r["measurement"]
+    good = not m["ok"] and (m["has_nan_inf"] or m["rms_ratio_db"] > 40 or m["peak"] > 100)
+    return good, (f"ok={m['ok']} nan_inf={m['has_nan_inf']} "
+                  f"rms_ratio={m['rms_ratio_db']:+.1f}dB peak={m['peak']:.3g} codes={m['codes']}")
+
+
+def _check_limiter_arm_inversion(r: dict) -> tuple[bool, str]:
+    """PF-079: select2's arms swapped in a hand-built threshold clamp.
+
+    select2(cond, whenFalse, whenTrue) returns whenTrue when cond is TRUE --
+    basics.lib:1888's `if(cond,then,else) = select2(cond,else,then)` is the
+    same mapping written the other way round. select2(x > thresh, thresh, x)
+    clamps BELOW threshold instead of above it: every quiet sample is replaced
+    by the threshold constant, producing sustained DC that never responds to
+    the input (measured DC 0.95-0.98 live).
+    """
+    m, t = r["measurement"], r["tail"]
+    good = not m["ok"] and m["dc_offset"] > 0.5 and m["never_decays"]
+    return good, (f"dc_offset={m['dc_offset']:.3f} never_decays={m['never_decays']} "
+                  f"env_final={t['env_db_final']:+.1f}dB codes={m['codes']}")
+
+
 _SELF_TEST = {
     "lowpass": ('import("stdfaust.lib");\n'
                 'process = fi.resonlp(1000, 0.707, 1.0), fi.resonlp(1000, 0.707, 1.0);',
@@ -1005,6 +1037,23 @@ _SELF_TEST = {
                      'process = comb, comb;',
                      "RED: green on every old gate, but the new gate must fire",
                      _check_never_decays),
+    "expander_runaway_gain": (
+        'import("stdfaust.lib");\n'
+        'threshold = -30; ratio = 2;\n'
+        'level_db = 0 : ba.linear2db;\n'
+        'gain_db = select2(level_db < threshold, 0, (threshold-level_db)*(ratio-1));\n'
+        'g = gain_db : ba.db2linear;\n'
+        'process = _*g, _*g;',
+        "RED: PF-079 -- no envelope floor before ba.linear2db, hundreds of dB "
+        "of makeup gain",
+        _check_expander_runaway),
+    "limiter_arm_inversion": (
+        'import("stdfaust.lib");\n'
+        'thresh = 0.98;\n'
+        'lim(x) = select2(x > thresh, thresh, x);\n'
+        'process = lim, lim;',
+        "RED: PF-079 -- select2 arms swapped, sustained DC at thresh, never decays",
+        _check_limiter_arm_inversion),
 }
 
 

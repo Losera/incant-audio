@@ -133,8 +133,11 @@ CURATED: list[tuple[str, list[tuple[str, str, str]]]] = [
         # control-arm generations against the unannotated text were broken.
         ("co", "compressor_mono",         "mono compressor; thresh dB raw, att/rel SECONDS"),
         ("co", "compressor_stereo",       "stereo compressor, linked; thresh dB raw, att/rel SECONDS"),
-        ("co", "limiter_1176_R4_mono",    "1176-style limiter, mono"),
-        ("co", "limiter_1176_R4_stereo",  "1176-style limiter, stereo"),
+        # PF-079: "brick-wall limiter" and "mastering limiter" requests were
+        # hand-rolled with an inverted select2 clamp instead of reaching for
+        # this existing function -- named as a synonym so the mapping is free.
+        ("co", "limiter_1176_R4_mono",    "1176-style/brick-wall limiter, mono"),
+        ("co", "limiter_1176_R4_stereo",  "1176-style/brick-wall limiter, stereo"),
         ("ef", "gate_mono",               "noise gate, mono; thresh dB raw, att/hold/rel SECONDS"),
         ("ef", "gate_stereo",             "noise gate, stereo; thresh dB raw, att/hold/rel SECONDS"),
         ("an", "amp_follower_ar",         "envelope follower; att/rel SECONDS"),
