@@ -19,9 +19,17 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import traceback
 from pathlib import Path
 from dotenv import load_dotenv
+
+# Wall-clock anchor for _capture_budget_s() below, taken as early as possible
+# (before the heavier providers/router/recommendation/ui_face imports) so
+# "elapsed since start" includes their import cost too -- that cost is part
+# of the "~2s interpreter startup" already spent in the margin arithmetic
+# above _DEFAULT_GENERATION_BUDGET_S.
+_PROCESS_START_MONO = time.monotonic()
 
 sys.path.insert(0, str(Path(__file__).parent))
 import providers  # noqa: E402
@@ -828,6 +836,47 @@ def log_user_prompt(request: dict, response: dict) -> None:
         print(f"[prompt-log] not recorded: {exc}", file=sys.stderr)
 
 
+# ── Capture time budget ──────────────────────────────────────────────────────
+# VERIFIED (Step 0, this fix): host/Source/PromptPanel.cpp's subprocess path is
+# a BLOCKING read, not an incremental one. child.waitForProcessToFinish()
+# polls only isRunning() (PromptPanel.cpp:1343-1344's "SUBTLE" comment,
+# confirmed against juce_ChildProcess.cpp) and child.readAllProcessOutput()
+# (PromptPanel.cpp:1358, "blocks until EOF") is only ever called AFTER that
+# wait returns successfully. On the timeout branch (PromptPanel.cpp:1311-1339)
+# the child is kill()ed and the function returns WITHOUT ever calling
+# readAllProcessOutput() — so anything already sitting in the child's stdout
+# pipe at the moment of the kill is never read, regardless of when this
+# process wrote it. Printing the ADR-011 response earlier therefore cannot by
+# itself rescue a generation from the kill: the host only ever learns the
+# result by this PROCESS EXITING, not by data becoming available. What
+# actually protects a successful generation is making sure this process
+# exits well before host/Source/PromptPanel.h's kSubprocessTimeoutMs (~line
+# 458) fires — i.e. bounding _capture()'s own runtime, not reordering it
+# around print().
+#
+# generation_budget()'s own worst case already spends ~157s of the host's
+# 180s (see the margin arithmetic in the comment above
+# _DEFAULT_GENERATION_BUDGET_S). bench/capture.py's _render_tail() used to
+# inherit render_oracle.render()'s un-overridden 120s build + 120s run
+# timeouts on top of extract_params()'s own 30s — up to 270s more — which
+# could push this process's total wall clock past kSubprocessTimeoutMs and
+# get it SIGKILLed before it ever printed the already-successful response.
+# _capture_budget_s() computes whatever of the host's deadline is actually
+# left and hands it to bench/capture.py so it can bound itself to that,
+# instead of to its own much larger standalone defaults.
+_HOST_KILL_TIMEOUT_S = 180.0   # host/Source/PromptPanel.h:458 kSubprocessTimeoutMs; keep in sync
+_CAPTURE_EXIT_MARGIN_S = 5.0   # reserved for the final print() + json + process teardown
+
+
+def _capture_budget_s() -> float:
+    """Seconds remaining before the host's SIGKILL backstop, minus a small
+    margin for this process's own exit. Can go negative (generation already
+    ran long); bench/capture.py treats anything below its own minimum as
+    "skip the expensive part," never as an error."""
+    elapsed = time.monotonic() - _PROCESS_START_MONO
+    return _HOST_KILL_TIMEOUT_S - elapsed - _CAPTURE_EXIT_MARGIN_S
+
+
 def _capture(request: dict, response: dict) -> None:
     """Opt-in interactive capture harness (`PLUGINFORGE_CAPTURE=1`), see
     bench/capture.py. The env check happens BEFORE the import so a normal
@@ -835,7 +884,9 @@ def _capture(request: dict, response: dict) -> None:
     into this process — those are bench/'s dependencies, not llm/'s.
 
     FAIL-OPEN, same contract as log_user_prompt just above: a capture that
-    cannot be written must never cost the caller their generation.
+    cannot be written must never cost the caller their generation. See
+    _capture_budget_s() above for why that now also means bounding how long
+    capture is allowed to run, not just catching its exceptions.
     """
     if os.environ.get("PLUGINFORGE_CAPTURE", "").strip().lower() not in {"1", "true", "on", "yes"}:
         return
@@ -844,7 +895,7 @@ def _capture(request: dict, response: dict) -> None:
         if bench_dir not in sys.path:
             sys.path.insert(0, bench_dir)
         import capture as capture_mod
-        capture_mod.capture_generation(request, response)
+        capture_mod.capture_generation(request, response, budget_s=_capture_budget_s())
     except Exception as exc:  # noqa: BLE001 - see FAIL-OPEN above
         print(f"[capture] not recorded: {exc}", file=sys.stderr)
 
