@@ -1,4 +1,8 @@
-# PluginForge — Claude Code Context
+# PluginForge project context (legacy Claude Code filename)
+
+`AGENTS.md` is the runtime-neutral entry point. This file retains its historical
+name for Claude Code discovery and compatibility, but its product invariants,
+architecture, and verification rules apply to every coding agent.
 
 ## Naming  *(2026-08-11)*
 **The product is Incant Audio.** `PluginForge` is the internal synthesis engine and the
@@ -74,7 +78,9 @@ move with it, which is exactly why silent drift matters.
   replaced with an X11 tool. There is no `$DISPLAY`-based fallback.
 
 ## Where it currently stands
-**Run `/orient` first, every session.** It is the session-start read, authorized
+**Run `$orient` first, every session.** Its canonical procedure now lives at
+`.agents/skills/orient/SKILL.md`; the existing `/orient` command is the Claude
+Code adapter. It is the session-start read, authorized
 2026-07-27 to replace "read STATUS.md in full." It injects live repo state, **the CI status
 of the current branch** (added 2026-07-28 — red, green-on-an-older-commit and unreachable
 all print a banner; silence is the one forbidden output), plus the open half of STATUS.md —

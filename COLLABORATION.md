@@ -1,8 +1,12 @@
 # PluginForge — Collaboration Protocol
 
-CLAUDE.md answers "what is this project." This document answers "how do we build it."
+`AGENTS.md` is the runtime-neutral entry point. `CLAUDE.md` answers "what is this
+project" under a legacy discovery filename. This document answers "how do we build it."
 `STATUS.md` answers "where is it right now." Load this file at the start of any
 non-trivial session.
+
+Historical uses of “Claude” below mean the active coding agent, regardless of
+runtime. Runtime-specific behavior is named explicitly when it matters.
 
 **Revision 2 (2026-07-21).** Replaces the three-mode (DELEGATE / PAIR / HUMAN-OWNED)
 protocol. Rationale for the change is in §9 — read it once, then never again.

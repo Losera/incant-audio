@@ -96,6 +96,12 @@ bench/.worktrees/
 # read by either hook; local per-machine telemetry, never repo content.
 .claude/handoff-log.jsonl
 
+# Runtime-neutral agent session state. Skills and policy under .agents/ remain
+# tracked; only per-worktree handoffs and snapshots under singular .agent/ are
+# transient. Legacy .claude state stays readable during migration.
+/.agent/HANDOFF.md
+/.agent/handoff-state.json
+
 # PF-014 real-user prompt log. Local observation data, not repo content: it records
 # what a person actually typed at this machine. Never committed — the benchmark
 # corpus is derived from it by hand, deliberately.

@@ -40,7 +40,9 @@ from pathlib import Path
 # precedent as handoff_injector.py's PLUGINFORGE_HANDOFF_LOG_PATH.
 ROOT = Path(os.environ["PLUGINFORGE_SCG_ROOT"]).resolve() if os.environ.get(
     "PLUGINFORGE_SCG_ROOT") else Path(__file__).resolve().parents[2]
-HANDOFF = ROOT / ".claude" / "HANDOFF.md"
+PORTABLE_HANDOFF = ROOT / ".agent" / "HANDOFF.md"
+LEGACY_HANDOFF = ROOT / ".claude" / "HANDOFF.md"
+HANDOFF = PORTABLE_HANDOFF if PORTABLE_HANDOFF.exists() else LEGACY_HANDOFF
 
 RECENT_MINUTES = 8          # a transcript touched more recently than this = "maybe live"
 MAX_LISTED_PATHS = 15       # cap the dirty-file list so the banner stays readable
@@ -90,7 +92,7 @@ def _check_foreign_handoff(branch):
 
     return (
         "FOREIGN HANDOFF\n"
-        f"  .claude/HANDOFF.md describes work on branch '{recorded_branch}', "
+        f"  {HANDOFF.relative_to(ROOT)} describes work on branch '{recorded_branch}', "
         f"you are on '{branch}'.\n"
         "  It is almost certainly another effort's handoff. /handoff REPLACES that\n"
         "  one file -- writing yours drops whatever it still owes. Before running\n"

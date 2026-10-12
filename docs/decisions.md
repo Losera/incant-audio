@@ -2361,3 +2361,40 @@ fill a slot in an external pipeline diagram.
 `acceptancePlan` JSON shape, the `bench/evaluate_against_plan.py` CLI surface, and which
 `check.sh` level (if any) runs it by default are implementation-session decisions, not
 settled here.
+
+---
+
+## ADR-038 — Runtime-agnostic agent workflow
+
+**Status:** Accepted 2026-09-08; implementation prepared for human semantic review
+**Date:** 2026-09-08
+
+**Problem.** The engineering policy and deterministic checks are useful outside Claude
+Code, but their entry points and continuity state are coupled to `.claude/`, Claude hook
+events, Claude tool names, and `$CLAUDE_PROJECT_DIR`. A Codex session could execute the
+underlying scripts only after discovering and translating Claude-specific skills by hand.
+Correctness controls also appeared stronger than they were to runtimes that never dispatch
+Claude hooks.
+
+**Decision.** `AGENTS.md` becomes the runtime-neutral entry point. Canonical `$orient`,
+`$brief`, `$recap`, and `$handoff` procedures live in `.agents/skills/`; deterministic
+behavior lives in `tools/`. Runtime-specific skills are thin adapters and may not redefine
+the procedure. Per-worktree continuity moves to gitignored `.agent/HANDOFF.md` and
+`.agent/handoff-state.json`, with readers falling back to legacy `.claude/` state during
+migration. Claude hooks remain fast feedback, but `tools/check.sh` and CI are the portable
+enforcement boundary.
+
+**Alternative considered.** Copy the existing Claude skills into each runtime's native
+directory. Rejected as the steady state because independent procedural copies recreate the
+stale-control failure this repository has repeatedly measured. Thin adapters are still
+necessary for discovery, but they point at one canonical procedure.
+
+**Consequences.** A runtime without hook or skill discovery must explicitly run the
+commands named by `AGENTS.md`; portability cannot manufacture lifecycle events the runtime
+does not expose. The additive migration leaves Claude behavior recoverable: no product,
+provider, persisted-plugin-state, build, or distribution contract changes, and adapters can
+be pointed back at the legacy skills if the neutral layer proves inadequate.
+
+**Not decided.** This ADR does not standardize vendor hook schemas, add an agent
+orchestrator, or make parallel agents mandatory. It does not rename PluginForge/Incant
+identifiers or move product architecture out of the existing documents.

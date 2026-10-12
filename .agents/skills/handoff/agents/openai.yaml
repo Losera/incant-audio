@@ -1,0 +1,4 @@
+interface:
+  display_name: "PluginForge Handoff"
+  short_description: "Persist a portable PluginForge session handoff"
+  default_prompt: "Use $handoff to preserve the current PluginForge task state for another runtime."

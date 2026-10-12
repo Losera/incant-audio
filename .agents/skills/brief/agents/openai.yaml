@@ -1,0 +1,4 @@
+interface:
+  display_name: "PluginForge Brief"
+  short_description: "Build an evidence-backed PluginForge briefing"
+  default_prompt: "Use $brief to give me a cold re-entry briefing and ranked next actions."

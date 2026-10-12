@@ -4,11 +4,11 @@
 # for /recap's repo-state section.
 #
 # "Since last session" resolution order:
-#   1. .claude/HANDOFF.md's `head=` meta comment -- the HEAD recorded the last
+#   1. .agent/HANDOFF.md's `head=` meta comment -- the runtime-neutral boundary.
+#   2. .agent/handoff-state.json's "head" field -- its machine-only fallback.
+#   3. Legacy .claude/HANDOFF.md and handoff-state.json during migration.
 #      time a session deliberately closed out (see .claude/skills/handoff).
-#   2. .claude/handoff-state.json's "head" field -- the PreCompact safety net,
-#      used only when no HANDOFF.md exists.
-#   3. Neither exists: fall back to the last 10 commits, clearly labeled as a
+#   4. None exists: fall back to the last 10 commits, clearly labeled as a
 #      fallback rather than a real boundary -- do not let this print as if it
 #      were one.
 #
@@ -18,27 +18,38 @@
 
 set -uo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="${PLUGINFORGE_RECAP_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 cd "$ROOT"
 
-HANDOFF="$ROOT/.claude/HANDOFF.md"
-STATE="$ROOT/.claude/handoff-state.json"
+HANDOFFS=("$ROOT/.agent/HANDOFF.md" "$ROOT/.claude/HANDOFF.md")
+STATES=("$ROOT/.agent/handoff-state.json" "$ROOT/.claude/handoff-state.json")
 
 SINCE=""
 SOURCE=""
 
-if [[ -f "$HANDOFF" ]]; then
-  SINCE=$(grep -o 'head=[0-9a-f]\{7,40\}' "$HANDOFF" | head -1 | cut -d= -f2)
-  [[ -n "$SINCE" ]] && SOURCE="HANDOFF.md"
-fi
+for HANDOFF in "${HANDOFFS[@]}"; do
+  if [[ -f "$HANDOFF" ]]; then
+    SINCE=$(grep -o 'head=[0-9a-f]\{7,40\}' "$HANDOFF" | head -1 | cut -d= -f2)
+    if [[ -n "$SINCE" ]]; then
+      SOURCE="${HANDOFF#"$ROOT/"}"
+      break
+    fi
+  fi
+done
 
-if [[ -z "$SINCE" && -f "$STATE" ]]; then
-  SINCE=$(python3 -c "import json,sys
+if [[ -z "$SINCE" ]]; then
+  for STATE in "${STATES[@]}"; do
+    [[ -f "$STATE" ]] || continue
+    SINCE=$(python3 -c "import json
 try:
     print(json.load(open('$STATE')).get('head') or '')
 except Exception:
     pass" 2>/dev/null)
-  [[ -n "$SINCE" ]] && SOURCE="handoff-state.json"
+    if [[ -n "$SINCE" ]]; then
+      SOURCE="${STATE#"$ROOT/"}"
+      break
+    fi
+  done
 fi
 
 echo "### Since last session"

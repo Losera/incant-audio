@@ -1,0 +1,4 @@
+interface:
+  display_name: "PluginForge Orient"
+  short_description: "Inspect live PluginForge session and project state"
+  default_prompt: "Use $orient to orient this session before substantive PluginForge work."

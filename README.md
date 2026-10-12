@@ -149,7 +149,8 @@ PluginForge/
 ## 🤝 Agentic Engineering & Open Governance
 
 Incant Audio is developed via an explicit human-agent pairing protocol:
-- **`CLAUDE.md`**: Project invariants, toolchain configuration, real-time safety rules, and test ladder specs.
+- **`AGENTS.md`**: Runtime-neutral session, worktree, verification, and handoff entry point.
+- **`CLAUDE.md`**: Legacy-discovery filename for project invariants, toolchain configuration, real-time safety rules, and test ladder specs; applies to every agent.
 - **`COLLABORATION.md`**: Protocol governing change reports, evidence verification standards, and architectural triggers.
 - **`docs/decisions.md`**: Architectural Decision Records (ADRs).
 - **`docs/BUGS.md`**: Durable ID-tracked defect registry (`PF-NNN`).

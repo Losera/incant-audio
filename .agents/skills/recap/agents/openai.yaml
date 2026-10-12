@@ -1,0 +1,4 @@
+interface:
+  display_name: "PluginForge Recap"
+  short_description: "Recap work since the last session boundary"
+  default_prompt: "Use $recap to summarize this session and repository progress."

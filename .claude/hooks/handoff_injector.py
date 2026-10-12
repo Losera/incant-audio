@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SessionStart hook: re-injects .claude/HANDOFF.md so a context clear, a compaction,
+"""SessionStart hook: injects the portable handoff (or legacy Claude fallback) so a context clear, a compaction,
 or a resumed session sees it without being told to look. This is the guard half of
 ADR-028 -- it makes a handoff that EXISTS impossible to miss. It cannot make one get
 WRITTEN; nothing in Claude Code can force a skill to run. See /handoff and
@@ -39,8 +39,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-HANDOFF = ROOT / ".claude" / "HANDOFF.md"
-STATE = ROOT / ".claude" / "handoff-state.json"
+PORTABLE_HANDOFF = ROOT / ".agent" / "HANDOFF.md"
+LEGACY_HANDOFF = ROOT / ".claude" / "HANDOFF.md"
+PORTABLE_STATE = ROOT / ".agent" / "handoff-state.json"
+LEGACY_STATE = ROOT / ".claude" / "handoff-state.json"
+HANDOFF = PORTABLE_HANDOFF if PORTABLE_HANDOFF.exists() else LEGACY_HANDOFF
+STATE = PORTABLE_STATE if PORTABLE_STATE.exists() else LEGACY_STATE
 LOG = Path(os.environ["PLUGINFORGE_HANDOFF_LOG_PATH"]) if os.environ.get(
     "PLUGINFORGE_HANDOFF_LOG_PATH") else ROOT / ".claude" / "handoff-log.jsonl"
 
