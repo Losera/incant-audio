@@ -715,110 +715,88 @@ clock — no host transport in Standalone).
    `phase3-pf024-invalid-generation-families.md`. Each leads with a re-measurement WP: the
    prompt already contains the fix text for all three, and the open question is whether the
    shipping model obeys it.
-6. **Branch + worktree cleanup — reconciled 2026-09-18, not yet performed.** `task/adr035-verification-loop`
-   (`.worktrees/adr035-step6`) is gone — #78 merged and it was already cleaned up between
-   rewrites. `fix/ember-console-palette` no longer exists locally either — resolved off-screen,
-   nothing left to triage. Two items from the 09-10 list are unchanged and still need your
-   call: `.worktrees/shell-command-bar` (ADR-036 WIP, still awaiting review) and
-   `.worktrees/runtime-agnostic-workflow` (still **16 uncommitted files**, not re-verified
-   this pass — **still needs your triage**). `.worktrees/codex-llm-generation-professional`
-   and `.worktrees/main-session` unchanged, left alone.
+6. **Branch + worktree cleanup — performed 2026-10-12.** The cleanup this section carried as
+   "reconciled, not yet performed" for three weeks is done. Before deleting anything, four
+   read-only agents audited the branches this file's prior passes could not resolve
+   mechanically (squash-merges don't show as ancestors — verified three independent ways:
+   `merge-base --is-ancestor`, `git cherry` patch-id, `merge-tree` tree equality, cross-checked
+   against `gh pr list --state merged`).
 
-   **Not inventoried above:** `.worktrees/efficacy-semantics` (branch
-   bench/efficacy-semantics-2026-09-23) — the 2026-09-23/24 faust-rs + efficacy work,
-   **now pushed and PR #94 open** (was local-only when this file was rewritten 2026-09-18).
-   Add to the "DO NOT delete" list below once merged, remove once the PR lands.
+   **Result: 26 of 32 local branches deleted, 16 of 20 worktrees removed, 23 remote branches
+   deleted, ~39 GB reclaimed (56 GB → 17 GB).** The primary checkout moved from the stale
+   `pr-92-review` (38 commits behind) to `main`, fast-forward only — no reset, no history
+   rewrite. `tools/check.sh fast` is green on the result.
 
-   **Correction to "do not touch" below, 2026-09-24:** a point-in-time snapshot of
-   `.worktrees/efficacy-pf031`'s uncommitted n≥3 checkpoint (38/125 cells,
-   `efficacy_groq_n3_rep1_20260915.json` + one stray record) is **now also committed**, as-is
-   and unscored, on bench/efficacy-semantics-2026-09-23
-   (`bench/results/efficacy/efficacy_groq_n3_rep1_20260915.json` +
-   `…PROVENANCE.md`) — a backup against the exact "somebody's mid-run, don't lose it" risk
-   this section already named, done by *copying*, not moving. **The live worktree itself is
-   untouched and the "do not touch" guidance below still stands** — whoever is mid-run there
-   may have added cells beyond the 38 this snapshot captured; check `git status`/file size in
-   `.worktrees/efficacy-pf031` before assuming the committed copy is now the current state.
+   **Nothing was discarded without a recoverable copy.** Five archive tags were pushed to
+   `origin` *before* any deletion, for every worktree that held uncommitted work on an
+   already-merged branch: `archive/runtime-agnostic-workflow-2026-10-12`,
+   `archive/pf079-dynamics-stdlib-2026-10-12`, `archive/capture-harness-wip-2026-10-12`,
+   `archive/e1-aot-emit-wip-2026-10-12`, `archive/provider-resilience-snapshot-2026-10-12`.
+   `git show <tag> --stat` renders each preserved diff.
 
-   **Nine more worktrees are now stale-but-unremoved** — their branches merged 2026-09-12→15
-   (PRs #82–#90, all in "Landed 2026-09-12 → 2026-09-15" above) and nobody has run
-   `git worktree remove` on them yet: `.worktrees/f1-bipolar-knob`, `soundfetch-upgrade`,
-   `pf-043-ollama-context`, `adr-039-040-on-device-orchestration`, `adr-041-face-visuals`,
-   `pf032-gate-time-units`, `adr-reclassify`, `pf024-routing`, `adr041-step1`. Same
-   destructive-action-classifier reasoning as the branch deletions below — an agent won't run
-   the removal unprompted; flagging it here is the actual "still owed."
+   **Four branches this file's "DO NOT delete" list protected were resolved on evidence,
+   not deleted blind:**
+   - `feat/f2-f3-face-ladder` — **kept, pushed to origin.** ADR-038 F2/F3 (chip rows,
+     bespoke archetype geometry) is still "Authorized, parallel" per this file's own §Next-three
+     note and unsuperseded by ADR-044 (`docs/decisions.md:3544`, still `Proposed`). Its two
+     uncommitted files were not scratch work — a **finished** F3 implementation (column
+     height-balancing, a `transport-display` `VisualRegion`, a new `testColumnsBalanceHeight`)
+     that existed in no git object at all. Committed as-is (`0d067f2`,
+     **unbuilt, unverified** — say so if you pick this up) before anything else happened, then
+     pushed. Rebasing onto today's `main` will hit exactly one trivial conflict: both this
+     branch and PR #96 (PF-082) appended a test named `scenario58_...` at EOF — renumber this
+     branch's to 59.
+   - `feat/shell-command-bar` — **kept, pushed to origin.** ADR-036's "B0" disclosure-square
+     prep, direction-neutral per `docs/decisions.md:2259`, so it survives even if shell
+     direction 2a is abandoned. Merges against today's `main` with **zero conflicts**
+     (verified via `git merge-tree`). Correction to this file's own prior framing: the apparent
+     "−362 test lines" was a diff-direction artifact of being 58 commits stale, not the branch
+     deleting tests — its own test-file change is `+8/−5`.
+   - `chore/runtime-agnostic-workflow` — **archived, then deleted.** Preserved complete
+     (15 files: `AGENTS.md`, `tools/agent_session.py`, `.agents/`, hook/skill edits) in
+     `archive/runtime-agnostic-workflow-2026-10-12`. Still genuinely untriaged; nothing in this
+     cleanup evaluated whether the refactor itself is wanted, only that it is not lost.
+   - `feat/provider-resilience` — **archived, then deleted, on evidence, overriding this
+     file's own "still needs review/merge" note.** Two of its three pieces are already on
+     `main`, independently and later: the provider picker (ADR-032, PRs #42/#43) and the
+     per-request credential precheck (PR #72 — `tests/test_generate_unit.py`'s own docstring
+     records the identical correction one day after this branch's snapshot). The third piece —
+     a cloud↔cloud provider fallback chain — is the design `docs/decisions.md:2788` (ADR-039)
+     explicitly rejects on prompt-disclosure and cost grounds; ADR-039 asks for cloud→local
+     only. **Salvage pointer, not yet acted on:** this branch's typed `QuotaExhausted`
+     (subclasses `RateLimited`, carries `.scope`) and `ProviderUnavailable` exceptions are a
+     complete, test-covered implementation of **ADR-039 Decision step 1**
+     (`docs/decisions.md:2698-2703`, *"a prerequisite bugfix, independent of failover"*), which
+     `main` still lacks — `llm/providers.py` has `_is_daily_quota` but still raises a bare
+     `RuntimeError` at the end of `_post_with_backoff`/`_call_with_retry`. Cherry-pick from
+     `archive/provider-resilience-snapshot-2026-10-12:llm/providers.py` +
+     `...:tests/test_providers_unit.py` rather than rewriting it. If you'd rather read `9f260a0`
+     yourself before accepting this deletion, it's tagged either way — nothing is lost.
 
-   **Do not touch — live work, discovered this pass:** `.worktrees/efficacy-pf031`
-   (branch bench/efficacy-groq-n3-20260915) already has an uncommitted n≥3 checkpoint
-   (`efficacy_groq_n3_rep1_20260915.json`) toward "Next three things" #1 below — somebody's
-   mid-run. **Correction to this rewrite's first pass:** `.worktrees/pf032-remeasure`
-   (`chore/pf032-remeasure-noise-gate`) was wrongly described here as uncommitted live work
-   — it is not. `git status` in that worktree shows a clean tree, fully pushed to origin;
-   its one commit (`182996d`) carries the *identical* commit message to already-merged PR
-   #81's `7ba7d8c` ("bench: re-measure PF-032 noise gate — root cause was wrong (WP1)"), but
-   `git diff 7ba7d8c 182996d` shows `182996d` is missing 391 lines `7ba7d8c` has in
-   `docs/decisions.md` — it branched off an older point and never picked up what landed
-   there since. **Not safe to protect as live work, and not safe to delete unreviewed
-   either** — merging it as-is today would delete 391 lines of `docs/decisions.md`. Needs a
-   human to look at it (rebase and re-check whether the WP1 content still differs from what
-   #81 shipped, or discard) rather than sitting in either "protect" or "safe to delete."
-   **Three more added today** by this session's own dispatch, all active:
-   `.worktrees/truth-reconcile` (this rewrite), `.worktrees/e1-aot-emit` and
-   `.worktrees/capture-harness` (the two peer-session assignments — see the artifact linked
-   at the top of this file).
+   **One branch was discovered mid-cleanup that no tracked file had ever mentioned:**
+   `task/offline-eval-pilot` — a complete, self-contained, **$0, provider-free** deterministic
+   eval harness (`bench/run_eval.py`, 468 lines; `bench/cases.json`; 13 Faust fixtures;
+   `tests/test_run_eval.py`) that had sat on exactly one disk, unpushed, since 2026-09-07.
+   Verified not redundant with ADR-037's unbuilt `bench/evaluate_against_plan.py` (that scores
+   real generations against their own persisted `acceptancePlan`; this regression-tests curated
+   fixtures against hand-written expectations — complementary, not overlapping, bar THD which
+   `render_oracle.py` already computes) and verified still API-compatible with today's `main`
+   (every `render_oracle`/`p6_capture` symbol it imports still exists with a matching
+   signature). **Kept, pushed to origin.** Not yet executed against `main` — that's still owed.
 
-   **Still owed by a human:** `git push origin --delete` for the merged remote branches
-   below — the destructive-action classifier blocks agents from doing it.
-   `feat/provider-resilience` now has a pushed remote copy (`remotes/origin/feat/provider-resilience`)
-   but still no PR (`gh pr list --head feat/provider-resilience` → empty) — still an
-   unreviewed snapshot, just no longer local-only. Regenerate/verify the merged list with
-   `gh pr list --state merged --json headRefName,number` before running any deletion.
+   **Three stale entries in the prior "DO NOT delete" list, corrected:**
+   `bench/efficacy-groq-n3-20260915`'s "LIVE — uncommitted checkpoint" was no longer true — its
+   uncommitted JSON was byte-identical (35,419 B) to the copy already committed on `main`,
+   untouched for 27 days; `docs/status-md-2026-10-10-reconciliation` merged as #100
+   (`002da7f`); and the `.worktrees/efficacy-semantics` "NOT safe to touch" warning protected
+   PR #99, which has since merged — the sibling session it was guarding against has finished.
 
-   ```
-   MERGED — safe to delete (superset of the 09-10 list, plus 09-12→15's nine):
-     bench/issue26-repro-package               docs/status-pr55
-     chore/dynamics-fix-verification           feat/archetype-layout
-     chore/repair-ab-repro-naming              feat/dynamic-stdlib-retrieval
-     docs/adr-036-amendment-adr-037            feat/generated-face-fonts
-     docs/adr-038-face-export-resequence       feat/generated-face-knob
-     docs/correct-stale-session-loaded-claims  feat/generated-face-lnf
-     feat/recommendation-mvp                   feat/theme-validate
-     feat/ui-face                              feat/ui-face-wire
-     fix/issue26-integrity-2                   fix/issue26-makefile-smoke-score
-     fix/pedal-layout-packing                  fix/provider-precheck-per-request
-     issue26-integrity                         task/efficacy-groq-125
-     fix/bipolar-knob-arc                      feat/soundfetch-0.4.0
-     fix/pf-043-ollama-context                 docs/adr-039-040-on-device-orchestration
-     docs/adr-041-face-visual-layer            fix/pf032-gate-time-units
-     docs/adr-reclassify-routine               fix/pf024-named-mono-routing
-     feat/adr041-step1-visual-region           fix/pf082-gui-reopen
-     feat/health-schema-product-lane           docs/adr-043-044-routing-and-gui
-
-   DO NOT delete:
-     feat/provider-resilience        UNREVIEWED SNAPSHOT, now pushed — still needs review/merge
-     feat/shell-command-bar          ADR-036 WIP
-     research/llm-generation-professional   Codex research
-     chore/runtime-agnostic-workflow        uncommitted refactor, pending triage
-     bench/efficacy-groq-n3-20260915        LIVE — uncommitted n≥3 checkpoint, do not remove
-     docs/status-md-2026-10-10-reconciliation   this rewrite
-
-   MERGED since 2026-09-18, confirmed by PR search (squash-merges don't show as
-   ancestors, don't trust `git branch --merged` alone for these): feat/e1-aot-emit
-   (#92), feat/interactive-capture-harness (#93), docs/truth-reconcile-2026-09-18 (#91),
-   bench/efficacy-semantics-2026-09-23 (#95) — all four safe to delete, add to the list
-   above. **The `.worktrees/efficacy-semantics` directory is NOT safe to touch** — it is
-   checked out to a *different*, new, unmerged branch now (branch
-   docs/adr-045-usage-pattern-axis, PR #99 open) by a live sibling session; only the OLD
-   branch name is dead.
-
-   NEITHER — needs your call, not a mechanical delete or keep:
-     chore/pf032-remeasure-noise-gate       clean, pushed, NOT uncommitted (corrected above);
-                                             diverged from an older base than merged PR #81's
-                                             7ba7d8c — a raw delete could be fine or could lose
-                                             something #81 doesn't have; a raw merge would
-                                             regress docs/decisions.md by 391 lines. Look before
-                                             either.
-   ```
+   **The nine 2026-09-12→15 worktrees this file flagged as stale-but-unremoved, plus
+   `efficacy-pf031`/`efficacy-semantics`/`pf032-remeasure`, are removed.** Remaining worktrees:
+   the primary tree, `.worktrees/pf053-export-wire` (PF-053/ADR-038 E2-E3 export wiring, 233
+   uncommitted lines, untouched — this file's ranked priority #2, see §Next three), and the
+   three kept-branch worktrees above plus `codex-llm-generation-professional`
+   (`research/llm-generation-professional`, unmerged, left alone as before).
 7. **Untracked personal files left alone**, as always — the two notes at the repo root, the
    unshipped brief skill, the product-architecture draft under bench/. The
    `design_handoff_generated_plugin_faces/` bundle from the last rewrite is **resolved,
