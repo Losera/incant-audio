@@ -163,8 +163,13 @@ not evidence.
   ParamPool looks them up by the shared `ParamPool::slotId()` scheme. ParamPool must never
   create them — doing so trips `jassert(!state.isValid())` on every slot.
 - **`pushToFaust()` is on the audio thread.** No allocation, no locks, no logging, no map
-  lookups. `check_rt_safety.py` guards `FaustEngine.cpp` and `PluginProcessor.cpp` only, and
-  cannot follow a call graph — it does not cover this function (PF-015).
+  lookups. *(Corrected 2026-10-12 — this said "guards `FaustEngine.cpp` and
+  `PluginProcessor.cpp` only... does not cover this function (PF-015)", which was true
+  before PF-015 was fixed and has been stale since.)* `check_rt_safety.py` now scopes
+  exactly four functions by name — `FaustEngine::process`, `*::processBlock`,
+  `ParamPool::pushToFaust`, `OutputGuard::process` — across all four files, and still
+  cannot follow a call graph: a helper called from one of those four is invisible to it.
+  See `.claude/rules/tier2-evidence.md` for the current, authoritative description.
 - **Three prompt files, not one** *(corrected 2026-08-11 — this said "One system prompt"
   long after the second and third landed).* `llm/prompts/system_prompt.txt` (effects) and
   `llm/prompts/instrument_prompt.txt` (instruments, `d587665`) are selected by

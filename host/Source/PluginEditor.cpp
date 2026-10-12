@@ -715,6 +715,16 @@ void PluginForgeEditor::timerCallback()
                                  : "ran away to full scale";
             promptPanel.setStatus(juce::String("DSP MUTED - output ") + why
                                       + ". Generate again to reset.");
+            juce::Logger::writeToLog(
+                juce::String("PluginForge: OutputGuard MUTED, output ") + why);
+        }
+        else
+        {
+            // PF-074 follow-on: the clearing transition previously had no
+            // record anywhere -- only the engaging one set a UI string, so
+            // there was no way to tell "never muted" apart from "muted, then
+            // cleared by the next successful compile" after the fact.
+            juce::Logger::writeToLog("PluginForge: OutputGuard cleared (new compile succeeded)");
         }
     }
 
