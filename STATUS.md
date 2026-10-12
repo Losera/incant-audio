@@ -753,8 +753,10 @@ clock — no host transport in Standalone).
      "−362 test lines" was a diff-direction artifact of being 58 commits stale, not the branch
      deleting tests — its own test-file change is `+8/−5`.
    - `chore/runtime-agnostic-workflow` — **archived, then deleted.** Preserved complete
-     (15 files: `AGENTS.md`, `tools/agent_session.py`, `.agents/`, hook/skill edits) in
-     `archive/runtime-agnostic-workflow-2026-10-12`. Still genuinely untriaged; nothing in this
+     (15 files, among them a new AGENTS.md and tools/agent_session.py) in
+     `archive/runtime-agnostic-workflow-2026-10-12` (e.g.
+     `archive/runtime-agnostic-workflow-2026-10-12:tools/agent_session.py`). Still genuinely
+     untriaged; nothing in this
      cleanup evaluated whether the refactor itself is wanted, only that it is not lost.
    - `feat/provider-resilience` — **archived, then deleted, on evidence, overriding this
      file's own "still needs review/merge" note.** Two of its three pieces are already on
@@ -775,9 +777,11 @@ clock — no host transport in Standalone).
 
    **One branch was discovered mid-cleanup that no tracked file had ever mentioned:**
    `task/offline-eval-pilot` — a complete, self-contained, **$0, provider-free** deterministic
-   eval harness (`bench/run_eval.py`, 468 lines; `bench/cases.json`; 13 Faust fixtures;
-   `tests/test_run_eval.py`) that had sat on exactly one disk, unpushed, since 2026-09-07.
-   Verified not redundant with ADR-037's unbuilt `bench/evaluate_against_plan.py` (that scores
+   eval harness (`task/offline-eval-pilot:bench/run_eval.py`, 468 lines;
+   `task/offline-eval-pilot:bench/cases.json`; 13 Faust fixtures;
+   `task/offline-eval-pilot:tests/test_run_eval.py`) that had sat on exactly one disk,
+   unpushed, since 2026-09-07. Verified not redundant with ADR-037's unbuilt
+   bench/evaluate_against_plan.py, which does not exist on any branch yet (that scores
    real generations against their own persisted `acceptancePlan`; this regression-tests curated
    fixtures against hand-written expectations — complementary, not overlapping, bar THD which
    `render_oracle.py` already computes) and verified still API-compatible with today's `main`
@@ -785,9 +789,9 @@ clock — no host transport in Standalone).
    signature). **Kept, pushed to origin.** Not yet executed against `main` — that's still owed.
 
    **Three stale entries in the prior "DO NOT delete" list, corrected:**
-   `bench/efficacy-groq-n3-20260915`'s "LIVE — uncommitted checkpoint" was no longer true — its
-   uncommitted JSON was byte-identical (35,419 B) to the copy already committed on `main`,
-   untouched for 27 days; `docs/status-md-2026-10-10-reconciliation` merged as #100
+   branch bench/efficacy-groq-n3-20260915's "LIVE — uncommitted checkpoint" was no longer
+   true — its uncommitted JSON was byte-identical (35,419 B) to the copy already committed on
+   `main`, untouched for 27 days; branch docs/status-md-2026-10-10-reconciliation merged as #100
    (`002da7f`); and the `.worktrees/efficacy-semantics` "NOT safe to touch" warning protected
    PR #99, which has since merged — the sibling session it was guarding against has finished.
 
