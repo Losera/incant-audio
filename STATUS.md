@@ -87,9 +87,12 @@ time. The blow-by-blow of every closed defect and past session is in `git log` a
 
 One line per capability, each naming its evidence. "Builds clean" is not a capability.
 
-- **NL prompt → Faust → LLVM JIT → VST3/AU, generating a working effect.** Verified by ear
-  first 2026-07-22; many patches since. The render oracle (`bench/render_oracle.py`, $0)
-  proves no NaN / silence / DC / runaway over the corpus on every `check.sh audio`.
+- **NL prompt → Faust → LLVM JIT → VST3 + Standalone, generating a working effect.**
+  *(Corrected 2026-10-18 — this said "VST3/AU"; `host/CMakeLists.txt:70,149` is
+  `FORMATS VST3 Standalone`, and AU is an explicit non-goal, not a shipped target.)*
+  Verified by ear first 2026-07-22; many patches since. The render oracle
+  (`bench/render_oracle.py`, $0) proves no NaN / silence / DC / runaway over the corpus on
+  every `check.sh audio`.
 - **Runs interactively in a real DAW, both plugin targets.** Session 017 WP6, 2026-08-28,
   REAPER: `PluginForge Host` (Fx) audibly filtered/reverbed a looping signal; `PluginForge
   Synth` generated instrument patches and **a human pressed real QWERTY keys and heard
@@ -528,9 +531,19 @@ verified correct on `gemini` afterward — this is model variance, not routing, 
 experience regardless.
 
 **6. A generated instrument patch went NaN during play.** *(PF-074, medium, open, found
-2026-08-28, needs a captured repro.)* Forced a regeneration. Not captured whether `OutputGuard`
-latched (silence) or missed it. `OfflineSynthRenderTest` is 184/0 on fixtures, so it is a
-specific patch under a specific runtime state.
+2026-08-28.)* **Repro captured 2026-10-12** (`bench/repro/pf074/`) and it falsified every
+internal hypothesis tested: `fi.resonlp`'s `a1 = 1/Q` NaN at `Q==0` is real on the bare DSP
+(immediate, every time) but is shielded by `si.smoo` through the real `apvts`/`pushToFaust`
+path at every timescale tried. `OutputGuard` **did** latch — confirmed engaging its limiter
+correctly in `Report` policy (peak pinned at `kCeiling`) per ADR-020, not missed. Lead
+explanation is now outside this codebase (REAPER session-local, precedented at
+`docs/sessions/017-phase2-interactive-host.md:366`), pending a `FileLogger` capture --
+**that capture already landed**, committed but unmerged on `.worktrees/pf074-filelogger`
+(`2a8a6cc`). One confirmed-but-separate hardening gap the repro surfaced: `Resonance`/
+`Cutoff` declaring `min = 0` is unguarded by any prompt rule, generator check, or host
+floor (`ParamMap.h:130`) -- filed as **PF-085**, not fixed (a range decision, Tier 2).
+`OfflineSynthRenderTest` is 184/0 on fixtures, so the original incident was a specific
+patch under a specific runtime state, not a systemic gap.
 
 **7. `score_efficacy.py --judge` spends quota.** *(unfiled, medium, open.)* Takes a lock
 (`bench/score_efficacy.py:558,569`); the quota cost is the real remaining half.
@@ -550,14 +563,17 @@ the disambiguating held-chord test (all 5 sustain vs 4 decay) has not been run.
 `processor.onFaustCompileSuccess`/`onFaustCompileFailure`/`onUiStyleChanged` — the
 `SafePointer` null check makes the stale callback a no-op rather than a crash, but the
 result is never replayed when a new editor later appears. Same root cause as the fixed
-PF-082, different trigger; not fixed.
+PF-082, different trigger. **Fix landed 2026-10-18 on `fix/pf083-editor-callback-clear`,
+not yet merged** — clears all three in the destructor; `EditorSessionTest` scenario 59 is
+the red-then-green proof (3 failures without the fix, 0 with it, 507 checks total, no
+regressions elsewhere).
 
 **12. Two simultaneously-open editors race on one callback slot.** *(PF-084, low, open,
 found 2026-10-09.)* A REAPER FX-chain editor plus a floating window, or two hosts
 embedding the same instance, both overwrite the processor's single-slot compile
 callbacks — only the last-constructed editor's grid/face updates on a later compile.
 
-**11. MIDI-fidelity gaps in a real session.** *(triaged 2026-08-16, all pre-existing, none a
+**13. MIDI-fidelity gaps in a real session.** *(triaged 2026-08-16, all pre-existing, none a
 regression.)* Monophonic by design (`FaustEngine.cpp:519-524`, deliberate), block-granularity
 MIDI (~10.7 ms jitter, documented in-code), a hardcoded 2.0 s tail (`PluginProcessor.h:85`),
 no MIDI CC mapping (`PluginProcessor.cpp:288-317`).
@@ -640,9 +656,13 @@ still current. A full 125-cell re-run at n≥3 (PF-031) is still owed for a real
    Also owed: the makeup-gain follow-up — the dynamics few-shot stops at the compressor call
    and the model then writes `: *makeup`; showing `: par(i, 2, *(makeup))` would need ~120
    chars of prompt headroom back (trim one `gen_stdlib_block.py` curated entry).
-   **In flight, uncommitted:** `.worktrees/efficacy-pf031` (branch
-   bench/efficacy-groq-n3-20260915) already has a rep-1 checkpoint — see "Waiting on you"
-   #6, do not disturb it.
+   **Correction, 2026-10-18: `.worktrees/efficacy-pf031` no longer exists** — removed in
+   the 2026-10-12 branch/worktree cleanup (see "Waiting on you" #6 below, which already
+   records that cleanup as performed). The rep-1 checkpoint survives as the committed
+   archive `bench/results/efficacy/efficacy_groq_n3_rep1_20260915.json` (plus its
+   `.PROVENANCE.md`) — resume from that file, not from a worktree that is gone. Any
+   instruction elsewhere (including in this session's own `docs/research/R12`/`R14`)
+   pointing at the old worktree path is stale; this is the live correction.
 2. **Capture repros for PF-072 and PF-074.** The two medium in-host findings are
    currently unactionable — each needs the triggering patch source and the action
    immediately before. **The capture harness landed** (PR #93, `bench/capture.py`,
