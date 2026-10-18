@@ -661,8 +661,8 @@ still current. A full 125-cell re-run at n≥3 (PF-031) is still owed for a real
    records that cleanup as performed). The rep-1 checkpoint survives as the committed
    archive `bench/results/efficacy/efficacy_groq_n3_rep1_20260915.json` (plus its
    `.PROVENANCE.md`) — resume from that file, not from a worktree that is gone. Any
-   instruction elsewhere (including in this session's own `docs/research/R12`/`R14`)
-   pointing at the old worktree path is stale; this is the live correction.
+   other instruction pointing at the old worktree path is stale; this is the live
+   correction.
 2. **Capture repros for PF-072 and PF-074.** The two medium in-host findings are
    currently unactionable — each needs the triggering patch source and the action
    immediately before. **The capture harness landed** (PR #93, `bench/capture.py`,
