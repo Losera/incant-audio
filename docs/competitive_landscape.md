@@ -45,6 +45,7 @@ guarantees.
 | **Audio Plugin Coder (APC)** | Real C++/JUCE DSP (generates actual plugin source, not a DSL) | Local build, user's machine (CMake/JUCE 9) | **External** — explicitly agent-agnostic (Claude Code, Cursor, Antigravity, Kilo, Codex, OpenCode); APC bundles no model at all | **Source framework**, not a binary — output is a JUCE project the user builds | **Free, open source (MIT)** | VST3/AU + **CLAP (beta, v1.8.0)**, Win/Mac/**Linux** |
 | **MAGDA** | **Faust** (interpreted; JIT "planned") for its vibe-codeable device, Tracktion Engine for native DSP | **In-app**, in-DAW | **External/BYOAK** — currently OpenAI GPT-5 only (CFG-constrained generation drives the DAW's internal DSL and, reportedly, the Faust device's AI panel) | **Not a plugin — a whole free DAW** that hosts VST/AU | **Free, open source (GPL-3)** | Native app, Win/Mac/**Linux** |
 | **Sonorie** | C++ DSP via proprietary in-house models ("S1"/"S1 Mini") | Server + browser (compiles to WASM, live preview) | Built-in/proprietary, no external agent | Downloadable binary | **$19.99/mo subscription, no free tier** | VST3/AU/CLAP, Win/Mac/**Linux** |
+| **Chaos Audio "AI FX Builder"** | undisclosed | In-app, cloud | Built-in, server-side | Generally-available product feature | undisclosed | undisclosed |
 
 Sources: MusicRadar deep-dive, KVR, Gearspace, Sonicstate, MusicTech (links at bottom).
 
@@ -203,6 +204,21 @@ Sources: MusicRadar deep-dive, KVR, Gearspace, Sonicstate, MusicTech (links at b
   results are **"measured against real hardware behaviour"** — but publishes no methodology, no
   number, no benchmark table. This is a claim of rigor, not evidence of it. See the Decisive
   Question section below.
+
+### Chaos Audio "AI FX Builder" — a tenth production system, flagged for triage *(new since 2026-10-12)*
+Not independently researched beyond confirming it exists and is live — flagged here rather
+than fully profiled, per R9 §B3's note that this doc's maintainers should triage it
+separately.
+- Found via GRAME's own Faust-and-LLM guidance page, which documents **nine** production
+  systems already combining LLMs with Faust; Chaos Audio's "AI FX Builder" is one of them.
+  Confirmed live and generally available via Chaos Audio's own announcement:
+  [chaosaudio.com — Introducing AI FX Builder](https://chaosaudio.com/blogs/whats-new/introducing-ai-fx-builder-create-any-effect-you-can-imagine)
+  (accessed 2026-10-14).
+- **Not yet established:** pricing, delivery mechanism (plugin vs. browser vs. standalone),
+  engine/formats, or whether it discloses AI use. The table row above is marked
+  "undisclosed" throughout rather than guessed.
+- Also surfaced in the same GRAME page: "pluginmaker.ai" (already tracked above) and "Radium
+  V8.0" (unverified, not independently checked, not added to the table).
 
 ### Hügelton Instruments — a positioning model, not a prompt-to-plugin competitor *(new since 2026-08-06)*
 Found via Synth Anatomy's broader October 2026 disclosure-norms piece. Hügelton is **not** a
@@ -454,6 +470,12 @@ Everything else in P10 was open-source-repo mechanics (build systems, param patt
 competitor-strategy bearing; it was historical detail and is not carried forward here.
 
 ## Changelog (living doc)
+- **2026-10-18** — Added **Chaos Audio "AI FX Builder"** to "The field" and as its own short
+  section — the tenth production system named on GRAME's Faust-and-LLM guidance page,
+  surfaced by R9 §B3 after the 2026-10-12 refresh pass had already closed, and explicitly
+  flagged there for triage rather than left untracked. Not independently profiled beyond
+  confirming it is live and generally available; pricing/delivery/formats are unknown and
+  marked as such rather than guessed.
 - **2026-10-12** — Refresh past the 2026-08-06 snapshot (all claims below verified/searched this
   date). **Four new competitors added to "The field":** ConjureDSP/ConjureIDE (free, open-source
   GPL-3 macOS AUv3, BYO-agent via an embedded MCP server rather than copy-paste), Audio Plugin
@@ -500,6 +522,10 @@ competitor-strategy bearing; it was historical detail and is not carried forward
 - MusicTech — [Amorph turns text prompts into instruments and effects](https://musictech.com/news/music/artists-in-dsp-amorph/)
 - Amorph — [product page (Gumroad)](https://artistsindsp.gumroad.com/l/amorph) · [artistsindsp.com](https://artistsindsp.com/)
 - pluginmaker.ai — [product](https://pluginmaker.ai/) · [pricing](https://pluginmaker.ai/pricing)
+
+### Sources added 2026-10-18
+- GRAME Faust LLM guidance (fetched directly) — https://faustdoc.grame.fr/manual/llm/
+- Chaos Audio — [Introducing AI FX Builder](https://chaosaudio.com/blogs/whats-new/introducing-ai-fx-builder-create-any-effect-you-can-imagine)
 
 ### Sources added 2026-10-12
 - Synth Anatomy — [ConjureDSP 3: vibe-code your own effects in your DAW](https://synthanatomy.com/2026/07/conjuredsp-3-vibe-code-your-own-effects-in-your-daw.html) · [Vibe coding plugins: the good, the bad, and the impact on my news coverage](https://synthanatomy.com/2026/10/vibe-coding-plugins-the-good-the-bad-and-the-impact-on-my-news-coverage.html) · [Hügelton Instruments SynBe](https://synthanatomy.com/2026/09/hugelton-instruments-synbe-a-minikorg-700-inspired-mono-synth.html)
