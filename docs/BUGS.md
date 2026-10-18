@@ -73,8 +73,8 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-035 | `min_max_tokens` makes a per-call output budget unenforceable — the judge asks for 300 and silently gets 4096 | low | open | S4 Testing | `bench/score_efficacy.py:465`, `providers.py` `make_generator` | 2026-07-29 | — |
 | PF-036 | libfaust's JIT emits AVX-512 on CI runners that name the ISA but cannot execute it — SIGILL in `computemydsp`. It **was** the CPU; PF-027 closed that hypothesis wrongly | high | fixed | S4 Testing | `host/tools/pf_cpu_shim.cpp`, `.github/workflows/test.yml` | 2026-07-30 | pending commit |
 | PF-037 | Every parameter displays as a raw 0–1 slot number — 800 Hz reads `0.04`. `ParamMap` denormalizes into the DSP and nothing denormalizes for the display | medium | fixed | S3 Plugin UX | `ParamMap.h` `formatZone`, `ParamGridPanel.cpp` `applyPresentation` | 2026-07-28 | pending commit |
-| PF-038 | Knobs appear alphabetically, not in declaration order — a 40-param patch lists `P0, P1, P10, P11 … P2` | low | open | S3 Plugin UX | `ParamGridPanel.cpp` `refreshParamKnobs` | 2026-07-28 | — |
-| PF-039 | The rotary fallback in `refreshParamKnobs` is unreachable dead code; `docs/ui_design_plan.md` still describes it as the fallback widget | low | open | S3 Plugin UX | `ParamGridPanel.cpp`, `docs/ui_design_plan.md` | 2026-07-28 | — |
+| PF-038 | **Reclassified 2026-10-18, wontfix: knobs appear alphabetically, not in source declaration order.** Originally filed against `ParamGridPanel.cpp refreshParamKnobs`, but that citation is wrong — `FaustEngine.h:117-121`'s ordering note (written investigating this) states it directly: "Faust emits the groups ALPHABETICALLY, and the widgets alphabetically inside each. The editor does not sort — it preserves this order exactly. What has been recorded as 'lexicographic knob ordering' (PF-038) is therefore Faust's own path ordering, not anything ParamGridPanel does." `ParamCapture::params` (`FaustEngine.cpp`'s `addHorizontalSlider`/etc.) receives widgets in exactly the order libfaust's own generated `buildUserInterface()` calls them — by the time that call happens, the original Faust source's textual declaration order no longer exists to recover; `ParamIdentity.h`'s own comment on `disambiguate()` independently confirms "Faust emits groups alphabetically and widgets alphabetically inside each... so capture order is deterministic for a given patch." No code change in this codebase can produce "declaration order" from information libfaust has already discarded before the UI callback fires | low | wontfix | S3 Plugin UX | `host/Source/FaustEngine.h:117-121`, `host/Source/FaustEngine.cpp` (`ParamCapture`), `host/Source/ParamIdentity.h` (`disambiguate` comment) | 2026-07-28 | 2026-10-18 |
+| PF-039 | **Already fixed 2026-08-14, registry never reconciled.** The rotary fallback in `ParamGridPanel::applyPresentation`'s switch was removed in `2d11758` ("fix: soundfetch status tooltip + PF-039's dead rotary arm (T5)") — the `default:` arm was replaced with an exhaustive `switch` over all six `Kind` values, `jassertfalse` on the three structurally-unreachable ones (Button/CheckButton/Meter) instead of silently defaulting to a rotary. `docs/ui_design_plan.md` already carries two correction notes (2026-07-30 and the 2026-08-14 addendum) stating the rotary never renders. Verified then: `EditorSessionTest` 271/271 including a new scenario 36 asserting no control ever reports `WidgetKind::Rotary`. This row was simply never flipped to `fixed` after that commit landed | low | fixed | S3 Plugin UX | `host/Source/ParamGridPanel.cpp` (`applyPresentation`'s switch), `docs/ui_design_plan.md:143-160` | 2026-07-28 | 2026-08-14 |
 | PF-040 | Every macro slot was quantised to 100 positions — JUCE's `AudioParameterFloat` min/max convenience ctor hardcodes `interval 0.01`, so a patch default usually could not be represented (800 Hz became 819 Hz) | high | fixed | S1 Backend | `PluginProcessor.cpp` `createParameterLayout` | 2026-07-30 | pending commit |
 | PF-041 | ~~The semantic judge grades L4 against a ground truth **byte-identical to the L4 generation prompt** (10/10), so L4 scores 2.00/2.00 tautologically and the tier gradient is confounded~~ | high | fixed | S4 Testing | `bench/score_efficacy.py` `JUDGE_RUBRIC`, `run_judge`, `bench/prompts/acceptance_specs.json` | 2026-07-30 | 2026-08-16 |
 | PF-042 | ~~The judge's 0/1/2 rubric collapses to binary in practice — score `1` used **once in 44** gradings, so "partially implements" is not a category the instrument actually returns~~ | medium | fixed | S4 Testing | `bench/score_efficacy.py:458-490` | 2026-07-30 | 2026-08-16 |
@@ -1169,7 +1169,8 @@ coverage is precautionary rather than a fix for an observed symptom.
 ---
 
 ### PF-037 / PF-038 / PF-039 — the parameter grid, as the harness photographed it.
-**PF-037 fixed 2026-07-30 · PF-038/PF-039 low, open · S3 Plugin UX · observed 2026-07-28, filed 2026-07-30**
+**PF-037 fixed 2026-07-30 · PF-038 wontfix 2026-10-18 · PF-039 fixed 2026-08-14, registry
+reconciled 2026-10-18 · S3 Plugin UX · observed 2026-07-28, filed 2026-07-30**
 
 All three were recorded in STATUS.md under *"Two things the harness measured that were
 nobody's claim either way"* and had no IDs, which means they were one STATUS.md rewrite away
@@ -1181,11 +1182,18 @@ from disappearing. Visible in `artifacts/images/session_*.png`.
   this as "a design question, not a bug." It is a bug: the DSP is right, the readout is
   unreadable, and no user can tell what any knob is set to.
 - **PF-038 — knobs are ordered lexicographically, not by declaration.** A 40-param patch
-  lists `P0, P1, P10, P11 … P2`.
+  lists `P0, P1, P10, P11 … P2`. **Reclassified wontfix 2026-10-18**, see the registry row
+  above: this is libfaust's own alphabetical UI-emission order, documented directly in
+  `FaustEngine.h:117-121` and independently corroborated by `ParamIdentity.h`'s comment on
+  `disambiguate()` — not a `ParamGridPanel` defect, and not recoverable from information
+  libfaust still has by the time `buildUserInterface()` fires.
 - **PF-039 — the rotary fallback is dead code.** `FaustEngine::Kind` has five values and
   `refreshParamKnobs` handles all five explicitly, so the `default:` arm is unreachable.
   `docs/ui_design_plan.md` still describes it as the fallback widget, so the doc describes a
-  widget no generated plugin has ever shown.
+  widget no generated plugin has ever shown. **Fixed 2026-08-14 (`2d11758`), registry row
+  reconciled 2026-10-18** — see above; the fix made the switch exhaustive over all six
+  `Kind` values (`Meter` had been added since this was filed) with `jassertfalse` on the
+  unreachable arms, and `docs/ui_design_plan.md` already carries both correction notes.
 
 **PF-037 CLOSED 2026-07-30, and it found a bigger bug underneath.**
 `ParamMap::formatZone`/`parseZone` convert for the eye, installed on each slider's
