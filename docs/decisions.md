@@ -25,7 +25,11 @@ Use Faust DSL as the sole LLM output format.
 - Compiler errors are structured and short — feeding them back to the LLM in a retry loop is practical (ADR-005).
 
 **Consequences**
-- The plugin binary must link `libfaust` + LLVM (~30 MB added to binary size).
+- The plugin binary must link against `libfaust` + LLVM for the embedded JIT. *(Corrected
+  2026-10-18 — this previously said "~30 MB added to binary size," describing a static link.
+  On the actual build, libfaust ships as a shared library (`find_library(LIBFAUST_LIB faust
+  REQUIRED)`, `host/CMakeLists.txt:106-110`) resolved dynamically at load time, not statically
+  linked into the binary — the ~30 MB estimate does not apply to what actually ships.)*
 - DSP algorithms that require Faust-unsupported constructs (e.g., multi-rate processing, direct pointer manipulation) cannot be generated.
 - LLM prompt engineering must focus on Faust idioms and stdlib functions.
 
