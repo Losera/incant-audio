@@ -556,9 +556,7 @@ flood in the log. A brief recompile gap is expected; a click is not.
 found 2026-08-28.)* Almost certainly overlapping release tails + reverb from the mono voice —
 the disambiguating held-chord test (all 5 sustain vs 4 decay) has not been run.
 
-**10. Knob ordering is Faust's own.** *(PF-038, low, open.)*
-
-**11. A compile finishing while the editor window is closed is silently dropped.**
+**10. A compile finishing while the editor window is closed is silently dropped.**
 *(PF-083, medium, open, found 2026-10-09.)* `~PluginForgeEditor` never clears
 `processor.onFaustCompileSuccess`/`onFaustCompileFailure`/`onUiStyleChanged` — the
 `SafePointer` null check makes the stale callback a no-op rather than a crash, but the
@@ -568,12 +566,12 @@ not yet merged** — clears all three in the destructor; `EditorSessionTest` sce
 the red-then-green proof (3 failures without the fix, 0 with it, 507 checks total, no
 regressions elsewhere).
 
-**12. Two simultaneously-open editors race on one callback slot.** *(PF-084, low, open,
+**11. Two simultaneously-open editors race on one callback slot.** *(PF-084, low, open,
 found 2026-10-09.)* A REAPER FX-chain editor plus a floating window, or two hosts
 embedding the same instance, both overwrite the processor's single-slot compile
 callbacks — only the last-constructed editor's grid/face updates on a later compile.
 
-**13. MIDI-fidelity gaps in a real session.** *(triaged 2026-08-16, all pre-existing, none a
+**12. MIDI-fidelity gaps in a real session.** *(triaged 2026-08-16, all pre-existing, none a
 regression.)* Monophonic by design (`FaustEngine.cpp:519-524`, deliberate), block-granularity
 MIDI (~10.7 ms jitter, documented in-code), a hardcoded 2.0 s tail (`PluginProcessor.h:85`),
 no MIDI CC mapping (`PluginProcessor.cpp:288-317`).
@@ -600,6 +598,14 @@ granulizer"` routed to `granular_effect` and the family control gate
 (`llm/generate.py:435-448`) rejected every retry for missing required control groups; folds
 into PF-024's family-failure sampling, notes in `scratchpad/pf065-reaper-observations.md`.
 *(The `google-genai` gap that stood here is now PF-077, fixed — PR #46, above.)*
+
+**Reconciled off this list 2026-10-18, on `fix/pf038-knob-order` (not yet merged):**
+**PF-039** (the rotary fallback was already fixed 2026-08-14 in `2d11758`; this list never
+reflected it) and **PF-038** (reclassified `wontfix` — "knob ordering is Faust's own" was
+already this file's own phrasing for it, but it was never anything `ParamGridPanel` could
+fix: `FaustEngine.h:117-121` documents libfaust itself emitting UI widgets alphabetically,
+with no declaration-order information surviving to recover). Full evidence in
+`docs/BUGS.md`'s PF-038/PF-039 rows.
 
 ---
 
