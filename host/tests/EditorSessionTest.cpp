@@ -4347,6 +4347,51 @@ void scenario58_windowReopenRebuildsGridAndFace(const juce::File& tmp)
     snapshot(e2, "58_window_reopen_face_preserved");
 }
 
+// 59 — PF-083. The constructor installs three processor callbacks
+// (onUiStyleChanged, onFaustCompileFailure, onFaustCompileSuccess), each
+// capturing a SafePointer<PluginForgeEditor> to `this`. Before the fix,
+// destroying the editor left all three still assigned on the processor --
+// harmless in the sense that the SafePointer makes a late firing a no-op
+// rather than a use-after-free, but any compile that finished after close
+// still silently vanished instead of just not applying to a dead editor.
+// This scenario does not need a real compile: it only has to show the
+// processor's callback slots are non-empty right after construction (so the
+// test would be vacuously green if the constructor ever stopped assigning
+// them) and empty again the instant the editor that assigned them is gone.
+void scenario59_destructorClearsProcessorCallbacks()
+{
+    scenario("59. closing the editor clears the processor's compile callbacks",
+             "PF-083: onUiStyleChanged/onFaustCompileFailure/onFaustCompileSuccess "
+             "must not stay bound to a destroyed editor's SafePointer.");
+
+    PluginForgeProcessor processor;
+    processor.prepareToPlay(48000.0, 512);
+
+    check(!static_cast<bool>(processor.onUiStyleChanged)
+          && !static_cast<bool>(processor.onFaustCompileFailure)
+          && !static_cast<bool>(processor.onFaustCompileSuccess),
+          "no editor has ever existed yet, so all three start empty");
+
+    {
+        PluginForgeEditor e { processor };
+        check(static_cast<bool>(processor.onUiStyleChanged)
+              && static_cast<bool>(processor.onFaustCompileFailure)
+              && static_cast<bool>(processor.onFaustCompileSuccess),
+              "constructing an editor assigns all three callback slots");
+        // e destroyed here -- the window-close half of a tab-away.
+    }
+
+    check(!static_cast<bool>(processor.onUiStyleChanged),
+          "RED before the fix: onUiStyleChanged must be cleared on close, not "
+          "left bound to a dead SafePointer");
+    check(!static_cast<bool>(processor.onFaustCompileFailure),
+          "RED before the fix: onFaustCompileFailure must be cleared on close");
+    check(!static_cast<bool>(processor.onFaustCompileSuccess),
+          "RED before the fix: onFaustCompileSuccess must be cleared on close -- "
+          "this is the slot whose silent drop PF-083 is actually about, since "
+          "it is what would have refreshed the grid/status on a late compile");
+}
+
 } // namespace
 
 int main()
@@ -4427,6 +4472,7 @@ int main()
     scenario56_uiFaceEnvGuardSuppressesRequest(tmp);
     scenario57_saveBeforeFaceReturnsRegeneratesOnReopen(tmp);
     scenario58_windowReopenRebuildsGridAndFace(tmp);
+    scenario59_destructorClearsProcessorCallbacks();
 
     tmp.deleteRecursively();
 
