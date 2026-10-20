@@ -18,7 +18,7 @@ add_subdirectory(${JUCE_PATH} JUCE)
 
 juce_add_plugin({{ plugin_name }}
     PLUGIN_MANUFACTURER_CODE Pfge
-    PLUGIN_CODE Pfh1
+    PLUGIN_CODE {{ plugin_code }}
     FORMATS VST3 Standalone
     PRODUCT_NAME "{{ plugin_name }}"
     IS_SYNTH {{ is_synth }}
@@ -42,8 +42,10 @@ target_compile_definitions({{ plugin_name }} PRIVATE
     JUCE_VST3_CAN_REPLACE_VST2=0
 )
 
-find_library(LIBFAUST_LIB faust REQUIRED
-    HINTS /usr/lib /usr/local/lib)
+# No libfaust at build or runtime (ADR-023's 2026-08-13 amendment): the patch
+# was AOT-compiled to Source/Patch.h at export time, and vendor/faust/ carries
+# the unmodified, header-only architecture files that header needs.
+target_include_directories({{ plugin_name }} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vendor)
 
 target_link_libraries({{ plugin_name }} PRIVATE
     juce::juce_audio_utils
@@ -51,5 +53,4 @@ target_link_libraries({{ plugin_name }} PRIVATE
     juce::juce_gui_extra
     juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags
-    ${LIBFAUST_LIB}
 )

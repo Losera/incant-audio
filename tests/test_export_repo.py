@@ -128,19 +128,15 @@ def test_print_summary_still_reports_correct_plugin_type(tmp_path, capsys):
 
 
 # ---------------------------------------------------------------------------
-# Defect 2 (NOT fixed, deliberately deferred): processBlock never loads the
-# compiled Faust patch. Pinned as an honest xfail — this asserts the FIXED
-# behavior and is expected to currently fail, proving it isn't vacuous.
+# Defect 2 (FIXED, ADR-038 E2): processBlock now AOT-compiles Patch.dsp via
+# the real `faust` CLI at export time and calls the emitted `mydsp::compute`.
+# This was pinned as an honest xfail while deferred; the marker comes off
+# here precisely because the behavior it asserted is no longer deferred.
+# MIDI-to-Faust voice mapping for instrument patches is NOT part of this fix
+# -- see export_repo.py's own comment at the Plugin.cpp template.
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    reason=(
-        "PF-053: export processBlock is a passthrough stub, never loads "
-        "Patch.dsp — deferred, see PLUGIN_HEALTH_PLAN.md P1.10"
-    ),
-    strict=True,
-)
 def test_process_block_invokes_the_compiled_faust_patch(tmp_path):
     exported = _export(tmp_path, EFFECT_SOURCE, "FxNotWired")
     cpp = _plugin_cpp(exported)
@@ -158,6 +154,54 @@ def test_process_block_invokes_the_compiled_faust_patch(tmp_path):
     # form (Faust's generated ::compute call, a dsp instance, etc.) rather
     # than being an untouched passthrough.
     assert re.search(r"\bcompute\s*\(", body) or "mydsp" in body or "faustDsp" in body
+
+
+# ---------------------------------------------------------------------------
+# ADR-023 amendment: per-patch plugin identity, and no libfaust vendored in.
+# ---------------------------------------------------------------------------
+
+
+def test_plugin_code_is_deterministic_and_distinct_from_the_host():
+    """Finding 1's collision ("Pfh1" hardcoded, identical to the shipping
+    PluginForgeHost Fx target) must not recur: every export needs its own
+    code, and re-exporting the same source must reproduce it."""
+    code_a = export_repo._derive_plugin_code(EFFECT_SOURCE)
+    code_b = export_repo._derive_plugin_code(EFFECT_SOURCE)
+    code_c = export_repo._derive_plugin_code(INSTRUMENT_SOURCE)
+
+    assert code_a == code_b, "same source must derive the same code"
+    assert code_a != code_c, "different sources should derive different codes"
+    assert re.fullmatch(r"[A-Z][a-z]{3}", code_a), f"not a valid 4-char code: {code_a}"
+    assert code_a not in ("Pfh1", "Pfs1"), "collides with a shipping host target"
+
+
+def test_cmake_receives_the_derived_plugin_code(tmp_path):
+    exported = _export(tmp_path, EFFECT_SOURCE, "FxCode")
+    cmake = (exported / "CMakeLists.txt").read_text()
+    code = export_repo._derive_plugin_code(EFFECT_SOURCE)
+    assert f"PLUGIN_CODE {code}" in cmake
+
+
+def test_export_vendors_faust_headers_and_emits_patch_header(tmp_path):
+    """No libfaust at build or runtime (ADR-023's 2026-08-13 amendment):
+    the six header-only architecture files must be vendored unmodified, and
+    Patch.h must exist and declare the AOT-compiled DSP class."""
+    exported = _export(tmp_path, EFFECT_SOURCE, "FxVendor")
+
+    for rel in export_repo._FAUST_VENDOR_HEADERS:
+        assert (exported / "vendor" / "faust" / rel).is_file(), f"missing vendored {rel}"
+
+    patch_h = (exported / "Source" / "Patch.h").read_text()
+    assert "class mydsp" in patch_h
+    assert "virtual void compute(" in patch_h
+    assert "virtual void buildUserInterface(" in patch_h
+
+
+def test_export_rejects_unparseable_faust_source(tmp_path):
+    """A hand-edited Patch.dsp that no longer parses must fail loudly, not
+    emit a broken header silently."""
+    with pytest.raises(RuntimeError, match="faust -lang cpp"):
+        export_repo.export_plugin(tmp_path / "Broken", "this is not faust", "Broken")
 
 
 # ---------------------------------------------------------------------------
