@@ -117,7 +117,11 @@ CURATED: list[tuple[str, list[tuple[str, str, str]]]] = [
     ("Modulation effects", [
         ("pf", "flanger_mono",   "mono flanger -- NOTE the pf. namespace, not ef."),
         ("pf", "phaser2_mono",   "mono phaser"),
-        ("pf", "vibrato2_mono",  "vibrato"),
+        # pf.vibrato2_mono dropped 2026-10-20 to buy PF-079 headroom: zero
+        # occurrences (plain-substring, not just call-site) across every
+        # bench/results/*.json and bench/results/efficacy/*.json archive, and
+        # flanger_mono + phaser2_mono already demonstrate this group's entire
+        # point -- the pf. namespace, not ef. -- so nothing unique is lost.
     ]),
     ("Dynamics", [
         # PF-032: the generated noise gate pre-converted thresh with ba.db2linear
@@ -154,7 +158,12 @@ CURATED: list[tuple[str, list[tuple[str, str, str]]]] = [
         ("os", "osc",       "sine oscillator"),
         ("os", "sawtooth",  "band-limited sawtooth"),
         ("os", "square",    "band-limited square"),
-        ("os", "triangle",  "band-limited triangle"),
+        # os.triangle dropped from the EFFECT profile 2026-10-20 to buy PF-079
+        # headroom: zero occurrences in bench/results/*.json or
+        # bench/results/efficacy/*.json, and the single-argument "oscillator
+        # takes a frequency" shape is already demonstrated three times over
+        # (osc/sawtooth/square) plus lf_triangle below -- not touched in
+        # CURATED_INSTRUMENT, which keeps its own os.triangle entry.
         ("os", "lf_triangle", "low-frequency triangle -- use for LFOs"),
         ("no", "noise",     "white noise; no arguments"),
     ]),
