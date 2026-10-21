@@ -222,6 +222,87 @@ elif behind is None or behind > 0:
     print()
 PY
 
+# ------------------------------------------------------------------ INTEGRATION
+# A separate interpreter, same reasoning as the CI block above: a failure here
+# must not be able to swallow the STATUS.md-derived sections that follow.
+#
+# WHY THIS EXISTS (added 2026-10-20, workflow audit)
+#   Nothing used to compute branch/worktree/PR state at all -- STATUS.md's
+#   "Waiting on you" carried a hand-maintained worktree-triage list that was
+#   wrong in both directions at once (named branches long gone, omitted ones
+#   that existed). tools/integration_report.py computes this instead of
+#   recording it in prose. See that script's own docstring for the two-dot/
+#   three-dot misreading this also guards against.
+python3 - <<'PY'
+import subprocess, sys
+
+try:
+    p = subprocess.run(
+        [sys.executable, "tools/integration_report.py"],
+        capture_output=True, text=True, timeout=30,
+    )
+    print("### Integration state — branches and worktrees vs `origin/main`")
+    print("```")
+    print((p.stdout or "(no output)").rstrip())
+    print("```")
+    if p.returncode != 0:
+        print(f"> `tools/integration_report.py` exited {p.returncode}:")
+        print(f"> {(p.stderr or '').strip()[:300]}")
+    print()
+except Exception as exc:
+    print("### Integration state — UNKNOWN")
+    print(f"> Could not run `tools/integration_report.py` ({type(exc).__name__}: {exc}).")
+    print("> Run it by hand: `python tools/integration_report.py`")
+    print()
+PY
+
+# -------------------------------------------------------------- DECISION QUEUE
+# Also a separate interpreter. Reuses tools/health_report.py's ADR scanner
+# (added 2026-10-20, workflow audit) rather than re-parsing docs/decisions.md
+# here -- the "one checker, not two that can diverge" rule this file already
+# follows for the Assumed section above.
+python3 - <<'PY'
+import datetime, sys
+
+try:
+    sys.path.insert(0, "tools")
+    import health_report as hr
+
+    adrs = hr._scan_adrs()
+    if adrs.get("status") != "ran":
+        print("### Decision queue — UNKNOWN")
+        print(f"> Could not scan docs/decisions.md: {adrs.get('reason', '?')}")
+        print()
+    else:
+        today = datetime.date.today()
+
+        def _age(date_text: str) -> str:
+            m = __import__("re").match(r"(\d{4}-\d{2}-\d{2})", date_text or "")
+            if not m:
+                return "age unknown"
+            d = datetime.date.fromisoformat(m.group(1))
+            return f"{(today - d).days}d old"
+
+        proposed = adrs["proposed"]
+        nonconforming = adrs["nonconforming"]
+        print(f"### Decision queue — {len(proposed)} ADR(s) awaiting a human decision")
+        for a in sorted(proposed, key=lambda a: a["date_text"]):
+            print(f"- **{a['id']}** ({_age(a['date_text'])}) — {a['title']}")
+        if nonconforming:
+            print()
+            print(f"**{len(nonconforming)} ADR(s) use a status value outside "
+                  "docs/decisions.md's own template** (Proposed/Accepted/Rejected/"
+                  "Superseded) and may be hiding an undecided one -- read, don't "
+                  "assume:")
+            for a in nonconforming:
+                print(f"  - {a['id']}: status reads {a['status_text']!r}")
+        print()
+except Exception as exc:
+    print("### Decision queue — UNKNOWN")
+    print(f"> Could not run the ADR scan ({type(exc).__name__}: {exc}).")
+    print()
+PY
+
 python3 - <<'PY'
 import datetime, pathlib, re, subprocess, sys
 
@@ -285,6 +366,21 @@ assumed = section(r"Assumed", "the `## Assumed, never checked` section")
 if assumed is not None:
     claims = re.findall(r"^\s*[-*]\s+\*\*(.+?)\*\*", assumed, re.M | re.S)
     print(f"### Assumed, never checked — {len(claims)} claims  ← the one number")
+    if not claims and assumed.strip():
+        print("_(section present but no `- **...**` items parsed — check STATUS.md's "
+              "format, or run `tools/check.sh assumed`)_")
+    else:
+        try:
+            sys.path.insert(0, "tools")
+            import health_report as hr
+            drift = hr._check_assumed_drift()
+            if drift.get("status") == "ran" and drift.get("drifted"):
+                print(f"**⚠ FORMAT DRIFT.** The section also contains "
+                      f"{drift['bold_claims_in_prose']} bolded claim(s) with no "
+                      f"leading `- **` bullet — invisible to the count above. Run "
+                      f"`tools/check.sh assumed` for detail.")
+        except Exception:
+            pass
     for c in claims:
         print(f"- {' '.join(c.split())}")
     print()

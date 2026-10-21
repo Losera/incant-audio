@@ -1,5 +1,13 @@
 # OPEN_QUESTIONS.md
 
+**Dormant, last touched 2026-08-04 (workflow audit, 2026-10-20).** This file predates
+STATUS.md's "Assumed, never checked" / "Next three things" infrastructure and nothing
+in `tools/` or `docs/` currently references or checks it — exactly the
+"document nothing links to, nothing checks" category COLLABORATION.md §8 says should be
+deleted rather than silently maintained. Kept for now because Q2–Q4 are real, still-open
+design questions with no other home; each heading below states its own status explicitly
+(RESOLVED / UNRESOLVED / NOT RESOLVED) so a reader never has to infer it from silence.
+
 ## Q1 — Does I/O topology (channel count) belong in a PluginSpec, and if so where? — RESOLVED 2026-08-04
 
 **Resolution:** option 1 below ("no PluginSpec field — read it live off the
@@ -54,7 +62,7 @@ somewhere new?).
 
 **Not decided here.** This brief's job was evidence, not the schema.
 
-## Q2 — Per-channel signal-graph relationships (entries 9, 14): worth a spec field?
+## Q2 — Per-channel signal-graph relationships (entries 9, 14): worth a spec field? — UNRESOLVED
 
 **Raised by:** Brief A, `spec-evidence/structure-gaps.md` §1.
 
@@ -77,7 +85,7 @@ is already the algorithm-topology representation, per `CLAUDE.md`'s
 could change the answer. Whoever owns the schema decision should treat this as
 a "watch, don't build" item rather than a yes/no answered by this brief.
 
-## Q3 — Should the validation gate's param-count overflow be fatal (as briefed) or a warning (as shipped)?
+## Q3 — Should the validation gate's param-count overflow be fatal (as briefed) or a warning (as shipped)? — UNRESOLVED
 
 **Raised by:** Brief F, implementing `FaustEngine.cpp`'s post-compile
 validation gate.
@@ -127,7 +135,7 @@ by itself.
 
 **Not decided here.** Whoever owns the PF-051 policy should choose.
 
-## Q4 — Presentation checker's affordance 8 reads source text, against the brief's own method
+## Q4 — Presentation checker's affordance 8 reads source text, against the brief's own method — UNRESOLVED
 
 **Raised by:** implementing `bench/presentation_checker.py` (Presentation
 affordance checker brief).

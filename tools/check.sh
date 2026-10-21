@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# The one entry point. Four cost-ordered levels, cheapest first.
+# The one entry point. Cost-ordered levels, cheapest first.
 #
 # WHY THIS EXISTS
 #   This project's recurring defect is not bad code — it is believing a control
@@ -12,12 +12,14 @@
 #   orders it by what it costs to run, so there is never a reason to skip a level.
 #
 # USAGE
-#   tools/check.sh fast     ~2 s     before every commit
-#   tools/check.sh full     ~2 min   before every push
-#   tools/check.sh audio    ~1 min   after touching llm/ or the prompt   ($0)
-#   tools/check.sh quota    minutes  only with explicit authorization    (quota)
+#   tools/check.sh fast        ~2 s     before every commit
+#   tools/check.sh full        ~2 min   before every push
+#   tools/check.sh audio       ~1 min   after touching llm/ or the prompt   ($0)
+#   tools/check.sh generation  minutes  after touching a prompt, report-only ($0)
+#   tools/check.sh quota       minutes  only with explicit authorization    (quota)
 #
-#   Levels are cumulative: full runs fast, audio runs full.
+#   fast/full/audio are cumulative: full runs fast, audio runs full.
+#   generation and quota are standalone (see each level's own comment for why).
 #
 # THE ONE NUMBER
 #   tools/check.sh assumed   prints the size of STATUS.md's "Assumed, never
@@ -465,19 +467,67 @@ level_quota() {
   run "25-prompt benchmark on groq" python bench/run_benchmark.py --provider groq
 }
 
+level_generation() {
+  # A $0, local-model generation regression lane (tools/generation_lane.py,
+  # added 2026-10-20, workflow audit). Deliberately NOT cumulative with
+  # fast/full/audio -- it runs ~36 real local generations (12 effects x 3
+  # reps) and takes minutes, not seconds, so folding it into `full` would slow
+  # down every push for a check that is report-only by design (see that
+  # script's own module docstring for why a noisy local-model measurement
+  # must never be a pass/fail gate). REPORT-ONLY: always exits 0 regardless
+  # of what it finds, same as `bench/presentation_checker.py --report`.
+  if ! have ollama; then
+    printf '%s\n' \
+      "" \
+      "  ${Y}generation${N} needs ollama on PATH (this machine has it; a fresh" \
+      "  checkout elsewhere may not) and the model tools/generation_lane.py" \
+      "  targets pulled (\`ollama pull qwen2.5-coder:7b-16k\` — ADR-012/CLAUDE.md's" \
+      "  local-provider default)." \
+      ""
+    return 0
+  fi
+  step "generation — local-model regression lane (\$0, report-only)"
+  python tools/generation_lane.py --run --reps 3
+}
+
 level_assumed() {
   # The project's tracked metric. Counts bullet items under STATUS.md's
-  # "Assumed, never checked" heading.
+  # "Assumed, never checked" heading. Cross-checked against
+  # tools/health_report.py's independent bold-span heuristic
+  # (_check_assumed_drift) so a format drift -- a claim written as bare bold
+  # prose with no leading "- **" bullet -- is a loud failure here instead of
+  # a silent 0. That exact drift happened once (2026-10-18 -> found and fixed
+  # 2026-10-20): this count read 0 while PF-079's claim sat in the section as
+  # a bold paragraph. Reusing the one detector, rather than writing a second
+  # regex here, is deliberate -- see tools/gen_stdlib_block.py's
+  # verify_prompt_references for the same "one checker, not two that can
+  # diverge" pattern.
   python - <<'PY'
-import re, pathlib
+import re, pathlib, sys
+sys.path.insert(0, "tools")
+import health_report as hr
+
 txt = pathlib.Path("STATUS.md").read_text()
 m = re.search(r"^##+\s*Assumed.*?$(.*?)(?=^##\s|\Z)", txt, re.S | re.M)
 if not m:
-    print("Assumed-claims section not found in STATUS.md"); raise SystemExit(1)
-claims = re.findall(r"^\s*[-*]\s+\*\*", m.group(1), re.M)
+    print("Assumed-claims section not found in STATUS.md")
+    raise SystemExit(1)
+
+body = m.group(1)
+claims = re.findall(r"^\s*[-*]\s+\*\*(.+?)\*\*", body, re.M | re.S)
+drift = hr._check_assumed_drift()
+
+if drift.get("status") == "ran" and drift.get("drifted"):
+    print(f"Assumed, never checked: {len(claims)} claims  -- FORMAT DRIFT DETECTED")
+    print(f"  counter sees {drift['counter_value']}, but the section also contains "
+          f"{drift['bold_claims_in_prose']} bolded claim(s) with no leading '- **' "
+          f"bullet, so they are invisible to this count.")
+    print("  Fix STATUS.md's formatting (bullet every claim); do not silence this check.")
+    raise SystemExit(1)
+
 print(f"Assumed, never checked: {len(claims)} claims")
-for line in re.findall(r"^\s*[-*]\s+\*\*(.+?)\*\*", m.group(1), re.M):
-    print(f"  - {line}")
+for line in claims:
+    print(f"  - {' '.join(line.split())}")
 PY
 }
 
@@ -490,11 +540,12 @@ usage() {
 }
 
 case "${1:-}" in
-  fast)    level_fast ;;
-  full)    level_full ;;
-  audio)   level_audio ;;
-  quota)   shift; level_quota "${1:-}"; exit $? ;;
-  assumed) level_assumed; exit $? ;;
+  fast)       level_fast ;;
+  full)       level_full ;;
+  audio)      level_audio ;;
+  quota)      shift; level_quota "${1:-}"; exit $? ;;
+  generation) level_generation; exit $? ;;
+  assumed)    level_assumed; exit $? ;;
   -h|--help|help|"") usage; exit 0 ;;
   *) printf 'unknown level: %s\n\n' "$1"; usage; exit 64 ;;
 esac

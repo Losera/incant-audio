@@ -589,44 +589,49 @@ into PF-024's family-failure sampling, notes in `scratchpad/pf065-reaper-observa
 
 ## Assumed, never checked
 
-**The compile gate was assumed to track real plugin success; checked 2026-09-23, and it
-doesn't.** *(PF-079, high, open.)* `faust -lang cpp` accept/reject overstates render-safety
-by 25–40pp on the committed archives — see "Broken" above for the number and the two
-root-caused failure classes. This is exactly the kind of claim this section exists to track;
-it was missing from here even after the defect was filed, which is its own small instance of
-the thing `check.sh assumed` is supposed to catch.
+The most important section (COLLABORATION.md §5). **Format contract:** every open claim
+is a top-level bullet, bolded headline first — `- **<claim>.**` — because that is what
+both `tools/check.sh assumed` and `tools/status_digest.sh` parse to produce the one
+number. Unbulleted prose underneath a bullet is supporting evidence for that claim, not a
+second one. A claim written as a bare bold paragraph with no leading `- ` is invisible to
+the count even though a human reading the section sees it immediately — this is not
+hypothetical, it happened (`tools/health_report.py`'s `_check_assumed_drift` exists
+because of it; `tools/check.sh assumed` now cross-checks against that same detector and
+fails loud, rather than silently, if the two disagree again). Items move out of here only
+when someone produces evidence, never by reformatting.
 
-PF-011 — "the efficacy tier gradient on the shipping model" — closed 2026-09-08:
-the groq / `openai/gpt-oss-120b` grid completed all 125 cells and was scored ($0). Result
-in "Works" above: no monotonic tier gradient (L2–L4 flat ~84% first-try), a sharp L1
-metaphor-only trough (48%), and a category-level `dynamics` weakness at every tier. The
-`--resume` next-action that stood here for a week was a **no-op** — `prepare_resume`
-(`bench/run_efficacy_study.py:329`) keeps every record that carries `code`, and all 125
-did; the grid was already generated, just uncommitted. What remains open is a *deeper* bar,
-not this one: n≥3 per cell (PF-031) and a judged fidelity pass (`--judge` spends quota,
-defect #7). Those are new evidence items, not a re-opening of PF-011.
+- **The compile gate was assumed to track real plugin success; checked 2026-09-23, and
+  it doesn't.** *(PF-079, high, open.)* `faust -lang cpp` accept/reject overstates
+  render-safety by 25–40pp on the committed archives — see "Broken" above for the number
+  and the two root-caused failure classes. This is exactly the kind of claim this section
+  exists to track; it was missing from here even after the defect was filed, which is its
+  own small instance of the thing `check.sh assumed` is supposed to catch.
 
-**This section disagrees with `docs/BUGS.md`'s own registry, and that's stated here rather
-than silently resolved.** `docs/BUGS.md`'s PF-011 row still reads `open`, under its original
-2026-07-23 framing ("Efficacy pilot generalizes to nothing, N=50, 1 model, 2/5 categories") —
-a narrower, older claim than "closed" above addresses. `docs/BUGS.md`'s own preamble says to
-"believe neither, read the code" when the two disagree. The honest position, reconciling
-both: the *specific* n=50/1-model/2-category claim PF-011 originally named is superseded by
-the 125-cell/full-category groq grid; the *general* "is this generalization trustworthy" bar
-PF-031 sets (n≥3 per cell) is still unmet, on either file's telling. `docs/BUGS.md`'s
-registry row is not updated by this pass — that file has its own ID/severity conventions
-this rewrite didn't touch — but should be reconciled the next time someone is in it.
-**Reconciled 2026-09-24:** `docs/BUGS.md`'s PF-011 row flipped `open`→`closed`, citing this
-paragraph and the 2026-09-08 close date, exactly as invited above.
-
-**Benchmark staleness (2026-09-08 → partly closed 2026-09-09):** `system_prompt.txt`
-changed after the 125-cell grid was measured — the tape-flanger few-shot became a
-`co.compressor_stereo` few-shot and the `routing_arity` retry hint was added (defect #1).
-`efficacy_groq_20260831.json`'s **dynamics** numbers are therefore the *pre-fix* baseline.
-A fresh single run of the 25 dynamics cells on the fixed prompt landed 2026-09-09
-(`efficacy_groq_dynamics_postfix_20260909.json`, committed) — see defect #1 for the result.
-The other four categories in `efficacy_groq_20260831.json` are unaffected by the edit and
-still current. A full 125-cell re-run at n≥3 (PF-031) is still owed for a real verdict.
+- **The groq 125-cell efficacy grid answers the tier-gradient question but not the
+  generalization one — n≥3 per cell is still owed.** *(PF-031, medium, open.)* The grid
+  closed PF-011 at n=1 (2026-09-08): the groq / `openai/gpt-oss-120b` grid completed all
+  125 cells and was scored ($0). Result in "Works" above: no monotonic tier gradient
+  (L2–L4 flat ~84% first-try), a sharp L1 metaphor-only trough (48%), and a
+  category-level dynamics weakness at every tier. The `--resume` next-action that stood
+  here for a week was a no-op — `prepare_resume` (`bench/run_efficacy_study.py:329`)
+  keeps every record that carries `code`, and all 125 did; the grid was already
+  generated, just uncommitted.
+  But `system_prompt.txt` changed after that grid was measured — the tape-flanger
+  few-shot became a `co.compressor_stereo` few-shot and the `routing_arity` retry hint
+  was added (defect #1) — so `efficacy_groq_20260831.json`'s dynamics numbers are the
+  *pre-fix* baseline. A fresh single run of the 25 dynamics cells on the fixed prompt
+  landed 2026-09-09 (`efficacy_groq_dynamics_postfix_20260909.json`, committed; see
+  defect #1 for the result), but that is n=1 on one category, not the n≥3/125-cell bar
+  PF-031 sets. The other four categories in `efficacy_groq_20260831.json` are unaffected
+  by the prompt edit and still current, also at n=1. A judged fidelity pass (`--judge`
+  spends quota, defect #7) is also still owed.
+  *Registry note:* `docs/BUGS.md`'s PF-011 row disagreed with this section until
+  2026-09-24 — it read `open` under its original, narrower 2026-07-23 framing
+  ("Efficacy pilot generalizes to nothing, N=50, 1 model, 2/5 categories"), superseded by
+  the 125-cell grid above. `docs/BUGS.md`'s own preamble says to "believe neither, read
+  the code" when the two disagree; reconciled 2026-09-24, flipped `open`→`closed` (a
+  status legalized the same day as this reformat — see `docs/BUGS.md`'s Conventions),
+  citing this paragraph and the 2026-09-08 close date.
 
 ---
 
@@ -796,11 +801,18 @@ clock — no host transport in Standalone).
    PR #99, which has since merged — the sibling session it was guarding against has finished.
 
    **The nine 2026-09-12→15 worktrees this file flagged as stale-but-unremoved, plus
-   `efficacy-pf031`/`efficacy-semantics`/`pf032-remeasure`, are removed.** Remaining worktrees:
-   the primary tree, `.worktrees/pf053-export-wire` (PF-053/ADR-038 E2-E3 export wiring, 233
-   uncommitted lines, untouched — this file's ranked priority #2, see §Next three), and the
-   three kept-branch worktrees above plus `codex-llm-generation-professional`
-   (`research/llm-generation-professional`, unmerged, left alone as before).
+   `efficacy-pf031`/`efficacy-semantics`/`pf032-remeasure`, are removed.**
+
+   **The remaining-worktree inventory that used to be hand-maintained here is retired as
+   of 2026-10-20 (workflow audit) — it goes stale within days by construction, and did:
+   this paragraph once named eight worktrees already gone and omitted eight that existed.**
+   `python tools/integration_report.py` (surfaced automatically by `/orient`) computes, live,
+   every worktree and local branch's three-dot contribution vs `origin/main`, how far behind,
+   dirty-path count, whether it is pushed, and whether a PR exists — read that instead of a
+   paragraph that can only describe the moment it was written. Report-only; it pushes nothing
+   and opens no PRs (COLLABORATION.md §2 — gate the write, never the run). Finding what a
+   stranded branch actually contains is still a `git log`/`git diff origin/main...<branch>`
+   read, same as always — never `..`, see that script's own docstring for why.
 7. **Untracked personal files left alone**, as always — the two notes at the repo root, the
    unshipped brief skill, the product-architecture draft under bench/. The
    `design_handoff_generated_plugin_faces/` bundle from the last rewrite is **resolved,
