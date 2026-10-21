@@ -31,6 +31,16 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 import export_repo  # noqa: E402
 
+# CI's `test` job (.github/workflows/test.yml) is explicitly "no API key or
+# faust compiler required" -- `build-host` is the job that apt-installs
+# faust. export_plugin() now AOT-compiles via the real `faust` CLI
+# unconditionally (ADR-038 E2), so every test that calls it needs this guard.
+# Matches this file's own existing shutil.which("cmake") precedent below
+# rather than inventing a new convention.
+_requires_faust = pytest.mark.skipif(
+    shutil.which("faust") is None, reason="faust CLI not installed"
+)
+
 
 # A minimal instrument patch (has both "gate" and "freq" -> detected as synth)
 # and a minimal effect patch (neither) -> detected as Fx. Mirrors the
@@ -60,6 +70,7 @@ def _plugin_cpp(exported_dir: Path) -> str:
 # ---------------------------------------------------------------------------
 
 
+@_requires_faust
 @pytest.mark.parametrize(
     "source,label",
     [(INSTRUMENT_SOURCE, "instrument"), (EFFECT_SOURCE, "effect")],
@@ -82,6 +93,7 @@ def test_generated_cpp_has_no_bare_true_false_tokens(tmp_path, source, label):
     assert '== "FALSE"' not in cpp
 
 
+@_requires_faust
 def test_instrument_renders_correct_bool_literals(tmp_path):
     exported = _export(tmp_path, INSTRUMENT_SOURCE, "InstrPlugin")
     cpp = _plugin_cpp(exported)
@@ -93,6 +105,7 @@ def test_instrument_renders_correct_bool_literals(tmp_path):
     )
 
 
+@_requires_faust
 def test_effect_renders_correct_bool_literals(tmp_path):
     exported = _export(tmp_path, EFFECT_SOURCE, "FxPlugin")
     cpp = _plugin_cpp(exported)
@@ -104,6 +117,7 @@ def test_effect_renders_correct_bool_literals(tmp_path):
     )
 
 
+@_requires_faust
 def test_cmake_still_gets_upper_true_false(tmp_path):
     """CMakeLists.txt.j2's IS_SYNTH / NEEDS_MIDI_INPUT args are unrelated to
     the C++ bug and must keep receiving CMake-style TRUE/FALSE — the fix
@@ -119,6 +133,7 @@ def test_cmake_still_gets_upper_true_false(tmp_path):
     assert "NEEDS_MIDI_INPUT FALSE" in cmake_fx
 
 
+@_requires_faust
 def test_print_summary_still_reports_correct_plugin_type(tmp_path, capsys):
     """The ~line 186 reader (plugin_type['is_synth'] == 'TRUE') was left
     untouched by the fix, since is_synth's representation didn't change."""
@@ -137,6 +152,7 @@ def test_print_summary_still_reports_correct_plugin_type(tmp_path, capsys):
 # ---------------------------------------------------------------------------
 
 
+@_requires_faust
 def test_process_block_invokes_the_compiled_faust_patch(tmp_path):
     exported = _export(tmp_path, EFFECT_SOURCE, "FxNotWired")
     cpp = _plugin_cpp(exported)
@@ -175,6 +191,7 @@ def test_plugin_code_is_deterministic_and_distinct_from_the_host():
     assert code_a not in ("Pfh1", "Pfs1"), "collides with a shipping host target"
 
 
+@_requires_faust
 def test_cmake_receives_the_derived_plugin_code(tmp_path):
     exported = _export(tmp_path, EFFECT_SOURCE, "FxCode")
     cmake = (exported / "CMakeLists.txt").read_text()
@@ -182,6 +199,7 @@ def test_cmake_receives_the_derived_plugin_code(tmp_path):
     assert f"PLUGIN_CODE {code}" in cmake
 
 
+@_requires_faust
 def test_export_vendors_faust_headers_and_emits_patch_header(tmp_path):
     """No libfaust at build or runtime (ADR-023's 2026-08-13 amendment):
     the six header-only architecture files must be vendored unmodified, and
@@ -197,6 +215,7 @@ def test_export_vendors_faust_headers_and_emits_patch_header(tmp_path):
     assert "virtual void buildUserInterface(" in patch_h
 
 
+@_requires_faust
 def test_export_rejects_unparseable_faust_source(tmp_path):
     """A hand-edited Patch.dsp that no longer parses must fail loudly, not
     emit a broken header silently."""
