@@ -101,6 +101,10 @@ target_compile_definitions(PluginForgeHost PRIVATE
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
     JUCE_VST3_CAN_REPLACE_VST2=0
+    # Without this, a failed jassert in a Debug build routes to DBG() only
+    # (juce_Logger.cpp), never to Logger::writeToLog() -- so it would never
+    # reach the FileLogger installed in PluginProcessor's constructor.
+    JUCE_LOG_ASSERTIONS=1
 )
 
 # libfaust ships as a shared library on Arch Linux at /usr/lib/libfaust.so.
@@ -168,6 +172,7 @@ target_compile_definitions(PluginForgeSynth PRIVATE
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
     JUCE_VST3_CAN_REPLACE_VST2=0
+    JUCE_LOG_ASSERTIONS=1
 )
 
 target_link_libraries(PluginForgeSynth PRIVATE
