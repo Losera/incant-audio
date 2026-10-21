@@ -335,10 +335,13 @@ public:
     //
     // This is a v3 AMENDMENT, not a schemaVersion bump: a blob without the
     // attribute yields UiIr::empty() (schema 0), which is exactly what an
-    // un-themed patch has today. Nothing consumes the restored IR for rendering
-    // yet — the editor re-derives the layout on the restore recompile
-    // (PluginEditor.cpp) — so restoring it changes no behaviour. The plumbing
-    // lands now; a later step gates the editor on the stored IR.
+    // un-themed patch has today. The comment here used to say "nothing
+    // consumes the restored IR for rendering yet" -- stale since ADR-035 A5
+    // (`55fc78d`) made the editor's compile-success callback re-apply a
+    // cached IR instead of always re-deriving one; corrected 2026-10-09
+    // during the PF-082 diagnosis, which also made the IR consumable from a
+    // bare editor CONSTRUCTION (not just a compile) via
+    // lastPublishedParamsForReplay() + rebuildGridAndFace().
     //
     // Message-thread / non-audio only, metaMutex-guarded like the rest of the
     // meta block.
@@ -356,6 +359,20 @@ public:
     // result (the editor only re-applies a schema-3 LLM face, never a derived
     // schema-0/2 layout it would rebuild anyway).
     UiIr::Layout uiIrForRestoredSource(const juce::String& sourceKey) const;
+
+    // PF-082. A zone-stripped copy of the per-slot ParamList from the LAST
+    // successful compile, or empty if nothing has compiled yet. The editor
+    // constructor uses this to rebuild the grid/face when it is built over a
+    // processor that already has a live patch and no compile is about to run
+    // -- exactly the case of a plug-in window being closed and reopened,
+    // which destroys and recreates PluginForgeEditor without touching the
+    // processor (JUCE's VST3 ContentWrapperComponent lifecycle). Every entry's
+    // `zone` is a non-null sentinel, never a live pointer -- callers may only
+    // ever test it against nullptr, matching how ParamGridPanel/applyUiIr
+    // already use `zone` purely as an occupancy flag and never dereference it.
+    // Message-thread / non-audio only, metaMutex-guarded like the rest of the
+    // meta block.
+    FaustEngine::ParamList lastPublishedParamsForReplay() const;
 
     // Test-only alias, same pattern as currentSourceForTest().
     UiIr::Layout uiIrForTest() const { return uiIr(); }
@@ -478,6 +495,23 @@ private:
     // explicit callback cannot rot that way.
     juce::String       currentUiStyle { "faithful" };
     juce::StringArray  currentLabels;
+
+    // PF-082: a zone-stripped copy of the last published per-slot ParamList,
+    // for the editor constructor to replay when it is built over an
+    // ALREADY-LIVE processor (a window reopen, not a compile -- REAPER really
+    // does destroy and recreate the editor on tab-away/tab-back, see
+    // PluginEditor.h's lastPublishedParamsForReplay() comment). Written under
+    // metaMutex in the same critical section that commits currentFaustSource,
+    // right after paramPool.publishedSlots() is captured on the compile thread.
+    //
+    // ⚠️ `zone` is deliberately NOT a live pointer here: ParamInfo::zone dangles
+    // the moment its owning DSP instance is replaced, and this snapshot can
+    // outlive many recompiles. Each entry's zone is set to a non-null sentinel
+    // (never dereferenced, see lastPublishedParamsForReplay()) so occupancy
+    // checks (`p.zone != nullptr`, the discriminator every consumer already
+    // uses) still read correctly without storing a pointer anything could ever
+    // follow.
+    FaustEngine::ParamList lastPublishedParamsSnapshot;
 
     // The per-plugin UI IR (UiIr schema 3). Pushed here by the editor after each
     // successful compile; serialised verbatim by getStateInformation() and

@@ -24,6 +24,9 @@ STRICT RULES:
   through ba.db2linear first; an att/hold/rel time is documented in SECONDS — a ms
   slider takes *(0.001), never ma.SR, never ba.sec2samp. All three compile
   cleanly and render SILENCE.
+- Expander/gate gain_db: clamp after computing (min(gain_db,60)) — linear2db
+  floors near -758dB on silence, not -inf. select2(cond,False,True) is NOT
+  True-first — prefer ba.if(cond,then,else) for threshold/clip logic.
 - A stdlib effect takes only its CONTROL arguments; the audio arrives by
   composition. Write _,_ : co.compressor_stereo(ratio,thr,att,rel) : _,_ —
   never co.compressor_stereo(ratio,thr,att,rel,_,_) or ef.gate_stereo(t,a,h,r,_,_),
@@ -113,8 +116,6 @@ Modulation effects:
                                                 mono flanger -- NOTE the pf. namespace, not ef.
   pf.phaser2_mono(Notches, phase01, width, frqmin, fratio, frqmax, speed, depth, fb, invert)
                                                 mono phaser
-  pf.vibrato2_mono(sections, phase01, fb, width, frqmin, fratio, frqmax, speed)
-                                                vibrato
 
 Dynamics:
   co.compressor_mono(ratio, thresh, att, rel)   mono compressor; thresh dB raw, att/rel SECONDS
@@ -140,7 +141,6 @@ Oscillators and noise:
   os.osc(freq)                                  sine oscillator
   os.sawtooth(freq)                             band-limited sawtooth
   os.square(freq)                               band-limited square
-  os.triangle(freq)                             band-limited triangle
   os.lf_triangle(freq)                          low-frequency triangle -- use for LFOs
   no.noise                                      white noise; no arguments
 

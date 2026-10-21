@@ -55,6 +55,11 @@ bench/results/results_dryrun.json
 # PF-025 concurrency lock — process-local state, never committed. A checked-in lock
 # would refuse every run on a fresh clone until someone deleted it by hand.
 bench/results/.run.lock
+
+# bench/capture.py's interactive-session records (PF-072..075 repro harness). Local
+# working data — a person cherry-picks the one or two captures that matter into a
+# bug report or fixplan doc, this is not meant to accumulate in the tree wholesale.
+bench/captures/
 .env.*
 !.env.example
 

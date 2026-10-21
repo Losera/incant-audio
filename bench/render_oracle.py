@@ -904,11 +904,14 @@ def analyse_corpus(records: list[dict], *, expectations: bool = True,
 # Patches with known-correct answers. If these drift, the oracle is lying and
 # every number built on it is void.
 #
-# CLAUDE.md: "A control counts only once it has been seen failing." Two entries
-# below are RED cases — `dead_delay` must fail a stated expectation and
-# `never_decays` must fail the gate — and `gain` is the case that proves the tail
-# check is not a universal gate: the same patch is green as an unconditional
-# verdict and red only under an expectation it was never meant to meet.
+# CLAUDE.md: "A control counts only once it has been seen failing." Four entries
+# below are RED cases — `dead_delay` must fail a stated expectation,
+# `never_decays` must fail the gate, and `runaway_expander`/`inverted_limiter`
+# (PF-079, root-caused 2026-09-24) must each fail the gate on a mechanism read
+# directly from the installed Faust stdlib, not inferred — and `gain` is the
+# case that proves the tail check is not a universal gate: the same patch is
+# green as an unconditional verdict and red only under an expectation it was
+# never meant to meet.
 #
 # Sources compiled against Faust 2.85.9 before any measurement code was written;
 # all four report 2 in / 2 out under `faust -json`.
@@ -976,6 +979,46 @@ def _check_never_decays(r: dict) -> tuple[bool, str]:
                   f"env_final={t['env_db_final']:+.1f}dB")
 
 
+def _check_runaway_expander(r: dict) -> tuple[bool, str]:
+    """PF-079, failure 1 of 2: `ba.linear2db`'s `max(ma.MIN, g)` floor has no
+    ceiling on the other side of an expander's makeup-gain formula.
+
+    `basics.lib:163`: `linear2db(g) = 20.0*log10(max(ma.MIN, g))`. At single
+    precision `ma.MIN = 1.175494351e-38` (`maths.lib:276`), so a genuinely
+    silent envelope floors at -758.6 dB, not -inf. An expander computing
+    `gain_db = select2(level_db < threshold, 0, (threshold-level_db)*(ratio-1))`
+    with threshold=-30, ratio=2 then reaches `(-30 - (-758.6))*(2-1) = +728.6 dB`
+    of makeup gain on literal silence — a finite number, so nothing upstream of
+    the render oracle ever sees a NaN or an error to retry on.
+    """
+    m = r["measurement"]
+    good = (not m["ok"] and not m["has_nan_inf"] and m["rms_ratio_db"] > 700
+            and "runaway_gain" in m["codes"])
+    return good, f"ok={m['ok']} rms_ratio_db={m['rms_ratio_db']:+.1f} codes={m['codes']}"
+
+
+def _check_inverted_limiter(r: dict) -> tuple[bool, str]:
+    """PF-079, failure 2 of 2: `select2`'s arm order is backwards from the
+    naive reading, and a hand-written limiter that doesn't go through `ba.if`
+    gets bitten by it.
+
+    `basics.lib:1888`: `if(cond,then,else) = select2(cond,else,then)` —
+    i.e. `select2(c,a,b)` returns `a` when `c` is FALSE, `b` when `c` is TRUE.
+    A limiter written as `select2(x > thresh, thresh, x)` (reading left-to-
+    right as "if over threshold, clip to threshold, else pass through") is
+    exactly backwards: every sample AT OR BELOW threshold is replaced by the
+    threshold constant, and only samples ABOVE threshold pass through
+    unclipped. On an input whose amplitude never reaches threshold, the
+    output is just the threshold constant, forever — a DC offset that also
+    never decays once the input stops, because the formula replaces silence
+    with the same constant.
+    """
+    m = r["measurement"]
+    good = (not m["ok"] and "dc_offset" in m["codes"] and m["dc_offset"] > 0.9
+            and m["never_decays"])
+    return good, f"ok={m['ok']} dc_offset={m['dc_offset']:.3f} codes={m['codes']}"
+
+
 _SELF_TEST = {
     "lowpass": ('import("stdfaust.lib");\n'
                 'process = fi.resonlp(1000, 0.707, 1.0), fi.resonlp(1000, 0.707, 1.0);',
@@ -1005,6 +1048,29 @@ _SELF_TEST = {
                      'process = comb, comb;',
                      "RED: green on every old gate, but the new gate must fire",
                      _check_never_decays),
+    # PF-079. threshold=-30, ratio=2 matches the BUGS.md-recorded worked example
+    # (+728.6 dB computed, +715 dB measured on the real corpus patch).
+    "runaway_expander": ('import("stdfaust.lib");\n'
+                         'threshold = -30; ratio = 2;\n'
+                         'level_db = ba.linear2db(0);\n'
+                         'gain_db = select2(level_db < threshold, 0, '
+                         '(threshold-level_db)*(ratio-1));\n'
+                         'gain = ba.db2linear(gain_db);\n'
+                         'process = _*gain, _*gain;',
+                         "RED: a floored-not-clamped envelope turns literal silence "
+                         "into +728.6 dB of makeup gain",
+                         _check_runaway_expander),
+    # PF-079. thresh = ba.db2linear(-0.1) matches the BUGS.md-recorded default
+    # (0.98855); the self-test's noise probe never exceeds it, so every sample
+    # takes the "else" arm -- which select2's real argument order hands to the
+    # "then" case of the naive reading.
+    "inverted_limiter": ('import("stdfaust.lib");\n'
+                         'thresh = ba.db2linear(-0.1);\n'
+                         'lim(x) = select2(x > thresh, thresh, x);\n'
+                         'process = lim, lim;',
+                         "RED: select2's arm order is backwards from the naive reading, "
+                         "so sub-threshold signal is replaced by a DC constant",
+                         _check_inverted_limiter),
 }
 
 

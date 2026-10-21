@@ -4265,12 +4265,153 @@ void scenario57_saveBeforeFaceReturnsRegeneratesOnReopen(const juce::File& tmp)
           "exactly one completed ui_face request -- the reopen's own");
 }
 
-// 58 — ADR-038 F2's own "done when": a small discrete nentry renders as a
-// chip row, and clicking a chip moves the ACTUAL slot value, not just the
-// widget's own idea of what's lit.
-void scenario58_chipEnumRendersAndToggles()
+// 58 — PF-082. A WINDOW reopen, not a project reload: the processor stays
+// alive and already holds a live, faced patch; only the editor is destroyed
+// and a fresh one constructed over the SAME processor, with no
+// setStateInformation anywhere in the scenario. This is what a real VST3
+// host does on tab-away/tab-back (removed()/attached() destroy and recreate
+// just the ContentWrapperComponent+editor -- JUCE's own VST3 client code,
+// not this plugin's). Session (used everywhere else in this file) cannot
+// express that: it constructs processor and editor together and ties their
+// lifetimes, so this scenario hand-declares the processor itself, the same
+// way scenario 25's restore-before-editor half had to.
+//
+// Before the PF-082 fix: the only code that ever called refreshParamKnobs/
+// applyUiIr/applyGeneratedFace was the compile-success callback, which does
+// not fire on a bare construction. The second editor came up with an empty
+// grid, no face, the literal title "PluginForge", and a window shrunk by
+// updateWindowSizeForParams() to its empty-grid height -- which is what
+// reads as "the GUI disappeared" when it happens inside a real host.
+void scenario58_windowReopenRebuildsGridAndFace(const juce::File& tmp)
 {
-    scenario("58. a 3-value nentry renders as a chip row and toggling moves the slot",
+    scenario("58. closing and reopening the EDITOR (not the project) keeps "
+             "the grid and face",
+             "PF-082: processor.lastPublishedParamsForReplay() lets a freshly "
+             "constructed editor rebuild the grid/face over an already-live "
+             "processor, with no compile and no setStateInformation involved.");
+
+    FakeGenerator::install(FakeGenerator::writeSuccessThenFaceCounted(
+        tmp, "gen58", kFourParamPatch, "#0e0f13", "#eef2ee", "#8fe3c1",
+        "pedal", { "Alpha", "Beta" }, { "Gamma", "Delta" }));
+
+    PluginForgeProcessor processor;
+    processor.prepareToPlay(48000.0, 512);
+
+    int savedHeight = 0;
+    juce::String savedTitle;
+    const int fillId = juce::Slider::rotarySliderFillColourId;
+    juce::Colour savedAccent;
+    {
+        PluginForgeEditor e1 { processor };
+        e1.setSize(900, 500);
+        e1.submitPromptForTest("a patch worth keeping its face on reopen");
+        check(pumpUntil([&] { return e1.statusTextForTest().contains("DSP live"); }),
+              "the initial generate compiled");
+        check(pumpUntil([&] { return e1.gridFaceActiveForTest(); }),
+              "the post-compile ui_face request attached a face");
+        check(e1.gridControlCountForTest() == 4, "the first editor shows all 4 controls");
+
+        savedHeight = e1.getHeight();
+        savedTitle  = e1.gridTitleForTest();
+        savedAccent = e1.gridFaceColourForTest(fillId);
+        check(savedTitle != "PluginForge",
+              "the generated title replaced the shell default on the first editor");
+
+        // e1 is destroyed here -- the window-close half of a tab-away, with
+        // `processor` (declared outside this scope) surviving untouched.
+    }
+
+    // The reopen: a brand-new editor over the SAME, already-live processor.
+    // No compile happens (nothing changed), and no setStateInformation runs
+    // (this is not a project reload) -- the only thing that can rebuild the
+    // grid is PF-082's constructor replay. Deliberately NO setSize() call
+    // here (unlike e1, which needs one before its generate ever runs): the
+    // constructor's own replay already calls updateWindowSizeForParams() for
+    // the grid it just rebuilt, and overriding that back to the constructor's
+    // initial 900x500 is exactly the empty-shell height this scenario exists
+    // to rule out.
+    PluginForgeEditor e2 { processor };
+
+    check(e2.gridControlCountForTest() == 4,
+          "the reopened editor shows all 4 controls with no compile and no "
+          "restore -- the grid was replayed from the processor's snapshot");
+    check(e2.gridFaceActiveForTest(),
+          "the reopened editor is wearing a generated face again");
+    check(e2.gridTitleForTest() == savedTitle,
+          "the reopened title matches what was generated, not the "
+          "\"PluginForge\" shell default an empty grid would show");
+    check(e2.gridFaceColourForTest(fillId) == savedAccent,
+          "the reopened face's accent matches the one the first editor had, "
+          "not the Ember default an empty/unfaced grid would fall back to");
+    check(e2.getHeight() == savedHeight,
+          "the reopened window is the SAME height as the first editor's, not "
+          "the ~400px empty-grid shell updateWindowSizeForParams() produces "
+          "for zero controls");
+
+    // No new ui_face request: a window reopen should cost no quota, the same
+    // invariant scenario 53 proves for a project reopen.
+    pumpUntil([&] { return false; }, 500);
+    check(FakeGenerator::uiFaceRequestCount(tmp, "gen58") == 1,
+          "still exactly one ui_face request total -- reopening the WINDOW "
+          "did not trigger a second one");
+
+    snapshot(e2, "58_window_reopen_face_preserved");
+}
+
+// 59 — PF-083. The constructor installs three processor callbacks
+// (onUiStyleChanged, onFaustCompileFailure, onFaustCompileSuccess), each
+// capturing a SafePointer<PluginForgeEditor> to `this`. Before the fix,
+// destroying the editor left all three still assigned on the processor --
+// harmless in the sense that the SafePointer makes a late firing a no-op
+// rather than a use-after-free, but any compile that finished after close
+// still silently vanished instead of just not applying to a dead editor.
+// This scenario does not need a real compile: it only has to show the
+// processor's callback slots are non-empty right after construction (so the
+// test would be vacuously green if the constructor ever stopped assigning
+// them) and empty again the instant the editor that assigned them is gone.
+void scenario59_destructorClearsProcessorCallbacks()
+{
+    scenario("59. closing the editor clears the processor's compile callbacks",
+             "PF-083: onUiStyleChanged/onFaustCompileFailure/onFaustCompileSuccess "
+             "must not stay bound to a destroyed editor's SafePointer.");
+
+    PluginForgeProcessor processor;
+    processor.prepareToPlay(48000.0, 512);
+
+    check(!static_cast<bool>(processor.onUiStyleChanged)
+          && !static_cast<bool>(processor.onFaustCompileFailure)
+          && !static_cast<bool>(processor.onFaustCompileSuccess),
+          "no editor has ever existed yet, so all three start empty");
+
+    {
+        PluginForgeEditor e { processor };
+        check(static_cast<bool>(processor.onUiStyleChanged)
+              && static_cast<bool>(processor.onFaustCompileFailure)
+              && static_cast<bool>(processor.onFaustCompileSuccess),
+              "constructing an editor assigns all three callback slots");
+        // e destroyed here -- the window-close half of a tab-away.
+    }
+
+    check(!static_cast<bool>(processor.onUiStyleChanged),
+          "RED before the fix: onUiStyleChanged must be cleared on close, not "
+          "left bound to a dead SafePointer");
+    check(!static_cast<bool>(processor.onFaustCompileFailure),
+          "RED before the fix: onFaustCompileFailure must be cleared on close");
+    check(!static_cast<bool>(processor.onFaustCompileSuccess),
+          "RED before the fix: onFaustCompileSuccess must be cleared on close -- "
+          "this is the slot whose silent drop PF-083 is actually about, since "
+          "it is what would have refreshed the grid/status on a late compile");
+}
+
+// 60 — ADR-038 F2's own "done when": a small discrete nentry renders as a
+// chip row, and clicking a chip moves the ACTUAL slot value, not just the
+// widget's own idea of what's lit. Renumbered from 58 -> 60 on merge with
+// origin/main (2026-10-20): PF-082/PF-083 landed scenarios 58/59 on main
+// while this branch sat unpushed, so this scenario moved to the next free
+// number rather than colliding with either.
+void scenario60_chipEnumRendersAndToggles()
+{
+    scenario("60. a 3-value nentry renders as a chip row and toggling moves the slot",
              "ADR-038 F2 -- E1 was the export spike, this is the face-ladder counterpart");
 
     Session s;
@@ -4327,7 +4468,7 @@ void scenario58_chipEnumRendersAndToggles()
     else
         check(false, "APVTS exposes the Waveform slot's parameter");
 
-    snapshot(s.editor, "58_chip_row");
+    snapshot(s.editor, "60_chip_row");
 
     // A second snapshot WITH a face attached (scenario 50's own Velvet Drift
     // tokens) -- the filled/outlined chip paint (drawToggleButton override,
@@ -4343,7 +4484,7 @@ void scenario58_chipEnumRendersAndToggles()
     velvet.display = "grotesk";
     s.editor.applyGeneratedFace(velvet);
     check(s.editor.gridFaceActiveForTest(), "the face attached for the chip-styled snapshot");
-    snapshot(s.editor, "58b_chip_row_generated_face");
+    snapshot(s.editor, "60b_chip_row_generated_face");
 }
 
 } // namespace
@@ -4425,7 +4566,9 @@ int main()
     scenario55_archetypeSectionsReachTheGrid(tmp);
     scenario56_uiFaceEnvGuardSuppressesRequest(tmp);
     scenario57_saveBeforeFaceReturnsRegeneratesOnReopen(tmp);
-    scenario58_chipEnumRendersAndToggles();
+    scenario58_windowReopenRebuildsGridAndFace(tmp);
+    scenario59_destructorClearsProcessorCallbacks();
+    scenario60_chipEnumRendersAndToggles();
 
     tmp.deleteRecursively();
 

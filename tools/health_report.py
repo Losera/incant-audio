@@ -26,13 +26,17 @@ a benchmark measuring a deleted prompt, a CI gate reporting to nobody. A silent
 zero here would be the same defect wearing a report's clothes. `--strict` turns
 any absence into a non-zero exit.
 
-LANES AND WHY THEY ARE SEPARATE. `--lane dsp|ui|ai|all`:
+LANES AND WHY THEY ARE SEPARATE. `--lane dsp|ui|ai|product|all`:
 
-  dsp   $0, no network, no display, no lock. Parallel-safe.
-  ui    $0, no network, NEEDS a display (xvfb-run is absent on the dev box).
-        Parallel-safe with dsp.
-  ai    SPENDS PROVIDER QUOTA and holds the PF-025 lock at bench/results/.run.lock.
-        STRICTLY ONE AT A TIME, ever. Requires --i-authorize-spend.
+  dsp     $0, no network, no display, no lock. Parallel-safe.
+  ui      $0, no network, NEEDS a display (xvfb-run is absent on the dev box).
+          Parallel-safe with dsp.
+  ai      SPENDS PROVIDER QUOTA and holds the PF-025 lock at bench/results/.run.lock.
+          STRICTLY ONE AT A TIME, ever. Requires --i-authorize-spend.
+  product $0, no network, no display, no build, no lock. Pure document parsing
+          (docs/BUGS.md, docs/decisions.md, STATUS.md, PLUGIN_HEALTH_PLAN.md) —
+          see docs/HEALTH_SCHEMA.md for what it measures and why. Always safe to
+          run alongside any other lane, including during a build.
 
 The build is deliberately NOT a lane: all three read binaries out of host/build,
 and p6_capture shells out to the OfflineRenderTest binary, so a rebuild racing a
@@ -308,6 +312,182 @@ def lane_ui() -> dict:
     return res
 
 
+def _scan_bugs_registry(root: Path = ROOT) -> dict:
+    """docs/BUGS.md's PF-NNN registry, bucketed by status.
+
+    Reuses tests/test_bugs_registry_integrity.py's own `parse_registry()` and
+    `_REGISTRY_ROW_RE` rather than writing a third parser for the same table
+    (see docs/HEALTH_SCHEMA.md's "reuse, don't reimplement" rule) -- that
+    module's regex is also what `tests/test_bugs_registry_integrity.py`
+    enforces BUGS.md against, so this lane and that test can never disagree
+    about what a row says.
+    """
+    path = root / "docs" / "BUGS.md"
+    if not path.exists():
+        return {"status": "absent", "reason": "docs/BUGS.md missing"}
+    # The sys.path insert targets THIS module's own repo root (ROOT, not
+    # `root`) -- tests/test_bugs_registry_integrity.py always lives beside
+    # this file regardless of which docs/BUGS.md a caller wants scanned, so a
+    # test substituting `root` with a tmp fixture tree must still be able to
+    # import the real parser.
+    sys.path.insert(0, str(ROOT))
+    try:
+        from tests.test_bugs_registry_integrity import parse_registry  # type: ignore
+    except Exception as exc:
+        return {"status": "absent", "reason": f"cannot import parser: {exc}"}
+
+    text = path.read_text()
+    statuses = parse_registry(text)
+    # Title + severity for open/in-progress rows only -- a full dump of 80+
+    # fixed rows belongs in BUGS.md, not in a health report. Severity is
+    # column 1 of `rest` (see parse_registry's own comment on column indices);
+    # re-split rather than re-deriving it with a second regex.
+    row_re = re.compile(r"^\|\s*(PF-\d{3,})\s*\|(?P<rest>.*)\|\s*$")
+    open_rows = []
+    for line in text.splitlines():
+        m = row_re.match(line.strip())
+        if not m:
+            continue
+        pf_id = m.group(1)
+        st = statuses.get(pf_id)
+        if st not in ("open", "in-progress"):
+            continue
+        cols = [c.strip() for c in m.group("rest").split("|")]
+        sev = cols[1].strip("*`").lower() if len(cols) > 1 else "?"
+        title = cols[0].strip("*").split(".")[0][:140] if cols else "?"
+        open_rows.append({"id": pf_id, "status": st, "sev": sev, "title": title})
+
+    counts: dict[str, int] = {}
+    for st in statuses.values():
+        counts[st] = counts.get(st, 0) + 1
+    open_rows.sort(key=lambda r: (
+        {"critical": 0, "high": 1, "medium": 2, "low": 3}.get(r["sev"], 9), r["id"]))
+    return {"status": "ran", "counts": counts, "open": open_rows}
+
+
+_ADR_HEADER_RE = re.compile(r"^##\s+(ADR-\d{3,})\s+—\s+(.*)$")
+_ADR_STATUS_ROW_RE = re.compile(r"^\|\s*\*\*Status\*\*\s*\|\s*(.*?)\s*\|\s*$")
+
+
+def _scan_adrs(root: Path = ROOT) -> dict:
+    """docs/decisions.md's ADRs, flagging every one still `Proposed`.
+
+    A Proposed ADR IS planned-but-unbuilt work (COLLABORATION.md §2 trigger 2:
+    the decision needs a human before it can move), and nothing currently
+    aggregates them -- the project's own ADR index
+    (docs/architectural_decisions/README.md) is stale and says so.
+
+    Parsing note: a `**Status**` cell can itself read "Proposed" even after an
+    amendment partially supersedes it (ADR-036's row literally says "Proposed
+    (2026-09-03). Amended 2026-09-04: ... §1/§2 superseded."). This scan reports
+    the word, not the nuance -- the amendment prose is exactly what a reader
+    should go read in docs/decisions.md, not what a health report should try
+    to compress further.
+    """
+    path = root / "docs" / "decisions.md"
+    if not path.exists():
+        return {"status": "absent", "reason": "docs/decisions.md missing"}
+
+    lines = path.read_text().splitlines()
+    adrs = []
+    i = 0
+    while i < len(lines):
+        m = _ADR_HEADER_RE.match(lines[i])
+        if m:
+            adr_id, title = m.group(1), m.group(2)
+            status_text = None
+            # The status row is within the first table block after the
+            # header, well short of the next "## ADR-" -- cap the lookahead
+            # so a malformed file can't walk to EOF.
+            for j in range(i + 1, min(i + 20, len(lines))):
+                if _ADR_HEADER_RE.match(lines[j]):
+                    break
+                sm = _ADR_STATUS_ROW_RE.match(lines[j])
+                if sm:
+                    status_text = sm.group(1)
+                    break
+            adrs.append({"id": adr_id, "title": title.strip(),
+                        "status_text": status_text or "?"})
+        i += 1
+
+    proposed = [a for a in adrs
+               if a["status_text"].lower().startswith("proposed")]
+    return {"status": "ran", "total": len(adrs), "proposed": proposed}
+
+
+def _scan_status_next_three(root: Path = ROOT) -> dict:
+    """STATUS.md's "## Next three things" section, verbatim bullet starts.
+
+    Mirrors tools/check.sh's level_assumed() -- the same "find the ##
+    section, stop at the next ## heading" regex shape -- rather than shelling
+    into tools/status_digest.sh, which mixes in a CI banner and git-log calls
+    this $0 lane should not depend on. See docs/HEALTH_SCHEMA.md.
+    """
+    path = root / "STATUS.md"
+    if not path.exists():
+        return {"status": "absent", "reason": "STATUS.md missing"}
+    text = path.read_text()
+    m = re.search(r"^##+\s*Next three.*?$(.*?)(?=^##\s|\Z)", text, re.S | re.M)
+    if not m:
+        return {"status": "absent", "reason": '"Next three things" section not found'}
+    items = re.findall(r"^\s*\d+\.\s+(.*)$", m.group(1), re.M)
+    return {"status": "ran", "count": len(items),
+           "items": [it.strip()[:200] for it in items]}
+
+
+def _check_assumed_drift(root: Path = ROOT) -> dict:
+    """Does `tools/check.sh assumed`'s counter agree with STATUS.md's prose?
+
+    The counter (tools/check.sh:level_assumed) only counts bulleted,
+    bold-led lines ("- **...**") under "## Assumed, never checked". This
+    project's own history has already produced one real mismatch: the
+    section was rewritten to lead with plain prose (a bolded SENTENCE, not a
+    bulleted one) describing a live unverified claim, and the counter read 0
+    against it. This check re-runs that exact regex and separately counts
+    bolded SENTENCES (bulleted or not) in the same section, then reports a
+    drift if the counter says fewer than the prose actually names -- it does
+    NOT silently "fix" STATUS.md's formatting to make the counter agree,
+    because the drift itself is the finding (see docs/HEALTH_SCHEMA.md).
+    """
+    path = root / "STATUS.md"
+    if not path.exists():
+        return {"status": "absent", "reason": "STATUS.md missing"}
+    text = path.read_text()
+    m = re.search(r"^##+\s*Assumed.*?$(.*?)(?=^##\s|\Z)", text, re.S | re.M)
+    if not m:
+        return {"status": "absent", "reason": '"Assumed" section not found'}
+    body = m.group(1)
+    counted_claims = re.findall(r"^\s*[-*]\s+\*\*", body, re.M)
+    # Any bolded run of text, list-prefixed or not -- what a human reading
+    # the section would call "a claim this section is naming".
+    bold_claims = re.findall(r"\*\*[^*]+\*\*", body)
+    drifted = len(counted_claims) < len(bold_claims)
+    return {"status": "ran", "counter_value": len(counted_claims),
+           "bold_claims_in_prose": len(bold_claims), "drifted": drifted,
+           "note": ("tools/check.sh assumed's regex requires a leading "
+                    "'- **' bullet; a bolded claim written as plain prose "
+                    "is invisible to it even though a human reading the "
+                    "section sees it immediately.") if drifted else None}
+
+
+def lane_product(root: Path = ROOT) -> dict:
+    """Document-derived health: defect burden, planned work, known drifts.
+
+    $0, no network, no display, no build, no lock -- see docs/HEALTH_SCHEMA.md
+    for the full rubric this lane's fields are scored against. Deliberately
+    the only lane with no harness to run and nothing that can be "absent" for
+    environmental reasons (no display, no quota); an absence here means a
+    source document itself went missing.
+    """
+    res: dict = {"lane": "product", "started": _now()}
+    res["bugs"] = _scan_bugs_registry(root)
+    res["adrs"] = _scan_adrs(root)
+    res["status_next_three"] = _scan_status_next_three(root)
+    res["assumed_drift"] = _check_assumed_drift(root)
+    res["finished"] = _now()
+    return res
+
+
 def lane_ai(runs: int, provider: str, authorized: bool) -> dict:
     """Generation quality. SPENDS QUOTA. Holds the PF-025 lock, one at a time."""
     if not authorized:
@@ -459,6 +639,19 @@ def collect(strict: bool) -> int:
                                  else {"lane": lane, "status": "absent",
                                        "reason": "lane was not run"})
 
+    # `product` is the one lane `collect()` runs inline rather than reading
+    # from a separate `--lane product` invocation's file: unlike dsp/ui/ai it
+    # is pure document parsing (no build, no subprocess, no lock, no
+    # environment dependency), so there is no reason to make a caller run it
+    # separately first, and no "lane was not run" absence is possible for it
+    # short of a source document going missing (which _scan_* already reports
+    # per-field). A written lanes/product.json from an explicit `--lane
+    # product` run, if one exists, is still honoured -- this only fills the
+    # gap when collect() is run alone.
+    pf = LANEDIR / "product.json"
+    report["lanes"]["product"] = (json.loads(pf.read_text()) if pf.exists()
+                                  else lane_product())
+
     jpath = OUTDIR / f"health_{date}.json"
     jpath.write_text(json.dumps(report, indent=2))
     mpath = OUTDIR / f"health_{date}.md"
@@ -487,6 +680,11 @@ def _absences(report: dict) -> list[str]:
             k = data.get(key)
             if isinstance(k, dict) and k.get("status") not in (None, "ran"):
                 out.append(f"{lane}/{key}: {k.get('status')} — {k.get('reason','')}")
+        if lane == "product":
+            for key in ("bugs", "adrs", "status_next_three", "assumed_drift"):
+                k = data.get(key)
+                if isinstance(k, dict) and k.get("status") not in (None, "ran"):
+                    out.append(f"product/{key}: {k.get('status')} — {k.get('reason','')}")
     return out
 
 
@@ -600,6 +798,63 @@ def render_markdown(r: dict) -> str:
                           "noise. Only a prompt that fails every run, with the same class, "
                           "is evidence of a defect rather than of sampling.", ""]
 
+    # ── Product lane: document-derived, not harness-shaped, so it gets its
+    # own section rather than joining the dsp/ui/ai loop above.
+    prod = r["lanes"].get("product") or {}
+    if prod:
+        L += ["## Product", ""]
+        bugs = prod.get("bugs") or {}
+        if bugs.get("status") == "ran":
+            counts = bugs.get("counts", {})
+            L.append(f"**Defect registry (docs/BUGS.md):** "
+                     f"{counts.get('open', 0)} open, "
+                     f"{counts.get('in-progress', 0)} in-progress, "
+                     f"{counts.get('fixed', 0)} fixed, "
+                     f"{counts.get('wontfix', 0)} wontfix.")
+            L.append("")
+            open_rows = bugs.get("open") or []
+            if open_rows:
+                L += ["| ID | Sev | Status | Title |", "|---|---|---|---|"]
+                for row in open_rows:
+                    L.append(f"| {row['id']} | {row['sev']} | {row['status']} | "
+                             f"{row['title']} |")
+                L.append("")
+        else:
+            L += [f"**Defect registry: ABSENT** — {bugs.get('reason')}", ""]
+
+        adrs = prod.get("adrs") or {}
+        if adrs.get("status") == "ran":
+            proposed = adrs.get("proposed") or []
+            L.append(f"**ADRs (docs/decisions.md):** {adrs.get('total')} total, "
+                     f"**{len(proposed)} still `Proposed`** — planned work with no "
+                     f"human decision yet (COLLABORATION.md §2 trigger 2):")
+            L.append("")
+            for a in proposed:
+                L.append(f"- **{a['id']}** — {a['title']}")
+            L.append("")
+        else:
+            L += [f"**ADRs: ABSENT** — {adrs.get('reason')}", ""]
+
+        nxt = prod.get("status_next_three") or {}
+        if nxt.get("status") == "ran":
+            L.append("**STATUS.md \"Next three things\":**")
+            L.append("")
+            for idx, item in enumerate(nxt.get("items", []), start=1):
+                L.append(f"{idx}. {item}")
+            L.append("")
+
+        drift = prod.get("assumed_drift") or {}
+        if drift.get("status") == "ran":
+            if drift.get("drifted"):
+                L += ["**⚠ `assumed` metric drift.** `tools/check.sh assumed` counts "
+                      f"**{drift['counter_value']}**, but STATUS.md's \"Assumed, never "
+                      f"checked\" section names **{drift['bold_claims_in_prose']}** "
+                      "bolded claim(s) in prose. " + (drift.get("note") or ""), ""]
+            else:
+                L.append(f"`assumed` metric: counter and prose agree "
+                         f"({drift['counter_value']} claim(s)).")
+                L.append("")
+
     L += ["## What this pass did NOT measure", ""]
     L += [f"- {x}" for x in r["no_instrument"]]
     L += ["", "*A harness that did not run is recorded as ABSENT, never as zero. "
@@ -611,7 +866,7 @@ def render_markdown(r: dict) -> str:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--lane", choices=["dsp", "ui", "ai"])
+    ap.add_argument("--lane", choices=["dsp", "ui", "ai", "product"])
     ap.add_argument("--collect", action="store_true")
     ap.add_argument("--strict", action="store_true",
                     help="exit non-zero if anything was absent")
@@ -628,7 +883,7 @@ def main() -> int:
     a = ap.parse_args()
 
     if not a.lane and not a.collect:
-        ap.error("pass --lane {dsp,ui,ai} or --collect")
+        ap.error("pass --lane {dsp,ui,ai,product} or --collect")
 
     if a.lane:
         LANEDIR.mkdir(parents=True, exist_ok=True)
@@ -636,6 +891,8 @@ def main() -> int:
             data = lane_dsp(a.oracle_results)
         elif a.lane == "ui":
             data = lane_ui()
+        elif a.lane == "product":
+            data = lane_product()
         else:
             data = lane_ai(a.runs, a.provider, a.authorized)
         (LANEDIR / f"{a.lane}.json").write_text(json.dumps(data, indent=2))
@@ -643,6 +900,15 @@ def main() -> int:
         for n, h in (data.get("harnesses") or {}).items():
             print(f"  {n:28s} {h.get('status'):18s} "
                   f"checks={h.get('checks','-')} failures={h.get('failures','-')}")
+        if a.lane == "product":
+            bugs = data.get("bugs", {})
+            print(f"  bugs: {bugs.get('counts')}")
+            adrs = data.get("adrs", {})
+            print(f"  proposed ADRs: {len(adrs.get('proposed', []))}")
+            drift = data.get("assumed_drift", {})
+            if drift.get("drifted"):
+                print(f"  ⚠ assumed-metric drift: counter={drift['counter_value']} "
+                      f"but prose names {drift['bold_claims_in_prose']} claim(s)")
 
     return collect(a.strict) if a.collect else 0
 
