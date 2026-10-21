@@ -69,7 +69,7 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-031 | The 25-prompt benchmark's noise floor is unmeasured — no delta can be called significant. **Measured: 4pp rate spread, and only 1 of 5 failing prompts reproduces its class** | medium | fixed | S4 Testing | `bench/run_benchmark.py` | 2026-07-28 | pending commit |
 | PF-033 | Reopening a saved project resets every knob to the patch defaults — the editor's seeding overwrites the restore | high | fixed | S3 Plugin UX | `ParamGridPanel.cpp` `refreshParamKnobs` | 2026-07-28 | `81fc75b` |
 | PF-034 | `EditorSessionTest` scenario 6 raced the message thread — green locally, red on the runner | medium | fixed | S4 Testing | `host/tests/EditorSessionTest.cpp` `loadAndSettle` | 2026-07-28 | pending commit |
-| PF-032 | 2 of 22 compiling patches render SILENT — a warm lowpass and a noise gate. **Measured 07-30: the lowpass (Hz contract) is fixed; the noise gate is not.** **Re-measured 09-12: still silent, 5/6 fresh `ollama` gens — root cause corrected, it's the att/hold/rel time-unit contract.** **WP2 landed 09-15 (att/hold/rel SECONDS rule + gate few-shot): 6/6 free-tier pass, confound-corrected control re-confirmed 5/6 broken; groq still owed** | high | in-progress | S1 Backend | `llm/prompts/system_prompt.txt` | 2026-07-28 | lowpass closed `a4f942e`; gate WP2 on `fix/pf032-gate-time-units`, free-tier only |
+| PF-032 | 2 of 22 compiling patches render SILENT — a warm lowpass and a noise gate. **Measured 07-30: the lowpass (Hz contract) is fixed; the noise gate is not.** **Re-measured 09-12: still silent, 5/6 fresh `ollama` gens — root cause corrected, it's the att/hold/rel time-unit contract.** **WP2 landed 09-15 (att/hold/rel SECONDS rule + gate few-shot): 6/6 free-tier pass, confound-corrected control re-confirmed 5/6 broken.** **Shipping-model (groq) re-measurement, 2026-10-20: 6 fresh `openai/gpt-oss-120b` generations for "a noise gate with threshold and hold time" against today's `system_prompt.txt`, each run through `bench/render_oracle.py`. 6/6 pass — thresh always a clean raw dB literal, hold always correctly `*(0.001)`'d from ms to seconds, none render silent. Closes the "groq still owed" gap WP2 left open.** | high | fixed | S1 Backend | `llm/prompts/system_prompt.txt` | 2026-07-28 | lowpass closed `a4f942e`; gate WP2 `fedb377`; groq confirmation this session |
 | PF-035 | `min_max_tokens` makes a per-call output budget unenforceable — the judge asks for 300 and silently gets 4096 | low | open | S4 Testing | `bench/score_efficacy.py:465`, `providers.py` `make_generator` | 2026-07-29 | — |
 | PF-036 | libfaust's JIT emits AVX-512 on CI runners that name the ISA but cannot execute it — SIGILL in `computemydsp`. It **was** the CPU; PF-027 closed that hypothesis wrongly | high | fixed | S4 Testing | `host/tools/pf_cpu_shim.cpp`, `.github/workflows/test.yml` | 2026-07-30 | pending commit |
 | PF-037 | Every parameter displays as a raw 0–1 slot number — 800 Hz reads `0.04`. `ParamMap` denormalizes into the DSP and nothing denormalizes for the display | medium | fixed | S3 Plugin UX | `ParamMap.h` `formatZone`, `ParamGridPanel.cpp` `applyPresentation` | 2026-07-28 | pending commit |
@@ -2439,7 +2439,7 @@ resolves that ADR, and it is the reason this row stays open rather than being re
 
 ---
 
-### PF-032 — compiling is not working: two patches render silent. *(open, found 2026-07-28)*
+### PF-032 — compiling is not working: two patches render silent. *(fixed -- lowpass `a4f942e`, gate `fedb377` + groq re-measurement 2026-10-20, found 2026-07-28)*
 
 The render oracle over the fresh 2026-07-28 groq corpus:
 
@@ -2567,9 +2567,19 @@ was verified by pushing and reading CI rather than by constructing a delay. That
 cheap experiment PF-027 was closed with, and the same one three sessions avoided in favour of
 better hypotheses.
 
-### PF-032 — Two compiling patches render silent. *(diagnosed 2026-07-28, not fixed)*
+### PF-032 — Two compiling patches render silent. *(fixed, found 2026-07-28)*
 
-**high · open · S1 Backend · found by the render oracle 2026-07-28**
+**high · fixed · S1 Backend · found by the render oracle 2026-07-28**
+
+**Correction, 2026-09-14/15 (WP1, `7ba7d8c`):** the gate's root-cause hypothesis
+below (dB-to-linear double conversion via `ba.db2linear`) did **not** reproduce on
+re-measurement -- six fresh generations against the then-current prompt showed
+`thresh` was always a clean raw dB literal. The actual, repeating defect was
+att/hold/rel being documented as raw SECONDS and carrying no unit annotation
+anywhere in the prompt, fixed by WP2 (`fedb377`) and confirmed against groq
+2026-10-20 (`docs/records/pf032-groq-remeasurement-2026-10-20.md`). The low-pass
+diagnosis immediately below (Hz vs. sample-rate confusion) was correct and is
+unaffected by this correction.
 
 Both are **unit-contract errors on stdlib function arguments**, not audio-path faults, and
 both are one line from working. Verified by rendering the generated code and a one-argument

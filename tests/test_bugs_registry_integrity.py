@@ -216,7 +216,7 @@ class TestRegistryTableIsParseable:
     def test_known_statuses(self, registry):
         assert registry["PF-029"] == "fixed"
         assert registry["PF-031"] == "fixed"
-        assert registry["PF-032"] == "in-progress"
+        assert registry["PF-032"] == "fixed"
 
 
 class TestDetailHeaderClassifier:
