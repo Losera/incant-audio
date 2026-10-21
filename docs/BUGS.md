@@ -2430,7 +2430,7 @@ resolves that ADR, and it is the reason this row stays open rather than being re
 
 ---
 
-### PF-032 — compiling is not working: two patches render silent. *(open, found 2026-07-28)*
+### PF-032 — compiling is not working: two patches render silent. *(fixed -- lowpass `a4f942e`, gate `fedb377` + groq re-measurement 2026-10-20, found 2026-07-28)*
 
 The render oracle over the fresh 2026-07-28 groq corpus:
 
@@ -2558,9 +2558,19 @@ was verified by pushing and reading CI rather than by constructing a delay. That
 cheap experiment PF-027 was closed with, and the same one three sessions avoided in favour of
 better hypotheses.
 
-### PF-032 — Two compiling patches render silent. *(diagnosed 2026-07-28, not fixed)*
+### PF-032 — Two compiling patches render silent. *(fixed, found 2026-07-28)*
 
-**high · open · S1 Backend · found by the render oracle 2026-07-28**
+**high · fixed · S1 Backend · found by the render oracle 2026-07-28**
+
+**Correction, 2026-09-14/15 (WP1, `7ba7d8c`):** the gate's root-cause hypothesis
+below (dB-to-linear double conversion via `ba.db2linear`) did **not** reproduce on
+re-measurement -- six fresh generations against the then-current prompt showed
+`thresh` was always a clean raw dB literal. The actual, repeating defect was
+att/hold/rel being documented as raw SECONDS and carrying no unit annotation
+anywhere in the prompt, fixed by WP2 (`fedb377`) and confirmed against groq
+2026-10-20 (`docs/records/pf032-groq-remeasurement-2026-10-20.md`). The low-pass
+diagnosis immediately below (Hz vs. sample-rate confusion) was correct and is
+unaffected by this correction.
 
 Both are **unit-contract errors on stdlib function arguments**, not audio-path faults, and
 both are one line from working. Verified by rendering the generated code and a one-argument
