@@ -1,6 +1,20 @@
 # --- Secrets ---
 .env
 
+# --- Internal market-fit research, not meant to be public on a public repo
+# (licensing posture, pivot costs, competitive strategy) -- untracked 2026-10-18
+# at the human's explicit request. Local working files only, read tools/check.sh
+# or ask before adding anything similar back under docs/research/.
+/docs/research/R6-visibility-ledger.md
+/docs/research/R7-publication-assessment.md
+/docs/research/R8-licensing-options.md
+/docs/research/R9-audience-findings.md
+/docs/research/R10-claims-ledger.md
+/docs/research/R11-pivot-costs.md
+/docs/research/R12-session-kit.md
+/docs/research/R13-decision-memo.md
+/docs/research/R14-recommendations-and-prompts.md
+
 # --- Python ---
 __pycache__/
 *.pyc

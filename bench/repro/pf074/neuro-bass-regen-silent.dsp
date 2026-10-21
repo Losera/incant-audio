@@ -1,0 +1,18 @@
+import("stdfaust.lib");
+freq = hslider("freq", 110, 20, 2000, 0.01);
+gain = hslider("gain", 0.5, 0, 1, 0.01);
+gate = button("gate");
+cutoff = hslider("Cutoff[unit:Hz]", 800, 50, 8000, 1) : si.smoo;
+res = hslider("Resonance", 0.7, 0, 1, 0.01) : si.smoo;
+subMix = hslider("SubMix", 0.5, 0, 1, 0.01) : si.smoo;
+drive = hslider("Drive", 0.2, 0, 1, 0.01) : si.smoo;
+attack = hslider("Attack[unit:s]", 0.01, 0.001, 2, 0.001);
+decay = hslider("Decay[unit:s]", 0.2, 0.001, 2, 0.001);
+sustain = hslider("Sustain", 0.6, 0, 1, 0.01);
+release = hslider("Release[unit:s]", 0.3, 0.001, 5, 0.001);
+env = en.adsr(attack, decay, sustain, release, gate);
+mainOsc = os.sawtooth(freq);
+subOsc = os.sawtooth(freq * 0.5) * subMix;
+raw = (mainOsc + subOsc) * (1 + drive);
+filtered = raw : fi.resonlp(cutoff, res, 1);
+process = filtered * gain * env;
