@@ -515,11 +515,54 @@ class TestScanAdrs:
     def test_no_adr_headers_is_ran_with_zero(self, tmp_path):
         self._decisions_md(tmp_path, "# Not an ADR file\n\nJust prose.\n")
         out = hr._scan_adrs(tmp_path)
-        assert out == {"status": "ran", "total": 0, "proposed": []}
+        assert out == {"status": "ran", "total": 0, "proposed": [], "nonconforming": []}
 
     def test_missing_file_is_absent(self, tmp_path):
         out = hr._scan_adrs(tmp_path)
         assert out == {"status": "absent", "reason": "docs/decisions.md missing"}
+
+    def test_an_undocumented_status_value_is_nonconforming(self, tmp_path):
+        """The real ADR-008 shape: 'Under evaluation' is not one of the four
+        legal values docs/decisions.md's own template names, so it is also,
+        in effect, undecided -- but invisible to `proposed` alone."""
+        self._decisions_md(tmp_path, (
+            "## ADR-008 — Compare providers\n\n"
+            "| | |\n|---|---|\n"
+            "| **Status** | Under evaluation |\n"
+        ))
+        out = hr._scan_adrs(tmp_path)
+        assert out["proposed"] == []
+        assert [a["id"] for a in out["nonconforming"]] == ["ADR-008"]
+
+    def test_legal_statuses_are_not_flagged_nonconforming(self, tmp_path):
+        self._decisions_md(tmp_path, (
+            "## ADR-001 — x\n\n| | |\n|---|---|\n| **Status** | Accepted |\n\n"
+            "## ADR-002 — y\n\n| | |\n|---|---|\n| **Status** | Rejected |\n\n"
+            "## ADR-003 — z\n\n| | |\n|---|---|\n"
+            "| **Status** | Superseded by ADR-002 |\n"
+        ))
+        out = hr._scan_adrs(tmp_path)
+        assert out["nonconforming"] == []
+
+    def test_no_status_row_at_all_is_nonconforming(self, tmp_path):
+        self._decisions_md(tmp_path, "## ADR-099 — No status table\n\nJust prose.\n")
+        out = hr._scan_adrs(tmp_path)
+        assert [a["id"] for a in out["nonconforming"]] == ["ADR-099"]
+
+    def test_a_bold_wrapped_status_cell_is_not_misflagged(self, tmp_path):
+        """Regression: several real rows (ADR-023/035/038/041) wrap the
+        cell's own text in markdown emphasis -- '**Accepted -- 2026-09-09,
+        by explicit user decision.**' -- not just 'Accepted'. Without
+        stripping the leading '**' first, every one of these legitimately
+        Accepted ADRs misreported as nonconforming."""
+        self._decisions_md(tmp_path, (
+            "## ADR-038 — x\n\n| | |\n|---|---|\n"
+            "| **Status** | **Accepted — 2026-09-09, by explicit user "
+            "decision.** |\n"
+        ))
+        out = hr._scan_adrs(tmp_path)
+        assert out["nonconforming"] == []
+        assert out["proposed"] == []
 
 
 class TestScanStatusNextThree:
@@ -596,6 +639,27 @@ class TestCheckAssumedDrift:
     def test_missing_file_is_absent(self, tmp_path):
         out = hr._check_assumed_drift(tmp_path)
         assert out == {"status": "absent", "reason": "STATUS.md missing"}
+
+    def test_inline_emphasis_inside_supporting_prose_is_not_a_second_claim(
+        self, tmp_path
+    ):
+        """Regression for a real false-positive found 2026-10-20 (workflow
+        audit): the original regex counted **no-op** and **dynamics** --
+        inline emphasis inside a claim's own supporting prose, not
+        line-leading -- as separate 'bold claims', which would have kept this
+        check reporting drift forever even after STATUS.md's bulleting was
+        fixed."""
+        _write(tmp_path / "STATUS.md", (
+            "## Assumed, never checked\n\n"
+            "- **A properly bulleted claim.** Supporting prose calls out a "
+            "**no-op** and the **dynamics** category inline, neither of "
+            "which is a separate claim.\n\n"
+            "## Next three things\n\nnothing here\n"
+        ))
+        out = hr._check_assumed_drift(tmp_path)
+        assert out["counter_value"] == 1
+        assert out["bold_claims_in_prose"] == 1
+        assert out["drifted"] is False
 
 
 class TestLaneProduct:
