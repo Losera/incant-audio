@@ -1,91 +1,121 @@
-# PluginForge — Status  (2026-10-10)
+# PluginForge — Status  (2026-10-26)
 
 Rewritten each session per COLLABORATION.md §5. Single writer, no merge conflicts.
 Narrative history lives in git and in `docs/sessions/`.
 
-**2026-10-10 — targeted reconciliation, not a from-scratch rewrite.** Three weeks of
-merges (PRs #95–#98) had landed with nothing here reflecting them. Folded in below:
+**2026-10-26 — full reconciliation, prompted by `/orient` being wrong.** This file was
+stamped 2026-10-10; **eleven PRs merged after it** (#102–#113) and nothing here reflected
+them. A session opened on the digest, believed it, and had to re-derive the project's real
+state from scratch. Three separate truth defects were found, two of them in the controls
+that are supposed to prevent exactly this:
 
-1. **PF-082 fixed** (PR #96) — a plug-in window reopen (REAPER tab-away/tab-back, not a
-   project reload) was destroying and recreating the editor without replaying the
-   generated grid/face; the editor now replays from a processor-held snapshot.
-   `EditorSessionTest` scenario 58 is the red-then-green proof. Two adjacent lifetime
-   bugs found during that fix were filed, not folded in: **PF-083** (medium, open —
-   compile callbacks never cleared in the editor destructor) and **PF-084** (low, open —
-   two simultaneously-open editors race on one callback slot).
-2. **The health schema landed** (PR #97) — `tools/health_report.py` had run exactly once
-   since July; it now has a fourth `product` lane ($0, document-only) wired into
-   `tools/check.sh full`, scoring defect burden, every `Proposed` ADR, and two known
-   drifts. One of those drifts is this file's own "Assumed" counter — see that section
-   below; it is now a *named*, not a silent, gap. See `docs/HEALTH_SCHEMA.md`.
-3. **ADR-043 and ADR-044 drafted, both `Proposed`, neither decided** (PR #98). ADR-043
-   (model routing) scopes landing PF-081 *before* any routing change — nothing in it has
-   landed. ADR-044 (GUI generation) diagnoses the shipping `UiIr`/`ui_face` path as
-   capped by vocabulary, not by archetype count, and proposes raising it to a design
-   system rather than widening the archetype list. Full research grounding, a competitor
-   audit, and five additional shell-GUI recommendations (none yet an ADR) are in the
-   session artifact: `https://claude.ai/code/artifact/b20c80d3-4762-4fb5-b9b0-4ca129f994fa`.
-4. **A sibling session corrected the faust-rs study** (PR #95, merged the same day) —
-   the published repair-loop *mechanism* (PF-076) was withdrawn (the A/B result stands,
-   the caret-anchoring explanation does not — neither arm's request ever contains the
-   program being repaired), and a new finding was added: faust-rs's own repair-suggestion
-   list is stripped from the feedback text 87% of the time for `syntax`-class failures.
-   **The GRAME correction draft needs this finding added before posting** — see "Waiting
-   on you" #1, which was last touched 2026-09-24 and predates PR #95.
-5. **A sibling session is live right now, do not disturb it.** `.worktrees/efficacy-semantics`
-   is on branch docs/adr-045-usage-pattern-axis, **PR #99 open, not merged** ("a usage-pattern
-   axis for efficacy studies"), and an untracked bench/results/repair_ab/wp3_20261009.json
-   suggests the pre-registered WP3 experiment (named in PR #95 as "implemented, never
-   run") may now be running or done. Check that worktree's own state before assuming
-   either way.
-6. **Worktree cleanup, partial.** The three worktrees this session's own work used
-   (`pf082-gui-reopen`, `health-schema`, `adr-drafts`) are removed — their branches are
-   fully merged. The nine flagged stale-but-unremoved below from 2026-09-12→15 are
-   untouched; still a human/future-session call, not mechanical from here.
+1. **The "one number" was silently zero.** `tools/check.sh assumed` counts the Assumed
+   section with `^\s*[-*]\s+\*\*` — bold **bullets** — while this file wrote its claims as
+   bold **paragraphs**. Measured: `Assumed, never checked: 0 claims`, exit 0, with the
+   section 3,044 characters long and holding a live `high`/`open` claim (PF-079). Three
+   compounding failures: exit 0 reads as a triumph; no `DIGEST INCOMPLETE` fires because
+   the *heading* is found; and `tools/status_digest.sh:276` gives the Broken block an
+   empty-items tripwire while the Assumed block has none — the one section CLAUDE.md calls
+   "the one number" was the only one without a guard. The sole test touching it
+   (`tests/test_control_wiring.py:1266`) asserts the heading string, never a count.
+   **Fixed by this rewrite** (every claim below is a bullet) **and by PR #114**, which adds
+   a cross-check against `health_report._check_assumed_drift()` that exits 1 on drift.
+2. **The staleness banner understates the gap, structurally.**
+   `tools/status_digest.sh:243-247` runs `git log -1` with **no revision**, so it measures
+   *local HEAD* — never `origin/main`, never today's date. On a branch 28 commits behind it
+   printed "8 day(s)" for what was a 16-day, 11-PR gap: the further behind you are, the
+   smaller the warning. And `:251`'s `if head and head > stamped` prints **nothing** when
+   HEAD is older, violating the file's own `:34-35` rule that "silence is the one forbidden
+   output." Not fixed — recorded in "Assumed" and "Waiting on you."
+3. **Two `high`/`open` defects were invisible to the digest.** PF-079 and PF-081 sat in the
+   Broken *preamble prose* rather than as numbered items, so the digest's `**N. ...**`
+   regex never surfaced them; a reader saw 12 items and missed two highs. The ranked list
+   also contained two items numbered **11**. Both fixed below.
 
-**2026-09-18 — full rewrite, reconciled against `origin/main` (`d54d8fe`) and `docs/BUGS.md`.**
-Prompted by an adversarial review this session ran across all three concurrently-running
-sessions on this checkout (findings: artifact `28036260-0d47-4fa1-b4e7-2c7cde41f4c0`), which
-surfaced three separate truth defects in this file and one in a published artifact — all now
-fixed here:
+Also folded in: **PR #114's CI was red for five days** on two `test_generation_lane.py`
+tests (that file is new on #114's branch, not on main) that reached the real Faust toolchain, which CI's `test` job deliberately does not
+install — green locally, `assert 0 == 1` remotely. Fixed 2026-10-26 (`5cae65f`, CI run
+40431110271 green). This is the **second recorded instance** of that failure mode:
+`tests/test_control_wiring.py:1747-1762` already carries a comment recording it from CI run
+30687159048, generalized nowhere. Per this project's "a control counts only once it has been
+seen failing" rule, that is logged here so a third instance is less likely — not to imply it
+is now impossible. There is still no control asserting that a test importing `render_oracle`
+carries a toolchain guard.
 
-1. **"Waiting on you #7" was stale** — it asked for review on PR #78 before merge; #78
-   merged 2026-09-12 as `55fc78d`. Removed; see "Landed 2026-09-12 → 2026-09-15" below.
-2. **"Broken #7" (PF-043) was marked fixed in its own text and left in the ranked list
-   anyway** — its own parenthetical said to remove it "on the next full STATUS.md rewrite."
-   This is that rewrite; it's gone.
-3. **PF-011 disagrees with `docs/BUGS.md`'s own registry** — this file's "Assumed" section
-   says PF-011 closed 2026-09-08; `docs/BUGS.md`'s registry row still lists it `open`. Both
-   are partly right and the drift is now stated explicitly rather than picked a side (see
-   "Assumed," below).
-4. **Landed work since the last full rewrite (2026-09-09) was under-recorded**: PR #82
-   (F1, bipolar-knob), #83 (soundfetch 0.4.0), #84 (PF-043 fix), #85 (ADR-039/040), #86
-   (ADR-041 accepted), #87 (PF-032 WP2), #88 (ADR reclassification), #89 (PF-024 named-mono
-   sub-case), #90 (ADR-041 step 1) are folded in below.
-5. **The false artifact** (a 2026-09-17 UI-roadmap page written from a checkout 38 commits
-   behind `origin/main`, presenting shipped ADR-035 steps 2–6 as "nothing like this exists
-   yet") was corrected and republished to its original URL this session.
+**2026-10-10 — targeted reconciliation (PRs #95–#98).** PF-082 fixed (PR #96, editor
+replays a processor-held snapshot on window reopen; `EditorSessionTest` scenario 58 is the
+red-then-green proof), with PF-083 and PF-084 filed as adjacent lifetime bugs. The health
+schema landed (PR #97) — `tools/health_report.py` gained a fourth `product` lane wired into
+`check.sh full`; see `docs/HEALTH_SCHEMA.md`. ADR-043 (model routing) and ADR-044 (GUI
+generation) drafted, both `Proposed`, neither decided (PR #98). A sibling session corrected
+the faust-rs study (PR #95): PF-076's published *mechanism* was withdrawn — the A/B result
+stands, the caret-anchoring explanation does not, because neither arm's request ever
+contains the program being repaired — and a new finding was added (faust-rs's own
+repair-suggestion list is stripped from 87% of `syntax`-class feedback).
 
-Also newly true and worth stating plainly: **ADR-038's explicitly-first move, E1 (AOT
-export emit), has not started** — `tools/export_repo.py:100` is still
-`// Placeholder: passthrough`, no branch existed for it before today. Two sessions were
-dispatched today (`feat/e1-aot-emit`, `feat/interactive-capture-harness`) to work on E1 and
-on an interactive-session capture harness respectively — see the artifact above for why.
+**2026-09-18 — full rewrite** reconciled against `origin/main` and `docs/BUGS.md`, after an
+adversarial review found three truth defects here and one in a published artifact. Detail in
+`git log`; the specific corrections are no longer load-bearing.
 
-**Start a session with `/orient`**, not by reading this file top to bottom. It injects live
-repo state, **the CI line**, this file's open sections, and a staleness banner if it falls
-behind HEAD. `/brief` is the heavier cold-re-entry read.
-
-The 759-line "targeted update" that preceded the 2026-08-29 rewrite was compressed to the
-current picture; this file is kept current by §5 update, not re-narrated from scratch each
-time. The blow-by-blow of every closed defect and past session is in `git log` and
-`docs/sessions/NNN-*.md`.
+**Start a session with `/orient`**, not by reading this file top to bottom — but read its
+output critically. The digest reports; it does not verify, and in 2026-10 it was wrong about
+the defect list, the worktree inventory, the "one number", and the size of its own staleness
+gap. `/brief` is the heavier cold-re-entry read.
 
 ---
 
 ## Works — and how we know
 
 One line per capability, each naming its evidence. "Builds clean" is not a capability.
+
+**Landed 2026-10-13 → 2026-10-21** (PRs #102–#113; **#111 never existed** — `gh pr view 111`
+resolves to nothing). Added 2026-10-26, having gone unrecorded here for up to thirteen days:
+
+- **PR #102** (2026-10-13) — ADR-039 step 1: typed terminal provider exceptions.
+  `llm/providers.py` gains `QuotaExhausted(RateLimited)` and
+  `ProviderUnavailable(RuntimeError)`, raised from `_post_with_backoff` on a daily-quota
+  429 and on backoff exhaustion; 2 new tests. *Naming drift worth knowing:* ADR-039
+  (`docs/decisions.md:2702-2706`) specifies `QuotaExceeded`; the code says
+  `QuotaExhausted`. ADR-039 is still `Proposed`, but its own step-1 text authorizes landing
+  this alone.
+- **PR #103** — PF-083 fixed. Proof: `EditorSessionTest.cpp:4372` scenario 59, red→green.
+- **PR #104** — PF-079's two root-caused idioms: oracle red cases `runaway_expander` and
+  `inverted_limiter` land *first* (`be5515f`), then the prompt fix (`ff7ec5b`), then 6 live
+  groq generations 6/6 render-safe. A real red-then-green on a generation defect.
+- **PR #105** — ADR-038 **E2**: `tools/export_repo.py` AOT-compiles `Patch.dsp` through the
+  real `faust -lang cpp`, vendors 6 headers, derives `PLUGIN_CODE` instead of hardcoding
+  `Pfh1`, and `processBlock` calls `dsp.compute()`. The exported plugin is no longer a
+  passthrough. **Caveats:** the commit body says "Verification owed next" — it landed
+  unverified — and the follow-up skip-guards 10 of 13 test items behind
+  `shutil.which("faust")`, so the E2 proof does not run in CI's `test` job. An exported
+  *instrument* still makes no sound from MIDI (PF-053).
+- **PR #106** — two public overclaims corrected: README "polyphonic" → "monophonic"
+  (verified against `FaustEngine.cpp:549-562`, `FaustEngine.h:374`), and ADR-001's
+  "~30 MB added to binary size" replaced with a dated correction (libfaust is a shared
+  library, `host/CMakeLists.txt:106-110`).
+- **PR #107** — PF-038 `open`→`wontfix`, PF-039 `open`→`fixed` in `docs/BUGS.md`.
+- **PR #108** — ADR-038 **F2 + F3**: `WidgetKind::ChipRow` and `class ChipRow`
+  (`ParamGridPanel.h:77,301`), a `drawToggleButton` override, and column height-balancing
+  via `rowsNaturalFor()`. Proof tests `EditorSessionTest.cpp:4412` scenario 60 — which
+  asserts a chip click moves the **real APVTS slot** to 1.0, not just widget state — and
+  `ParamGridLayoutTest.cpp:365` `testColumnsBalanceHeight`. F3's own commit self-declared
+  "NOT been built or tested"; the debt was paid at merge `4c6189a` (515 checks 0 failures;
+  3006/3006).
+- **PR #109** — a `juce::FileLogger` at `~/.config/Incant-Audio/Logs/`, refcounted, gated
+  to VST3/Standalone, 30-file prune, logging OutputGuard mute/unmute and LoadMode per
+  compile. Honestly scoped as *observability*, not a PF-074 fix; verified by a live
+  Standalone run, no automated test.
+- **PR #110** — transplanted the publishable half of `research/market-fit-2026-10-12`:
+  `bench/repro/pf074/` (5 files), `bench/results/oracle_20261014_session_kit.json`,
+  `docs/competitive_landscape.md`, `bench/PLUGIN_PRODUCT_DEVELOPMENT_ARCHITECTURE.md`,
+  `.claude/skills/brief/SKILL.md`. This, not `c402aa8`, is how PF-074's repro reached main.
+- **PR #112** — PF-032 re-measured on groq and closed; see "Broken".
+- **PR #113** — the `/pr-cleanup` skill.
+- **2026-10-26** — PR #114's CI unblocked (`5cae65f`, run 40431110271 green): two
+  `test_generation_lane.py` tests reached the Faust toolchain CI deliberately lacks.
+  `score_rep` now takes an injectable analyser so the counting logic runs in CI, with one
+  `skipif(which("faust2sndfile"))` end-to-end test keeping the fakes honest. Red case
+  reproduced first behind a faust-free PATH.
 
 - **NL prompt → Faust → LLVM JIT → VST3/AU, generating a working effect.** Verified by ear
   first 2026-07-22; many patches since. The render oracle (`bench/render_oracle.py`, $0)
@@ -445,227 +475,252 @@ source location 15/15 vs 9/15 — *re-derived 2026-08-30 as 8/15, erratum carrie
 is PF-076 — feeding those diagnostics back to the repair model made it *worse* (75%→44%
 repaired-within-2 on `qwen2.5-coder:3b`). Caveat: all of it is small models on CPU.
 
+
 ---
 
 ## Broken — ranked
 
-Registry with IDs, severity, discovery dates: `docs/BUGS.md`.
+Registry with IDs, severity, discovery dates: `docs/BUGS.md`. **When this list and that
+registry disagree, neither is automatically right — read the code.** Two such disagreements
+are named explicitly below rather than silently picked.
 
-**Added 2026-09-24, not yet folded into the ranking below — read this first.** *(PF-079,
-high, open.)* The compile gate this whole ladder is ranked against systematically overstates
-success: real render-safety runs 25–40pp below compile rate on the committed groq/ollama
-125-cell archives (`docs/records/efficacy-adversarial-review-2026-09-23.md` §B1). Two
-`dynamics`-category idioms fail identically across two independent generator models and are
-now root-caused directly against the Faust stdlib (not "unidentified" as first filed): an
-**upward expander's makeup gain has no ceiling** (`gain_db = select2(level_db < threshold, 0,
-(threshold-level_db)*(ratio-1))` — `ba.linear2db` floors at −758.6 dB single-precision,
-so the gain follows the signal to +728.6 dB at the silence limit; measured +715 dB), and a
+**1. The compile gate overstates real success by 25–40pp.** *(PF-079, high, open.)*
+Promoted from preamble prose to a numbered item 2026-10-26 — it was `high`/`open` for a
+month while being invisible to `/orient`'s digest, which only parses `**N. ...**` items.
+`faust -lang cpp` accept/reject is the gate this whole ladder ranks against, and real
+render-safety runs 25–40pp below it on the committed groq/ollama 125-cell archives
+(`docs/records/efficacy-adversarial-review-2026-09-23.md` §B1). Two `dynamics` idioms fail
+identically across two independent generator models, both root-caused against the stdlib:
+an **upward expander's makeup gain has no ceiling** (`ba.linear2db` floors at −758.6 dB
+single-precision, so gain follows the signal to +728.6 dB; measured +715 dB), and a
 **brick-wall limiter's `select2` arms are inverted** (`select2(c,a,b)` returns `a` when `c`
-is *false* — every sample at or below threshold gets replaced by the threshold constant,
-0.98855 at the default; measured DC 0.95–0.98). Both are promptable; neither fix is landed
-yet (`docs/BUGS.md` PF-079). Also landed this date: PF-076's public mechanism
-(caret-anchoring) was withdrawn — the A/B *result* is unchanged, the *causal story* was
-wrong, because the repair loop (and the shipping Fresh-mode retry path, PF-081) never shows
-the model the program it is repairing. See PF-076/PF-080/PF-081 in `docs/BUGS.md`.
+is *false*, so every sample at or below threshold becomes the threshold constant; measured
+DC 0.95–0.98). **Partially addressed 2026-10-20** (PR #104): both got oracle red cases
+(`render_oracle.py:982,1000` / `:1053,:1067`) and a STRICT-RULES prompt clause, verified
+6/6 render-safe on live groq. The *general* claim — that the gate overstates render-safety
+— is untouched and the registry row is correctly still `open`.
 
-**1. One generation defect is evidenced; the rest is sampling.** *(PF-024/PF-032, high,
-open.)* Karplus-Strong's `recursion_cycle` fails to compile across every archive and the one
-tier that compiles renders +79.6 dB runaway; the sidechain compressor fails every run with a
-*different* error. `routing_arity` is now PF-024's dominant first-attempt failure class
-(22/44 error strings on the 125-cell grid).
-  **Diagnosed 2026-09-08** (full trace: the session log / PR): the dynamics category's
-  `routing_arity` failures (10/25 cells) are one mechanism — the model passes the audio
-  signal as a trailing `_` argument to a stdlib effect (`co.compressor_stereo(r,t,a,rl,_,_)`,
-  `ef.gate_stereo(...,_,_)`), which is a hard arity error because the library function
-  reuses `x,y` internally. `misceffects.lib:182`, `compressors.lib:1002`. **Mitigation
-  landed** (PR #75, `a778853`): a dynamics few-shot replaced the tape-flanger few-shot in
-  `system_prompt.txt`, the "renders SILENCE" claim on the gate rule was corrected to "hard
-  arity error", and `error_classes.ROUTING_ARITY` got a `RETRY_HINT` (was raw stderr only;
-  `dynamics-01`/L4 and `dynamics-03`/L4 each repeated the identical error on all 3 attempts).
-  **Verified 2026-09-09, n=1, single re-run of all 25 dynamics cells on the fixed prompt**
-  (`bench/results/efficacy/efficacy_groq_dynamics_postfix_20260909.json`):
-  *the targeted pattern is gone* — `co./ef. X_stereo(...,_,_)` in generated code **8/25 → 0/25**,
-  `routing_arity` first-attempt errors **10/25 → 4/25**. `dynamics-03`/L4 (baseline
-  `compile_failed`, the flagship) is now a first-try pass with the correct idiom. *Net
-  compile rate barely moved* — first-try **8/25 → 9/25**, retry-corrected **16/22 → 17/22**
-  on the 22 cells not cut short by groq's TPM limit — because failures partly rotated into
-  `syntax` errors (6→9): the model now calls the compressor correctly but botches makeup
-  gain (`: *makeup`, prefix-op) and other adjacent things the fix does not target. Honest
-  read: the fix does what it was built to do; dynamics has multiple independent failure
-  modes and this closed one. n=1 keeps it short of a verdict (PF-031 wants ≥3).
-  **A second, independent PF-024 sub-pattern was targeted 2026-09-15** (`fix/pf024-named-mono-routing`,
-  PR #89): a named mono Faust definition fed into a stereo chain. Mixed free-tier result —
-  2/5 cells clearly fixed, 1 ambiguous, 1 shifted to a different error, 1 unchanged. Like
-  the dynamics mitigation, this is a real but partial result; groq (the shipping model) is
-  not yet measured.
+**2. The repair loop never sees the program it is repairing.** *(PF-081, high, open.)*
+Also promoted from prose 2026-10-26, same invisibility. The shipping Fresh-mode retry path
+sends diagnostics without the source being fixed. This is what falsified PF-076's published
+mechanism; ADR-043 scopes landing this *before* any routing change, and nothing in ADR-043
+has landed.
 
-**2. The noise gate still renders silent.** *(PF-032's surviving half, high, open.)* Warm-LP
-renders silent 1/4 at L4 on the grid. The gate: real defect is the att/hold/rel
-time-constant arguments (`misceffects.lib` wants seconds; the model variously pre-converts
-to samples, writes implausible whole-second literals, or runs a time value through
-`ba.db2linear`) — not the standing thresh/`db2linear` hypothesis, which did not reproduce.
-**2026-09-15: WP2 landed** (`fix/pf032-gate-time-units`) — the STRICT RULES unit-contract
-clause and `gen_stdlib_block.py`'s Dynamics descriptions now name the seconds contract
-explicitly, plus a new worked gate few-shot; paid for by trimming three unused stdlib
-entries from the effect profile. **Free-tier result: 6/6 pass** vs. a confound-corrected
-control's 5/6 broken (the original 2026-09-12 5/6-silent number ran on ollama's stock
-4096-token context, before PF-043's fix — re-measured clean before claiming the delta).
-Honest caveat: most passing generations reproduced the new few-shot near-verbatim, so this
-is a real but not yet a generalization-proven result. **Groq (the shipping model) is still
-not measured** — needs `--i-authorize-spend`, gated on separate authorization per this
-project's own consult rule. Detail: `docs/BUGS.md` PF-032.
+**3. One generation defect is evidenced; the rest is sampling.** *(PF-024, high,
+in-progress.)* Karplus-Strong's `recursion_cycle` fails to compile across every archive and
+the one tier that compiles renders +79.6 dB runaway; the sidechain compressor fails every
+run with a *different* error. `routing_arity` is the dominant first-attempt failure class
+(22/44 error strings on the 125-cell grid). Two sub-patterns are mitigated, neither closes
+it: the **dynamics `_,_)` arity pattern** (PR #75) — verified n=1 2026-09-09, the targeted
+pattern went 8/25 → 0/25 and `routing_arity` 10/25 → 4/25, but net compile rate barely
+moved (8/25 → 9/25 first-try) because failures rotated into `syntax` (6→9); and **named
+mono fed into a stereo chain** (PR #89) — 2/5 cells clearly fixed, 1 ambiguous, 1 shifted,
+1 unchanged. Both measured free-tier only; groq is the shipping model and is not measured
+for either.
 
-**3. The DAW still sees raw slots.** *(follow-up to PF-037, medium, open, unfiled.)* No
-section grouping / titled cards in the host parameter view.
+**4. The DAW still sees raw slots.** *(follow-up to PF-037, medium, open, unfiled.)* No
+section grouping or titled cards in the host parameter view.
+`PluginProcessor::createParameterLayout()` (`host/Source/PluginProcessor.cpp:205-238`)
+emits 64 flat `AudioParameterFloat` slots named `"Macro " + String(i+1)`; there is no
+`AudioProcessorParameterGroup` anywhere in that file.
 
-**4. `en.*` envelope time units on the frozen ladder record.** *(PF-045, medium, open,
+**5. Export cannot make sound.** *(PF-053, medium, open.)* Absent from this list entirely
+until 2026-10-26, despite PR #105 landing ADR-038 E2 against it this cycle. E2 now
+AOT-compiles `Patch.dsp` via the real `faust -lang cpp` and `processBlock` calls
+`dsp.compute()`, but PR #105 states plainly that an exported **instrument** compiles and
+runs without making sound from MIDI — the voice mapping is not ported. See also the stale
+gate text in "Waiting on you".
+
+**6. `en.*` envelope time units on the frozen ladder record.** *(PF-045, medium, open,
 deliberately not spent.)* Reproduces at L0 on the grid.
 
-**5. Refine produced a degenerate 1-knob patch.** *(PF-072, medium, open, found 2026-08-28,
-needs a captured repro.)* `groq`/`gpt-oss-120b`, "reverb with chorus" as a refine over a
-working reverb → a single dry/wet knob where New mode gave a full patch. Refine *mechanism*
-verified correct on `gemini` afterward — this is model variance, not routing, but a bad
-experience regardless.
+**7. Refine produced a degenerate 1-knob patch.** *(PF-072, medium, open, found
+2026-08-28, still needs a captured repro.)* `groq`/`gpt-oss-120b`, "reverb with chorus" as
+a refine over a working reverb → a single dry/wet knob where New mode gave a full patch.
+Refine *mechanism* verified correct on `gemini` afterward — model variance, not routing.
+**No repro artifact exists:** `bench/repro/` contains only `pf074/`.
 
-**6. A generated instrument patch went NaN during play.** *(PF-074, medium, open, found
-2026-08-28, needs a captured repro.)* Forced a regeneration. Not captured whether `OutputGuard`
-latched (silence) or missed it. `OfflineSynthRenderTest` is 184/0 on fixtures, so it is a
-specific patch under a specific runtime state.
+**8. A generated instrument patch went NaN during play.** *(PF-074, medium, open, found
+2026-08-28.)* **Repro captured** (PR #110, `bench/repro/pf074/`) and it falsified every
+internal hypothesis — `OutputGuard` latched correctly. **Observability landed** (PR #109):
+a `juce::FileLogger` at `~/.config/Incant-Audio/Logs/` records OutputGuard mute/unmute and
+LoadMode per compile. What is still missing is a DAW capture taken *with* that logger
+running — a human in a host, not more code. The repro surfaced PF-085 (below).
 
-**7. `score_efficacy.py --judge` spends quota.** *(unfiled, medium, open.)* Takes a lock
-(`bench/score_efficacy.py:558,569`); the quota cost is the real remaining half.
+**9. Resonance/Q can be declared `min = 0`, dividing by zero.** *(PF-085, medium, open,
+found 2026-10-14.)* New since the last rewrite, and prose-only until now. Generated patches
+can declare `min = 0` on a resonance/Q parameter with no floor anywhere in prompt,
+generator, or host: `ParamMap::mapSlotToZone` (`host/Source/ParamMap.h:130`) passes the
+declared minimum to the Faust zone verbatim, and `fi.resonlp`'s `a1 = 1/Q`
+(`/usr/share/faust/filters.lib:2185-2193`) divides by zero at the floor. Reproduced by
+`bench/repro/pf074/sweep_driver.cpp`.
 
-**8. Audible discontinuity on the 2nd-generation DSP swap in a host.** *(PF-073, low, open,
-found 2026-08-28, needs a captured repro.)* "Not a very smooth transition." No `setParamValue`
-flood in the log. A brief recompile gap is expected; a click is not.
+**10. `score_efficacy.py --judge` spends quota.** *(unfiled, medium, open.)* The lock half
+is done — `acquire_lock()` / `release_lock()` at `bench/score_efficacy.py:612` / `:624`
+*(citation corrected 2026-10-26; this list previously pointed at `:558,569`, which are
+argparse definitions)*. The quota cost is the real remaining half: `run_judge` at `:505`,
+`providers.make_generator` at `:524`.
 
-**9. A chord sounded like ~5 voices from a strictly-mono engine.** *(PF-075, low, open,
-found 2026-08-28.)* Almost certainly overlapping release tails + reverb from the mono voice —
-the disambiguating held-chord test (all 5 sustain vs 4 decay) has not been run.
+**11. Semantic fidelity is unmeasured.** *(PF-013, medium, open.)* Absent from this list
+until 2026-10-26 though `open` in the registry throughout. The judge half is closed; the
+measurement is blocked on #10's quota cost.
 
-**10. Knob ordering is Faust's own.** *(PF-038, low, open.)*
+**12. Audible discontinuity on the 2nd-generation DSP swap in a host.** *(PF-073, low,
+open, found 2026-08-28, needs a captured repro.)* "Not a very smooth transition." No
+`setParamValue` flood in the log. A brief recompile gap is expected; a click is not.
 
-**11. A compile finishing while the editor window is closed is silently dropped.**
-*(PF-083, medium, open, found 2026-10-09.)* `~PluginForgeEditor` never clears
-`processor.onFaustCompileSuccess`/`onFaustCompileFailure`/`onUiStyleChanged` — the
-`SafePointer` null check makes the stale callback a no-op rather than a crash, but the
-result is never replayed when a new editor later appears. Same root cause as the fixed
-PF-082, different trigger; not fixed.
+**13. A chord sounded like ~5 voices from a strictly-mono engine.** *(PF-075, low, open,
+found 2026-08-28.)* Mono is confirmed by construction — `FaustEngine.h:374`
+`int currentNote = -1`, last-note-priority at `FaustEngine.cpp:547-562` — so this is almost
+certainly overlapping release tails plus reverb. The disambiguating held-chord test (all 5
+sustain vs 4 decay) has still not been run. PR #106 corrected the README overclaim that
+flowed from this ("polyphonic" → "monophonic").
 
-**12. Two simultaneously-open editors race on one callback slot.** *(PF-084, low, open,
-found 2026-10-09.)* A REAPER FX-chain editor plus a floating window, or two hosts
-embedding the same instance, both overwrite the processor's single-slot compile
-callbacks — only the last-constructed editor's grid/face updates on a later compile.
+**14. Two simultaneously-open editors race on one callback slot.** *(PF-084, low, open,
+found 2026-10-09.)* A REAPER FX-chain editor plus a floating window, or two hosts embedding
+one instance, both overwrite the processor's single-slot compile callbacks; only the
+last-constructed editor updates. **Possibly sharpened by PR #103**, which makes
+`~PluginForgeEditor` unconditionally null those three slots — so a second editor's
+destruction can now clear a first editor's live callbacks. Reasoned from the diff; no test
+covers the two-editor case.
 
-**11. MIDI-fidelity gaps in a real session.** *(triaged 2026-08-16, all pre-existing, none a
-regression.)* Monophonic by design (`FaustEngine.cpp:519-524`, deliberate), block-granularity
-MIDI (~10.7 ms jitter, documented in-code), a hardcoded 2.0 s tail (`PluginProcessor.h:85`),
-no MIDI CC mapping (`PluginProcessor.cpp:288-317`).
+**15. Bargraph/meter zones are discarded in ParamPool.** *(PF-052, medium, in-progress.)*
+In this file's prose (the ADR-041 ladder) but never in the ranked list until now.
 
-**Closed since the last rewrite** — one line each, detail in git / `docs/BUGS.md`:
-**PF-065** (generate.py unresolvable as an installed VST3 — config source PR #42, picker
-PR #43, install-layout PR #45; **clean-machine REAPER rehearsal PASSED 2026-09-01**,
-launcher-started, nothing hand-set, `ollama`); **PF-071** (stale XDG runtime → paid
-provider — same fix chain, closed on the same REAPER pass: resolution landed on the
-installed `config.json` + venv, provider was free/local);
-**PF-076** (evidence — faust-rs diagnostics fed to the repair loop make it worse, not
-better; A/B, McNemar p<1e-3; 2026-08-30, PR #41); the OS→JUCE QWERTY keypress hop
-(2026-08-28, session 017); "never been in an interactive DAW" (2026-08-28, session 017);
-PF-069 hardcoded efficacy budget and PF-070 compiler-hang crash (2026-08-29, PR #35);
-PF-063 CI-staleness banner (2026-08-17); PF-066 stale octave assertion and PF-067 uncapped
-`anthropic` pin (2026-08-25); **PF-043** (ollama's stock 4096-token context couldn't hold
-the system prompt — default model raised to `qwen2.5-coder:7b-16k`, 16384-token context;
-2026-09-13, PR #84, `c9655da`); **PF-082** (a reopened plugin window lost its generated
-grid and face — the editor constructor now replays a processor-held snapshot;
-2026-10-09, PR #96, `f3ffe10`, `EditorSessionTest` scenario 58 red→green).
+**16. `min_max_tokens` makes a per-call output budget unenforceable.** *(PF-035, low,
+open.)* `bench/score_efficacy.py:465`. Absent from this list until 2026-10-26.
+
+**17. MIDI-fidelity gaps in a real session.** *(triaged 2026-08-16, all pre-existing, none
+a regression.)* Monophonic by design (deliberate; the mono *state* is
+`FaustEngine.cpp:547-562` and `FaustEngine.h:374`), block-granularity MIDI (~10.7 ms
+jitter, documented in-code), a hardcoded 2.0 s tail (`PluginProcessor.h:86`), no MIDI CC
+mapping (the MIDI walk is `PluginProcessor.cpp:410,485-493` and handles `isNoteOn`/
+`isNoteOff` only). *(All three citations corrected 2026-10-26 — the previous ones pointed
+at `:519-524`, `:85`, and `:288-317`, the last of which is `isBusesLayoutSupported` and
+`reset()`.)*
+
+**Closed since the last rewrite (2026-10-20/21):**
+- **PF-032** — the silent noise gate. `docs/BUGS.md` row `in-progress`→`fixed` (PR #112).
+  Evidence is 6 live groq `openai/gpt-oss-120b` generations of "a noise gate with threshold
+  and hold time", 6/6 render-oracle pass, thresh always a raw dB literal and hold always
+  `*(0.001)`'d. Record: `docs/records/pf032-groq-remeasurement-2026-10-20.md`. **Scope
+  caveat, stated by the commit itself:** n=6 on *one prompt phrasing*, no broader sweep, no
+  instrument-profile path, and **no automated regression test** — the only mechanical
+  artifact is `tests/test_bugs_registry_integrity.py` asserting the row reads `fixed`,
+  which proves bookkeeping, not behavior. Re-checking it costs quota.
+- **PF-083** — compile callbacks never cleared in the editor destructor (PR #103,
+  `4eda8c3`). Proof test `host/tests/EditorSessionTest.cpp:4372`
+  `scenario59_destructorClearsProcessorCallbacks`, registered `:4570`; red-then-green
+  documented in the commit (3 failures, scenario 59 only → 0 failures, 507 checks).
+  **Narrower than this file previously described it:** the fix clears dangling callbacks;
+  it does not implement "the result is replayed when a new editor appears" — that was
+  already handled by `lastPublishedParamsSnapshot` (`PluginProcessor.cpp:834`, written
+  *before* the callback at `:874`), i.e. PF-082's mechanism. **The registry row in
+  `docs/BUGS.md` still reads `open` and needs flipping.**
+- **PF-038** — knob ordering is Faust's own. Marked **`wontfix`** in `docs/BUGS.md` by PR
+  #107; it was still ranked open here as item 10. *Resolved 2026-10-26 — this was a direct
+  STATUS.md/BUGS.md contradiction on `origin/main`.*
+- **PF-039** — marked `fixed` by the same PR, citing `2d11758` (2026-08-14).
+- **PF-079 (partial)** — the two root-caused `dynamics` idioms, PR #104. The general claim
+  stays open as item 1.
+
+Older closures (PF-065, PF-071, PF-076, PF-069/070, PF-063, PF-066/067, PF-043, PF-082,
+PF-011, PF-077) are in `git log` and `docs/BUGS.md`.
 
 **Unfiled:** a granular-family observation from the REAPER pass — `"pitch synchronous
 granulizer"` routed to `granular_effect` and the family control gate
 (`llm/generate.py:435-448`) rejected every retry for missing required control groups; folds
-into PF-024's family-failure sampling, notes in `scratchpad/pf065-reaper-observations.md`.
-*(The `google-genai` gap that stood here is now PF-077, fixed — PR #46, above.)*
+into PF-024's sampling, notes in `scratchpad/pf065-reaper-observations.md`.
 
 ---
 
 ## Assumed, never checked
 
-**The compile gate was assumed to track real plugin success; checked 2026-09-23, and it
-doesn't.** *(PF-079, high, open.)* `faust -lang cpp` accept/reject overstates render-safety
-by 25–40pp on the committed archives — see "Broken" above for the number and the two
-root-caused failure classes. This is exactly the kind of claim this section exists to track;
-it was missing from here even after the defect was filed, which is its own small instance of
-the thing `check.sh assumed` is supposed to catch.
+The most important section (COLLABORATION.md §5). **Format contract:** every open claim is
+a top-level bullet whose headline is bolded — `- **<claim>.**` — because that is what
+`tools/check.sh assumed` and `tools/status_digest.sh` parse to produce the one number.
+Unbulleted prose under a bullet is supporting evidence for that claim, not a second claim.
+**A claim written as a bare bold paragraph is invisible to the count while being perfectly
+visible to a human** — that is not hypothetical, it is what this section looked like until
+2026-10-26, reporting 0 while holding a live `high` claim. Items move out of here only when
+someone produces evidence, never by reformatting.
 
-PF-011 — "the efficacy tier gradient on the shipping model" — closed 2026-09-08:
-the groq / `openai/gpt-oss-120b` grid completed all 125 cells and was scored ($0). Result
-in "Works" above: no monotonic tier gradient (L2–L4 flat ~84% first-try), a sharp L1
-metaphor-only trough (48%), and a category-level `dynamics` weakness at every tier. The
-`--resume` next-action that stood here for a week was a **no-op** — `prepare_resume`
-(`bench/run_efficacy_study.py:329`) keeps every record that carries `code`, and all 125
-did; the grid was already generated, just uncommitted. What remains open is a *deeper* bar,
-not this one: n≥3 per cell (PF-031) and a judged fidelity pass (`--judge` spends quota,
-defect #7). Those are new evidence items, not a re-opening of PF-011.
+- **The compile gate was assumed to track real plugin success; checked 2026-09-23, and it
+  doesn't.** *(PF-079, high, open.)* Overstates render-safety by 25–40pp on the committed
+  archives. Two of its idioms are now fixed and oracle-guarded (PR #104); the general claim
+  is unmeasured since.
+- **The groq 125-cell efficacy grid answers the tier-gradient question but not the
+  generalization one — n≥3 per cell is still owed.** *(PF-031.)* The committed archive
+  `bench/results/efficacy/efficacy_groq_n3_rep1_20260915.json` holds **38 of 125 cells, rep
+  1 only, 2 of 5 categories (filters 13, trivial 25), every cell n=1** — counted
+  2026-10-26. It contributes nothing toward n≥3, and no newer rep file exists on any
+  branch.
+- **PF-032 is recorded `fixed` on the strength of six generations of one prompt phrasing.**
+  Closed 2026-10-21 with no automated regression test; a phrasing sweep and the
+  instrument-profile path were never run, and re-checking costs quota. The registry says
+  `fixed`; the evidence supports "fixed for the measured phrasing."
+- **Nothing asserts that a test reaching the Faust toolchain carries a guard.** Logged
+  2026-10-26 after the second recorded instance of a test passing locally and failing CI
+  for this reason (the first is recorded in a comment at
+  `tests/test_control_wiring.py:1747-1762`, generalized nowhere). A sweep this session
+  found the current blast radius is **2 tests, both now fixed**, and the other ~20
+  toolchain-touching test files are correctly guarded — but that is a point-in-time audit,
+  not a control. The next unguarded one will be caught by CI, not by the ladder.
+- **`tools/status_digest.sh`'s staleness banner cannot measure the gap it reports.**
+  `:243-247` runs `git log -1` with no revision, so it compares this file's stamp to *local
+  HEAD* rather than `origin/main` or today's date, and `:251` prints nothing at all when
+  HEAD is older than the stamp. Unfixed. How many past sessions were under-warned is
+  unknown.
+- **`bench/results/.prompt_baseline.json` records `0.88` for a prompt file that no longer
+  exists.** Deliberately untouched — overwriting a committed measurement is
+  COLLABORATION.md §2 territory. Every comparison against it is comparing to a deleted
+  artifact.
+- **CI's health on `origin/main` was never confirmed this cycle.** Eleven PRs merged
+  2026-10-13→21; `gh run list` was queried for PR branches, never for `main`. PR #105's own
+  commit body says "Verification owed next", and its follow-up then skip-guarded 10 of 13
+  export test items off CI's `test` job — so the E2 proof tests do not run there.
+- **F2/F3 and PF-083 are proven on their pre-merge branches, not as integrated.** The
+  quoted runs (`EditorSessionTest` 515 checks, `ParamGridLayoutTest` 3006/3006) were on
+  `4c6189a` before merge. Nothing has rebuilt those harnesses against `6c3adf3`.
 
-**This section disagrees with `docs/BUGS.md`'s own registry, and that's stated here rather
-than silently resolved.** `docs/BUGS.md`'s PF-011 row still reads `open`, under its original
-2026-07-23 framing ("Efficacy pilot generalizes to nothing, N=50, 1 model, 2/5 categories") —
-a narrower, older claim than "closed" above addresses. `docs/BUGS.md`'s own preamble says to
-"believe neither, read the code" when the two disagree. The honest position, reconciling
-both: the *specific* n=50/1-model/2-category claim PF-011 originally named is superseded by
-the 125-cell/full-category groq grid; the *general* "is this generalization trustworthy" bar
-PF-031 sets (n≥3 per cell) is still unmet, on either file's telling. `docs/BUGS.md`'s
-registry row is not updated by this pass — that file has its own ID/severity conventions
-this rewrite didn't touch — but should be reconciled the next time someone is in it.
-**Reconciled 2026-09-24:** `docs/BUGS.md`'s PF-011 row flipped `open`→`closed`, citing this
-paragraph and the 2026-09-08 close date, exactly as invited above.
-
-**Benchmark staleness (2026-09-08 → partly closed 2026-09-09):** `system_prompt.txt`
-changed after the 125-cell grid was measured — the tape-flanger few-shot became a
-`co.compressor_stereo` few-shot and the `routing_arity` retry hint was added (defect #1).
-`efficacy_groq_20260831.json`'s **dynamics** numbers are therefore the *pre-fix* baseline.
-A fresh single run of the 25 dynamics cells on the fixed prompt landed 2026-09-09
-(`efficacy_groq_dynamics_postfix_20260909.json`, committed) — see defect #1 for the result.
-The other four categories in `efficacy_groq_20260831.json` are unaffected by the edit and
-still current. A full 125-cell re-run at n≥3 (PF-031) is still owed for a real verdict.
+**Benchmark staleness.** `system_prompt.txt` has changed repeatedly since the 125-cell grid
+was measured (the dynamics few-shot, the `routing_arity` retry hint, PF-032's unit
+contract, PR #104's STRICT-RULES clause). `efficacy_groq_20260831.json`'s **dynamics**
+numbers are a pre-fix baseline; the other four categories are unaffected by those edits.
 
 ---
 
 ## Next three things
 
-1. *(evidence)* **Re-run the groq efficacy grid at n≥3 (PF-031).** The single dynamics
-   re-run (2026-09-09, defect #1) confirmed the prompt fix kills the `_,_)` pattern but left
-   the compile-rate verdict inside n=1 noise. A real number needs all 125 cells × 3 with
-   per-cell aggregation. `run_efficacy_study.py --provider groq` (spends quota; groq's
-   ~8k-TPM limit paces it to ~1 cell/90s, so this is a multi-day grind — resume-loop it).
-   Also owed: the makeup-gain follow-up — the dynamics few-shot stops at the compressor call
-   and the model then writes `: *makeup`; showing `: par(i, 2, *(makeup))` would need ~120
-   chars of prompt headroom back (trim one `gen_stdlib_block.py` curated entry).
-   **In flight, uncommitted:** `.worktrees/efficacy-pf031` (branch
-   bench/efficacy-groq-n3-20260915) already has a rep-1 checkpoint — see "Waiting on you"
-   #6, do not disturb it.
-2. **Capture repros for PF-072 and PF-074.** The two medium in-host findings are
-   currently unactionable — each needs the triggering patch source and the action
-   immediately before. **The capture harness landed** (PR #93, `bench/capture.py`,
-   `PLUGINFORGE_CAPTURE=1`) — what's still missing is the interactive host session
-   itself to run it in, which needs a human in a DAW, not more code.
-3. **PF-032 silent noise gate — groq re-measurement.** Highest-severity open generation
-   defect (#2). WP2 (retargeted at att/hold/rel, not the original thresh/`db2linear`
-   hypothesis) landed 2026-09-15 on `fix/pf032-gate-time-units` with a clean free-tier
-   result (6/6 vs. a confound-corrected control's 5/6 broken); the one step left is the
-   shipping-model (`groq`) benchmark, gated on separate spend authorization.
+1. *(evidence)* **Re-run the groq efficacy grid at n≥3 (PF-031).** Still the top evidence
+   priority and barely started: 38/125 cells, rep 1 only, every cell n=1 (counted this
+   session). A real number needs all 125 × 3 with per-cell aggregation.
+   `run_efficacy_study.py --provider groq` spends quota and groq's ~8k-TPM limit paces it
+   to ~1 cell/90s, so it is a multi-day grind — resume-loop it. **Resume from the committed
+   archive** `bench/results/efficacy/efficacy_groq_n3_rep1_20260915.json` plus its
+   `.PROVENANCE.md`; `.worktrees/efficacy-pf031` no longer exists and any instruction
+   pointing there is stale. Also owed: the makeup-gain follow-up — the dynamics few-shot
+   stops at the compressor call and the model then writes `: *makeup`; showing
+   `: par(i, 2, *(makeup))` needs ~120 chars of prompt headroom back.
+2. **Take a DAW capture for PF-074 and PF-072.** The code half is done — the capture
+   harness landed (PR #93, `bench/capture.py`, `PLUGINFORGE_CAPTURE=1`), PF-074's repro is
+   committed (PR #110) and the FileLogger is installed (PR #109). What is missing is a
+   human in a host with the logger running. PF-072 still has no repro artifact at all.
+3. **Land PF-081 — give the repair loop the program it is repairing.** Highest-severity
+   open defect with no work in flight, and ADR-043 explicitly scopes it *before* any
+   routing change, so it blocks that ADR. It is also what falsified PF-076's published
+   mechanism, which makes it the honest next move on the GRAME thread.
 
-**Authorized, parallel, not blocking the Next three.** ADR-038's cheap steps —
-**F1 landed** (PR #82, bipolar-knob arc fill), **F2/F3** (chip rows, bespoke archetype
-geometry) still open, **E1–E3** (AOT emit → wire `processBlock` → prove sound + un-gate
-`/export`). One step per session, each independently landable;
-`docs/sessions/020-generated-faces-v2.md` has the order and the `file:line` traps.
-**F4 is now ADR-041 (Accepted 2026-09-15, PR #86)** — its own landing ladder (prep commit →
-`FaceContext` → `FaceVisual`/F4a → PF-052 split → offline eval/F4b → ring buffer/F4c).
-**Step 1 (prep commit) landed** — `ArchetypeLayout::VisualRegion` + `Result::visuals`,
-`rail()` returns its reserved display region instead of discarding it. Next: step 2
-(`FaceContext` + `TypefaceRegistry`) once F2/F3/E1–E3 are further along — that step's own
-pause trigger applies if it's seen crowding out PF-024/PF-032. E4 remains gated behind its
-own future ADR.
+**Authorized, parallel, not blocking the Next three.** ADR-038: **F1, F2, F3 all landed**
+(PRs #82, #108 — chip rows at `ParamGridPanel.h:77,301`, archetype geometry via
+`rowsNaturalFor()`; proof tests `EditorSessionTest.cpp:4412` scenario 60 and
+`ParamGridLayoutTest.cpp:365`). **E1 and E2 landed** (PRs #92, #105). **E3 is the live
+step** — pluginval + a render check, then un-gate `/export`; note two of its three stated
+requirements already shipped in E2 (see "Waiting on you"). E4 stays behind its own future
+ADR. **ADR-041**: step 1 landed (`ArchetypeLayout::VisualRegion`, `Result::visuals`, and
+PR #108 added a second producer in `split()`); **step 2 (`FaceContext` +
+`TypefaceRegistry`) has not started** — `git grep FaceContext` on main hits only `STATUS.md`
+and `docs/decisions.md`. Its pause trigger applies if it crowds out PF-024/PF-079.
 
 **Displaced, not urgent.** A piano roll (requested, unplanned; needs a note grid *and* a
 clock — no host transport in Standalone).
@@ -674,136 +729,83 @@ clock — no host transport in Standalone).
 
 ## Waiting on you
 
-1. **Post a correction to the GRAME reply — the earlier draft was already sent, and one of
-   its claims is now known wrong.** *(Corrected 2026-09-24; this item's prior text was
-   stale.)* The reply this item used to describe **was already posted 2026-09-08**
-   (comment 4 on `Losera/incant-audio#26`), citing commit `704963a`, not `1ad968a` as
-   previously recorded here — `~/issue26-reply.md` no longer exists (deleted per its own
-   "delete the draft after" instruction). But that posted comment's mechanism claim — *"the
-   caret is precise enough that the small model treats the quoted line as correct and
-   rewrites around it"* — has since been **verified false against source** (2026-09-24,
-   prompted by an external adversarial review): neither arm's request contains the program
-   being repaired, so there is no visible caret to rewrite around. The A/B *result* it was
-   attached to is unchanged. A correction is needed on the thread. COLLABORATION.md §2 — **a
-   human reviews the wording and posts it** (Claude must not `gh issue comment`). The two
-   repro paths given to Letz in that comment (`docker-verify`, `bench/issue26/`) were also
-   found broken and are fixed as of this session (PF-080) — worth a line in the same
-   correction rather than a separate follow-up. Then (deferred to a later session): edit the
-   existing `issue-26-repro` release body **in place** to mark it superseded and repoint its
-   Method link at the current pin; optionally cut a new non-prerelease `issue-26-repro-v2`.
-   **Do not move the existing tag** (`f50daa8`). **This item is itself now stale as of
-   2026-10-10** — PR #95 added a fourth correction point (faust-rs's own repair-suggestion
-   list stripped from 87% of `syntax`-class feedback) and softened two numbers in the
-   original "51/51" claim (the 36-program corpus is unrecoverable, only 15/51 re-derives;
-   the "C++: 0/15 stable error codes" cell was a hard-coded `+= 0`, not a measured count).
-   The draft to post is `docs/records/issue26-correction-draft-2026-09-24.md`, but it
-   predates PR #95 and needs those two additions before a human posts it. PR #95 also
-   drafted three separate, narrower upstream-actionable issues (version pinning,
-   `FRS-EVAL-0099` misdiagnosis, a contradictory cause-note) — none filed yet, same
-   "a human reviews and posts" rule applies.
-2. **A listening pass on the interactive-session patches.** COLLABORATION.md §1 — whether a
-   generated plugin *sounds like what was asked for* has no instrument and is not delegable.
-   The render oracle proved the WP6 patches were not broken; it cannot tell you they were
-   musical.
-3. **A replacement Freesound API key.** *(PF-056.)* The configured key is sent and rejected
-   (HTTP 403). Code cannot fix a revoked credential — get one from freesound.org.
-4. **`bench/results/.prompt_baseline.json` is still untouched**, deliberately. It records
-   `0.88` for the deleted pre-unification prompt; overwriting it is COLLABORATION.md §2
-   territory.
-5. **Three Phase-3 backlog plans are drafted, session-local, awaiting a fresh session.**
-   `~/.claude/plans/phase3-pf032-silent-noise-gate.md`, `phase3-pf045-envelope-time-units.md`,
-   `phase3-pf024-invalid-generation-families.md`. Each leads with a re-measurement WP: the
-   prompt already contains the fix text for all three, and the open question is whether the
-   shipping model obeys it.
-6. **Branch + worktree cleanup — performed 2026-10-12.** The cleanup this section carried as
-   "reconciled, not yet performed" for three weeks is done. Before deleting anything, four
-   read-only agents audited the branches this file's prior passes could not resolve
-   mechanically (squash-merges don't show as ancestors — verified three independent ways:
-   `merge-base --is-ancestor`, `git cherry` patch-id, `merge-tree` tree equality, cross-checked
-   against `gh pr list --state merged`).
+1. **Adjudicate two incompatible fixes for the same defect.** New and the most urgent item
+   here. `tools/check.sh assumed` reporting 0 (see the preamble) has **two** fixes in
+   flight that cannot both land. **PR #114** keeps the bullet regex, reformats this file to
+   match, and cross-checks against `health_report._check_assumed_drift()`, failing loud on
+   drift. **`feat/status-spine`** deletes the bullet regex and delegates to a new
+   `status_parse.py` (new on that branch) that counts bold paragraphs — *and* rewrites
+   `_check_assumed_drift()`'s return contract, dropping the `counter_value` /
+   `bold_claims_in_prose` keys #114 depends on. **Landing status-spine after #114 would
+   silently break `tools/check.sh assumed` again.** Overlapping files:
+   `tests/test_control_wiring.py`, `tests/test_health_report.py`, `tools/check.sh`,
+   `tools/health_report.py`, `tools/status_digest.sh`. This file now uses #114's bullet
+   format, which is a de-facto vote — reverse it deliberately if you prefer status-spine's
+   design. The branch was committed and pushed 2026-10-26 purely to stop it being lost (it
+   had 12 uncommitted files, zero commits, no remote); it is labelled UNREVIEWED and its
+   own verification was never finished.
+2. **Review PR #114.** Only open PR, now green (`5cae65f`, CI run 40431110271). Carries the
+   assumed-KPI fix, an integration report, a decision queue, an audit skill, and the $0
+   local generation lane — plus this session's CI-parity fix. It is **24 commits behind
+   main** and that was left deliberately; the merge is yours.
+3. **Post the GRAME correction.** The 2026-09-08 reply (comment 4 on
+   `Losera/incant-audio#26`, citing `704963a`) contains a mechanism claim now **verified
+   false against source**: neither arm's request contains the program being repaired, so
+   there is no caret to rewrite around. The A/B *result* is unchanged. Draft:
+   `docs/records/issue26-correction-draft-2026-09-24.md` — **it predates PR #95 and needs
+   two additions** before posting: faust-rs's repair-suggestion list stripped from 87% of
+   `syntax`-class feedback, and the softened "51/51" numbers (the 36-program corpus is
+   unrecoverable, only 15/51 re-derives; the "C++: 0/15 stable error codes" cell was a
+   hard-coded `+= 0`, not a measured count). COLLABORATION.md §2 — **a human posts it**;
+   Claude must not `gh issue comment`. PR #95 also drafted three narrower upstream issues
+   (version pinning, `FRS-EVAL-0099` misdiagnosis, a contradictory cause-note), none filed.
+   Deferred: repoint the `issue-26-repro` release body in place; **do not move the tag**
+   (`f50daa8`).
+4. **A listening pass.** COLLABORATION.md §1 — whether a generated plugin *sounds like what
+   was asked for* has no instrument and is not delegable. The render oracle proves patches
+   are not broken; it cannot tell you they are musical.
+5. **A replacement Freesound API key.** *(PF-056, medium, open — also absent from the
+   ranked list before 2026-10-26.)* The configured key is sent and rejected (HTTP 403).
+   Code cannot fix a revoked credential.
+6. **Flip PF-083's registry row.** `docs/BUGS.md` still reads `open` for a defect fixed and
+   merged in PR #103. One-line docs change; flagged rather than done because this rewrite
+   deliberately did not touch that file's conventions.
+7. **Two documents assert things that are no longer true.**
+   `.claude/skills/export/SKILL.md:3,5` still reads `## STUB — DO NOT RUN` and claims the
+   exporter "emits a passthrough plugin that never links Faust or produces sound" — false
+   since PR #105's E2; its requirements #1 and #2 both shipped and only #3 (makes sound) is
+   unmet. And `tools/check.sh:63`'s step label reads "no faust" for a level that does
+   invoke faust locally. Neither is fixed here.
+8. **Worktree and branch cleanup — the prior inventory was wholly stale, this one is
+   measured.** The ~34-branch "safe to delete" list that stood here is **already fully
+   executed**: not one of those branches exists locally or remotely. Likewise every
+   worktree it named is gone. Current reality — 13 worktrees, of which **8 are merged and
+   just not removed**: `claim-corrections` (#106), `f2-f3-face-ladder` (#108),
+   `pf032-groq-remeasure` (#112), `pf038-knob-order` (#110 — note the **directory name does
+   not match its branch**, which is the market-fit-transplant one), `pf053-export-wire`
+   (#105), `pf074-filelogger` (#109), `pf079-oracle-cases` (#104),
+   `pf083-editor-callback-clear` (#103), `pr-cleanup-skill` (#113). Removal is destructive
+   and stays a human call.
 
-   **Result: 26 of 32 local branches deleted, 16 of 20 worktrees removed, 23 remote branches
-   deleted, ~39 GB reclaimed (56 GB → 17 GB).** The primary checkout moved from the stale
-   `pr-92-review` (38 commits behind) to `main`, fast-forward only — no reset, no history
-   rewrite. `tools/check.sh fast` is green on the result.
+   **Needs your judgment, not a mechanical delete:** `feat/status-spine` (item 1 above);
+   `feat/shell-command-bar` (1 commit, 86 behind, no PR, ADR-036 WIP "awaiting review"
+   since ~Sep 7); `research/llm-generation-professional` (1 commit + a dirty `STATUS.md`,
+   89 behind, no PR); `task/offline-eval-pilot` (unmerged, remote copy exists, no PR, no
+   worktree, in no prior inventory).
 
-   **Nothing was discarded without a recoverable copy.** Five archive tags were pushed to
-   `origin` *before* any deletion, for every worktree that held uncommitted work on an
-   already-merged branch: `archive/runtime-agnostic-workflow-2026-10-12`,
-   `archive/pf079-dynamics-stdlib-2026-10-12`, `archive/capture-harness-wip-2026-10-12`,
-   `archive/e1-aot-emit-wip-2026-10-12`, `archive/provider-resilience-snapshot-2026-10-12`.
-   `git show <tag> --stat` renders each preserved diff.
+   **A trap:** `.worktrees/soundfetch-correctness` is a worktree of a **different
+   repository** (`/home/losera/soundfetch`) physically nested inside this one's
+   `.worktrees/`. Any glob over `.worktrees/*` will produce a false positive on it.
 
-   **Four branches this file's "DO NOT delete" list protected were resolved on evidence,
-   not deleted blind:**
-   - `feat/f2-f3-face-ladder` — **kept, pushed to origin.** ADR-038 F2/F3 (chip rows,
-     bespoke archetype geometry) is still "Authorized, parallel" per this file's own §Next-three
-     note and unsuperseded by ADR-044 (`docs/decisions.md:3544`, still `Proposed`). Its two
-     uncommitted files were not scratch work — a **finished** F3 implementation (column
-     height-balancing, a `transport-display` `VisualRegion`, a new `testColumnsBalanceHeight`)
-     that existed in no git object at all. Committed as-is (`0d067f2`,
-     **unbuilt, unverified** — say so if you pick this up) before anything else happened, then
-     pushed. Rebasing onto today's `main` will hit exactly one trivial conflict: both this
-     branch and PR #96 (PF-082) appended a test named `scenario58_...` at EOF — renumber this
-     branch's to 59.
-   - `feat/shell-command-bar` — **kept, pushed to origin.** ADR-036's "B0" disclosure-square
-     prep, direction-neutral per `docs/decisions.md:2259`, so it survives even if shell
-     direction 2a is abandoned. Merges against today's `main` with **zero conflicts**
-     (verified via `git merge-tree`). Correction to this file's own prior framing: the apparent
-     "−362 test lines" was a diff-direction artifact of being 58 commits stale, not the branch
-     deleting tests — its own test-file change is `+8/−5`.
-   - `chore/runtime-agnostic-workflow` — **archived, then deleted.** Preserved complete
-     (15 files, among them a new AGENTS.md and tools/agent_session.py) in
-     `archive/runtime-agnostic-workflow-2026-10-12` (e.g.
-     `archive/runtime-agnostic-workflow-2026-10-12:tools/agent_session.py`). Still genuinely
-     untriaged; nothing in this
-     cleanup evaluated whether the refactor itself is wanted, only that it is not lost.
-   - `feat/provider-resilience` — **archived, then deleted, on evidence, overriding this
-     file's own "still needs review/merge" note.** Two of its three pieces are already on
-     `main`, independently and later: the provider picker (ADR-032, PRs #42/#43) and the
-     per-request credential precheck (PR #72 — `tests/test_generate_unit.py`'s own docstring
-     records the identical correction one day after this branch's snapshot). The third piece —
-     a cloud↔cloud provider fallback chain — is the design `docs/decisions.md:2788` (ADR-039)
-     explicitly rejects on prompt-disclosure and cost grounds; ADR-039 asks for cloud→local
-     only. **Salvage pointer, not yet acted on:** this branch's typed `QuotaExhausted`
-     (subclasses `RateLimited`, carries `.scope`) and `ProviderUnavailable` exceptions are a
-     complete, test-covered implementation of **ADR-039 Decision step 1**
-     (`docs/decisions.md:2698-2703`, *"a prerequisite bugfix, independent of failover"*), which
-     `main` still lacks — `llm/providers.py` has `_is_daily_quota` but still raises a bare
-     `RuntimeError` at the end of `_post_with_backoff`/`_call_with_retry`. Cherry-pick from
-     `archive/provider-resilience-snapshot-2026-10-12:llm/providers.py` +
-     `...:tests/test_providers_unit.py` rather than rewriting it. If you'd rather read `9f260a0`
-     yourself before accepting this deletion, it's tagged either way — nothing is lost.
+9. **`research/market-fit-2026-10-12` has four commits whose content never landed.** PR
+   #110 transplanted that branch's *artifacts* faithfully but left its *narration* behind:
+   `9dea0b7`, `fa9cdf7`, and the `docs/BUGS.md` half of `c402aa8` (main's PF-074 row is
+   still the pre-repro text and lacks the detail section entirely). `1541593` is unique but
+   moot. The branch has **no upstream** — if that directory is lost, those commits are.
+   This rewrite folds their *content* in rather than cherry-picking them, so the open
+   question is only whether you want the commits themselves preserved. The ten
+   `docs/research/R6-R14*.md` files are **intentionally** unlanded (`3eba049`, "not meant
+   for a public repo") — do not "rescue" them.
 
-   **One branch was discovered mid-cleanup that no tracked file had ever mentioned:**
-   `task/offline-eval-pilot` — a complete, self-contained, **$0, provider-free** deterministic
-   eval harness (`task/offline-eval-pilot:bench/run_eval.py`, 468 lines;
-   `task/offline-eval-pilot:bench/cases.json`; 13 Faust fixtures;
-   `task/offline-eval-pilot:tests/test_run_eval.py`) that had sat on exactly one disk,
-   unpushed, since 2026-09-07. Verified not redundant with ADR-037's unbuilt
-   bench/evaluate_against_plan.py, which does not exist on any branch yet (that scores
-   real generations against their own persisted `acceptancePlan`; this regression-tests curated
-   fixtures against hand-written expectations — complementary, not overlapping, bar THD which
-   `render_oracle.py` already computes) and verified still API-compatible with today's `main`
-   (every `render_oracle`/`p6_capture` symbol it imports still exists with a matching
-   signature). **Kept, pushed to origin.** Not yet executed against `main` — that's still owed.
-
-   **Three stale entries in the prior "DO NOT delete" list, corrected:**
-   branch bench/efficacy-groq-n3-20260915's "LIVE — uncommitted checkpoint" was no longer
-   true — its uncommitted JSON was byte-identical (35,419 B) to the copy already committed on
-   `main`, untouched for 27 days; branch docs/status-md-2026-10-10-reconciliation merged as #100
-   (`002da7f`); and the `.worktrees/efficacy-semantics` "NOT safe to touch" warning protected
-   PR #99, which has since merged — the sibling session it was guarding against has finished.
-
-   **The nine 2026-09-12→15 worktrees this file flagged as stale-but-unremoved, plus
-   `efficacy-pf031`/`efficacy-semantics`/`pf032-remeasure`, are removed.** Remaining worktrees:
-   the primary tree, `.worktrees/pf053-export-wire` (PF-053/ADR-038 E2-E3 export wiring, 233
-   uncommitted lines, untouched — this file's ranked priority #2, see §Next three), and the
-   three kept-branch worktrees above plus `codex-llm-generation-professional`
-   (`research/llm-generation-professional`, unmerged, left alone as before).
-7. **Untracked personal files left alone**, as always — the two notes at the repo root, the
-   unshipped brief skill, the product-architecture draft under bench/. The
-   `design_handoff_generated_plugin_faces/` bundle from the last rewrite is **resolved,
-   confirmed this session** — it was distilled into `docs/design/incant-ui/` in PR #56 (a
-   dated, read-only point-in-time record per COLLABORATION.md §8) and the original bundle
-   directory no longer exists on disk. Nothing left to commit there.
+10. **Untracked personal files left alone**, as always — the notes at the repo root, the
+    product-architecture draft under `bench/`.
