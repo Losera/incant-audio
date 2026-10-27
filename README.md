@@ -143,7 +143,6 @@ PluginForge/
 │   ├── router.py          # Microsecond regex router (Effect vs Instrument)
 │   └── prompts/           # System prompts with generated Faust stdlib docs
 ├── bench/                 # Render Oracle & Offline Perceptual Evaluation
-├── dev-cockpit/           # Web dashboard for real-time telemetry & UI monitoring
 ├── examples/              # Idiomatic Faust DSP patches (.dsp)
 ├── artifacts/             # Screenshots, UI gallery fixtures, and audio samples
 ├── docs/                  # Architectural Decision Records (ADRs) & specs

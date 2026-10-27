@@ -142,14 +142,26 @@ Two drifts are already on record in this project's own files. The health tool
 **reports** them; it must never silently correct the document to make its own
 counter agree, because the drift *is* the finding.
 
-1. **The `assumed` metric undercounts its own section.** `tools/check.sh`'s
-   `level_assumed()` counts `- **bolded**` list bullets under STATUS.md's
-   "Assumed, never checked" heading. That section has at least once been rewritten
-   to lead with a bolded *sentence* in plain prose rather than a bulleted one — the
-   counter read 0 against a section that, read by a human, named a live claim
-   (PF-079's render-safety finding). `lane_product()`'s `_check_assumed_drift()`
-   re-runs the counter's exact regex and separately counts bolded prose in the same
-   section; a mismatch is reported, not patched.
+1. **The `assumed` metric read 0 against a 3-claim section for nearly four
+   weeks (2026-09-23 → the landing of `tools/status_parse.py`).** `tools/check.sh`'s
+   `level_assumed()` and `tools/status_digest.sh` — the session-start read every
+   session runs — both counted `- **bolded**` list bullets under STATUS.md's
+   "Assumed, never checked" heading. The section was rewritten on 2026-09-23 to
+   lead with bolded *sentences* in plain prose rather than bulleted ones, and the
+   counter silently read 0 against 3 real claims, one of them `high, open`
+   (PF-079). `lane_product()`'s `_check_assumed_drift()` caught the disagreement at
+   the time, but only inside this lane's JSON artifact — nothing at session start
+   read it, so the detection went nowhere. **Fixed, not just detected:**
+   `tools/status_parse.py` is now the single parser all three consumers (plus this
+   lane) share, which makes a second, differently-broken copy structurally
+   impossible rather than papering over this one instance — see that module's
+   docstring, and `tests/test_control_wiring.py::TestOneStatusParserExists`, whose
+   red case is this exact history. `_check_assumed_drift()`'s job changed
+   accordingly: with one shared parser, the counter and the prose can no longer
+   disagree about *how many* claims exist, so it now checks whether a claim's
+   full text still cites a `PF-NNN` that `docs/BUGS.md`'s registry already records
+   `fixed` or `closed` — i.e. whether the claim itself has gone stale, not
+   whether it was counted correctly.
 2. **`docs/BUGS.md` and `STATUS.md` have drifted on a row's status before** (PF-011,
    resolved 2026-09-24 after 16 days of disagreement). `docs/BUGS.md`'s own preamble
    instructs a reader to "believe neither, read the code at HEAD" when they
@@ -172,9 +184,11 @@ adding a second implementation of the same rule:
 - `tools/health_report.py`'s own `score_runs()` — already emits `noise_floor` and
   `stability`; `stability` is "the number that matters more" (a prompt failing
   *every* run with the *same* class is a defect; anything else is sampling noise).
-- `tools/check.sh`'s `level_assumed()` section-extraction shape (find the `##`
-  heading, stop at the next one) — mirrored, not re-derived, for
-  `_scan_status_next_three()` and `_check_assumed_drift()`.
+- `tools/status_parse.py` — the STATUS.md section-extractor and claim parser
+  `tools/check.sh` and `tools/status_digest.sh` also import. `_scan_status_next_three()`
+  and `_check_assumed_drift()` call it directly rather than carrying their own
+  copy of its regexes; see that module's docstring for why a second copy was
+  the actual defect, not a stylistic nit.
 
 `tools/kg.py` / `tools/id_graph.py` (ADR-031's ID-resolution graph over
 PF-/ADR-/session references) is the right tool for validating that a reference

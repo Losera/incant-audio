@@ -332,7 +332,10 @@ def _scan_bugs_registry(root: Path = ROOT) -> dict:
     # import the real parser.
     sys.path.insert(0, str(ROOT))
     try:
-        from tests.test_bugs_registry_integrity import parse_registry  # type: ignore
+        from tests.test_bugs_registry_integrity import (  # type: ignore
+            _REGISTRY_ROW_RE,
+            parse_registry,
+        )
     except Exception as exc:
         return {"status": "absent", "reason": f"cannot import parser: {exc}"}
 
@@ -341,11 +344,14 @@ def _scan_bugs_registry(root: Path = ROOT) -> dict:
     # Title + severity for open/in-progress rows only -- a full dump of 80+
     # fixed rows belongs in BUGS.md, not in a health report. Severity is
     # column 1 of `rest` (see parse_registry's own comment on column indices);
-    # re-split rather than re-deriving it with a second regex.
-    row_re = re.compile(r"^\|\s*(PF-\d{3,})\s*\|(?P<rest>.*)\|\s*$")
+    # re-split rather than re-deriving it with a second regex. Reuses
+    # _REGISTRY_ROW_RE from the same module parse_registry comes from --
+    # this file previously carried its own copy of this exact pattern,
+    # which is the duplicate-parser class tools/status_parse.py's module
+    # docstring documents a worked instance of.
     open_rows = []
     for line in text.splitlines():
-        m = row_re.match(line.strip())
+        m = _REGISTRY_ROW_RE.match(line.strip())
         if not m:
             continue
         pf_id = m.group(1)
@@ -416,58 +422,92 @@ def _scan_adrs(root: Path = ROOT) -> dict:
 
 
 def _scan_status_next_three(root: Path = ROOT) -> dict:
-    """STATUS.md's "## Next three things" section, verbatim bullet starts.
+    """STATUS.md's "## Next three things" section, verbatim numbered items.
 
-    Mirrors tools/check.sh's level_assumed() -- the same "find the ##
-    section, stop at the next ## heading" regex shape -- rather than shelling
-    into tools/status_digest.sh, which mixes in a CI banner and git-log calls
-    this $0 lane should not depend on. See docs/HEALTH_SCHEMA.md.
+    Delegates section extraction to tools/status_parse.py -- the module this
+    file, tools/check.sh and tools/status_digest.sh now share, so a format
+    change to STATUS.md's headings is fixed in one place instead of three.
     """
-    path = root / "STATUS.md"
-    if not path.exists():
+    sys.path.insert(0, str(ROOT))
+    import status_parse  # noqa: E402  (path inserted just above)
+
+    if not (root / "STATUS.md").exists():
         return {"status": "absent", "reason": "STATUS.md missing"}
-    text = path.read_text()
-    m = re.search(r"^##+\s*Next three.*?$(.*?)(?=^##\s|\Z)", text, re.S | re.M)
-    if not m:
+    text = (root / "STATUS.md").read_text()
+    body = status_parse.next_three_body(text)
+    if body is None:
         return {"status": "absent", "reason": '"Next three things" section not found'}
-    items = re.findall(r"^\s*\d+\.\s+(.*)$", m.group(1), re.M)
+    items = re.findall(r"^\s*\d+\.\s+(.*)$", body, re.M)
     return {"status": "ran", "count": len(items),
            "items": [it.strip()[:200] for it in items]}
 
 
 def _check_assumed_drift(root: Path = ROOT) -> dict:
-    """Does `tools/check.sh assumed`'s counter agree with STATUS.md's prose?
+    """Does an "Assumed, never checked" claim name a PF the registry now
+    records as fixed or closed?
 
-    The counter (tools/check.sh:level_assumed) only counts bulleted,
-    bold-led lines ("- **...**") under "## Assumed, never checked". This
-    project's own history has already produced one real mismatch: the
-    section was rewritten to lead with plain prose (a bolded SENTENCE, not a
-    bulleted one) describing a live unverified claim, and the counter read 0
-    against it. This check re-runs that exact regex and separately counts
-    bolded SENTENCES (bulleted or not) in the same section, then reports a
-    drift if the counter says fewer than the prose actually names -- it does
-    NOT silently "fix" STATUS.md's formatting to make the counter agree,
-    because the drift itself is the finding (see docs/HEALTH_SCHEMA.md).
+    Before tools/status_parse.py existed, this function's job was different:
+    tools/check.sh's counter and STATUS.md's prose used two different regexes
+    and could disagree about how many claims existed at all (see
+    tools/status_parse.py's module docstring for the worked 0-vs-3 case that
+    motivated unifying them). That class of drift is now structurally
+    impossible -- `tools/status_parse.assumed_claims()` is the only claim
+    parser left, called by tools/check.sh, tools/status_digest.sh, and here.
+
+    What's left to drift is the content: a claim can go stale by continuing
+    to assert something the registry no longer does. This checks each
+    claim's cited `PF-NNN` IDs (via tools/id_graph.py's reference scanner,
+    the same one tests/test_control_wiring.py uses to resolve them) against
+    docs/BUGS.md's registry status. A claim mentioning a PF now `fixed` or
+    `closed` is exactly the shape of drift this section already caught once
+    by hand -- see the "Reconciled 2026-09-24" sub-note inside its own
+    "This section disagrees with docs/BUGS.md's own registry" claim.
+
+    NOT COVERED: a claim can go stale in prose (the measurement it names was
+    superseded) without naming a PF ID at all, or without the registry
+    having caught up either. This is a mechanical cross-reference check, not
+    a judgment that a claim is still live -- see docs/HEALTH_SCHEMA.md.
     """
-    path = root / "STATUS.md"
-    if not path.exists():
+    sys.path.insert(0, str(ROOT))
+    import id_graph
+    import status_parse  # noqa: E402
+
+    status_path = root / "STATUS.md"
+    bugs_path = root / "docs" / "BUGS.md"
+    if not status_path.exists():
         return {"status": "absent", "reason": "STATUS.md missing"}
-    text = path.read_text()
-    m = re.search(r"^##+\s*Assumed.*?$(.*?)(?=^##\s|\Z)", text, re.S | re.M)
-    if not m:
+    if not bugs_path.exists():
+        return {"status": "absent", "reason": "docs/BUGS.md missing"}
+
+    text = status_path.read_text()
+    section_body = status_parse.section(r"Assumed", text)
+    if section_body is None:
         return {"status": "absent", "reason": '"Assumed" section not found'}
-    body = m.group(1)
-    counted_claims = re.findall(r"^\s*[-*]\s+\*\*", body, re.M)
-    # Any bolded run of text, list-prefixed or not -- what a human reading
-    # the section would call "a claim this section is naming".
-    bold_claims = re.findall(r"\*\*[^*]+\*\*", body)
-    drifted = len(counted_claims) < len(bold_claims)
-    return {"status": "ran", "counter_value": len(counted_claims),
-           "bold_claims_in_prose": len(bold_claims), "drifted": drifted,
-           "note": ("tools/check.sh assumed's regex requires a leading "
-                    "'- **' bullet; a bolded claim written as plain prose "
-                    "is invisible to it even though a human reading the "
-                    "section sees it immediately.") if drifted else None}
+
+    try:
+        sys.path.insert(0, str(ROOT))
+        from tests.test_bugs_registry_integrity import parse_registry  # type: ignore
+    except Exception as exc:
+        return {"status": "absent", "reason": f"cannot import registry parser: {exc}"}
+
+    registry = parse_registry(bugs_path.read_text())
+    # Full paragraph text, not just the bold headline -- a cited PF-NNN
+    # typically appears sentences after the opening clause (see
+    # tools/status_parse.py's assumed_claim_texts() docstring).
+    claim_texts = status_parse.assumed_claim_texts(text)
+    stale = []
+    for claim in claim_texts:
+        # scan_text needs the claim's original line breaks (see
+        # assumed_claim_texts' docstring); the display string is collapsed
+        # separately, after the scan.
+        for pf in sorted(id_graph.scan_text(claim).pf):
+            st = registry.get(pf)
+            if st in ("fixed", "closed"):
+                display = " ".join(claim.split())[:140]
+                stale.append({"claim": display, "pf": pf, "registry_status": st})
+
+    return {"status": "ran", "claim_count": len(claim_texts),
+           "drifted": bool(stale), "stale_claims": stale}
 
 
 def lane_product(root: Path = ROOT) -> dict:
@@ -846,13 +886,15 @@ def render_markdown(r: dict) -> str:
         drift = prod.get("assumed_drift") or {}
         if drift.get("status") == "ran":
             if drift.get("drifted"):
-                L += ["**⚠ `assumed` metric drift.** `tools/check.sh assumed` counts "
-                      f"**{drift['counter_value']}**, but STATUS.md's \"Assumed, never "
-                      f"checked\" section names **{drift['bold_claims_in_prose']}** "
-                      "bolded claim(s) in prose. " + (drift.get("note") or ""), ""]
+                L.append("**⚠ Assumed-claim drift against `docs/BUGS.md`'s registry:**")
+                L.append("")
+                for s in drift.get("stale_claims", []):
+                    L.append(f"- cites `{s['pf']}` (**{s['registry_status']}** in the "
+                             f"registry) — {s['claim']}")
+                L.append("")
             else:
-                L.append(f"`assumed` metric: counter and prose agree "
-                         f"({drift['counter_value']} claim(s)).")
+                L.append(f"`assumed` claims: {drift.get('claim_count', 0)} claim(s), "
+                         "none cite a PF the registry already closed.")
                 L.append("")
 
     L += ["## What this pass did NOT measure", ""]
@@ -907,8 +949,9 @@ def main() -> int:
             print(f"  proposed ADRs: {len(adrs.get('proposed', []))}")
             drift = data.get("assumed_drift", {})
             if drift.get("drifted"):
-                print(f"  ⚠ assumed-metric drift: counter={drift['counter_value']} "
-                      f"but prose names {drift['bold_claims_in_prose']} claim(s)")
+                for s in drift.get("stale_claims", []):
+                    print(f"  ⚠ assumed-claim drift: cites {s['pf']} "
+                          f"({s['registry_status']} in docs/BUGS.md) — {s['claim']}")
 
     return collect(a.strict) if a.collect else 0
 

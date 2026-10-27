@@ -550,52 +550,87 @@ class TestScanStatusNextThree:
 
 
 class TestCheckAssumedDrift:
-    """The known, previously-real drift: tools/check.sh's level_assumed() only
-    counts '- **bolded**' LIST bullets; a section rewritten to lead with a
-    bolded SENTENCE in plain prose undercounts against what a human reading
-    it would call a named claim."""
+    """Does an "Assumed, never checked" claim cite a PF-NNN that docs/BUGS.md's
+    registry already records as fixed or closed? (Whether the CLAIM COUNT
+    itself agreed with tools/check.sh's counter used to be this function's
+    job and is no longer a live question -- tools/status_parse.py is now the
+    single parser both consumers share, so they cannot disagree. See that
+    module's docstring for the historical 0-vs-3 case this replaced.)"""
 
-    def test_bulleted_claims_agree_with_the_counter(self, tmp_path):
+    _BUGS_FIXED = (
+        "| PF-010 | some old defect | medium | fixed | S1 | `x.py:1` | 2026-01-01 | 2026-01-02 |\n"
+    )
+    _BUGS_OPEN = (
+        "| PF-010 | some old defect | medium | open | S1 | `x.py:1` | 2026-01-01 | — |\n"
+    )
+
+    def test_claim_citing_a_fixed_pf_drifts(self, tmp_path):
         _write(tmp_path / "STATUS.md", (
             "## Assumed, never checked\n\n"
-            "- **A bulleted claim.** Some detail.\n"
-            "- **Another bulleted claim.** More detail.\n\n"
+            "**A claim that is now stale.** The underlying measurement named "
+            "PF-010 still has not been re-run, on this section's telling.\n\n"
             "## Next three things\n\nnothing here\n"
         ))
+        _write(tmp_path / "docs" / "BUGS.md", self._BUGS_FIXED)
         out = hr._check_assumed_drift(tmp_path)
         assert out["status"] == "ran"
-        assert out["counter_value"] == 2
-        assert out["bold_claims_in_prose"] == 2
-        assert out["drifted"] is False
-
-    def test_a_prose_only_bold_claim_drifts(self, tmp_path):
-        """This is the real historical shape (PF-079's claim): the section
-        opens with a bolded sentence that is NOT a '- ' bullet."""
-        _write(tmp_path / "STATUS.md", (
-            "## Assumed, never checked\n\n"
-            "**A claim written as plain prose, not a bullet.** Supporting detail "
-            "follows in the same paragraph.\n\n"
-            "## Next three things\n\nnothing here\n"
-        ))
-        out = hr._check_assumed_drift(tmp_path)
-        assert out["status"] == "ran"
-        assert out["counter_value"] == 0
-        assert out["bold_claims_in_prose"] == 1
+        assert out["claim_count"] == 1
         assert out["drifted"] is True
-        assert out["note"] is not None
+        assert out["stale_claims"][0]["pf"] == "PF-010"
+        assert out["stale_claims"][0]["registry_status"] == "fixed"
+
+    def test_claim_citing_a_still_open_pf_does_not_drift(self, tmp_path):
+        _write(tmp_path / "STATUS.md", (
+            "## Assumed, never checked\n\n"
+            "**A claim that is still current.** It names PF-010, which the "
+            "registry still records as open.\n\n"
+            "## Next three things\n\nnothing here\n"
+        ))
+        _write(tmp_path / "docs" / "BUGS.md", self._BUGS_OPEN)
+        out = hr._check_assumed_drift(tmp_path)
+        assert out["status"] == "ran"
+        assert out["claim_count"] == 1
+        assert out["drifted"] is False
+        assert out["stale_claims"] == []
+
+    def test_historical_mention_elsewhere_in_the_paragraph_does_not_suppress_detection(self, tmp_path):
+        """tools/id_graph.py skips a LINE containing a historical-mention
+        phrase ("was never", "deleted", ...) so one such phrase doesn't
+        blank out a real citation on the NEXT line. assumed_claim_texts()
+        must preserve each claim's original line breaks for this to still
+        work at paragraph granularity -- collapsing the whole paragraph to
+        one line before scanning would let a trap phrase anywhere in a
+        multi-sentence claim suppress a PF-NNN several sentences away."""
+        _write(tmp_path / "STATUS.md", (
+            "## Assumed, never checked\n\n"
+            "**A claim with a trap phrase on its own line.** This sentence was "
+            "never going to be the interesting one.\n"
+            "PF-010 is the citation that must still be detected.\n\n"
+            "## Next three things\n\nnothing here\n"
+        ))
+        _write(tmp_path / "docs" / "BUGS.md", self._BUGS_FIXED)
+        out = hr._check_assumed_drift(tmp_path)
+        assert out["drifted"] is True
+        assert out["stale_claims"][0]["pf"] == "PF-010"
 
     def test_no_claims_at_all_is_not_a_drift(self, tmp_path):
         _write(tmp_path / "STATUS.md", (
             "## Assumed, never checked\n\n*(none.)*\n\n## Next three things\n\nx\n"
         ))
+        _write(tmp_path / "docs" / "BUGS.md", self._BUGS_FIXED)
         out = hr._check_assumed_drift(tmp_path)
-        assert out["counter_value"] == 0
-        assert out["bold_claims_in_prose"] == 0
+        assert out["claim_count"] == 0
         assert out["drifted"] is False
 
-    def test_missing_file_is_absent(self, tmp_path):
+    def test_missing_status_file_is_absent(self, tmp_path):
+        _write(tmp_path / "docs" / "BUGS.md", self._BUGS_FIXED)
         out = hr._check_assumed_drift(tmp_path)
         assert out == {"status": "absent", "reason": "STATUS.md missing"}
+
+    def test_missing_bugs_file_is_absent(self, tmp_path):
+        _write(tmp_path / "STATUS.md", "## Assumed, never checked\n\n*(none.)*\n")
+        out = hr._check_assumed_drift(tmp_path)
+        assert out == {"status": "absent", "reason": "docs/BUGS.md missing"}
 
 
 class TestLaneProduct:

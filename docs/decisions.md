@@ -806,8 +806,8 @@ real gap, not silently absorbed into track 4's palette work.
 
 | | |
 |---|---|
-| **Status** | Proposed |
-| **Date** | 2026-08-06 |
+| **Status** | **Superseded — 2026-10-20.** Never accepted: ten weeks `Proposed`, last touched 2026-08-05, and its state file was never armed in practice (`/tmp/pluginforge_state.json` absent at every check). `dev-cockpit/` and `.claude/skills/cockpit/SKILL.md` are deleted. This project's own pattern (`tools/health_report.py`'s single report in three months, until `ba19012` wired its product lane to `check.sh full` and it has run every push since) is that an instrument nobody wires to a moment goes unused regardless of how little it would cost to run; a second half-built surface was not going to break that pattern. `docs/HEALTH_SCHEMA.md:11-13`'s explicit anti-dashboard rubric statement and ADR-031's rejection of a dashboard/knowledge-graph tool as infrastructure both argue the same direction. Revisit only if a real trajectory needing a viewer exists (e.g. `llm/generate.py`'s dev-time trace, if that lands) — at which point build a narrow viewer for that trace, under a fresh ADR, rather than reviving this one. |
+| **Date** | 2026-08-06 (superseded 2026-10-20) |
 
 **Context**
 PluginForge's iteration loop requires manual screenshot capture (`tools/screenshot_ui.sh`) and has no structured view of plugin state. Competing tools offer browser-based iteration surfaces with live previews. ADR-019 rejected WebView in the plugin; this builds a complementary localhost mirror instead.

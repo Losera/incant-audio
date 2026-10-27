@@ -466,17 +466,23 @@ level_quota() {
 }
 
 level_assumed() {
-  # The project's tracked metric. Counts bullet items under STATUS.md's
-  # "Assumed, never checked" heading.
+  # The project's tracked metric. Counts the claims under STATUS.md's
+  # "Assumed, never checked" heading via tools/status_parse.py — the single
+  # parser shared with tools/status_digest.sh and tools/health_report.py.
+  # (Until this was unified, this function's own inline regex counted
+  # bold BULLETS and silently returned 0 against a section written as bold
+  # PARAGRAPHS — see tools/status_parse.py's module docstring.)
   python - <<'PY'
-import re, pathlib
-txt = pathlib.Path("STATUS.md").read_text()
-m = re.search(r"^##+\s*Assumed.*?$(.*?)(?=^##\s|\Z)", txt, re.S | re.M)
-if not m:
-    print("Assumed-claims section not found in STATUS.md"); raise SystemExit(1)
-claims = re.findall(r"^\s*[-*]\s+\*\*", m.group(1), re.M)
+import sys
+sys.path.insert(0, "tools")
+import status_parse
+
+claims = status_parse.assumed_claims()
+if status_parse.section(r"Assumed") is None:
+    print("Assumed-claims section not found in STATUS.md")
+    sys.exit(1)
 print(f"Assumed, never checked: {len(claims)} claims")
-for line in re.findall(r"^\s*[-*]\s+\*\*(.+?)\*\*", m.group(1), re.M):
+for line in claims:
     print(f"  - {line}")
 PY
 }

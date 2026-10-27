@@ -35,6 +35,7 @@ NOT COVERED, deliberately: that Claude Code actually dispatches these hooks at r
 Nothing in-process can prove that — it is verified by watching a hook block a real tool
 call. Done 2026-07-25; see docs/research/ and the git history for this commit.
 """
+import datetime as _dt
 import json
 import os
 import re
@@ -379,6 +380,10 @@ try:
     import id_graph  # noqa: E402
 except ImportError:  # tools/id_graph.py absent -- see test_id_graph_scanner_is_on_disk
     id_graph = None
+try:
+    import status_parse  # noqa: E402
+except ImportError:  # tools/status_parse.py absent -- see test_no_second_status_parser_exists
+    status_parse = None
 
 # Contain a missing/broken tools/id_graph.py to the ID tests below instead of
 # erroring the whole module at collection time (which would take every hook-
@@ -1150,9 +1155,15 @@ def _ci_run(sha: str, conclusion: str = "failure", status: str = "completed", ri
     }
 
 
-def _digest(ci_json: str) -> subprocess.CompletedProcess:
-    """Run the digest with the CI seam set, so no test ever touches the network."""
+def _digest(ci_json: str, health_json: str | None = None) -> subprocess.CompletedProcess:
+    """Run the digest with the CI seam set, so no test ever touches the network.
+
+    `health_json`, when given, sets PLUGINFORGE_HEALTH_JSON -- the equivalent
+    seam for the product-health-lane drift banner, so a test can drive it
+    without writing to artifacts/health/lanes/product.json."""
     env = {**os.environ, "PLUGINFORGE_CI_RUNS_JSON": ci_json}
+    if health_json is not None:
+        env["PLUGINFORGE_HEALTH_JSON"] = health_json
     return subprocess.run(
         ["bash", str(DIGEST)], capture_output=True, text=True, timeout=120, cwd=str(ROOT), env=env,
     )
@@ -1327,6 +1338,120 @@ class TestDigestReportsCI:
         )
 
 
+class TestDigestReportsHealthDrift:
+    """The product-health lane's assumed-claim drift finding must reach the
+    session-start read, not just a JSON artifact nobody opens until
+    `check.sh full` runs next.
+
+    Found 2026-10-20, in the same investigation that found the Assumed
+    counter itself reading 0 (see tools/status_parse.py's module docstring).
+    `tools/health_report.py --lane product` had DETECTED the counter
+    disagreement since PR #97 -- `artifacts/health/lanes/product.json`
+    recorded it -- but `tools/status_digest.sh`, which is what `/orient`
+    prints every session, had zero references to that file or to "health" at
+    all. The bug was caught and the catch went nowhere. This test is the
+    PLUGINFORGE_HEALTH_JSON seam's teeth: the digest must surface a drift
+    finding and a stale-lane warning, the same way TestDigestReportsCI above
+    already requires for the CI section.
+    """
+
+    _CI_OK = lambda self: json.dumps([_ci_run(_head_sha(), "success")])  # noqa: E731
+
+    def test_drift_is_announced(self):
+        health = json.dumps({
+            "lane": "product", "started": _dt.datetime.now().isoformat(),
+            "assumed_drift": {
+                "status": "ran", "claim_count": 3, "drifted": True,
+                "stale_claims": [{"claim": "x", "pf": "PF-999", "registry_status": "fixed"}],
+            },
+        })
+        out = _digest(self._CI_OK(), health).stdout
+        assert "Assumed-claim drift" in out, (
+            f"The digest did not surface a drifted product-health finding.\n---\n{out[:1200]}"
+        )
+        assert "PF-999" in out, "The drift banner must name which PF-NNN is stale."
+
+    def test_stale_lane_is_announced(self):
+        old = (_dt.datetime.now() - _dt.timedelta(days=30)).isoformat()
+        health = json.dumps({
+            "lane": "product", "started": old,
+            "assumed_drift": {"status": "ran", "claim_count": 1, "drifted": False,
+                              "stale_claims": []},
+        })
+        out = _digest(self._CI_OK(), health).stdout
+        assert "stale" in out.lower() and "check.sh full" in out, (
+            f"A 30-day-old product-health artifact was not flagged as stale.\n---\n{out[:1200]}"
+        )
+
+    def test_absent_lane_is_announced_not_silent(self):
+        """No artifact at all (never run) must not read as 'no drift'."""
+        out = _digest(self._CI_OK(), "").stdout
+        assert "No product-health lane has ever run" in out, (
+            f"An absent product-health artifact produced no banner at all.\n---\n{out[:1200]}"
+        )
+
+    def test_malformed_lane_does_not_swallow_the_rest_of_the_digest(self):
+        out = _digest(self._CI_OK(), "{ not json").stdout
+        assert "unreadable" in out.lower()
+        assert "Next three things" in out, (
+            "A malformed health artifact suppressed the sections below it."
+        )
+
+    def test_clean_fresh_lane_raises_no_alarm(self):
+        health = json.dumps({
+            "lane": "product", "started": _dt.datetime.now().isoformat(),
+            "assumed_drift": {"status": "ran", "claim_count": 3, "drifted": False,
+                              "stale_claims": []},
+        })
+        out = _digest(self._CI_OK(), health).stdout
+        assert "Assumed-claim drift" not in out, "A clean lane was reported as drifted."
+        assert "is" not in re.findall(r"lane is (\d+) day", out), "no spurious staleness"
+
+
+class TestDigestNamesWhatLandedSinceTheStamp:
+    """The staleness banner said HOW MANY days of commits had landed since
+    STATUS.md was rewritten, but not WHAT landed -- a count with no list
+    cannot be acted on. Extended 2026-10-20 to print the commit subjects."""
+
+    def test_stale_status_lists_commit_subjects(self, tmp_path):
+        old_date = (_dt.date.today() - _dt.timedelta(days=3)).isoformat()
+        fixture_root = tmp_path / "fakeroot"
+        _copy_repo_fixture(fixture_root)
+        status_text = (fixture_root / "STATUS.md").read_text()
+        status_text = re.sub(
+            r"^# PluginForge — Status \(\d{4}-\d{2}-\d{2}\)",
+            f"# PluginForge — Status ({old_date})",
+            status_text, count=1, flags=re.M,
+        )
+        (fixture_root / "STATUS.md").write_text(status_text)
+        env = {**os.environ, "PLUGINFORGE_CI_RUNS_JSON": json.dumps([_ci_run(_head_sha())])}
+        out = subprocess.run(
+            ["bash", str(fixture_root / "tools" / "status_digest.sh")],
+            capture_output=True, text=True, timeout=30, cwd=str(fixture_root), env=env,
+        ).stdout
+        head_subject = subprocess.run(
+            ["git", "log", "-1", "--format=%s"], capture_output=True, text=True,
+            cwd=str(ROOT), timeout=10,
+        ).stdout.strip()
+        assert head_subject[:40] in out, (
+            f"The staleness banner did not name HEAD's own commit subject.\n---\n{out[:1200]}"
+        )
+
+
+def _copy_repo_fixture(dest):
+    """Copy the repo tree for a test that must shell out to tools/check.sh or
+    tools/status_digest.sh against a MODIFIED STATUS.md, without touching the
+    real checkout. Keeps `.git` deliberately -- in a worktree it is a small
+    text file pointing at the real `.git/worktrees/<name>` admin area (not a
+    copy of the object store), so `git log` in the fixture still sees this
+    repo's real history, which TestDigestNamesWhatLandedSinceTheStamp needs."""
+    import shutil
+    shutil.copytree(
+        ROOT, dest,
+        ignore=shutil.ignore_patterns("build", ".worktrees", "*.pyc", "__pycache__"),
+    )
+
+
 # ------------------------------------------------ prose about mechanisms (COLLABORATION)
 
 
@@ -1424,11 +1549,9 @@ class TestStatusReservesAnEvidenceSlot:
 
     @staticmethod
     def _next_three() -> str:
-        m = re.search(
-            r"^##+\s*Next three.*?$(.*?)(?=^##\s|\Z)", STATUS.read_text(), re.S | re.M
-        )
-        assert m, "STATUS.md has no `## Next three things` section"
-        return m.group(1)
+        body = status_parse.next_three_body(STATUS.read_text())
+        assert body is not None, "STATUS.md has no `## Next three things` section"
+        return body
 
     def test_there_are_exactly_three(self):
         # Top-level items only: no leading whitespace, so a numbered sub-list inside an
@@ -1449,6 +1572,126 @@ class TestStatusReservesAnEvidenceSlot:
             "checked' — the metric closed 0 of 6 such items in the five days before this "
             "rule existed (COLLABORATION.md §5)."
         )
+
+
+class TestOneStatusParserExists:
+    """From 2026-09-23 (when 'Assumed, never checked' started being written as
+    bold PARAGRAPHS) until tools/status_parse.py replaced the old regexes,
+    `tools/check.sh assumed` and `tools/status_digest.sh` -- the session-start
+    read every session runs -- both independently matched a leading bold
+    BULLET and silently reported "Assumed, never checked: 0 claims" against a
+    section that in fact held 3, one of them `high, open`. CLAUDE.md calls
+    this count "the one number": a false 0 did not just fail to help
+    scheduling, it actively asserted the project had no open measurement debt.
+
+    tools/health_report.py's own drift check caught the disagreement, but
+    only inside `check.sh full`'s product lane, writing to a JSON artifact
+    nothing at session start read -- the bug was detected and the detection
+    went nowhere.
+
+    This test is the RED CASE required before that class of bug counts as
+    fixed (CLAUDE.md: "a control counts only once it has been seen failing").
+    Run against the tree as it stood before tools/status_parse.py existed,
+    this test fails with matches in tools/check.sh, tools/status_digest.sh,
+    and tools/health_report.py -- four independent copies of the same two
+    regexes across three files. It is a grep, not a parse, and deliberately
+    so: the fix is "there is exactly one implementation", and a grep is the
+    only check that cannot itself be fooled by a fifth copy with slightly
+    different whitespace.
+    """
+
+    # The generic "find a ## heading, stop at the next one" idiom (`##+\s*`)
+    # is used legitimately elsewhere in this suite for OTHER documents (e.g.
+    # COLLABORATION.md's own section tests) -- flagging every instance of
+    # that idiom would be a false-positive machine, not a check. What
+    # actually caused the Assumed-counter bug was that idiom applied, a
+    # SECOND time, specifically to one of STATUS.md's own heading names. So:
+    # a hit requires the generic fragment AND a STATUS.md heading name on
+    # the same line, which is the shape every one of the four real
+    # duplicates had: the heading-pattern regex plus a literal heading
+    # word, both in one `re.search(...)` call on one line.
+    _SECTION_EXTRACTOR_FRAGMENT = r"##\+\\s\*"
+    _STATUS_HEADING_NAMES = ("Assumed", "Next three", "Broken", "Waiting on you")
+    _CLAIM_BULLET_FRAGMENT = r"\[-\*\]\\s\+\\\*\\\*"
+    _EXEMPT = {ROOT / "tools" / "status_parse.py"}
+
+    @classmethod
+    def _candidate_files(cls) -> list[Path]:
+        files: list[Path] = []
+        for sub in ("tools", "tests", ".claude"):
+            d = ROOT / sub
+            if d.exists():
+                files.extend(p for p in d.rglob("*.py") if p not in cls._EXEMPT)
+                files.extend(p for p in d.rglob("*.sh") if p not in cls._EXEMPT)
+        return files
+
+    def test_no_second_status_section_extractor_exists(self):
+        hits = []
+        for f in self._candidate_files():
+            for line in f.read_text(errors="ignore").splitlines():
+                if re.search(self._SECTION_EXTRACTOR_FRAGMENT, line) and any(
+                    name in line for name in self._STATUS_HEADING_NAMES
+                ):
+                    hits.append(f"{f.relative_to(ROOT).as_posix()}: {line.strip()}")
+        assert not hits, (
+            "A second STATUS.md section-extractor regex exists outside "
+            f"tools/status_parse.py:\n" + "\n".join(hits) + "\n"
+            "tools/status_parse.section() is the only place this project's "
+            "'find a ## heading, stop at the next one' rule may target one of "
+            "STATUS.md's own headings -- a second copy is exactly how the "
+            "Assumed-counter bug happened (see this class's docstring)."
+        )
+
+    def test_no_second_assumed_claim_bullet_regex_exists(self):
+        hits = []
+        for f in self._candidate_files():
+            text = f.read_text(errors="ignore")
+            if re.search(self._CLAIM_BULLET_FRAGMENT, text):
+                hits.append(f.relative_to(ROOT).as_posix())
+        assert not hits, (
+            "A second 'bold bullet' claim-matcher regex exists outside "
+            f"tools/status_parse.py, in: {hits}. That pattern is what read "
+            "0 claims against a 3-claim prose section for nearly four weeks "
+            "-- see tools/status_parse.py's module docstring."
+        )
+
+    def test_check_sh_and_status_digest_agree_with_status_parse(self, tmp_path):
+        """Not just 'no duplicate regex' -- the three real consumers must
+        return the SAME count for the same input, which is the property that
+        makes the duplicate-counter bug class impossible rather than fixing
+        one instance of it."""
+        fixture = (
+            "# PluginForge — Status (2026-01-01)\n\n"
+            "## Assumed, never checked\n\n"
+            "**A paragraph-style claim, not a bullet.** Supporting detail.\n\n"
+            "**A second paragraph-style claim.** More detail.\n\n"
+            "## Next three things\n\n1. x\n2. y\n3. z\n"
+        )
+        status_md = tmp_path / "STATUS.md"
+        status_md.write_text(fixture)
+
+        # tools/status_parse.py directly
+        direct_count = len(status_parse.assumed_claims(fixture))
+        assert direct_count == 2
+
+        # tools/check.sh assumed, run with STATUS.md replaced by the fixture
+        env = dict(os.environ)
+        fake_root = tmp_path / "fakeroot"
+        _copy_repo_fixture(fake_root)
+        (fake_root / "STATUS.md").write_text(fixture)
+        check_out = subprocess.run(
+            [str(fake_root / "tools" / "check.sh"), "assumed"],
+            cwd=str(fake_root), capture_output=True, text=True, timeout=30, env=env,
+        )
+        assert check_out.returncode == 0, check_out.stderr
+        assert "Assumed, never checked: 2 claims" in check_out.stdout, check_out.stdout
+
+        # tools/status_digest.sh, same fixture tree
+        digest_out = subprocess.run(
+            [str(fake_root / "tools" / "status_digest.sh")],
+            cwd=str(fake_root), capture_output=True, text=True, timeout=30, env=env,
+        )
+        assert "Assumed, never checked — 2 claims" in digest_out.stdout, digest_out.stdout
 
 
 # ---------------------------------------------------------------------------

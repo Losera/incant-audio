@@ -223,7 +223,10 @@ elif behind is None or behind > 0:
 PY
 
 python3 - <<'PY'
-import datetime, pathlib, re, subprocess, sys
+import datetime, json, pathlib, re, subprocess, sys
+
+sys.path.insert(0, "tools")
+import status_parse  # noqa: E402  (single parser shared with check.sh / health_report.py)
 
 status = pathlib.Path("STATUS.md")
 if not status.exists():
@@ -232,13 +235,14 @@ if not status.exists():
 
 txt = status.read_text()
 missing = []
+recent_commits: list[str] = []
 
 # --- staleness: STATUS.md's own date vs the newest commit it could describe ---
-m = re.search(r"^#\s*PluginForge\s*—\s*Status\s*\((\d{4}-\d{2}-\d{2})\)", txt, re.M)
-if not m:
+stamp_str = status_parse.stamp(txt)
+if stamp_str is None:
     missing.append("the dated `# PluginForge — Status (YYYY-MM-DD)` title")
 else:
-    stamped = datetime.date.fromisoformat(m.group(1))
+    stamped = datetime.date.fromisoformat(stamp_str)
     try:
         head_day = subprocess.run(
             ["git", "log", "-1", "--format=%ad", "--date=short"],
@@ -254,47 +258,114 @@ else:
             f"rewritten** (HEAD is {head}). COLLABORATION.md §5 says it is rewritten at the end "
             f"of any session that changed something. Treat every claim below as that stale."
         )
+        # Name what landed, not just how much -- a count with no list cannot
+        # be acted on. Capped so a long-stale file doesn't flood the digest.
+        try:
+            log = subprocess.run(
+                ["git", "log", f"--since={stamped.isoformat()}",
+                 "--format=%h %ad %s", "--date=short"],
+                capture_output=True, text=True, timeout=10,
+            ).stdout.strip().splitlines()
+        except Exception:
+            log = []
+        recent_commits = log
+        for line in log[:10]:
+            print(f">   {line}")
+        if len(log) > 10:
+            print(f">   (+{len(log) - 10} more — `git log --since={stamped.isoformat()}`)")
     print()
 
 
 def section(pattern: str, label: str) -> str | None:
-    """Return the body under the first heading matching `pattern`, or None."""
-    m = re.search(rf"^##+\s*{pattern}.*?$(.*?)(?=^##\s|\Z)", txt, re.S | re.M)
-    if not m:
+    """Return the body under the first heading matching `pattern`, tracking
+    MISSING for the DIGEST INCOMPLETE check -- status_parse.section() itself
+    only returns None, this wrapper is what records the label."""
+    body = status_parse.section(pattern, txt)
+    if body is None:
         missing.append(label)
-        return None
-    # Trailing `---` belongs to the *next* section's header rule, not this body.
-    return re.sub(r"\n-{3,}\s*$", "", m.group(1).strip()).strip()
+    return body
 
 
 # --- Broken: the bold headline of each numbered item, not the full prose ---
 broken = section(r"Broken", "the `## Broken` section")
 if broken is not None:
-    items = re.findall(r"^\*\*(\d+\..+?)\*\*\s*(\*\(.+?\)\*)?", broken, re.M | re.S)
+    items = status_parse.broken_items(txt)
     print(f"### Broken — {len(items)} open")
     if not items:
         print("_(section present but no `**N. ...**` items parsed — check STATUS.md's format)_")
     for head, tag in items:
-        head = " ".join(head.split())
-        tag = " ".join(tag.split()) if tag else ""
         print(f"- **{head}** {tag}".rstrip())
     print()
 
 # --- Assumed: titles only. The one number this project steers by. ---
 assumed = section(r"Assumed", "the `## Assumed, never checked` section")
 if assumed is not None:
-    claims = re.findall(r"^\s*[-*]\s+\*\*(.+?)\*\*", assumed, re.M | re.S)
+    claims = status_parse.assumed_claims(txt)
     print(f"### Assumed, never checked — {len(claims)} claims  ← the one number")
     for c in claims:
-        print(f"- {' '.join(c.split())}")
+        print(f"- {c}")
     print()
+
+    # --- route the product-health lane's drift finding here, so it is seen
+    # at session start instead of only inside a JSON artifact nobody reads
+    # until `check.sh full` runs. See docs/HEALTH_SCHEMA.md and
+    # tools/health_report.py's _check_assumed_drift(). Test seam:
+    # PLUGINFORGE_HEALTH_JSON, same pattern as PLUGINFORGE_CI_RUNS_JSON below.
+    # Three states, not two: UNSET means "use the real file" (production);
+    # set to the literal empty string means "simulate absent" regardless of
+    # what is really on disk, which is what makes the absent-artifact case
+    # testable without depending on this checkout's own health history; any
+    # other value is the raw JSON to parse (including deliberately malformed
+    # strings, for the "artifact is unreadable" case).
+    health_path_override = __import__("os").environ.get("PLUGINFORGE_HEALTH_JSON")
+    if health_path_override is not None:
+        health_raw = health_path_override or None
+    else:
+        health_file = pathlib.Path("artifacts/health/lanes/product.json")
+        health_raw = health_file.read_text() if health_file.exists() else None
+
+    if health_raw is None:
+        print("> ⚠ **No product-health lane has ever run.** "
+              "`tools/health_report.py --lane product` reports whether this "
+              "section's claims still cite open PF rows. Run: "
+              "`tools/check.sh full` (wires it in) or the command directly.")
+        print()
+    else:
+        try:
+            prod = json.loads(health_raw)
+            drift = (prod or {}).get("assumed_drift") or {}
+            started = prod.get("started") if isinstance(prod, dict) else None
+        except Exception as exc:
+            print(f"> ⚠ **Product-health lane artifact is unreadable** ({exc}). "
+                  "Re-run `tools/health_report.py --lane product`.")
+            drift = None
+        if drift is not None:
+            stale_age_days = None
+            if started:
+                try:
+                    started_date = datetime.datetime.fromisoformat(started).date()
+                    stale_age_days = (datetime.date.today() - started_date).days
+                except Exception:
+                    stale_age_days = None
+            if stale_age_days is not None and stale_age_days > 14:
+                print(f"> ⚠ **Product-health lane is {stale_age_days} day(s) stale** "
+                      f"(last run {started}). Run: `tools/check.sh full`.")
+                print()
+            if drift.get("drifted"):
+                print("> ⚠ **Assumed-claim drift**, per the last product-health run: "
+                      "a claim above cites a `PF-NNN` `docs/BUGS.md` already records "
+                      "fixed or closed.")
+                for s in drift.get("stale_claims", []):
+                    print(f">   - cites `{s['pf']}` "
+                          f"(**{s['registry_status']}** in the registry)")
+                print()
 
 # --- Next three + Waiting on you: verbatim. Short, and entirely actionable. ---
 for pat, label in ((r"Next three", "the `## Next three things` section"),
                    (r"Waiting on you", "the `## Waiting on you` section")):
     body = section(pat, label)
     if body is not None:
-        title = re.search(rf"^(##+\s*{pat}.*?)$", txt, re.M).group(1).lstrip("# ").strip()
+        title = status_parse.section_title(pat, txt)
         print(f"### {title}")
         print(body)
         print()
