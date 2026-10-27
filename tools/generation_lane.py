@@ -120,8 +120,33 @@ def run_reps(n: int, provider: str = "ollama", retries: int = 2,
     return paths
 
 
-def score_rep(path: Path) -> dict:
-    """One rep's records -> per-category {compiled, oracle_pass, oracle_na, n}."""
+def score_rep(path: Path, *, analyse=None) -> dict:
+    """One rep's records -> per-category {compiled, oracle_pass, oracle_na, n}.
+
+    `analyse` defaults to bench/render_oracle.analyse_record, which shells out to
+    the real faust/faust2sndfile. It is injectable so the COUNTING logic below can
+    be tested without a Faust toolchain, which CI's `test` job does not have
+    (.github/workflows/test.yml: "no API key or faust compiler required").
+
+    SUBTLE: a missing toolchain is indistinguishable here from a render failure,
+    and it silently zeroes BOTH counters rather than erroring.
+    render_oracle.render_many() probes `faust2sndfile` first and raises a plain
+    RenderError when it is absent (render_oracle.py:370-371) -- which is also
+    *before* the zero-input arity check that raises UnsupportedPatch
+    (render_oracle.py:375-379), so on a toolchain-less box the `unsupported`
+    branch is not merely wrong, it is unreachable. analyse() then maps
+    UnsupportedPatch to {"unsupported": True} but every other RenderError to
+    {"rendered": False, "unsupported": False} (render_oracle.py:806-810), so
+    both branches below decline to increment and `compiled` stands alone.
+
+    That matters downstream: aggregate() computes scorable as
+    `compiled - oracle_na`, so a toolchain-less run reports a nonzero
+    denominator with zero passes -- a spurious 0% oracle rate rather than a
+    visible error. Test these counters against an injected analyser, never
+    against whatever the host machine happens to have installed.
+    """
+    if analyse is None:  # not `or`: a sentinel, not a truthiness test
+        analyse = render_oracle.analyse_record
     records = json.loads(path.read_text())
     by_cat: dict[str, dict] = {}
     for rec in records:
@@ -131,7 +156,7 @@ def score_rep(path: Path) -> dict:
         compiled = bool(rec.get("first_try_compiles") or rec.get("retry_success"))
         if compiled:
             bucket["compiled"] += 1
-            r = render_oracle.analyse_record(rec)
+            r = analyse(rec)
             if r.get("unsupported"):
                 bucket["oracle_na"] += 1
             elif r["rendered"] and r["measurement"]["ok"]:
