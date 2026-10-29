@@ -1,3 +1,9 @@
+---
+name: export
+description: GATED STUB — do not run. Documents what must land before plugin export to a standalone repository can work; tools/export_repo.py currently emits a passthrough plugin that never links Faust or produces sound. Read this to see the blocking conditions, not to export anything.
+disable-model-invocation: true
+---
+
 # /export — Export plugin as a standalone repository
 
 ## STUB — DO NOT RUN
