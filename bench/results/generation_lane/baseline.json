@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-10-21T03:12:37.979965+00:00",
+  "provider": "ollama",
+  "model": "qwen2.5-coder:7b-16k",
+  "effect_ids": [
+    "trivial-01",
+    "trivial-02",
+    "filters-01",
+    "filters-02",
+    "time-based-01",
+    "time-based-02",
+    "dynamics-01",
+    "dynamics-02",
+    "dynamics-03",
+    "generative-01",
+    "generative-02",
+    "generative-03"
+  ],
+  "tier": "L3",
+  "n_reps": 3,
+  "categories": {
+    "trivial": {
+      "n": 6,
+      "compiled": 6,
+      "oracle_pass": 6,
+      "oracle_na": 0,
+      "compile_rate": 1.0,
+      "oracle_pass_rate_of_scorable": 1.0
+    },
+    "filters": {
+      "n": 6,
+      "compiled": 6,
+      "oracle_pass": 6,
+      "oracle_na": 0,
+      "compile_rate": 1.0,
+      "oracle_pass_rate_of_scorable": 1.0
+    },
+    "time-based": {
+      "n": 6,
+      "compiled": 6,
+      "oracle_pass": 6,
+      "oracle_na": 0,
+      "compile_rate": 1.0,
+      "oracle_pass_rate_of_scorable": 1.0
+    },
+    "dynamics": {
+      "n": 9,
+      "compiled": 9,
+      "oracle_pass": 9,
+      "oracle_na": 0,
+      "compile_rate": 1.0,
+      "oracle_pass_rate_of_scorable": 1.0
+    },
+    "generative": {
+      "n": 9,
+      "compiled": 9,
+      "oracle_pass": 3,
+      "oracle_na": 6,
+      "compile_rate": 1.0,
+      "oracle_pass_rate_of_scorable": 1.0
+    }
+  },
+  "note": "Local-model smoke baseline, not a shipping-model claim. See tools/generation_lane.py module docstring."
+}

@@ -25,7 +25,9 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 ## Conventions
 - **Severity:** `critical` (product doesn't work / data loss) · `high` · `medium` · `low`.
   Original arch-review P0/P1/P2 grades noted in the detail where they apply.
-- **Status:** `open` · `in-progress` (fix in flight) · `fixed` · `wontfix`.
+- **Status:** `open` · `in-progress` (fix in flight) · `fixed` (resolved by a code
+  change) · `closed` (resolved by evidence — a benchmark result, a registry
+  reconciliation, a withdrawn hypothesis — not a code change) · `wontfix`.
 - **Lane:** owning FLEET.md lane responsible for the fix (S5 records; S5 never fixes).
 - **File:line** is given at HEAD where meaningful; where a working-tree draft has moved lines,
   both are noted in the detail.

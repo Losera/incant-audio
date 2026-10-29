@@ -1630,6 +1630,74 @@ class TestLadderOnlyStepsAreDeliberate:
 
 
 # ---------------------------------------------------------------------------
+class TestAssumedCounterHasTeeth:
+    """`tools/check.sh assumed` must never report a real claim as zero.
+
+    Found 2026-10-18, fixed 2026-10-20 (workflow audit): STATUS.md's "Assumed,
+    never checked" section was rewritten to lead with a bolded SENTENCE, not a
+    bulleted one, and both `tools/check.sh`'s counter and
+    `tools/status_digest.sh`'s digest silently reported 0 claims while a real
+    one (PF-079) sat in the section. "A control counts only once it has been
+    seen failing" (CLAUDE.md) -- this is that control's own metric, and it
+    had never had a red case until now.
+
+    Exercises the REAL STATUS.md on disk (same precedent as
+    TestStatusReservesAnEvidenceSlot above), not a fixture -- `tools/check.sh`
+    hard-`cd`s to $ROOT and always reads the real file, so there is no
+    injection seam. The drift case backs up the real file, de-bullets the
+    first claim under "## Assumed, never checked", runs the real script, and
+    restores the original content in a `finally`, so a crash mid-test cannot
+    leave STATUS.md damaged.
+
+    NOT COVERED here: the three-way missing/drifted/genuinely-empty split's
+    unit-level correctness -- that lives in
+    tests/test_health_report.py::TestCheckAssumedDrift, which this script's
+    counter now delegates to. This class only proves the wiring fires
+    end-to-end through the real script against the real file.
+    """
+
+    @staticmethod
+    def _run_assumed() -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [str(CHECK_SH), "assumed"], cwd=ROOT,
+            capture_output=True, text=True, timeout=15,
+        )
+
+    def test_the_real_file_reports_a_nonzero_count(self):
+        out = self._run_assumed()
+        assert out.returncode == 0, out.stdout + out.stderr
+        m = re.search(r"Assumed, never checked: (\d+) claims", out.stdout)
+        assert m, f"unexpected output shape: {out.stdout!r}"
+        assert int(m.group(1)) > 0, (
+            "The real STATUS.md reports 0 assumed claims. Either the project "
+            "genuinely has none right now (check by eye first) or the "
+            "counter has drifted from the prose again."
+        )
+        assert "FORMAT DRIFT" not in out.stdout
+
+    def test_a_bare_bold_paragraph_is_caught_not_silenced(self):
+        """The actual historical shape: a claim's headline loses its leading
+        '- ' bullet. Must exit non-zero and say so loudly -- never silently
+        print 0, which is the exact failure this test exists to prevent."""
+        original = STATUS.read_text()
+        m = re.search(r"^##+\s*Assumed.*?$(.*?)(?=^##\s|\Z)", original, re.S | re.M)
+        assert m, "STATUS.md has no '## Assumed, never checked' section"
+        body = m.group(1)
+        corrupted_body, n = re.subn(r"(?m)^(\s*)-(\s+\*\*)", r"\1\2", body, count=1)
+        assert n == 1, "no '- **' bulleted claim found in the Assumed section"
+        corrupted = original[: m.start(1)] + corrupted_body + original[m.end(1):]
+        assert corrupted != original
+        try:
+            STATUS.write_text(corrupted)
+            out = self._run_assumed()
+        finally:
+            STATUS.write_text(original)
+        assert out.returncode != 0
+        assert "FORMAT DRIFT" in out.stdout
+        assert "0 claims" not in out.stdout
+
+
+# ---------------------------------------------------------------------------
 class TestEveryPromptIsGuarded:
     """Every file in llm/prompts/ must be covered by the prompt controls.
 

@@ -367,6 +367,7 @@ def _scan_bugs_registry(root: Path = ROOT) -> dict:
 
 _ADR_HEADER_RE = re.compile(r"^##\s+(ADR-\d{3,})\s+—\s+(.*)$")
 _ADR_STATUS_ROW_RE = re.compile(r"^\|\s*\*\*Status\*\*\s*\|\s*(.*?)\s*\|\s*$")
+_ADR_DATE_ROW_RE = re.compile(r"^\|\s*\*\*Date\*\*\s*\|\s*(.*?)\s*\|\s*$")
 
 
 def _scan_adrs(root: Path = ROOT) -> dict:
@@ -383,6 +384,15 @@ def _scan_adrs(root: Path = ROOT) -> dict:
     the word, not the nuance -- the amendment prose is exactly what a reader
     should go read in docs/decisions.md, not what a health report should try
     to compress further.
+
+    `nonconforming` (added 2026-10-20, workflow audit): ADRs whose Status cell
+    does not start with one of the four legal values stated in
+    docs/decisions.md's own template ("Proposed / Accepted / Rejected /
+    Superseded by ADR-YYY") or carry no parseable Status row at all. This is
+    not the same thing as `proposed` -- it exists because ADR-008 reads
+    "Under evaluation", a fifth, undocumented value that is also, in effect,
+    undecided, but would otherwise be invisible to anything that only reads
+    `proposed`.
     """
     path = root / "docs" / "decisions.md"
     if not path.exists():
@@ -396,23 +406,42 @@ def _scan_adrs(root: Path = ROOT) -> dict:
         if m:
             adr_id, title = m.group(1), m.group(2)
             status_text = None
-            # The status row is within the first table block after the
+            date_text = None
+            # The status/date rows are within the first table block after the
             # header, well short of the next "## ADR-" -- cap the lookahead
             # so a malformed file can't walk to EOF.
             for j in range(i + 1, min(i + 20, len(lines))):
                 if _ADR_HEADER_RE.match(lines[j]):
                     break
-                sm = _ADR_STATUS_ROW_RE.match(lines[j])
-                if sm:
-                    status_text = sm.group(1)
+                if status_text is None:
+                    sm = _ADR_STATUS_ROW_RE.match(lines[j])
+                    if sm:
+                        status_text = sm.group(1)
+                        continue
+                if date_text is None:
+                    dm = _ADR_DATE_ROW_RE.match(lines[j])
+                    if dm:
+                        date_text = dm.group(1)
+                if status_text is not None and date_text is not None:
                     break
             adrs.append({"id": adr_id, "title": title.strip(),
-                        "status_text": status_text or "?"})
+                        "status_text": status_text or "?",
+                        "date_text": date_text or "?"})
         i += 1
 
-    proposed = [a for a in adrs
-               if a["status_text"].lower().startswith("proposed")]
-    return {"status": "ran", "total": len(adrs), "proposed": proposed}
+    # Several real rows wrap the cell's own text in markdown emphasis --
+    # "**Accepted -- 2026-09-09, by explicit user decision.**" -- so the
+    # legality check normalizes past leading `*`/whitespace first, or every
+    # bolded-Accepted row would misreport as nonconforming.
+    def _bare(status_text: str) -> str:
+        return status_text.lstrip("*").strip().lower()
+
+    proposed = [a for a in adrs if _bare(a["status_text"]).startswith("proposed")]
+    legal_prefixes = ("proposed", "accepted", "rejected", "superseded")
+    nonconforming = [a for a in adrs
+                     if not _bare(a["status_text"]).startswith(legal_prefixes)]
+    return {"status": "ran", "total": len(adrs), "proposed": proposed,
+           "nonconforming": nonconforming}
 
 
 def _scan_status_next_three(root: Path = ROOT) -> dict:
@@ -444,10 +473,23 @@ def _check_assumed_drift(root: Path = ROOT) -> dict:
     section was rewritten to lead with plain prose (a bolded SENTENCE, not a
     bulleted one) describing a live unverified claim, and the counter read 0
     against it. This check re-runs that exact regex and separately counts
-    bolded SENTENCES (bulleted or not) in the same section, then reports a
-    drift if the counter says fewer than the prose actually names -- it does
-    NOT silently "fix" STATUS.md's formatting to make the counter agree,
-    because the drift itself is the finding (see docs/HEALTH_SCHEMA.md).
+    bolded SENTENCES that open their own line (bulleted or not) in the same
+    section, then reports a drift if the counter says fewer than the prose
+    actually names -- it does NOT silently "fix" STATUS.md's formatting to
+    make the counter agree, because the drift itself is the finding (see
+    docs/HEALTH_SCHEMA.md).
+
+    The "opens its own line" anchor is load-bearing, not cosmetic (found
+    2026-10-20, workflow audit): an earlier version of this check matched a
+    bold-text pattern anywhere in the body, so ordinary inline emphasis inside a
+    claim's own supporting prose -- "the `--resume` next-action... was a
+    **no-op**", "the **dynamics** category" -- was counted as a second,
+    unbulleted claim. That inflated `bold_claims_in_prose` even when every
+    real claim was already correctly bulleted, which would have made this
+    check cry wolf permanently once the live STATUS.md drift it was built to
+    catch was fixed. Anchoring at line-start (after an optional bullet
+    marker) keeps counting a bold sentence that opens a paragraph -- exactly
+    the shape the real incident had -- while excluding emphasis mid-sentence.
     """
     path = root / "STATUS.md"
     if not path.exists():
@@ -458,9 +500,11 @@ def _check_assumed_drift(root: Path = ROOT) -> dict:
         return {"status": "absent", "reason": '"Assumed" section not found'}
     body = m.group(1)
     counted_claims = re.findall(r"^\s*[-*]\s+\*\*", body, re.M)
-    # Any bolded run of text, list-prefixed or not -- what a human reading
-    # the section would call "a claim this section is naming".
-    bold_claims = re.findall(r"\*\*[^*]+\*\*", body)
+    # A bolded run of text that OPENS its own line, list-prefixed or not --
+    # what a human reading the section would call "a claim this section is
+    # naming". See the docstring above for why this is anchored rather than
+    # a bare `\*\*[^*]+\*\*` search anywhere in the body.
+    bold_claims = re.findall(r"^\s*(?:[-*]\s+)?\*\*[^*]+\*\*", body, re.M)
     drifted = len(counted_claims) < len(bold_claims)
     return {"status": "ran", "counter_value": len(counted_claims),
            "bold_claims_in_prose": len(bold_claims), "drifted": drifted,
