@@ -115,6 +115,42 @@ def test_every_curated_entry_resolves():
 
 
 @needs_faust_libs
+def test_no_curated_entry_ends_in_a_bare_audio_param():
+    """PF-024: a rendered signature must not show the audio-signal position.
+
+    STRICT RULES says audio arrives by composition, never as a call argument
+    (system_prompt.txt: "co.compressor_stereo(ratio,thr,att,rel,_,_)... is a
+    hard arity error"). A function declared with its signal(s) as explicit
+    trailing params (misceffects.lib's gate_mono(thresh,att,hold,rel,x), not
+    point-free) used to render that "x" here, directly contradicting the rule
+    it sits two lines above -- the 2026-08-28 efficacy grid's dynamics-03
+    failure copied exactly this shape. find_signature() now strips a trailing
+    x/y; this pins that it stays stripped for every curated entry, not just
+    the ones fixed by hand.
+    """
+    from gen_stdlib_block import resolve_all
+
+    groups, errors = resolve_all()
+    assert not errors
+
+    offenders = []
+    for group_name, lines in groups:
+        for ln in lines:
+            sig = ln.split("|", 1)[0]
+            if "(" not in sig:
+                continue
+            args = [a.strip() for a in sig.rstrip(")").split("(", 1)[1].split(",")]
+            if args and args[-1] in ("x", "y"):
+                offenders.append(sig)
+
+    assert not offenders, (
+        "These curated signatures still show a bare audio-signal argument, "
+        "contradicting STRICT RULES' composition-only contract:\n  "
+        + "\n  ".join(offenders)
+    )
+
+
+@needs_faust_libs
 def test_generated_block_is_current(prompt_text, prompt_profile, prompt_path):
     """The checked-in block drifted from what the generator produces."""
     from gen_stdlib_block import (BEGIN_MARKER, END_MARKER, PROFILES, render,

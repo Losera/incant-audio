@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Unit tests for bench/corpus_screen.py — the mechanical "is this a Faust
-program?" screen for the issue-#26 corpus.
+program?" screen for the faust-rs repair corpus.
 
 No faust, no network. Pure-function checks of the two clauses, plus a frozen
 oracle: the screen over the *committed* corpus must exclude exactly these ten

@@ -251,6 +251,97 @@ inline juce::File writeSuccessThenFace(const juce::File& dir, const juce::String
     return script;
 }
 
+// Like writeSuccessThenFace(), but (a) the face's `archetype` is a parameter,
+// and (b) every ui_face request the script answers appends one byte to
+// `<name>_uiface.count`, so a scenario can assert HOW MANY times the host asked
+// for a face -- the ADR-035 A5 property that a project REOPEN re-applies the
+// saved face without a fresh producer call. Readback: uiFaceRequestCount().
+inline juce::File writeSuccessThenFaceCounted(const juce::File& dir, const juce::String& name,
+                                              const juce::String& faustCode,
+                                              const juce::String& surfaceHex,
+                                              const juce::String& textHex,
+                                              const juce::String& accentHex,
+                                              const juce::String& archetype,
+                                              std::initializer_list<const char*> sectionAParams,
+                                              std::initializer_list<const char*> sectionBParams,
+                                              int uiFaceSleepSeconds = 0)
+{
+    writeSuccess(dir, name + "_generate", faustCode);
+
+    const auto section = [](const juce::String& id, const juce::String& title,
+                            std::initializer_list<const char*> params)
+    {
+        juce::Array<juce::var> controls;
+        for (auto* p : params)
+        {
+            auto* c = new juce::DynamicObject();
+            c->setProperty("param", juce::String(p));
+            controls.add(juce::var(c));
+        }
+        auto* s = new juce::DynamicObject();
+        s->setProperty("id", id);
+        s->setProperty("title", title);
+        s->setProperty("span", 1);
+        s->setProperty("controls", controls);
+        return juce::var(s);
+    };
+
+    auto* theme = new juce::DynamicObject();
+    theme->setProperty("surface", surfaceHex);
+    theme->setProperty("text", textHex);
+    theme->setProperty("accent", accentHex);
+
+    auto* face = new juce::DynamicObject();
+    face->setProperty("schema", 3);
+    face->setProperty("archetype", archetype);
+    face->setProperty("tokens", "test-face");
+    face->setProperty("theme", juce::var(theme));
+    face->setProperty("sections", juce::Array<juce::var> {
+        section("a", "SECTION A", sectionAParams),
+        section("b", "SECTION B", sectionBParams) });
+
+    auto* response = new juce::DynamicObject();
+    response->setProperty("success", true);
+    response->setProperty("action", "ui_face");
+    response->setProperty("reason", "ok");
+    response->setProperty("attempts", 1);
+    response->setProperty("error", juce::var());
+    response->setProperty("provider", "test");
+    response->setProperty("model", "test-model");
+    response->setProperty("face", juce::var(face));
+
+    dir.getChildFile(name + "_face.json").replaceWithText(
+        juce::JSON::toString(juce::var(response), /* allOnOneLine */ true), false, false, "\n");
+
+    auto countFile = dir.getChildFile(name + "_uiface.count");
+    countFile.deleteFile();
+
+    auto script = dir.getChildFile(name);
+    script.replaceWithText(
+        juce::String("#!/bin/sh\n")
+        + "if [ \"$1\" = '--request-file' ] && grep -q '\"action\".*\"ui_face\"' \"$2\"; then\n"
+        // Sleep BEFORE the count bump so a scenario that tears the request down
+        // mid-flight (a save taken right after "DSP live") leaves the counter at
+        // 0 -- exactly the "no face was ever accepted" state it means to test.
+        + (uiFaceSleepSeconds > 0 ? "  sleep " + juce::String(uiFaceSleepSeconds) + "\n" : "")
+        + "  printf x >> '" + countFile.getFullPathName() + "'\n"
+        + "  cat '" + dir.getChildFile(name + "_face.json").getFullPathName() + "'\n"
+        + "else\n"
+        + "  cat '" + dir.getChildFile(name + "_generate.json").getFullPathName() + "'\n"
+        + "fi\n",
+        false, false, "\n");
+    script.setExecutePermission(true);
+    return script;
+}
+
+// How many ui_face requests writeSuccessThenFaceCounted()'s script has answered
+// since it was installed. 0 if none (the count file is removed at install).
+inline int uiFaceRequestCount(const juce::File& dir, const juce::String& name)
+{
+    auto f = dir.getChildFile(name + "_uiface.count");
+    return f.existsAsFile() ? (int) f.getSize() : 0;
+}
+
 inline juce::File writeFailure(const juce::File&, const juce::String&,
                                const juce::String&, const juce::String&, int, bool);
 

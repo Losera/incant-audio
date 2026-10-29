@@ -25,7 +25,11 @@ Use Faust DSL as the sole LLM output format.
 - Compiler errors are structured and short — feeding them back to the LLM in a retry loop is practical (ADR-005).
 
 **Consequences**
-- The plugin binary must link `libfaust` + LLVM (~30 MB added to binary size).
+- The plugin binary must link against `libfaust` + LLVM for the embedded JIT. *(Corrected
+  2026-10-18 — this previously said "~30 MB added to binary size," describing a static link.
+  On the actual build, libfaust ships as a shared library (`find_library(LIBFAUST_LIB faust
+  REQUIRED)`, `host/CMakeLists.txt:106-110`) resolved dynamically at load time, not statically
+  linked into the binary — the ~30 MB estimate does not apply to what actually ships.)*
 - DSP algorithms that require Faust-unsupported constructs (e.g., multi-rate processing, direct pointer manipulation) cannot be generated.
 - LLM prompt engineering must focus on Faust idioms and stdlib functions.
 
@@ -134,6 +138,20 @@ On compile failure, append the Faust compiler's stderr to the next LLM message a
 |---|---|
 | **Status** | Accepted |
 | **Date** | 2026-04-29 |
+
+**Status note (2026-09-15 — reclassified).** Recorded here as a routine metric choice, not
+architectural direction under COLLABORATION.md §2 trigger-2 — no option an open ADR holds
+open was foreclosed. Left in place for the historical record; future instances of this kind
+of decision belong in STATUS.md, not a new ADR.
+
+**Status note (2026-09-24 — metric accuracy, not choice, now in question).** PF-079
+(`docs/BUGS.md`) measured that this metric — first-try compile rate — overstates real
+render-safety by 25–40pp on the committed groq/ollama archives, with two named DSP-idiom
+defect classes (unbounded makeup gain, inverted `select2` threshold) sitting inside what this
+metric calls success. Per the note directly above, this is tracked in STATUS.md ("Broken" and
+"Assumed, never checked"), not as a further ADR revision — the decision here (use compile rate
+as *a* signal) is not being reversed, only shown to need a render-safety companion metric
+before "compiles" is read as "works." See PF-079 for the open remediation.
 
 **Context**  
 We need a quantitative signal to compare DSL options and LLM providers during the architecture evaluation phase (Days 1–2).
@@ -824,8 +842,8 @@ The plugin remains 100% native JUCE. The browser is a *mirror*, not a component.
 
 | | |
 |---|---|
-| **Status** | Proposed |
-| **Date** | 2026-08-06 |
+| **Status** | **Accepted — 2026-09-09, via ADR-038**, together with the 2026-08-13 amendment below (which is the design of record; the original Decision section's `find_library(faust)` assumption is superseded by it). Phase 2b (sign/notarize) stays deferred. |
+| **Date** | 2026-08-06 (accepted 2026-09-09) |
 
 **Context**
 Users want to share generated plugins beyond the PluginForge host. ADR-022 explicitly deferred "a stripped, single-patch-only build" as a bigger undertaking. The current architecture allows a coarse version (host binary + state file), but a genuine export requires CMake + JUCE + pinned Faust patch + themed UI.
@@ -1028,6 +1046,11 @@ ADR renders, not a layout-IR change itself.
 | **Status** | Proposed |
 | **Date** | 2026-08-06 |
 
+**Status note (2026-09-15 — reclassified).** Recorded here as a routine deferral, not
+architectural direction under COLLABORATION.md §2 trigger-2 — no option an open ADR holds
+open was foreclosed. Left in place for the historical record; future instances of this kind
+of decision belong in STATUS.md, not a new ADR.
+
 **Context**
 Instrument plugins (synths) and effects are the immediate targets. Samplers and drum
 machines are a natural next category, but they require sample playback, which has
@@ -1169,6 +1192,11 @@ unattended runs against, which is the actual, still-live cost of ADR-021's defer
 |---|---|
 | **Status** | Accepted 2026-08-21 |
 | **Date** | 2026-08-21 |
+
+**Status note (2026-09-15 — reclassified).** Recorded here as a routine process/infra
+decision, not architectural direction under COLLABORATION.md §2 trigger-2 — no option an
+open ADR holds open was foreclosed. Left in place for the historical record; future
+instances of this kind of decision belong in STATUS.md, not a new ADR.
 
 **Context**
 Context clears are the one session boundary this project had no instrument for.
@@ -1367,6 +1395,11 @@ Tier 2 evidence bar — this entry authorizes the direction, not a bypass of eit
 | **Status** | Accepted 2026-08-27 |
 | **Date** | 2026-08-27 |
 
+**Status note (2026-09-15 — reclassified).** Recorded here as a routine tooling decision,
+not architectural direction under COLLABORATION.md §2 trigger-2 — no option an open ADR
+holds open was foreclosed. Left in place for the historical record; future instances of
+this kind of decision belong in STATUS.md, not a new ADR.
+
 **Context**
 
 The question raised: should `langgraph` (LangChain's graph-orchestration library, used
@@ -1459,6 +1492,24 @@ under-declaration, not adding a dependency"). PF-067 is the cautionary neighbour
 ADR-031"). Acceptance records the decision not to adopt; it does not foreclose a future
 reconsideration under the reopen trigger above.
 
+**Amendment (2026-09-13) — two stale claims corrected, and the reopen count as of ADR-039.**
+`RETRY_HINT` no longer "carries exactly one entry by design (`llm/error_classes.py:130-131`)"
+— PR #75 (`a778853`) added a second entry, `ROUTING_ARITY`; both now live at
+`llm/error_classes.py:155-179`. This does not change the ADR's conclusion: the consumer is
+still a single `dict.get()` concatenation (`llm/generate.py:192-193`), not a branch — see
+ADR-039's discussion of item 1. Separately, this ADR's own line citations for the retry loop
+and its state have drifted (cited `llm/generate.py:568` / `:279-292` / `:540-560`; the loop is
+now at `:585`, the kind/prior_source comments at `:281-294`, and `prior_source_dropped` — one
+of the "four scalars" claimed at `:1380-1381` — is in fact set once *before* the loop at `:561`
+and `:572`, not loop-carried; the genuinely loop-carried state is three scalars). Corrected
+here rather than re-editing the numbers above, so the record shows what changed and when.
+**Reopen-trigger status:** ADR-039 proposes item 3 (provider-failover routing, restricted to
+cloud→local). ADR-037 self-declares as item 2 (`docs/decisions.md:2253`, its own "Relates to"
+line) but remains Proposed with no shipped code as of this amendment. Landing ADR-039 alone
+therefore brings the count to **1 of 3** — this ADR's own reopen trigger does **not** fire, and
+`langgraph` remains declined. If ADR-037 is later accepted, the count becomes 2 and the
+trigger fires; ADR-039 flags this explicitly rather than leaving it for a reviewer to notice.
+
 ---
 
 ## ADR-031 — Knowledge tooling: an ID-resolution test and a headless graph emitter, not an Obsidian vault
@@ -1467,6 +1518,11 @@ reconsideration under the reopen trigger above.
 |---|---|
 | **Status** | Accepted 2026-08-27 |
 | **Date** | 2026-08-27 |
+
+**Status note (2026-09-15 — reclassified).** Recorded here as a routine tooling decision,
+not architectural direction under COLLABORATION.md §2 trigger-2 — no option an open ADR
+holds open was foreclosed. Left in place for the historical record; future instances of
+this kind of decision belong in STATUS.md, not a new ADR.
 
 **Context**
 
@@ -1812,6 +1868,11 @@ deterministic and host-authoritative. The panel stays editor-local and transient
 | **Date** | 2026-09-01 |
 | **Relates to** | ADR-030 (does *not* trip its reopen trigger — see Reasons), ADR-031 (same "nothing depends on it" constraint) |
 
+**Status note (2026-09-15 — reclassified).** Recorded here as a routine process/infra
+decision, not architectural direction under COLLABORATION.md §2 trigger-2 — no option an
+open ADR holds open was foreclosed. Left in place for the historical record; future
+instances of this kind of decision belong in STATUS.md, not a new ADR.
+
 **Context**
 
 Stéphane Letz (GRAME) asked, on [Losera/incant-audio#26](https://github.com/Losera/incant-audio/issues/26),
@@ -1819,7 +1880,7 @@ to see the corpus + harness behind our result that faust-rs diagnostics *lower* 
 repair-loop success rate on a small local model. He is an external collaborator and will
 want to re-run it, likely against a larger model of his own.
 
-The scripts and data are already committed (`bench/issue26/`). `verify.py` re-derives every
+The scripts and data are already committed (`bench/repair_ab_repro/`). `verify.py` re-derives every
 headline number from committed data with only `scipy` — no model, no compiler, ~1 s. The
 reproduction barrier is the **two compilers** for a live replay: Faust (C++) for arm A and
 the compile gate, and faust-rs (Rust) for arms B/C. Building both from scratch on an
@@ -1830,12 +1891,12 @@ need, and COLLABORATION.md §2 trigger 4 gates "distribution". This ADR is the c
 
 **Decision**
 
-Add **one** Dockerfile, `bench/issue26/Dockerfile`, that builds a pinned environment for
+Add **one** Dockerfile, `bench/repair_ab_repro/Dockerfile`, that builds a pinned environment for
 reproducing issue #26 and nothing else:
 
 - `archlinux:base-devel` base (the machine the corpus was built on; `faust` in the Arch
   repo is currently the pinned 2.85.9), `faust-rs` built from source at the `0.8.0` tag,
-  `python` + `scipy` + `matplotlib`, and a copy of the `bench/issue26/` package plus the
+  `python` + `scipy` + `matplotlib`, and a copy of the `bench/repair_ab_repro/` package plus the
   shared modules it imports.
 - The **LLM is not in the image.** Models are multi-GB; the harness points at a host
   ollama or any OpenAI-compatible endpoint at run time.
@@ -1866,7 +1927,7 @@ on the Obsidian vault). The project remains un-containerised.
 - The result is **published on a public issue**; a claim that cannot be independently
   re-run is weak. Lowering the re-run cost for the compiler-toolchain half is proportionate
   to that. If it were only developer convenience it would not clear §12.
-- Blast radius is a file delete: `bench/issue26/Dockerfile` + `docker-entrypoint.sh` + the
+- Blast radius is a file delete: `bench/repair_ab_repro/Dockerfile` + `docker-entrypoint.sh` + the
   `docker*` Makefile targets. No schema, no build, no CI, no dependency-manifest change.
 - **Does not trip ADR-030's reopen trigger.** That trigger is about the *offline generation
   pipeline* growing a multi-node topology (e.g. an FRS-code-branching repair advisor). This
@@ -1890,7 +1951,7 @@ on the Obsidian vault). The project remains un-containerised.
   to exactly one.
 
 **Accepted 2026-09-01 by explicit user decision** (AskUserQuestion — "Accept — keep the
-container"). The draft `bench/issue26/ADR-034-draft-repro-container.md` is superseded by
+container"). The draft `bench/repair_ab_repro/ADR-034-draft-repro-container.md` is superseded by
 this entry and deleted.
 
 ---
@@ -2361,3 +2422,1376 @@ fill a slot in an external pipeline diagram.
 `acceptancePlan` JSON shape, the `bench/evaluate_against_plan.py` CLI surface, and which
 `check.sh` level (if any) runs it by default are implementation-session decisions, not
 settled here.
+
+---
+
+## ADR-038 — Re-sequence generated-face richness and plugin export ahead of Phase 6
+
+| | |
+|---|---|
+| **Status** | **Accepted — 2026-09-09, by explicit user decision.** |
+| **Date** | 2026-09-09 |
+| **Relates to** | ADR-023 (export — this ADR accepts it and its 2026-08-13 amendment as the design of record, and clears its stated blocking prerequisite), ADR-035 (generated faces — this extends its ladder past the floor it stopped at), ADR-022 §3 (`derivePalette` — the no-IR fallback, unchanged), ADR-036 (shell redesign — shares `ArchetypeLayout.h`; not sequenced by this ADR), `docs/phases/phase-6.md` (moves two of its items forward), `docs/sessions/020-generated-faces-v2.md` (the two ladders) |
+
+**Status note (2026-09-15 — reclassified).** Recorded here as a routine scheduling/
+resequencing decision, not architectural direction under COLLABORATION.md §2 trigger-2 —
+this ADR's own content re-orders when existing, separately-decided work happens; it does
+not itself foreclose an option an open ADR holds open. Left in place for the historical
+record; future instances of this kind of decision belong in STATUS.md, not a new ADR.
+
+**Context**
+
+The product's stated north star, in the product-architecture draft under `bench/`
+(untracked, 2026-08-17) and restated by the user 2026-09-09, is: *a musician types a
+prompt, PluginForge
+generates the plugin, and the musician ends up with **a fully standalone plugin they
+can download and modify, with its own unique UI.*** Looking at the running Standalone
+against `docs/design/incant-ui/Generated Plugin Faces.dc.html`, the user asked whether
+the current scope is deliberate and why the project is not moving toward that north
+star faster.
+
+It is deliberate, and it is the roadmap. Two bodies of work sit between here and the
+north star, both currently in Phase 6 ("Deferred by design — opens only after an
+initial supported release exists and holds"):
+
+1. **Generated-face richness.** ADR-035 shipped steps 1–5: `UiIr` schema 3, a
+   theme-scoped `GeneratedFaceLookAndFeel` (colours + one knob geometry + fonts),
+   `ArchetypeLayout.h` (column / split / rail geometry), the `ui_face` producer.
+   `GENERATION_PLAN.md` was explicit that this is the floor: *"Steps 1–3 are shippable
+   without 4: a themed sqrt grid already looks unmistakably per-plugin."* The mockup's
+   visualizers — ADSR bars, response curves, echo trails, the grain-cloud dot field,
+   tape reels, big numeric readouts, toggle-chip rows, signal meters — were never
+   scoped. `ArchetypeLayout.h:249` records the state directly: the texture-field
+   display region is *"reserved… nothing draws there yet."*
+
+2. **Plugin export (PF-053).** `tools/export_repo.py`, the `/export` skill, and
+   `tests/test_export_repo.py` exist. The skill is gated with an explicit refusal
+   message and `docs/phases/phase-6.md` lists it. ADR-023's 2026-08-13 amendment
+   already did the hard architectural design — AOT emission via `libfaust`'s
+   `generateAuxFilesFromString` (`/usr/include/faust/dsp/libfaust.h:117`, symbol
+   confirmed exported in the linked `libfaust.so`), in-process, no subprocess and no
+   new dependency; per-generation `PLUGIN_CODE` from `generateSHA1` (`libfaust.h:42`);
+   and reuse of `UiIr.h` / `ParamCapture` for the exported editor rather than a second
+   renderer. ADR-023 is still **Proposed**.
+
+**What has changed since these were deferred:**
+
+- **ADR-023's one stated blocking prerequisite is cleared.** The amendment says:
+  *"export inherits STATUS.md's Broken #2 — this project has never had a plugin in a
+  DAW… Validating an exported plugin requires first solving host validation for the
+  plugin already shipped."* STATUS.md "Works" now records both plugins running
+  interactively in REAPER (session 017, 2026-08-28) and `pluginval --strictness 5 →
+  SUCCESS` across seeds. The prerequisite is met and nobody has acted on the unblock.
+- **ADR-035 steps 1–5 landed.** The face floor now exists, so an export can inherit
+  `UiIr` + `GeneratedFaceLookAndFeel` — exactly what ADR-023 amendment §3 said to wait
+  for ("Sequence this after ADR-022's amendment… lands, so the exported plugin
+  inherits sectioned layout instead of a parallel implementation").
+
+**The competing work.** `STATUS.md` "Next three things": efficacy evidence (PF-031),
+in-host repro capture (PF-072/PF-074), and the silent-noise-gate defect (PF-032).
+`docs/phases/phase-3.md` has 12 open audible/interaction defects, two high-severity
+(PF-024 `routing_arity` — 22/44 first-attempt failures on the 125-cell grid; PF-032 —
+a generated noise gate renders silent, warm-LP silent 1-in-4 at L4).
+`docs/phases/phase-4.md` (installable release) is *"Release-critical, blocked."*
+
+**Decision**
+
+1. **Accept ADR-023 and its 2026-08-13 amendment** as the export design of record.
+   Move it from Proposed to Accepted. Its blocking prerequisite is now met.
+
+2. **Open a "generated faces v2" track** extending ADR-035's ladder toward the mockup,
+   decomposed in `docs/sessions/020-generated-faces-v2.md` as five independently
+   landable steps F1–F5 and the export as E1–E4. Both are dependency-ordered; the
+   heuristic layout and the Ember-default face stay the floor at every step.
+
+3. **Sequence, explicitly:**
+   - **On the critical path, unchanged:** PF-024 and PF-032 (the two high-severity
+     generation defects) and the Phase-4 installable release.
+   - **In parallel, explicitly off the critical path:** faces-v2 **F1–F3** (knob
+     geometry incl. bipolar rendering; toggle/enum chip rows; bespoke archetype
+     geometry) and export **E1–E3** (AOT emit; wire `processBlock` to the static DSP +
+     fix the `PLUGIN_CODE` collision; prove-sound + un-gate `/export`). None of these
+     adds a component subsystem, a signal tap, or a second renderer.
+   - **Gated behind their own ADRs:** faces-v2 **F4** (a `FaceVisual` drawing layer
+     for ADSR / curves / histograms / meters — real-signal visuals need offline DSP
+     evaluation and/or PF-052 meter plumbing) and export **E4** (emitting the face
+     into the exported plugin — composes F1–F3 with E1–E3). F5 (display typography /
+     readouts) sequences after F3/F4.
+
+4. **F1 is not gated on this ADR.** It is a bugfix on a shipped feature — a bipolar
+   parameter at its centre value currently fills a 144° value arc from the arc start
+   instead of from a centre detent (`GeneratedFaceLookAndFeel::drawRotarySlider`,
+   `host/Source/GeneratedFaceLookAndFeel.h:280-333`). COLLABORATION.md §1: *"a known
+   defect is never gated."* It proceeds regardless of the decision on 1–3.
+
+**Alternatives considered**
+
+1. **Stay the course — finish Phase 3 and Phase 4 before any face-v2 or export work.**
+   Rejected as the sole path, kept as the critical path. Attention is the scarcest
+   resource here (COLLABORATION.md §4), and PF-024/PF-032/Phase-4 genuinely gate a
+   usable release. But F1–F3 and E1–E3 are small, well-specified (ADR-023 did the
+   design; ADR-035 built the substrate), and independently landable — parking them
+   entirely behind a release that is itself blocked trades a cheap parallel win for
+   nothing. The hybrid keeps the release on the critical path and runs the cheap
+   parallel work off it.
+
+2. **Implement the full mockup now — the visualizer subsystem included.** Rejected.
+   The visualizers are ~60% of the mockup's visual weight and the real-signal ones
+   (response curves, live meters) need architecture that does not exist: an offline
+   frequency-response evaluation of the JIT'd DSP, and a metering path that survives
+   PF-052 (`Kind::Meter` zones discarded upstream in `ParamPool`). That is F4's own
+   ADR, not this one.
+
+3. **Pull export forward but not face-v2 (or vice versa).** Rejected — they converge.
+   An exported plugin today renders a `juce::GenericAudioProcessorEditor` (a bare
+   parameter list). Exporting without the face ships a downloadable plugin that has
+   lost the one thing ADR-035 gave it. Doing face-v2 without export leaves the
+   richness trapped inside the host app. The north star is both.
+
+**Adversarial critique**
+
+A bespoke UI and a downloadable artifact built on top of generation that renders
+**silent one run in four** (PF-032) and carries twelve open audible defects is polish
+on a cracked foundation. A musician who downloads a beautiful plugin that sounds wrong
+has a worse first impression than one who never had the download button. Phase 4 is
+release-critical and genuinely blocked; every hour on a knob detent is an hour not on
+that. The honest risk is that "run F1–F3 and E1–E3 in parallel" becomes "run them
+instead," and the release slips because the visible, satisfying work crowded out the
+unglamorous work. Mitigation is in the Consequences: the parallel track pauses if it
+is observed pulling attention off PF-024/PF-032/Phase-4, and that observation is the
+human's to make at each `/orient`.
+
+**Consequences**
+
+- **Two of `docs/phases/phase-6.md`'s items move forward** — richer meters (PF-052,
+  as F4's dependency) and exported standalone projects (PF-053). The phase file is
+  updated to point here.
+- **The `/export` skill's gate is lifted only at E3**, on its own three stated
+  criteria (builds clean, loads in a DAW, makes sound) — not by this ADR. Until E3,
+  `/export` keeps refusing.
+- **Each F and E step lands on a change report + the §3 evidence bar.** F1–F3 and E2
+  are Tier 2 (paint code / a wire contract / the state-blob-adjacent export format).
+- **F4 and E4 do not land on this ADR's acceptance.** New drawing subsystem, possible
+  new audio-thread taps, and a second renderer are all §2 trigger-2 / trigger-3
+  territory and get their own decision records.
+- **Rollback:** this ADR ships no code. If the parallel track is a mistake, it is
+  paused and this ADR is amended; nothing is deployed that needs unwinding.
+- **Revisit if:** PF-032 or PF-024 regress or fail to close on the shipping model
+  (the parallel track pauses until they do); or F4's offline-DSP-evaluation
+  requirement turns out to need Faust-version-specific runtime support this repo does
+  not vendor (same open question ADR-023's amendment flagged for the emitted AOT C++).
+
+**Status note (2026-09-09 — accepted)**
+
+Accepted by explicit user decision, with one stated priority recorded here so a
+later session does not read the hybrid as a licence to trickle: **the north star —
+"prompt → PluginForge → a downloadable plugin with its own face" — is to be
+reached quickly, not treated as background polish.** That biases the decision's
+sequencing three ways:
+
+- **The parallel track runs aggressively.** F1–F3 and E1–E3 are the near-term
+  work, not spare-cycle work. A `/orient` that shows no movement on them is a
+  signal, the same way the "next three things" slots are.
+- **The E ladder does not wait on the Phase-4 release.** E1–E3 is the literal
+  "downloadable" half and its design is already done (ADR-023 amendment). It
+  proceeds in parallel with Phase-4, not after it.
+- **PF-024 / PF-032 gate *what gets exported*, not *whether the export path is
+  built*.** The adversarial critique stands — a downloadable plugin that sounds
+  wrong is a bad first impression — but the response is "do not cut a public
+  release of the export feature while the high-severity generation defects are
+  open," not "do not build E1–E3." The two tracks are decoupled up to the point
+  of a public release.
+
+**First moves:** F1 (the bipolar-knob bugfix, ungated) and E1 (AOT emit — the
+riskiest unknown in the E ladder, since ADR-023's amendment verified the symbol
+but not its emitted output). Run them next, before F2/F3/E2.
+
+**Diagram**
+
+```
+  prompt ──► generate ──► Faust ──► JIT compile ──► capture params
+                                                        │
+                                    ┌───────────────────┤
+                                    ▼                   ▼
+                          ui_face (LLM, opt.)   deriveLayoutFromGroups  ◄── floor
+                                    │                   │
+                                    └────────┬──────────┘
+                                             ▼
+                              GeneratedFaceLookAndFeel + ArchetypeLayout
+                              F1 knob/bipolar · F2 toggles · F3 geometry
+                              F4 visualizers  ─────────────────── (own ADR)
+                                             │
+                                        user accepts
+                                             │
+                                             ▼
+                          /export  ──►  E1 AOT emit (generateAuxFilesFromString)
+                                        E2 wire processBlock + PLUGIN_CODE
+                                        E3 pluginval + render check → un-gate
+                                        E4 emit the face  ──────── (own ADR)
+                                             │
+                                             ▼
+                              downloadable, self-contained VST3 + source
+                              (no libfaust at build or runtime — ADR-023 amendment)
+```
+
+## ADR-039 — Cross-provider failover: cloud rate limits fall back to local only
+
+| | |
+|---|---|
+| **Status** | Proposed |
+| **Date** | 2026-09-13 |
+| **Relates to** | ADR-012 (free-tier-only default — the boundary this ADR must not cross), ADR-030 (declines `langgraph`; this ADR is its reopen-trigger item 3, landed alone at 1 of 3 — see that ADR's 2026-09-13 amendment), ADR-032 (**reverses** its rejected alternative 4, "auto-failover," for the cloud→local direction only — everything else in ADR-032 stands), ADR-037 (self-declared item 2 of 3, Proposed/no code — the one-ADR-away tripwire this ADR names), PF-043 (the ollama context fix this session that makes a local fallback survivable), PF-060 (the provider-aware preflight machinery this ADR reuses), PF-076 (the local-model reliability data ADR-040's ladder is not allowed to ignore) |
+
+**Context**
+
+The user asked for "robust local model orchestration and fall-backs… to prevent ourselves
+from being rate limited by cloud" — concretely: groq's free tier is 200,000 tokens/day
+(`llm/providers.py:451`, ~57 generations/day at ~3,493 tokens each), and today a rate limit or
+exhausted daily quota simply fails the generation. There is no cross-provider fallback
+anywhere: `llm/providers.py` has zero matches for `fallback|failover|next_provider`, and
+`provider` is a single value resolved once per request (`llm/generate.py:510`).
+
+**This is not a fresh question.** Auto-failover was already proposed and rejected twice:
+
+- **ADR-032** (Accepted 2026-08-29, **implemented** 2026-08-31, PRs #42/#43), Alternatives
+  considered item 4 (`docs/decisions.md:1623-1625`): *"**Auto-failover between providers when
+  one errors.** Rejected (research §4.3): it can disclose a private prompt and generated
+  source to a second vendor and incur unexpected cost. A provider error stays a provider
+  error."*
+- The research dossier it cites,
+  `docs/research/plugin-evolution-ui-provider-architecture-2026-08-13.md:404-406`: *"Never
+  auto-fail over to another provider: that can disclose private prompts/source to another
+  vendor and incur unexpected cost."* Reinforced in its acceptance criteria at `:610` ("no
+  automatic cross-provider failover occurs") and its immutable-profile-snapshot requirement
+  at `:408-410`.
+
+Both objections are about **a second vendor** and **unexpected cost**. Neither describes
+failing over to the local `ollama` provider already in the registry: `env_var=None`
+(`llm/providers.py:514`), `base_url="http://localhost:11434/v1"` (no data leaves the machine),
+and its own note — *"Fully local: no key, no quota, works offline, can never be billing
+blocked"* (`:522-523`). This ADR proposes only that direction, and treats it as **reversing
+ADR-032's rejected alternative 4 for the cloud→local case**, not reopening the general question
+ADR-032 already settled for cloud→cloud.
+
+**Also on record, unactioned:** `docs/architecture_review_2026-07-21.md:371-392` §3.3③,
+"Model-escalating retry" — attempt 1 primary, attempt 2 primary+stderr, attempt 3
+secondary+stderr — called *"the cheapest large win"* (`:513-514`) and listed as recommended-
+sequence items 8–9. This ADR is that recommendation, narrowed to a local-only target and
+reconciled against ADR-032, which landed after that review and rejected the general case.
+
+**The gap that must close before this can work.** A failover keyed on
+`except providers.RateLimited` would miss most real groq rate limits:
+
+- `RateLimited` is raised only when the shared wall-clock `Budget` refuses to allow another
+  sleep (`llm/providers.py:860` SDK path, `:916` HTTP path). With budget remaining, a 429 is
+  slept through; after 5 tries `_post_with_backoff` falls out of the loop and raises a **bare
+  `RuntimeError`** (`:922`) — untyped.
+- Groq's non-retryable 413 ("Request too large", `:79-87`) is neither a 429 nor a ≥500, so it
+  `break`s at `:920` into the same bare `RuntimeError`.
+- `generate_json` catches only `RateLimited` / `BudgetExhausted` / `OutputTruncated`
+  (`llm/generate.py:600-613`); a bare `RuntimeError` propagates out, is caught by
+  `_run_subprocess_mode`'s blanket handler (`:918`), and is flattened by `_exception_response`
+  to `reason="error"` (`:763-771`) — indistinguishable from any other crash.
+- `_is_daily_quota` / `_is_retryable` (`llm/providers.py:815-828`), the classifiers that
+  already know how to tell a daily-quota exhaustion from a transient throttle, are reachable
+  **only** via `_call_with_retry` (`:831`), which serves **only** anthropic and gemini.
+  Groq, openrouter and ollama's own HTTP path (`_post_with_backoff`) never consults them.
+
+**Decision**
+
+1. **Type the terminal HTTP outcomes in `_post_with_backoff` before writing any failover
+   code.** Reuse `_is_daily_quota`/`_is_retryable`'s existing string-matching, but raise a
+   typed exception (a new `QuotaExceeded` distinct from the budget-driven `RateLimited`, or
+   extend `RateLimited` to cover the terminal 429/413/5xx-exhausted cases) instead of falling
+   through to a bare `RuntimeError` at `:922`. This is a prerequisite bugfix, independent of
+   failover, and should be verified and merged on its own before step 2.
+
+2. **A fallback is attempted only on that typed rate-limit/quota class**, never on auth
+   failure, Faust-validation failure, or any other error. A provider error that is not a
+   capacity problem stays a provider error, per ADR-032's own framing.
+
+3. **The only automatic target is local `ollama`.** No cloud→cloud fallback in either
+   direction (this would re-trigger ADR-032's rejected alternative 4 exactly as written), and
+   the paid `anthropic` provider is never auto-reachable — `assert_free()` / `check_credentials()`
+   must be called against the fallback candidate explicitly, since today both run only against
+   the originally requested provider (`llm/generate.py:895`, `:905`) and a chain that skipped
+   this would reopen the hole the 2026-09-04 fix closed (`llm/generate.py:845-871`).
+
+4. **Failover starts a clean attempt, never a continued repair chain.** `error_ctx`
+   (`llm/generate.py:582`, set `:637`) and `truncated` carry no provider identity; continuing
+   them into provider B would hand it *"fix this compiler error"* about code B never wrote
+   (`:302`) — the same class of harm the fixed-routing invariant already guards against
+   (`:281-294`, *"Every attempt in a retry loop must pass the SAME kind… re-routing… would let
+   a retry silently switch prompts mid-generation and repair the code against rules the first
+   attempt never saw"*). A provider switch does not violate that invariant's literal subject —
+   the system prompt is passed explicitly per attempt (`:599`) and is provider-independent —
+   but reusing A's error-feedback state on B would be the same mistake in a new place.
+
+5. **Preflight is re-run against B, never reused from A.** `preflight_prior_source(...,
+   provider)` (`llm/providers.py:200-223`, sole call site `llm/generate.py:568-569`) computes
+   provider-specific admission. Measured this session: `request_ceiling(4096, "groq") = 3904`
+   vs `request_ceiling(4096, "ollama") = 12288`; on a representative dynamic-stdlib prompt,
+   headroom is `groq: +451` vs `ollama: +8835` tokens, and PF-060's own 2,043-char trial
+   payload (~630 estimated tokens) is refused on groq and admitted on ollama. Reusing A's
+   refusal would throw away a request B could serve; forgetting to thread the provider name
+   silently falls back to groq's own 8000-token ceiling (`:168-176`), which is a real footgun
+   for whoever implements this.
+
+6. **`model` is dropped, not inherited, on failover.** `generate_json` passes
+   `request["model"]` unchanged to every attempt (`llm/generate.py:513`, `:595`); a
+   user-pinned cloud model id (e.g. `openai/gpt-oss-120b`) must not be sent to ollama.
+   `PLUGINFORGE_MODEL` has the identical hazard globally (`llm/providers.py:572`) and should
+   be scoped per-provider if failover ships.
+
+7. **Reachability is probed before switching, not discovered via budget exhaustion.**
+   There is no reachability check today; a failover to a dead local daemon hits
+   `httpx.RequestError` (`llm/providers.py:888`) and backs off 1/2/4/8s until
+   `BudgetExhausted` (`:892-894`) — turning a clean `rate_limited` (with an actionable
+   `retry_after`) into an opaque `timeout`, after spending the remaining budget. Use
+   `list_models("ollama")` (`:976-995`, already live, already enumerates every locally-pulled
+   model with no key) as a cheap up-front liveness check. It cannot report `num_ctx`
+   (`:393-403`), so it answers "is the daemon reachable," not "will this model fit."
+
+8. **Budget policy is explicit, not implied.** One `Budget` per generation
+   (`llm/generate.py:515`, 140 s total, ~41.7 s per attempt, arithmetic guarded by
+   `tests/test_generation_budget.py::TestTerminatesUnderTheHostCap`). Provider A's backoff
+   sleeps consume that budget before B ever starts, so a shared budget may hand B very little
+   time. This ADR proposes a **fresh, separate budget for the local fallback leg** — bounded
+   independently (see ADR-040 for what that bound should be on measured hardware), reported
+   as its own phase rather than folded into the 140 s/180 s host-cap arithmetic that governs
+   the cloud attempt. The alternative (shared budget) is simpler but was rejected here because
+   it makes the fallback's success probability depend on how much of A's budget the rate limit
+   already consumed — an unpredictable, hard-to-test failure mode.
+
+9. **Failover fires only when the user's provider choice is `auto`, never overriding an
+   explicit pick.** The wire already distinguishes the two: `PromptPanel` omits the `provider`
+   field entirely when the in-plugin picker is unset (`host/Source/PromptPanel.cpp:1250-1256`,
+   `INTERFACE.md:74-77`), but `llm/generate.py:510`'s `request.get("provider",
+   DEFAULT_PROVIDER)` collapses that distinction on the way in. Making failover conditional on
+   "no explicit `provider` key was sent" requires **no wire change**, respects ADR-032 §5's
+   immutable-per-generation preference snapshot (`docs/decisions.md:1648-1651`), and is the
+   cheapest correct design available.
+
+10. **The response says which provider actually ran.** Neither the success response
+    (`llm/generate.py:627-629`) nor `_failure` (`:710-721`) carries a `provider` key today,
+    and `statusForReason()` (`host/Source/PromptPanel.cpp:53-73`) has no vocabulary for a
+    substitution — so an unannounced failover would be invisible to the user. Add an additive
+    `provider`/`used_fallback` response field (precedent: `llm/recommendation.py:164`'s
+    provider/model echo; the additive-key pattern already established by `kind`, `:618-629`,
+    and `prior_source_dropped`, `:630-635`) and a status string in `statusForReason()`.
+
+**Alternatives considered**
+
+1. **LangGraph as the orchestration layer.** Rejected — ADR-030 stands; this ADR (item 3)
+   alone brings the reopen count to 1 of 3, below the ≥2 threshold ADR-030 itself sets. See
+   this ADR's own note under "Interaction with ADR-030's reopen trigger" below.
+2. **LiteLLM as a client/router layer.** Rejected on the same grounds as ADR-030 and research
+   §4.1 (`docs/decisions.md:1620-1622`): it hides the per-provider token/limit/finish-reason
+   differences this project deliberately keeps visible, for a five-entry registry that already
+   does the job.
+3. **General cloud↔cloud failover (any direction, any pair).** Rejected — this is exactly
+   ADR-032's rejected alternative 4 and research §4.3's objection, unmodified: it can disclose
+   a private prompt/generated source to a second vendor and incur unexpected cost. This ADR
+   does not reopen that question; it narrows to the one direction those objections do not
+   describe.
+4. **Do nothing — a rate limit stays a hard failure.** The status quo. Rejected only because
+   the user asked for this specifically and the local-only design clears both prior
+   objections; if the fresh-budget/reachability-probe/visibility work in the Decision above is
+   judged too much for the win, this remains the fallback position.
+
+**Interaction with ADR-030's reopen trigger**
+
+ADR-030 (`docs/decisions.md:1436-1446`) names provider-failover routing as reopen item 3 of
+3, requiring **≥2** landed items before `langgraph` is re-evaluated against a hand-rolled
+dispatch table. Verified this session: item 1 (a faust-rs `--check` advisor branching repair
+strategy) has **zero** shipped-code presence in `llm/` — the nearest measured variant, faust-rs
+diagnostics fed to the repair loop, was closed as *harmful* (PF-076, `docs/BUGS.md:114`:
+repaired-within-2 fell from 75%→44% on the 3B model, 72%→50% on 7B). Item 2 (an offline
+critic/decompose pass before or between attempts) is not landed as ADR-030 means it: ADR-033's
+`recommend` action is a shipped decompose pass, but it is a separate user-initiated action in
+its own subprocess round-trip, off by default, and reaches generation only as prompt text
+before the loop starts (`llm/generate.py:575-581`, `:649-657`;
+`host/Source/PromptPanel.cpp:348-350,658-663`) — it never runs *between* attempts. The
+ADR that self-declares as item 2, ADR-037 (`docs/decisions.md:2253`), is Proposed with zero
+shipped code (`bench/evaluate_against_plan.py` does not exist).
+
+**This ADR is item 3.** Landing it alone brings the count to **1 of 3** — ADR-030's own
+reopen trigger does not fire, and `langgraph` stays declined on ADR-030's own terms. Stated
+here explicitly so a reviewer does not have to reconstruct the count: **if ADR-037 is later
+accepted, the count becomes 2 and the trigger fires**, obligating a fresh ADR re-evaluating
+`langgraph` against a hand-rolled dispatch table before any further orchestration work. That
+is a live, one-ADR-away tripwire, not a hypothetical.
+
+**Adversarial critique**
+
+The local-only framing is the load-bearing move in this ADR, and it deserves scrutiny rather
+than being asserted once and moved past. Three weaknesses:
+
+- **The disclosure/cost objection is narrower than "another vendor," if read strictly.** A
+  fallback that runs on the *user's own machine* still changes where the prompt and generated
+  code end up — on disk, in ollama's own logs — without the user necessarily expecting a
+  cloud-configured request to silently become a local one. This is a smaller version of the
+  same "not what the user asked for" concern, not a data-leaves-the-building concern. The
+  mitigation this ADR already proposes (item 9: fire only on `auto`, never override an
+  explicit pick) directly addresses it, but the ADR should be honest that "local" does not
+  mean "consequence-free," only "consequence-free in the specific ways ADR-032 named."
+- **A hand-rolled fallback risks becoming the ad-hoc client-construction duplication ADR-012
+  was written to prevent**, if the typed-error work in Decision item 1 and the budget/preflight
+  correctness in items 5, 7, 8 are not built with the same care as the registry itself. The
+  registry has 98+ passing unit tests behind it (`tests/test_providers_unit.py`) precisely
+  because provider edge cases are easy to get subtly wrong; a failover wrapper is new surface
+  of the same kind and should get comparable test investment before it ships, not after.
+- **This does not give the project circuit-breaker semantics.** A provider that is flaky
+  rather than cleanly rate-limited (intermittent 5xx, say) could be retried into failover
+  repeatedly with no cooldown bookkeeping — LiteLLM's `Router` gets this for free via
+  `allowed_fails`/`cooldown_time`. If flakiness (as opposed to clean quota exhaustion) turns
+  out to be the actual failure mode in practice, a small time-boxed spike testing whether
+  LiteLLM's `Router` class drops in cleanly is worth doing before extending the hand-rolled
+  version further — this ADR's recommendation is the minimal correct step, not a claim that
+  hand-rolling always beats a library.
+
+**Consequences**
+
+- **Item 1 (typed HTTP outcomes) is a real bugfix independent of failover** and should be
+  proposed as its own change, verified with its own tests
+  (`tests/test_providers_unit.py::TestPostBackoff`, `TestIsRetryable`), before failover logic
+  is written on top of it.
+- **`tests/conftest.py`'s `PLUGINFORGE_PROVIDER=anthropic` pin and its
+  `TestSuiteHermeticity.test_session_provider_is_pinned_to_anthropic` assertion** will need a
+  test-only way to express "the request explicitly names no provider" without the suite
+  reaching the network — the existing `setdefault` behavior (`tests/conftest.py:16`) already
+  permits an override; failover tests need to exercise both the "auto" and "explicit" paths
+  without weakening the hermeticity guarantee. Note also `PLUGINFORGE_ALLOW_PAID=1` is
+  suite-wide (`:32`) — a test asserting "the chain never reaches anthropic" would pass
+  spuriously under the default fixture and must follow `TestRequestFileMode`'s pattern of
+  popping the key from its own copied environment (`tests/conftest.py:29-31`).
+- **`min_max_tokens` is uniform at 4096 across all five `ProviderSpec` entries today**
+  (`llm/providers.py:416,440,497,520,539`), so a provider switch does not change the output
+  budget at HEAD — this is convenient for a first implementation but is an accident of the
+  current registry, not a guarantee the fallback logic should depend on.
+- **No migration implication** — this ADR ships no code. Rollback, if implemented and later
+  reverted, is deleting the wrapper and the two new response fields; the registry itself is
+  unchanged by this proposal.
+- **Revisit if:** the typed-error prerequisite (item 1) turns out to require touching
+  `_call_with_retry`'s SDK path as well as `_post_with_backoff`'s HTTP path, which would widen
+  this from "one function" to "the shared retry contract" and may warrant its own ADR; or if
+  ADR-037 is accepted, which fires ADR-030's reopen trigger and requires the `langgraph`
+  re-evaluation named above before any further orchestration work proceeds.
+
+## ADR-040 — Hardware envelope for local generation: measure before optimizing
+
+| | |
+|---|---|
+| **Status** | Proposed |
+| **Date** | 2026-09-13 |
+| **Relates to** | ADR-039 (this ADR's envelope selects ADR-039's local fallback model and bounds its budget), PF-043 (the context-window fix whose hardware cost this ADR measures honestly), PF-076 (`docs/BUGS.md:114` — existing evidence that a faster local model is not automatically a better one) |
+
+**Status note (2026-09-15 — reclassified).** Recorded here as a routine measurement
+methodology note, not architectural direction under COLLABORATION.md §2 trigger-2 — no
+option an open ADR holds open was foreclosed. Left in place for the historical record;
+future instances of this kind of decision belong in STATUS.md, not a new ADR.
+
+**Context**
+
+The user asked, concretely: *"how would my Computer's RTX A2000 work with this
+orchestration? How would we test this for multiple devices and optimize to actually achieve a
+generation regardless of hardware?"* This is a real question with a measured answer on the
+one machine available this session, and the answer is not comfortable:
+
+- This machine's GPU is an **RTX A2000 Laptop, 4096 MiB total, ~3.7 GiB free**
+  (`nvidia-smi --query-gpu=name,memory.total`).
+- The model PF-043 made this session's registry default, `qwen2.5-coder:7b-16k`, projects a
+  **5205 MiB** requirement (4168 MiB weights + 896 MiB KV cache at 16k context + 141 MiB
+  compute) against 3727 MiB free. Ollama's own scheduler responded by offloading **13 of 29
+  layers to GPU**, running the remaining 2769 MiB on CPU (`journalctl -u ollama`:
+  `common_params_fit_impl`, `offloaded 13/29 layers to GPU`).
+- Measured live, one real generation through this exact configuration: **768 tok/s prompt
+  eval, 9.21 tok/s generation**; 3358 prompt tokens + 216 completion tokens = **33.8 s
+  wall-clock for one successful attempt**, `truncated = 0` (ollama's own log, the load-bearing
+  field).
+- `PLUGINFORGE_GENERATION_BUDGET` is 140 s total (`llm/providers.py`'s `generation_budget()`
+  path cited from `llm/generate.py:147-156`), ~41.7 s per attempt across 3 attempts. At 33.8 s
+  per attempt, **roughly two of three attempts fit** on this hardware — a full 3-attempt local
+  retry chain does not, before any fallback logic is even added on top.
+- Ollama selected the **Vulkan** backend for this GPU, not CUDA (`library=Vulkan` in the
+  scheduler log) — noted as an open optimization question this ADR does not resolve, not a
+  decision it makes.
+
+**An honest accounting of PF-043's cost.** Raising the declared local-provider context from
+4096 to 16384 tokens (this session, to stop silent prompt truncation) grew the KV cache from
+~224 MiB to 896 MiB — which is what pushed layers off this 4 GB card. The fix is correct: a
+model that cannot hold its own system prompt is not a usable fallback target regardless of
+speed. But it has a real, measured throughput cost on small-VRAM hardware, and this ADR is
+where that tradeoff gets owned rather than left as a side effect of a different ADR.
+
+**The scoping decisions the user made this session govern this ADR's shape:** the generation
+budget stays fixed at its current value rather than being stretched for local hardware — model
+selection is the lever, not the schedule — and hardware coverage is tested via a **`num_gpu`
+layer-offload sweep as the primary proxy curve**, since faithfully emulating a named GPU model
+is not practical, **validated against 1–2 genuinely different remote GPUs** so the proxy is
+checked against reality rather than trusted on its own.
+
+**Decision**
+
+1. **Build a bench harness, alongside the existing measurement tooling in `bench/`**, that
+   sweeps ollama's `num_gpu` parameter (0 = fully CPU-bound, through 29 = fully GPU-resident
+   for this model family) crossed with model choice, quantization, and context length. Any
+   real device — this laptop, a smaller integrated GPU, a larger discrete card — lands
+   somewhere on that curve, so the sweep brackets the achievable range instead of requiring a
+   named-hardware matrix that can never be exhaustive.
+2. **Record, per configuration:** tokens/sec (prompt eval and generation, separately — they
+   differ by roughly 80× in this session's one measurement), time-to-first-successful-attempt,
+   and the derived yes/no — **does a full 3-attempt generation fit inside the existing
+   140 s budget at this configuration.**
+3. **Validate the `num_gpu` proxy against 1–2 real, different GPUs** (a genuinely
+   different card — not just a re-run on this same laptop) to confirm the sweep predicts real
+   devices rather than only describing this one machine's curve.
+4. **Do not prejudge which model wins the resulting ladder.** Raw speed is not the only
+   variable: PF-076 (`docs/BUGS.md:114`) already measured that a smaller/faster local model
+   (`qwen2.5-coder:3b`) has a *lower* repaired-within-2 success rate than the 7B model (75%→44%
+   vs 72%→50% under one repair-loop condition, McNemar p<1e-3 both). A model that finishes an
+   attempt faster but fails more of them is not automatically the right fallback choice inside
+   a fixed budget — the envelope's job is to make that tradeoff visible per configuration, not
+   to declare a winner in advance.
+5. **The resulting table selects ADR-039's local fallback model and per-attempt budget
+   bound for the hardware it is run on**, rather than hand-picking `qwen2.5-coder:7b-16k` (this
+   session's PF-043 default) as a permanent choice. On this machine's measured envelope, that
+   model already consumes roughly two-thirds of the local fallback's available budget for one
+   attempt — worth stating plainly rather than carrying forward as an unexamined default.
+
+**Alternatives considered**
+
+1. **Test against a fixed matrix of named GPUs (e.g. "RTX A2000, RTX 4090, integrated Iris
+   Xe").** Rejected as the primary method — it cannot generalize to hardware not in the
+   matrix, and the project has exactly one physical GPU available this session. Kept as a
+   secondary validation step (decision item 3), not the primary method.
+2. **Constrain the real GPU's visible VRAM and let ollama's own fitting logic react**, rather
+   than setting `num_gpu` by hand. Considered and not chosen as the primary axis — this session
+   confirmed the offload count (`13/29 layers`) is what ollama's scheduler actually decided
+   given a VRAM constraint, so `num_gpu` is the more direct and more portable variable to
+   sweep; VRAM-capping remains a reasonable secondary check on whether the fitting logic itself
+   behaves as expected at the boundary.
+3. **Stretch the generation budget for local hardware instead of adapting model choice.**
+   Rejected per the user's explicit scoping decision this session — the budget is a
+   user-observable wait time with an existing host-side cap (180 s hard kill,
+   `llm/generate.py`'s cited host cap), and hardware variance should be absorbed by *which*
+   model runs, not by how long the user waits.
+
+**Adversarial critique**
+
+The `num_gpu` sweep is a real, controllable, and honestly-labeled proxy — but it is still a
+proxy, and this ADR should not overstate what it proves. Two real gaps:
+
+- **`num_gpu` conflates VRAM capacity with compute throughput.** Two real GPUs that land at
+  the same offload count for a given model can have meaningfully different core counts and
+  memory bandwidth, so "offload count N behaves like this" is not the same claim as "this named
+  card behaves like this." The remote-GPU validation step (decision item 3) exists specifically
+  to catch this gap, and its result should be reported honestly even if it shows the proxy
+  curve diverges from real hardware more than expected — that would be a genuine finding, not
+  a harness bug to explain away.
+- **This machine is a laptop GPU under thermal and power constraints** (`Pwr:Usage/Cap 14W /
+  60W` observed at idle) that a desktop card would not share; sustained generation load may
+  behave differently than the single-shot measurement this ADR's Context section reports. The
+  bench harness should include a sustained/repeated-attempt run, not only single-shot
+  measurements, before the envelope is treated as trustworthy for the 3-attempt-in-budget
+  question it exists to answer.
+
+**Consequences**
+
+- **This ADR is evidence-producing** by the project's own stated metric (CLAUDE.md's
+  `assumed` count) — it retires "local generation hardware envelope" from unmeasured to
+  measured, on at least this machine plus 1–2 validation devices.
+- **It directly gates ADR-039's local fallback design**: ADR-039's Decision item 8 (a fresh,
+  separate budget for the local leg) needs this ADR's per-attempt timing numbers to set that
+  budget correctly rather than guessing.
+- **No migration or rollback implication** — this ADR proposes a bench harness, not a change
+  to shipped behavior.
+- **Revisit if:** the remote-GPU validation step shows the `num_gpu` proxy diverges materially
+  from real hardware (in which case the primary sweep axis needs reconsidering, not just more
+  data points); or if ollama's Vulkan-vs-CUDA backend selection turns out to be a larger
+  throughput lever than the offload sweep itself, which would mean this ADR measured the wrong
+  primary variable and should be amended before ADR-039 depends on its numbers.
+---
+
+## ADR-041 — A `FaceVisual` drawing layer for generated plugin faces
+
+| | |
+|---|---|
+| **Status** | **Accepted — 2026-09-15, by explicit user decision.** |
+| **Date** | 2026-09-14 |
+| **Relates to** | ADR-038 (gated this work behind its own ADR — "F4"), ADR-035 (the face substrate this extends: `UiIr`, `ThemeValidate.h`, `GeneratedFaceLookAndFeel.h`, `ArchetypeLayout.h`), ADR-022 §3 (`derivePalette()` no-IR fallback — unchanged), ADR-019 (no WebView — unchanged, the alternative this ADR closes again), ADR-024 (`UiIr`'s versioned-schema precedent), the ADR-023 amendment (export E4 composes with this once both exist), `docs/sessions/020-generated-faces-v2.md` (the F1–F5 decomposition this ADR reconciles against), `docs/BUGS.md` PF-052 |
+
+**Context**
+
+`ArchetypeLayout::Result` (`host/Source/ArchetypeLayout.h:88-92`) carries exactly three
+fields — `headings`, `controls`, `contentHeight` — and nothing else. `rail()`
+(`ArchetypeLayout.h:248-276`), the layout function for the `texture-field` archetype,
+computes a reserved display region on the left (`railW`, `x = width - railW`) and then
+never places a single `Rect` into it — its own header comment says so directly: *"no rects
+placed into it -- nothing draws there yet."* The region isn't merely unused; there is no
+field in `Result` that could carry it back to a caller even if `rail()` wanted to return it.
+For any generated plugin routed to `texture-field`, a third of the panel is reserved and
+permanently blank.
+
+This is one instance of a broader gap. Three more:
+
+- **PF-052.** `ParamPool::remap` (`ParamPool.cpp:69-77`) marks every `Kind::Meter` param
+  ineligible for a pool slot before assignment, gated on `FaustEngine::isWritable`
+  (`FaustEngine.h:57`, `return k != Kind::Meter;`) — "pushToFaust consequently never sees
+  them" in that file's own words. No live meter value reaches any renderer. A parallel
+  boolean-only path exists (`ParamGridPanel::deriveComponents`, `ParamGridPanel.cpp:764-778`)
+  that sets `UiIr::Components::meter` from the *raw* param list, but that function's own
+  header comment (`:748-763`) documents it as dead in production: the per-slot view
+  `refreshParamKnobs` actually receives has already had every meter stripped four calls
+  upstream. There is a fact, and a wire to carry it, but no data on the wire.
+- **`GeneratedFaceLookAndFeel.h:26-37`** already records, as a deferred-not-delivered
+  refactor from ADR-035, that an attached face duplicates ten embedded typefaces (~2–4 MB)
+  for as long as it's attached, because sharing ownership with `ForgeLookAndFeel` was judged
+  a bigger change than ADR-035's Step 3 scope. `faceLnf` is currently the only per-face
+  *owned* object in the editor, so every new per-face concern has defaulted onto it; the
+  typeface duplication is the first symptom of that, not an isolated memory question.
+- **No offline DSP evaluation exists anywhere.** `host/Source/FaustEngine.h`/`.cpp` expose
+  `prepare`/`release`/`process`/`compile` and one live `createDSPInstance()` call
+  (`FaustEngine.cpp:841`); there is no second, non-realtime instance, no impulse sweep, no
+  FFT utility. A response-curve visual has nothing to read from today.
+
+`docs/sessions/020-generated-faces-v2.md:153-168` already names this whole area "F4 — the
+visualizer subsystem *(ARCHITECTURE GATE — own ADR)*" and states plainly: *"Do not start
+without its own ADR — it is a new component subsystem and, for the real-signal visuals, a
+new audio-thread surface."* ADR-038 (`docs/decisions.md:2497-2503`) gated it the same way,
+for the same reason. This ADR is that gate being resolved.
+
+**Decision**
+
+1. **Accept a three-class visual ladder as direction, not as implementation.** Each class
+   below lands independently, on its own Tier review (COLLABORATION.md §3), per the landing
+   table in clause 5. This ADR's acceptance authorizes none of the code in clause 4 or 5 by
+   itself — the same pattern ADR-035 and ADR-038 both already used for multi-step work.
+
+2. **Reconcile the class split against this project's own prior art rather than silently
+   replacing it.** Session 020 already splits F4 into two buckets — **Derivable** (pure
+   functions of param values the panel already holds: ADSR bars, echo-trail/grain
+   histograms, tape reels, the grain-cloud dot field) and **Real-signal** (the filter/EQ
+   response curve, the output meter, a gain-reduction histogram — each needing new
+   plumbing). This ADR's finer three-way split is **a subdivision of session 020's
+   Real-signal bucket by plumbing kind**, not a competing taxonomy: F4a = session 020's
+   Derivable bucket, unchanged; F4b = the response-curve half of Real-signal (needs offline
+   DSP evaluation); F4c = the meter/histogram half of Real-signal (needs a live audio-thread
+   tap). The two framings agree on every example; this ADR only adds the b/c distinction
+   because the two need materially different architecture and different review tiers.
+
+3. **The grain-cloud dot field is classified F4a** — session 020 already places it there
+   (a pure function of density/spread params the panel holds), and this ADR affirms that
+   explicitly rather than let it drift toward looking live without being live. A future,
+   genuinely audio-driven version of the same visual would be F4c and would need its own
+   later decision, not a silent upgrade.
+
+4. **The architecture — one new owned object, one slimmed object, one new interface:**
+
+   - **`FaceContext`**, owned by `PluginEditor`, outliving `paramGridPanel`, reset wholesale
+     on every recompile (the same clock `applyGeneratedFace()` already uses). It owns the
+     theme, a reference to a shared `TypefaceRegistry`, and the set of live `FaceVisual`
+     instances. This is the per-face *data* owner `faceLnf` was never designed to be.
+   - **`GeneratedFaceLookAndFeel` slims down** to a `ColourScheme` plus
+     `getTypefaceForFont`, holding a `const FaceContext&` rather than owning fonts or
+     visuals itself. `TypefaceRegistry` is the typeface-sharing refactor ADR-035 deferred,
+     pulled forward here because F4 would otherwise double what the LookAndFeel owns.
+   - **`FaceVisual`** becomes a real, owned `juce::Component`, placed by `ArchetypeLayout`
+     (clause 5's `VisualRegion` addition) rather than painted by a stateless LookAndFeel
+     method — a curve needs data the `draw*` call signatures have nowhere to put.
+   - **`SignalSource`** is one interface (`bool read(SignalFrame&)`, non-blocking, no
+     allocation on any hot path) with three producers: param-derived (F4a, reads APVTS
+     values already held), offline-evaluated (F4b, reads `FaustEngine::evaluateResponse()`
+     results off a worker thread), and live/ring-buffer (F4c, reads audio-thread-written
+     samples). One data shape for every `FaceVisual`, so the drawing layer can be built and
+     tested entirely against F4a before F4b or F4c exist. The editor's existing 30 Hz
+     `displayLevel` tick (`PluginEditor.cpp:661`, message-thread-only peak/decay) is the
+     one live-signal precedent already in the codebase — not a `SignalSource`
+     implementation itself, but evidence the live-tap pattern this ADR proposes for F4c has
+     working precedent to build from, not a blank page.
+
+5. **Landing order — six independently-reviewable steps, all off the PF-024/PF-032/Phase-4
+   critical path:**
+
+   | # | Step | Touches | Tier | Why that tier | Critical path |
+   |---|---|---|---|---|---|
+   | 1 | Prep: `ArchetypeLayout::VisualRegion` + `Result::visuals` (sibling of `controls`); `rail()` returns its region instead of discarding it; extend `host/tests/ParamGridLayoutTest.cpp` (exists since PR #63 — this step extends it, does not create it) | `ArchetypeLayout.h`, `host/tests/ParamGridLayoutTest.cpp` | Tier 1 | Pure C++, no audio thread, no atomics, no wire contract | Off |
+   | 2 | `FaceContext` + `TypefaceRegistry`; slim `GeneratedFaceLookAndFeel` | `GeneratedFaceLookAndFeel.h`, `ParamGridPanel.cpp` | Tier 1 (large) | UI-thread ownership/paint restructure only — a big diff is not automatically a Tier-2 one | Off — **pause trigger**: the largest single refactor here; pauses if it's observed crowding out PF-024/PF-032 |
+   | 3 | `FaceVisual` + `ParamDerivedSource` (F4a ships) | new `FaceVisual.*`, `ParamGridPanel.cpp` | Tier 1 (Tier 2 only if a `UiIr` schema bump rides along — see clause 6) | Reads APVTS values already held, message thread only | Off |
+   | 4 | PF-052 split — meter values actually reach the UI | `ParamPool.cpp:69-77`, `FaustEngine.h:57`, `ParamGridPanel.cpp:764-778` | Tier 2 | APVTS↔Faust param-mapping change; the read path is audio-thread-adjacent | Off — pause trigger |
+   | 5 | `FaustEngine::evaluateResponse()` + response curves (F4b ships) | `FaustEngine.h`/`.cpp` (new) | Tier 2 | Instantiates and evaluates DSP; must prove no contact with the live instance or the audio thread; carries the nonlinear-patch caveat (clause 7) | Off — pause trigger |
+   | 6 | Lock-free ring buffer + scopes/gain-reduction histogram (F4c ships) | `PluginProcessor::processBlock`, new tap | Tier 2 | Audio-thread write, `std::atomic`/explicit memory ordering, `check_rt_safety.py` scope | Off — pause trigger |
+
+   All six restate ADR-038's own sequencing clause: nothing here is on the PF-024/PF-032/
+   Phase-4 critical path, and each pause trigger is the same one ADR-038 already named —
+   *"paused if observed pulling attention off PF-024/PF-032/Phase-4, and that observation is
+   the human's to make at each `/orient`."*
+
+6. **`UiIr` schema 4 is sketched, not bumped, by this ADR.** `UiIr.h:188` hard-clamps
+   `parse()`'s schema to `[1,3]`; a `visuals` field would need a schema bump to persist and
+   restore. F4a works today via `deriveLayoutFromGroups()` without one. A schema bump is a
+   persisted-state wire contract on its own (§2 trigger 3, Tier 2 on its own terms) —
+   landing it inside step 1 or 3 would needlessly upgrade an otherwise-Tier-1 step. It lands
+   only when a visual actually needs to survive a project reopen, as its own reviewed change,
+   following the same additive-defaulting precedent schema 3 already set.
+
+7. **The riskiest unknown, named first, the way ADR-038 named E1's:** not offline evaluation
+   itself (hard, but a known problem — sweep, capture, FFT), but **semantic binding.**
+   Nothing in this pipeline guarantees a generated Faust patch exposes a nameable handle for
+   what a visual should show — `ui_face.py` receives labels, ranges and kinds, and binding a
+   response curve to "the filter" today can only mean label-string matching, the same class
+   of heuristic PF-024 and PF-032 already show is unreliable. Its sharpest instance: **for
+   any nonlinear patch, a frequency response is not well-defined at all.** Distortion,
+   saturation and compression are common, ordinary prompt classes; an impulse-plus-FFT sweep
+   on a waveshaper produces a plot that renders confidently and means nothing — indistinguishable
+   from a correct one without already knowing the patch is nonlinear. This exact blind spot
+   already has an unflagged instance in the repo: `bench/render_oracle.py:318-319`'s own
+   docstring — *"Flat-spectrum noise by default, so any patch's frequency response is
+   directly readable off the output spectrum"* — is true only for LTI patches and is not
+   qualified as such anywhere the oracle is used. No `PF-###` covers this risk; filing one
+   is listed as an optional side-deliverable below. Knowing when to **refuse to draw** a
+   response curve is itself part of the semantic-binding gap, which is why it is named above
+   the offline-evaluation risk rather than beside it — the refactor in clause 4 buys F4's
+   architecture, not F4's correctness on an arbitrary LLM-authored patch.
+
+8. **Visuals are host-derived from the captured param table, never LLM-chosen** — the same
+   rule `lastDerivedComponentsForUiFace` already enforces for `Components::meter`
+   (`face.components = ...; // NEVER LLM-chosen`, `PluginEditor.cpp`). The model picks
+   archetype and theme; the host decides which visuals a patch's own param table supports.
+
+9. **Degradation is per-visual and whole-object — a deliberate divergence from ADR-035's
+   per-field policy, stated here rather than left to be silently inherited.** ADR-035's
+   "substitute the one bad field, never reject the whole layout" rule is right for
+   independent colour/enum fields. A visual's type, region and data binding are not
+   independent: degrading them per-field could bind an ADSR display to a filter cutoff —
+   confidently wrong, which is worse than blank. This ADR's rule instead: **drop the visual,
+   keep the layout, reflow the region** (the same `contentHeight` recompute `ArchetypeLayout`
+   already performs for a resize).
+
+**Alternatives considered**
+
+1. **Keep visuals on `GeneratedFaceLookAndFeel`, as another `draw*` override.** Rejected —
+   `juce::LookAndFeel` is a stateless painter; every `draw*` signature ends in a widget
+   reference that already owns its data (a knob has one float, `Slider` holds it). A
+   response curve needs hundreds of bins and no widget in this codebase carries them. This
+   is the actual defect clause 4 fixes, not a style preference.
+2. **Reopen the WebView decision (ADR-019) for the visualizer layer.** Rejected — curves,
+   meters and a dot field are exactly what `juce::Graphics`/`Path` already does well, and the
+   live-signal case (F4c) gets strictly worse across a bridge marshalling audio-derived
+   buffers at 60 Hz rather than better. ADR-019 stands, unreopened, for the second time since
+   ADR-035 also declined to touch it.
+3. **Defer F4 further, past Phase 4.** Rejected as the sole path — `rail()`'s discarded
+   region (Context) is a live gap today, not a hypothetical one, and PF-052's dead boolean
+   path already exists half-built. Nothing forces urgency, but nothing is served by leaving
+   a returned-but-unused `Result` field pattern to be rediscovered later either.
+4. **Adopt session 020's two-bucket Derivable/Real-signal split as-is, without the F4b/F4c
+   refinement.** Rejected — Real-signal's two members (response curves, meters) need
+   materially different plumbing (an offline evaluation worker vs. a live audio-thread ring
+   buffer) and different review tiers (clause 5). Collapsing them into one bucket would hide
+   that a "Real-signal" step could mean either a Tier-1-adjacent worker-thread feature or a
+   genuine Tier-2 audio-thread tap, with no way to tell which from the label alone.
+5. **Ship F4a only, with no ladder for F4b/F4c.** Rejected as the *sole* scope — it is,
+   however, the mandatory first visible step (clause 5, step 3), and this ADR does not
+   require F4b/F4c to land in any particular timeframe, only that their architecture is
+   decided now rather than improvised per-visual later.
+
+**Adversarial critique**
+
+ADR-038 already put this plainly for face richness in general: shipping a bespoke UI on top
+of a generation pipeline that renders silent one run in four (PF-032) and fails to compile
+on a dominant pattern within one prompt class (PF-024, `routing_arity`) is "polish on a
+cracked foundation." A multi-hundred-line refactor — a new owned `FaceContext`, a slimmed
+`GeneratedFaceLookAndFeel`, a shared `TypefaceRegistry` — makes that risk *sharper*, not
+milder, while PF-024 and PF-032 both remain open as of this writing. There are now two
+things that can plausibly crowd out the release instead of one: the visible, satisfying
+feature work, and the invisible, unglamorous refactor underneath it. The honest risk is that
+"run this off the critical path" quietly becomes "run this instead of the critical path,"
+exactly as ADR-038 already warned for F1–F3/E1–E3. This ADR does not have a stronger
+mitigation than ADR-038 already stated — the pause trigger in clause 5 is that same
+mitigation, restated, not improved — and that repetition is itself the honest answer: there
+is no cleverer control than a human checking at every `/orient` whether the parallel track
+has become the only track.
+
+A second, sharper critique specific to this ADR: clause 7 names semantic binding as the
+riskiest unknown and proposes no resolution for it, only a policy of refusal-when-uncertain.
+That policy has never been tested against real LLM-authored patches at scale. It is entirely
+possible F4b ships, refuses to draw a curve for most nonlinear patches (a large and ordinary
+fraction of what this product generates — distortion, saturation, compression), and the
+"real-signal visualizer" feature mostly renders "no visual available" on exactly the plugins
+a user would most want to see one on. That would not be a bug in this ADR's architecture; it
+would be this ADR's architecture working exactly as designed, and still being a
+disappointing product outcome. Nothing in clause 4 through 6 fixes that — only the
+unfiled `PF-###` this ADR recommends (below) and whatever it eventually finds can.
+
+**Consequences**
+
+- Each step in clause 5's table lands on its own change report and its own stated review
+  tier, per COLLABORATION.md §3 — this ADR's acceptance authorizes direction, not any of the
+  six steps' code.
+- `docs/phases/phase-6.md` is owed the same *"updated to point here"* treatment ADR-038
+  promised for PF-052/PF-053 — **only once this ADR is Accepted, not while it is Proposed**;
+  editing it now would foreclose an option this ADR is still holding open, exactly what
+  COLLABORATION.md §2 trigger 2 warns against.
+- E4 (`ADR-038`'s "emit the face into the exported plugin") depends on F4 landing first for
+  any visual to be present in what gets exported — unchanged from ADR-038's own diagram.
+- `ThemeValidate.h:279-281,341-343`'s three WCAG thresholds are surface-contrast checks only
+  (text 7:1, dim text 4.5:1, accent-as-fill 3:1); **no stroke-width-aware check exists.** A
+  hairline stroke at `accent` for a curve or meter needle is only ever checked against the
+  3:1 large-object threshold. Recorded here as an explicit unverified remainder for F4b/F4c,
+  not as a new interface this ADR builds — a stroke-aware floor is a candidate follow-up, not
+  committed to by this decision.
+- **Rollback:** this ADR ships no code by itself. Step 3 (F4a) alone is revertible as one
+  commit if it doesn't pan out; steps 4–6 are independent enough of each other and of step 3
+  to be individually reverted without unwinding the others.
+- **Revisit if:** PF-024 or PF-032 regress or fail to close on the shipping model (the same
+  condition ADR-038 already names); or offline evaluation (step 5) turns out to need
+  Faust-version-specific runtime support this repo does not vendor — the identical open
+  question ADR-023's amendment already flagged for AOT export's emitted C++.
+
+**Status note (2026-09-14 — proposed)**
+
+Drafted at the user's request, following an independently-run adversarial architecture
+review against this codebase. Every technical claim above was re-verified against
+`origin/main` at `55fc78d` before this text was written, including one correction to the
+source review: `host/tests/ParamGridLayoutTest.cpp` already exists (400 lines, landed in PR
+#63, `886be7a`) — clause 5 step 1 extends it, it does not create it.
+
+**First moves, if accepted:** step 1 — the `ArchetypeLayout::VisualRegion` prep commit. It
+is the direct fix for this ADR's own motivating Context gap, requires no new subsystem, and
+unblocks nothing it depends on.
+
+**Status note (2026-09-15 — accepted)**
+
+Accepted by explicit user decision, on the drafted text above with no changes. Clause 5's
+landing table stands as the authorization for each step's own future review — acceptance of
+this ADR authorizes direction only, not any of the six steps' code, per clause 1. `docs/
+phases/phase-6.md` is now owed the "updated to point here" treatment named in Consequences.
+
+**Diagram**
+
+```
+                         PluginEditor owns
+                              │
+                              ▼
+                        FaceContext ──────────────────────┐
+                    (theme, TypefaceRegistry&,             │
+                     vector<unique_ptr<FaceVisual>>)       │
+                              │                             │
+                              ▼                             ▼
+                   GeneratedFaceLookAndFeel        ArchetypeLayout::VisualRegion
+                 (ColourScheme + fonts only,          (placement, clause 5 step 1)
+                  holds const FaceContext&)                 │
+                                                              ▼
+                                                        FaceVisual (owned Component)
+                                                              ▲
+                                                              │ SignalSource::read()
+                                    ┌─────────────────────────┼─────────────────────────┐
+                                    ▼                          ▼                          ▼
+                          ParamDerivedSource        OfflineEvalSource            LiveTapSource
+                             F4a — step 3         F4b — step 5, Tier 2         F4c — step 6, Tier 2
+                        (APVTS values held,    FaustEngine::evaluateResponse    ring buffer, audio
+                         message thread)        worker thread, no live-DSP        thread write
+                                                      or audio-thread contact
+```
+
+---
+
+## ADR-042 — Efficacy-record schema: add a repetition field and provenance hashes
+
+| | |
+|---|---|
+| **Status** | Accepted — 2026-09-23, by explicit user decision |
+| **Date** | 2026-09-23 |
+| **Relates to** | PF-011 / PF-031 (the n≥3 re-run this unblocks), `docs/records/efficacy-adversarial-review-2026-09-23.md` (findings F1, A1, A9 — the review that found this), COLLABORATION.md §2 trigger 3 (names "the efficacy-record schema" as a gated multi-consumer contract, so this decision, not its drafting, needs the human's agreement) |
+
+**Context**
+
+STATUS.md's reserved evidence slot (`*(evidence)*`, enforced by
+`tests/test_control_wiring.py::TestStatusReservesAnEvidenceSlot`) has read "re-run the groq
+efficacy grid at n≥3 (PF-031)" for over a week. This session's adversarial review
+(`docs/records/efficacy-adversarial-review-2026-09-23.md`, finding F1) found it cannot be run at
+any budget, because `bench/run_efficacy_study.py:307-337`'s `prepare_resume` raises
+`ValueError(f"duplicate existing record for {key!r}")` the moment a second sample at the same
+`(effect_id, tier)` is attempted — the record schema has no field to distinguish repeat #1 from
+repeat #2. A 2026-09-15 attempt to work around this (`bench/results/efficacy/
+efficacy_groq_n3_rep1_20260915.json`, sitting untracked, stalled at 38/125 cells) used a
+filename-suffix convention (`_rep1`) instead, which is exactly the kind of fragile, unenforced
+convention CLAUDE.md's "a control counts only once it has been seen failing" section exists to
+replace with something mechanical.
+
+Two more gaps compound the first: (A9) a record pins `provider`/`model`/`prompt` but not the
+system-prompt content hash or the Faust version it compiled against, and `llm/prompts/
+system_prompt.txt` has already drifted under a live baseline once this quarter
+(`STATUS.md:465-472`) with no mechanical way to detect it in the archive itself; and (A1) even
+with a `rep` field, a majority-vote collapse across repeats (the pattern `score_repair_ab.
+_aggregate_cell` already uses for a *paired* design) would be the wrong estimator for a *rate*
+question — it discards information and biases toward 0/1 at small n.
+
+**Decision**
+
+1. Add three fields to the record schema `run_efficacy_study.py` writes:
+   - `rep: int` (0-indexed repeat number within a cell), defaulting to `0` for a schema-migration
+     no-op — every archive on disk today reads as `rep=0` under this default, and any script
+     that does not know about the field keeps working unchanged.
+   - `system_prompt_sha: str` — a content hash of `llm/prompts/system_prompt.txt` at generation
+     time (reusing `bench/frs_check.sha`'s convention, not inventing a second one).
+   - `faust_version: str` — from `faust --version`, so a future Faust bump is visible in the
+     archive itself rather than inferred from a git-log date.
+2. `prepare_resume` keys on `(effect_id, tier, rep)` instead of `(effect_id, tier)`; a duplicate
+   at the same triple stays an error (still a real bug, just no longer the only bug this check
+   can express).
+3. `score_efficacy.py` gains a per-cell collapse across `rep` that reports **the pooled
+   proportion with a cluster-aware interval** (effect = cluster) for rate questions, alongside —
+   not instead of — a majority-vote binary where a genuinely binary per-cell verdict is wanted
+   (mirroring, deliberately, why `score_repair_ab.py`'s majority-vote collapse is right for its
+   own paired design and would be wrong here — see A1 in the review).
+
+**Alternatives considered**
+
+- **A separate n≥3 driver, schema unchanged.** Rejected: still needs *some* per-cell identity to
+  avoid exactly the collision `prepare_resume` already guards against; duplicating the guard in
+  a second script is the two-implementations problem `render_oracle.analyse_corpus`'s own
+  docstring already warns against, transplanted to a new file.
+- **Majority-vote only, no proportion estimator.** Rejected on A1's grounds above: this study's
+  headline quantity is a rate (first-try / retry-corrected compile rate, render-safety rate),
+  not a binary per-cell verdict, and majority-of-3 is a biased estimator of a rate.
+- **Filename-convention reps (what the stalled 2026-09-15 attempt did).** Already tried, already
+  fragile, already the thing this ADR replaces.
+
+**Consequences**
+
+- Every archive on disk is unaffected (`rep` defaults to 0 for old records with no such field;
+  `system_prompt_sha`/`faust_version` absent on old records reads as "not recorded," never as a
+  false claim — same absence-of-claim discipline `render_oracle.py` already applies to its own
+  gate fields).
+- Blast radius: `bench/run_efficacy_study.py`, `bench/score_efficacy.py`, and their unit tests
+  (`tests/test_efficacy_unit.py`). No product code, no C++, no schema outside `bench/`.
+- **Unverified until implemented:** whether the cluster-aware interval is worth the added
+  reporting complexity at n=3 specifically (it matters more as n grows) — a judgment call for
+  whoever lands this, not resolved here.
+- This ADR does not itself run the n≥3 grid. It removes the reason PF-031 cannot be attempted;
+  the attempt still costs groq quota and is a separate, later decision.
+
+
+## ADR-043 — Model routing for generation efficacy: show the model its own failing program before escalating it
+
+| | |
+|---|---|
+| **Status** | Proposed — 2026-10-09 |
+| **Date** | 2026-10-09 |
+| **Relates to** | PF-081 (the retry loop's blindness — this ADR's prerequisite), PF-079 (compile rate overstates render-safety by 25-40pp — the metric this ADR must be scored on), PF-076 (faust-rs diagnostics A/B — mechanism withdrawn 2026-09-24, result stands), ADR-039 (cross-provider failover, Proposed, overlaps and is absorbed here), ADR-005 (the 3-attempt retry loop this amends), ADR-030 (declined LangGraph; names failover as reopen-item 3 of 3), ADR-032 (rejected *general* auto-failover — this ADR must say why escalation-on-typed-failure is not what that refused), ADR-006/PR #88 (compile rate reclassified as a routine decision, not load-bearing), ADR-042 (the n≥3 repetition schema this ADR's measurement gate depends on), `docs/research/R1-grammar-constrained-decoding.md`, `R2-restricted-faust-dialect.md`
+
+**Context**
+
+Three questions motivated this ADR: how PluginForge should route between its five
+registered providers, whether constrained decoding or an intermediate language would
+reduce invalid Faust, and whether the corrective-retry loop is actually correcting. The
+third question turned out to dominate the other two.
+
+**There is no routing today.** `provider` is resolved once per request
+(`llm/generate.py:510-513`) and passed unchanged through every retry (`:595`) by explicit
+invariant (`:281-294`). `llm/providers.py`'s `PROVIDERS` registry holds five specs behind
+three adapters, with `make_generator()` (`:943-987`) the single seam and `_call_api`
+(`generate.py:250-262`) the single dispatch point. The retry loop (ADR-005) is 3 attempts
+total, same model, same prompt, single-turn `[system, user]` — no conversation history
+anywhere in the pipeline.
+
+**PF-081, found 2026-09-24 via external adversarial review and verified against source
+directly: the retry loop never shows the model the program it is repairing.**
+`bench/repair_ab_core.py:107` builds `user_message = prompt +
+template.format(feedback=feedback_text)` — `prompt` is the original natural-language
+request; the failing `code` (`:91`) is used only to *compute* the diagnostic (`:105`) and
+is never placed in the message. There is no conversation history, so every corrective
+attempt **regenerates from the original spec** rather than editing a visible program. The
+shipping product mirrors this exactly: `llm/generate.py:560` reads `prior_source` only from
+an Iterate/refine host request; a Fresh-mode compile-error retry sends `prompt +
+error_context` (`:301-302`) with the same blindness. The symptom was already on record
+without the cause named — `llm/generate.py:183-186`, *"a simple reverb" failed the
+IDENTICAL delay-range error 3 attempts in a row* despite the fix already being in the
+system prompt, which is exactly what blind regeneration from an unchanged spec produces.
+
+This discovery **falsified PF-076's published mechanism** (corrected in `docs/BUGS.md`
+2026-09-24). PF-076's A/B measured raw C++ stderr vs. `faust-rs --check` diagnostics fed to
+a weak local model's repair loop: repaired-within-2 dropped 75%→44% (`qwen2.5-coder:3b`,
+n=202) and 72%→50% (7b, n=120), McNemar p<1e-3 both. The original explanation — "precise
+localisation makes the model edit at the caret and re-break it" — assumed the model could
+see the caret in context. It cannot, in either arm: the model is never shown the program.
+**The A/B result stands; the explanation is withdrawn.** Corrected framing: regenerating
+blind from the spec with a filtered diagnostic did worse than with raw stderr, on a weak
+local model. This is a finding about how to use faust-rs, not a defect in it — and the
+faust-rs efficacy study belongs to a separate, currently active agentic session (issue #26,
+PR #94, PF-080); this ADR cites PF-076/081 and must not re-measure them.
+
+**PF-079, found 2026-09-23: the compile gate overstates success by 25-40 percentage
+points.** A render-oracle pass over all four committed efficacy archives (325 compiled
+cells, $0) found real render-safety far below `faust -lang cpp` accept/reject, with two
+`dynamics` idioms failing identically across two independent generator models. ADR-006's
+"first-try compile rate as the primary benchmark metric" was one of 8 decisions PR #88
+reclassified as routine rather than load-bearing. **Any efficacy claim this ADR enables must
+be scored on render-safety, never on compile rate.**
+
+**The tier structure already measured is the one free routing signal available.** The
+125-cell groq grid (`efficacy_groq_20260831.json`) shows retry-corrected compile flat at
+84-96% across tiers, while judge-scored fidelity falls monotonically 1.57/2 (L4) → 0.36/2
+(L0). First-try tells a sharper story: L2/L3/L4 sit at 84%, **L1 collapses to 48%**, L0
+recovers to 72%. L1 is "sensory metaphor only, no effect or parameter names"; L0 is "named
+artist/gear reference" — a concrete device name is more actionable to the model than an
+abstract metaphor, and L1's failures classify SEMANTIC 9 / SYNTAX 4 against 2-4 elsewhere.
+This is estimable from the prompt text before any generation runs.
+
+**ADR-039 (cross-provider failover, still Proposed) cannot be implemented as written,
+because its own prerequisite is unlanded.** Its Decision item 1 observes that
+`_post_with_backoff` cannot be failed over *on* because its terminal outcomes are untyped:
+with budget remaining a 429 is slept through, and after 5 tries the loop raises a bare
+`RuntimeError` (`providers.py:938`), which escapes `generate_json`'s typed catch
+(`generate.py:600-613`) and flattens to `reason="error"` — indistinguishable from a crash.
+The classifiers that could separate daily-quota exhaustion from transient throttle
+(`_is_daily_quota`/`_is_retryable`, `providers.py:831-844`) are reachable only from
+`_call_with_retry`, which serves anthropic and gemini only; groq/openrouter/ollama's
+`_post_with_backoff` never consults them.
+
+**External literature, weighted below the above because PluginForge's own measurements are
+more specific to this pipeline than any general-purpose finding:**
+
+- Grammar/schema-constrained decoding gives near-perfect syntactic validity, with gains up
+  to ~27pt pass@1 concentrated in *small* models — but the explicit finding across this
+  literature is a scale-dependent semantic gap: structural failures vanish, semantic ones
+  do not (arXiv:2609.23742, arXiv:2605.26128). This matches what PluginForge's own grid
+  already shows: compile is flat, semantics is not.
+- Faust is a low-resource DSL in the sense this literature studies; the two interventions
+  with evidence are grammar prompting and an intermediate language natural to the model,
+  compiled down (arXiv:2410.03981, arXiv:2305.19234). `docs/research/R1`/`R2` already cover
+  this ground for Faust specifically.
+- Cascades retain ~97-99% of the strongest model's accuracy at materially lower cost, with
+  escalation thresholds set by calibrated uncertainty rather than a fixed rule
+  (arXiv:2606.27457, arXiv:2605.18796, arXiv:2605.06350).
+- Iterative execution-feedback loops lift pass@1 by staging compile → static → test
+  feedback, and trace-level feedback beats bare pass/fail (arXiv:2603.23613).
+- Best-of-N with a cheap verifier buys quality through sampling rather than a bigger model
+  (arXiv:2307.06857) — and `bench/render_oracle.py` is already a $0 verifier PluginForge
+  owns and PF-079 just showed is the honest signal to screen on.
+
+**Decision**
+
+Land in the order below; each step is independently landable and the measurement gate
+applies to all of them.
+
+1. **PF-081 first, before anything else in this ADR.** Carry prior failing source into
+   Fresh-mode retries the same way Iterate mode already does, reusing the existing
+   token-budget guard `preflight_prior_source` (`llm/generate.py:568`). This is a handful
+   of lines and is not itself a routing change, but every routing measurement below is
+   invalid until the baseline it is measured against stops regenerating blind.
+2. **Type `_post_with_backoff`'s terminal outcomes** (absorbing ADR-039's Decision item 1).
+   Replace the bare `RuntimeError` on retry exhaustion and on a non-retryable 413 with
+   typed outcomes `generate_json` can distinguish, matching what `_call_with_retry` already
+   does for anthropic/gemini. Prerequisite for every later step, not a feature on its own —
+   no escalation policy is implementable against an untyped failure.
+3. **Model-escalating retry.** Attempt 1 on the configured primary; attempt 3 (of the
+   existing 3-attempt budget) on a stronger model, gated on the typed failure from step 2.
+   Already on record as "the cheapest large win" (`docs/architecture_review_2026-07-21.md`
+   §3.3③), unactioned since July. Requires `provider`/`model` echoed in the success and
+   `_failure()` responses (`generate.py:627-629`, `:710-721`) so a substitution is visible —
+   `recommendation.py:164` and `ui_face.py:276` already do this and are the precedent to
+   follow, not invent.
+4. **Route on measured prompt-abstraction tier.** Before generation, estimate which of
+   L0-L4 a prompt resembles (the signal is already characterised; this is a classification
+   step, not new modeling) and treat an L1-shaped prompt as a semantic-risk case — route to
+   the stronger model or expand the metaphor into named terms first, rather than spending
+   retries on a model ill-suited to it.
+5. **Grammar-prompt the Faust envelope; spend the model's budget on meaning.** Per the
+   literature above and PluginForge's own grid, structure is the cheap half to fix and
+   meaning is not — `docs/research/R1`/`R2` are the starting point, not a fresh design.
+6. **Best-of-N over `render_oracle.py` before escalating to a costlier model.** The verifier
+   is already written, costs $0, and PF-079 established render-safety as the metric that
+   actually matters; screening N candidates through it is the natural use of a verifier
+   this pipeline already owns.
+7. **This ADR supersedes ADR-039.** ADR-039's cross-provider-failover goal is retained as
+   step 3 above, scoped specifically to escalation on a *typed* failure — not the *general*
+   auto-failover ADR-032 already rejected (`docs/decisions.md:1623-1625`). Landing step 3
+   alone does not reopen ADR-030's "adopt an orchestration framework" question, because
+   ADR-030 names provider failover as one of three independent reopen-items, not a package.
+
+**Measurement gate — applies to every step above, no exceptions**
+
+No step in this ADR may be reported as an improvement until:
+- PF-081 has landed (step 1), since it changes the baseline every later measurement is
+  compared against; and
+- the n≥3 grid re-run (STATUS.md "Next three things" #1, enabled by ADR-042's repetition
+  schema) establishes a real baseline, because the measured noise floor between two
+  back-to-back identical runs is a **4.0% spread** (PF-031) — any claimed gain smaller than
+  that is not distinguishable from sampling; and
+- the metric used is render-safety (PF-079's render-oracle verdict), never bare compile
+  rate.
+
+**Consequences**
+
+- `llm/generate.py`, `llm/providers.py`, `llm/error_classes.py` gain the typed-outcome and
+  escalation logic; no change to the IPC JSON contract's required fields, only additive
+  optional ones (`provider`/`model` echo), so ADR-011's schema is extended, not broken.
+- `llm/router.py`'s deterministic keyword-based prompt-kind classification is explicitly
+  **not** reopened by this ADR — a separate, already-considered decision with its own
+  documented rationale (an LLM classifier would be a third round trip inside a 100s budget
+  on a ~20 req/day free tier, "and it would also fail exactly when the network is the
+  problem").
+- `bench/run_repair_ab.py`'s A/B harness and the faust-rs efficacy study are untouched by
+  this ADR; the two efforts are related but owned separately.
+- Grammar-prompting (step 5) and best-of-N (step 6) are prompt/bench-only changes with no
+  product contract impact; model-escalating retry (step 3) and typed outcomes (step 2) are
+  Tier 2 territory under COLLABORATION.md §3 and need the two-tier evidence bar on landing.
+- **Unverified until implemented:** whether tier-routing's classification step (4) is cheap
+  enough to run inside the existing generation budget without itself becoming a second
+  round trip — this needs a profiled implementation, not a design-time guess.
+
+## ADR-044 — Professional-grade generated GUIs: an authored design system, art-directed by the model
+
+| | |
+|---|---|
+| **Status** | Proposed — 2026-10-09 |
+| **Date** | 2026-10-09 |
+| **Relates to** | ADR-024 (`UiIr`'s renderer-agnostic schema — this ADR proposes bumping it), ADR-035 (per-plugin generated faces — the shipping path this ADR diagnoses as capped, not wrong), ADR-038/ADR-041 (the `FaceVisual` drawing-layer ladder — steps 2 and 4-6 are retained as infrastructure this needs regardless; step 3's motif list is what this ADR would supersede with a real widget library), ADR-022 (the no-IR heuristic fallback — unchanged, still the degrade-to path), ADR-019 (no WebView — this ADR is the strongest case yet to re-examine that, not a decision to reopen it unilaterally), PF-052 (meters never reach any renderer — blocks every signal-bound widget this ADR proposes), the editor-lifetime defect this session also diagnosed and fixed separately (a window reopen losing the generated grid/face, filed and landed on its own branch) — `FaceContext`, planned in ADR-041 step 2, must not repeat its lifetime mistake
+
+**Context**
+
+The operator's explicit instruction, given after reviewing the shipping path: *"the IR GUI
+even if it's shipping does not seem to be what we originally intended. We want fully
+professional GUI generation."* This ADR is the research response — a diagnosis of why the
+shipping path caps out, and a proposed architecture to clear that ceiling, not an
+incremental widening of what exists.
+
+**What already ships is real and should not be mistaken for the gap.** `host/Source/UiIr.h`
+schema 3 (decided in ADR-024: renderer-agnostic, string-keyed, no JUCE types, no pixel
+coordinates) is produced by an LLM today, post-compile, via ADR-035 §5
+(`llm/ui_face.py` → `PromptPanel::requestUiFace()` → `ThemeValidate.h` → `applyUiIr()` +
+`applyGeneratedFace()`). A deterministic floor (`ParamGridPanel::deriveLayoutFromGroups()`)
+renders first and is never regressed by a failed or late LLM call; degradation is per-token,
+never whole-layout; a restore never spends quota (the accepted face rides the state blob
+keyed to the source hash). These properties were each paid for by a real defect and must
+be inherited by anything that replaces the motif layer, not rediscovered.
+
+**The diagnosis: `UiIr` is a parameter-layout vocabulary, not a visual-design vocabulary.**
+It can say "put these five knobs in two columns and tint them amber." It cannot say "this is
+a brushed-steel compressor with a backlit VU needle and a 7-segment gain-reduction readout."
+Widening the archetype set — currently 6 names (`llm/ui_face.py:52-54`) collapsing to 4 real
+geometry functions in `ArchetypeLayout::layoutFor()` (`:337-348`; `columns()` serves both
+`synth-panel` and `channel-strip`, `pedal`/`utility`/unknown all fall to `row()`) — does not
+touch this ceiling, because the ceiling is in the IR's nouns, not in how many values one
+field accepts. Three further structural gaps against a professional baseline (FabFilter,
+Valhalla, Soundtoys, Arturia):
+
+- **No resolution independence.** The layout packer (`ArchetypeLayout.h:123-196`) is a pure
+  function of control count and span, deliberately never of pixel width — correct for
+  determinism, but it forecloses true vector scaling.
+- **One widget family.** Four knob styles, no needle meters, LED ladders, segment readouts,
+  curve displays, scopes, or transport furniture.
+- **No material or lighting model.** Seven flat colour strings and four enums
+  (`ui_face.py:55-61`). Depth, bevel, glass, texture, shadow, and real type pairing — most of
+  what reads as "designed" rather than "a tinted grid" — have no representation.
+
+**Generated drawing code is not the fix, and current evidence is specific about why.** LLMs
+emitting SVG treat it as a flat token sequence with no structural model of the medium —
+coordinates are not known to form pairs belonging to a command belonging to a path — which
+produces hallucinated primitives and wrong paint order, and *every* model benchmarked
+degrades as complexity rises, proprietary models included (arXiv:2506.03139,
+arXiv:2412.11102). A plugin face is exactly the high-complexity, occlusion-sensitive case
+this literature flags as the hard one. Independent of quality, generated drawing code or
+geometry would put untrusted generated logic into the plugin process, inside a host, beside
+an audio thread — a new safety surface this project has no reason to open for a cosmetic
+feature when a data-only alternative exists.
+
+**PF-052 blocks every signal-bound widget regardless of architecture.**
+`ParamPool::remap` (`ParamPool.cpp:69-77`) marks every `Kind::Meter` ineligible for a slot
+via `FaustEngine::isWritable` (`FaustEngine.h:57`); no live meter value reaches any
+renderer today. A needle meter or gain-reduction readout is unbuildable until this closes,
+independent of which GUI architecture wins.
+
+**Decision**
+
+Raise the IR from a layout schema to a design-system schema. The model acts as art director
+over professionally-authored, human-written C++: it selects and parameterizes material,
+palette, type pairing, widget choice, and composition intent; authored code renders every
+pixel. This is the division of labour the UI-generation literature argues for directly — a
+constrained intermediate representation, generated by the model, rendered by a separate
+programmatic component, rather than free-form code generation that loses intent between
+iterations (arXiv:2508.20263, arXiv:2509.07334, arXiv:2512.18996) — and it is the same shape
+PluginForge already committed to with `UiIr`/ADR-024, extended rather than replaced.
+
+```
+                 ┌─ model decides (validated, data only) ──────────┐
+prompt + params →│ material · palette · type pairing · widget      │→ face_spec (schema 4+)
+                 │ selection · composition intent · identity/badge │
+                 └───────────────────────────────────────────────┘
+                                   ↓ validate (C++, authoritative — unchanged from ADR-035)
+                 ┌─ authored once, by a human, in C++ ─────────────┐
+                 │ material/lighting model · bespoke widget library │→ rendered face
+                 │ constraint layout solver · typography registry  │
+                 └───────────────────────────────────────────────┘
+```
+
+Four research tracks, each a reviewable deliverable in its own right:
+
+1. **Material & lighting substrate.** An authored material model — surface treatment
+   (brushed, anodized, matte, glass, wood), a light direction with consistent bevel/shadow
+   derivation, and a typography registry with real pairings — replacing seven flat colour
+   strings. Sequence with ADR-041 step 2's `TypefaceRegistry`, which already exists as a
+   planned deliverable and is the natural owner of the latter half.
+2. **A bespoke widget library.** Needle/VU meters, LED ladders, scaled rotaries, segment
+   readouts, curve displays, scopes, transport furniture — `GKnobGeometry.h`'s
+   free-function-geometry pattern is the precedent for testability. Each widget declares
+   what it can bind to, making PF-052 and ADR-041 steps 4-6 (real signal) a *capability* of
+   the library rather than a precondition for starting it.
+3. **Layout freedom.** Evaluate a constraint/grid solver in place of the four hardcoded
+   geometry functions. Hard constraint to preserve: `contentHeightForSections()` calls
+   `layoutFor()` at width 0, before the shell grants a size, and must get the same answer
+   (`ArchetypeLayout.h:28-36`) — any solver must stay a pure function of content. This track
+   is the one most likely to conclude "not yet," and that is a legitimate finding, not a
+   failure to report back.
+4. **Identity.** Generated name, badge, consistent accent logic, so a face reads as a
+   product. ADR-022's deterministic `derivePalette()`/`deriveTitle()`
+   (`ParamGridPanel.cpp:850-874`) remains the fallback this must degrade to on any failure.
+
+**Immediate, low-risk complement, evaluable inside this ADR's research rather than waiting
+for it:** Faust's own UI metadata — `hgroup`/`vgroup`/`tgroup` plus
+`[style:knob|led|numerical|radio|menu]`, `[scale:log|exp]`, `[tooltip:]`, `[hidden:]` — is a
+second declarative channel PluginForge already partially reads (group nesting) but
+currently ignores (`style:`, `scale:`). The generating model can express widget intent
+in-band with the DSP it is already writing, at zero extra round trip.
+
+**Four decisions this ADR puts to the operator rather than pre-deciding, per policy §4:**
+
+1. **`UiIr` schema 4+ is a persisted-state contract change** (COLLABORATION.md §2 trigger
+   3). A design-system schema is a materially larger bump than ADR-041's sketched `visuals`
+   field; old sessions must stay recoverable.
+2. **Whether to re-examine ADR-019's WebView closure.** A professional target is the
+   strongest case yet to reopen it, and ADR-024's renderer-agnostic IR was explicitly built
+   as the seam for exactly this. The cost is real and should be weighed, not assumed away: a
+   second renderer, a materially larger in-process attack surface, and packaging
+   consequences for a product that currently ships no web runtime at all.
+3. **Where ADR-041 ends and this ADR begins.** Its steps 2 and 4-6 (`FaceContext`,
+   `TypefaceRegistry`, PF-052's split, signal sources) are infrastructure this needs
+   regardless and should land on their existing schedule. Step 3's `FaceVisual` motif list
+   is specifically what track 2 above would supersede with a real widget library.
+4. **Asset strategy.** Textures and typefaces carry size, licensing, and packaging
+   implications (policy §4 trigger 4). An authored material model mostly avoids bundled
+   bitmaps — this should be confirmed as the chosen route, not assumed.
+
+**Evaluation — and its honest limit**
+
+`host/tests/UiDesignGallery.cpp` (18 fixtures → `artifacts/ui_gallery/`, a PNG plus a
+machine-readable record each, diffed by `tools/ui_iterate.sh`/`tools/ui_layout_diff.py`) is
+the right instrument and is deliberately not a test (*"EditorSessionTest asserts; this
+reports"*). It proves a face **rendered**; it cannot prove a face **looks professional**.
+That judgment has no instrument today, in the same sense CLAUDE.md already concedes for
+sound (COLLABORATION.md §1) — it is a human operator pass, not a hook or a model's job, and
+any claim of success under this ADR must be backed by one, not inferred from the gallery
+alone.
+
+**Consequences**
+
+- `host/Source/UiIr.h`, `llm/ui_face.py`, `llm/prompts/ui_face_prompt.md` all grow
+  materially; the schema-version bump is Tier 2 territory under COLLABORATION.md §3.
+- The deterministic floor, per-token degradation, C++-side validation authority, and
+  quota-free restore — all four non-negotiable, inherited verbatim from ADR-035/041, not
+  renegotiated by this ADR.
+- No change to the audio thread, the build's dependency closure (absent an asset-strategy
+  decision to the contrary), or the IPC contract's required fields.
+- **This ADR lands no code.** It is a research deliverable: a diagnosis, a proposed
+  architecture, and four explicit decision points for the operator. Implementation is a
+  later, separately reviewed step per track.
+
+
+## ADR-045 — A usage-pattern axis for efficacy studies: what the user does, not just what they say
+
+| | |
+|---|---|
+| **Status** | Proposed |
+| **Date** | 2026-10-10 |
+| **Relates to** | `docs/prompt_efficacy_study.md` (the phrasing-tier axis L0–L4 this ADR adds a second axis alongside, not a replacement for), ADR-042 (the efficacy-record schema this ADR's new fields extend, per that ADR's own precedent for schema growth), PF-076 / `docs/records/efficacy-adversarial-review-2026-10-09.md` (the session that surfaced the gap this ADR closes — see "Context"), `score_efficacy.py`'s judge (the existing pattern this ADR's "simulated user" reuses), COLLABORATION.md §2 (a new multi-consumer schema field is Tier-2/consult territory, same class of decision as ADR-042) |
+
+**Context**
+
+`docs/prompt_efficacy_study.md`'s L0–L4 tiers (§2) model one axis of real-world usage
+variation: how much domain vocabulary a prompt carries, from "DSP engineer" down to
+"artist/song reference only." They say nothing about a second, orthogonal axis: **what the
+user does after the first generation attempt.** A developer who reads a compiler error and
+issues a precise follow-up, an automation client that only uses the product's own bounded
+retry loop, an enthusiast who never retries at all, and a beginner who can't act on an error
+message are all currently the same thing to every study in this repo — one `generate()` call,
+scored once. `grep -c "persona" bench/*.py` returns zero; nothing varies interaction behavior.
+
+This gap was named, not invented, during this session's adversarial review of the faust-rs
+efficacy study (`docs/records/efficacy-adversarial-review-2026-10-09.md`) and the user's own
+framing afterward: a wish to "simulate high-scale usage of PluginForge by a variety of
+people (developers, agents, enthusiasts, beginners)" and use what's found to improve the
+product. That is a usage-*pattern* question, not a phrasing question, and the existing
+harness has no axis for it.
+
+**Decision**
+
+1. **Add a second axis, crossed sparingly with the existing tier axis — not a full product.**
+   Four named personas, each a fixed (tier, interaction-policy) pair, not a cross of every
+   tier × every policy:
+
+   | Persona | Tier | Interaction policy | What it tests |
+   |---|---|---|---|
+   | `dsp_engineer_iterate` | L4 | Reads the real compiler/render-oracle result, issues a targeted follow-up via Iterate mode, up to 5 turns | Convergence for a sophisticated, precise user |
+   | `enthusiast_oneshot` | L2 | Stops after attempt 1, success or not — **no** retry, including the product's own | The product's unaided first-impression rate, with no credit for the built-in loop |
+   | `agent_noreview` | any | Uses only `llm/generate.py`'s existing bounded auto-retry (currently up to 3 attempts), then stops | Whether the built-in loop alone is sufficient with zero human or escalation in it |
+   | `beginner_confused` | L0/L1 | On failure, a cheap LLM call (same shape as `score_efficacy.py`'s judge, different job) decides: retry with a vaguer restatement, or abandon — its system prompt is instructed not to understand compiler jargon | Graceful degradation when the user cannot act on feedback |
+
+2. **Reuse the real pipeline, not a second implementation.** Every persona calls
+   `llm/generate.py` directly (both Fresh and Iterate modes), the real `render_oracle.py`, the
+   real `fidelity_gate.py` tiers — the same discipline PF-076's adversarial review enforced
+   retroactively (arm A's wrapper had to match the product's real loop) is a *design*
+   constraint here from the start, not a correction applied later.
+3. **The "simulated user" step is a sibling of the existing judge, not a new primitive.**
+   `beginner_confused`'s next-turn decision and `dsp_engineer_iterate`'s follow-up instruction
+   are both one LLM call with a persona-specific system prompt, mirroring `score_efficacy.py`'s
+   judge call (same cost/quota shape, same "it is a model grading/driving a model" caveat).
+4. **Schema: extend, don't replace.** Add `persona_id`, `turn_index`, `stopped_reason`
+   (`converged` / `abandoned` / `exhausted_retries`) to the efficacy-record schema
+   `run_efficacy_study.py` writes, following ADR-042's own precedent (default to absent/`None`
+   for every existing record — absence-of-claim, not a false claim, same discipline
+   `render_oracle.py` already applies).
+5. **Runs on hosted free-tier providers (groq/gemini), scheduled via GitHub Actions cron —
+   not local ollama.** This axis measures behavior, not weak-local-model diagnostic quality
+   (that is PF-076/WP3's separate, already-slow-for-good-reason question); there is no reason
+   to inherit a 27-hour local-CPU runtime for a question that doesn't need a local model at
+   all. A cron cadence must stay inside existing provider rate limits — this is the same open
+   quota-pressure risk `score_efficacy.py --judge` already carries, multiplied by a schedule,
+   and must be throttled explicitly, not assumed safe because each individual call is free.
+
+**Alternatives considered**
+
+- **Full cross of all tiers × all policies.** Rejected: combinatorial explosion divides the
+  per-cell sample budget the same way every added axis has in this repo's prior studies
+  (PF-031's noise-floor finding); four fixed, deliberately chosen combinations are more
+  statistically honest than twenty thin ones.
+- **A new, bespoke harness instead of calling `llm/generate.py` directly.** Rejected on
+  PF-076's own lesson: a second implementation of the generation loop drifts from the
+  product's real behavior and reintroduces exactly the wrapper-mismatch confound that
+  session's adversarial review spent most of its effort correcting after the fact.
+- **Running this on local ollama for consistency with PF-076/WP3.** Rejected: those studies
+  are *about* a weak local model; this axis is about user/agent behavior and gains nothing
+  from local inference except WP3's own 27-hour runtime problem. Hosted free-tier is both
+  cheaper in wall-clock and the right instrument for the question being asked.
+- **A standing cloud VM or self-hosted CI runner, provisioned now, to run this "continuously."**
+  Rejected for now, per CLAUDE.md §12 (scope control — "every additional abstraction layer
+  must solve a demonstrated problem"): this ADR proposes the design, not the infrastructure
+  to run it unattended forever. A small pilot (one effect, all four personas, ~20 runs) should
+  run and be reviewed before any cron/standing-infra decision is made.
+
+**Consequences**
+
+- Every archive on disk is unaffected — the new schema fields default to absent, exactly as
+  ADR-042's `rep`/`system_prompt_sha`/`faust_version` did.
+- Blast radius if implemented: `bench/run_efficacy_study.py` (or a sibling driver),
+  `bench/prompts/` (a new persona-definition file alongside `tiered_prompts.json`),
+  `tests/test_efficacy_unit.py`. No product code, no C++, no change to `llm/generate.py`
+  itself — personas are callers of the existing pipeline, not modifications to it.
+- **The simulated-user LLM's behavior is not validated against real users by construction.**
+  "How our simulated beginner behaves" is a claim about the simulation, not about real
+  beginners, until checked against real session data (if any exists) or a human reviewer's
+  judgment that the transcripts are plausible. Any report drawn from this axis must carry that
+  caveat explicitly — the same bar this repo already holds every other study to.
+- **This ADR lands no code.** It is a design proposal, written up for hand-off, pending the
+  pilot run and the human's decision on whether/how it becomes a scheduled, continuous study.

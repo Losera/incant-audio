@@ -17,11 +17,16 @@ STRICT RULES:
   : si.smoo — otherwise parameter changes produce audible zipper noise.
 - Units are whatever the reference says for that argument. A frequency documented
   in Hz must NOT be divided by ma.SR; a threshold documented in dB must NOT be run
-  through ba.db2linear first, because the library does that itself. Both mistakes
-  compile cleanly and render SILENCE.
+  through ba.db2linear first; an att/hold/rel time is documented in SECONDS — a ms
+  slider takes *(0.001), never ma.SR, never ba.sec2samp. All three compile
+  cleanly and render SILENCE.
+- Expander/gate gain_db: clamp after computing (min(gain_db,60)) — linear2db
+  floors near -758dB on silence, not -inf. select2(cond,False,True) is NOT
+  True-first — prefer ba.if(cond,then,else) for threshold/clip logic.
 - A stdlib effect takes only its CONTROL arguments; the audio arrives by
-  composition. Write _,_ : ef.gate_stereo(t,a,h,r) : _,_ — never
-  ef.gate_stereo(t,a,h,r,_,_), which compiles and renders SILENCE.
+  composition. Write _,_ : co.compressor_stereo(ratio,thr,att,rel) : _,_ —
+  never co.compressor_stereo(ratio,thr,att,rel,_,_) or ef.gate_stereo(t,a,h,r,_,_),
+  which is a hard arity error, not a silent one.
 - For stereo effects: process = L, R; where L and R operate on separate channels.
 - For stereo pass-through: use _ , _ as input signals.
 - process must be defined exactly once, and never re-defined
@@ -53,7 +58,8 @@ programs fail after inventing a function name.
   si.bus(N)     N straight wires.
 
 - To apply a MONO effect to a stereo signal use par(i, 2, E). Writing _,_ : E is a
-  "2 outputs must equal 1 input" error, because : requires matching counts.
+  "2 outputs must equal 1 input" error, because : requires matching counts — same
+  for a NAMED definition: _,_ : gate fails identically; write par(i, 2, gate).
 - All feedback goes through ~. A definition that refers to itself directly, like
   d = d : *(0.5);, is a compile-time cycle and fails with "endless evaluation
   cycle" — it is not a delay line.
@@ -86,7 +92,7 @@ Filters:
   fi.highpass(N, fc)                            Butterworth high-pass; order is a constant
   fi.bandpass(Nh, fl, fu)                       Butterworth band-pass
   fi.resonlp(fc, Q, gain)                       resonant low-pass -- the workhorse for 'filter with resonance'
-  fi.resonhp(fc, Q, gain, x)                    resonant high-pass
+  fi.resonhp(fc, Q, gain)                       resonant high-pass
   fi.notchw(width, freq)                        notch filter, width in Hz
   fi.peak_eq(Lfx, fx, B)                        peaking EQ band, gain in dB
   fi.lowshelf(N, L0, fx)                        low shelf, gain in dB
@@ -95,30 +101,26 @@ Filters:
 
 Virtual-analog filters:
   ve.moog_vcf(res, fr)                          Moog ladder VCF; fr in Hz, res normalised 0-1
-  ve.moogLadder(normFreq, Q, x)                 Moog ladder; normFreq is 0-1, NOT Hz
+  ve.moogLadder(normFreq, Q)                    Moog ladder; normFreq is 0-1, NOT Hz
 
 Delays:
-  de.delay(n, d, x)                             integer-sample delay; first arg is the MAXIMUM delay
-  de.fdelay(n, d, x)                            fractional-sample delay (interpolated) -- use for modulated delays
+  de.delay(n, d)                                integer-sample delay; first arg is the MAXIMUM delay
+  de.fdelay(n, d)                               fractional-sample delay (interpolated) -- use for modulated delays
 
 Modulation effects:
   pf.flanger_mono(dmax, curdel, depth, fb, invert)
                                                 mono flanger -- NOTE the pf. namespace, not ef.
   pf.phaser2_mono(Notches, phase01, width, frqmin, fratio, frqmax, speed, depth, fb, invert)
                                                 mono phaser
-  pf.vibrato2_mono(sections, phase01, fb, width, frqmin, fratio, frqmax, speed)
-                                                vibrato
 
 Dynamics:
-  co.compressor_mono(ratio, thresh, att, rel, x)
-                                                mono compressor; thresh in dB, pass it raw
-  co.compressor_stereo(ratio, thresh, att, rel, x, y)
-                                                stereo compressor, linked; thresh in dB, raw
-  co.limiter_1176_R4_mono(x)                    1176-style limiter, mono
-  co.limiter_1176_R4_stereo(x, y)               1176-style limiter, stereo
-  ef.gate_mono(thresh, att, hold, rel, x)       noise gate, mono; thresh in dB, pass it raw
-  ef.gate_stereo(thresh, att, hold, rel, x, y)  noise gate, stereo; thresh in dB, pass it raw
-  an.amp_follower_ar(att, rel)                  envelope follower with attack/release
+  co.compressor_mono(ratio, thresh, att, rel)   mono compressor; thresh dB raw, att/rel SECONDS
+  co.compressor_stereo(ratio, thresh, att, rel) stereo compressor, linked; thresh dB raw, att/rel SECONDS
+  co.limiter_1176_R4_mono                       1176-style limiter, mono
+  co.limiter_1176_R4_stereo                     1176-style limiter, stereo
+  ef.gate_mono(thresh, att, hold, rel)          noise gate, mono; thresh dB raw, att/hold/rel SECONDS
+  ef.gate_stereo(thresh, att, hold, rel)        noise gate, stereo; thresh dB raw, att/hold/rel SECONDS
+  an.amp_follower_ar(att, rel)                  envelope follower; att/rel SECONDS
 
 Distortion / saturation:
   ef.cubicnl(drive, offset)                     cubic nonlinearity -- soft saturation / drive
@@ -135,7 +137,6 @@ Oscillators and noise:
   os.osc(freq)                                  sine oscillator
   os.sawtooth(freq)                             band-limited sawtooth
   os.square(freq)                               band-limited square
-  os.triangle(freq)                             band-limited triangle
   os.lf_triangle(freq)                          low-frequency triangle -- use for LFOs
   no.noise                                      white noise; no arguments
 
@@ -145,14 +146,11 @@ Envelopes:
 
 Conversions and helpers:
   ba.db2linear(l)                               decibels to linear gain
-  ba.linear2db(g)                               linear gain to decibels
   ba.midikey2hz(mk)                             MIDI note number to Hz
-  ba.sec2samp(d)                                seconds to samples
   ba.bypass1(bpc, e)                            bypass switch around a mono effect
   ba.bypass2(bpc, e)                            bypass switch around a stereo effect
   si.smoo                                       one-pole smoothing -- use on slider values to avoid zipper noise
   ma.SR                                         current sample rate; no arguments
-  ma.PI                                         pi; no arguments
 
 # END GENERATED STDLIB REFERENCE
 
@@ -207,16 +205,21 @@ with {
   wet = (cross ~ (de.fdelay(MAXD, dtime), de.fdelay(MAXD, dtime))) : par(i, 2, _ * mix);
 };
 
-USER: a tape-style flanger
+USER: a stereo bus compressor
 FAUST:
 import("stdfaust.lib");
-rate  = hslider("Rate [unit:Hz]", 0.5, 0.01, 10, 0.01);
-depth = hslider("Depth", 0.7, 0, 1, 0.01);
-fb    = hslider("Feedback", 0.3, 0, 0.95, 0.01);
-maxDel = 2048;
-curdel = 2.0 + 4.0 * (os.lf_triangle(rate) * 0.5 + 0.5);
-process = pf.flanger_mono(maxDel, curdel, depth, fb, 0),
-          pf.flanger_mono(maxDel, curdel, depth, fb, 0);
+ratio  = hslider("Ratio", 4, 1, 20, 0.1);
+thresh = hslider("Threshold [unit:dB]", -18, -60, 0, 0.1);
+att    = hslider("Attack [unit:ms]", 10, 1, 100, 1) : *(0.001);
+rel    = hslider("Release [unit:ms]", 120, 10, 1000, 1) : *(0.001);
+process = _,_ : co.compressor_stereo(ratio, thresh, att, rel);
+
+USER: a noise gate with threshold and hold time
+FAUST:
+import("stdfaust.lib");
+thresh = hslider("Threshold [unit:dB]", -40, -80, 0, 1);
+hold   = hslider("Hold [unit:ms]", 100, 1, 500, 1) : *(0.001);
+process = _,_ : ef.gate_stereo(thresh, 0.001, hold, 0.02);
 
 USER: a stereo chorus with rate and depth
 FAUST:

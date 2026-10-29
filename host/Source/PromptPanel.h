@@ -386,6 +386,15 @@ private:
     // if generate.py could not be located.
     juce::File generateScript;
 
+    // PF-078: read once at construction. When set, requestUiFace() is a no-op —
+    // the post-compile ui_face LLM call never fires. The UiDesignGallery snapshot
+    // harness sets it (UiDesignGallery.cpp) so a headless render never spawns a
+    // provider subprocess: resolveGenerateScript() finds the repo's real
+    // llm/generate.py, which load_dotenv()s PluginForge/.env, so without this
+    // every `check.sh full` gallery run made 24 live requests. Read into a member
+    // here, never getenv() per compile.
+    bool uiFaceSuppressed = false;
+
     // ADR-032 v1: read once from ~/.config/pluginforge/config.json at
     // construction, then kept in sync by the picker (writeConfigFromPickers()).
     // Message-thread only; snapshotted into pendingProvider/pendingModel at each

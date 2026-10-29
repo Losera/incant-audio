@@ -6,6 +6,7 @@
 #include "ForgeLookAndFeel.h"   // resolveThemeFont -- see its header comment
 #include "GeneratedFaceLookAndFeel.h"   // A3c -- displayFont/readoutFont dispatch
 #include <algorithm>   // find_if, stable_sort, count_if — deriveLayoutFromGroups + applyUiIr
+#include <cmath>       // std::round — ChipRow / isChipEnum (ADR-038 F2)
 #include <functional>  // std::hash — derivePalette
 #include <set>         // canonical sorted group names — derivePalette
 // ParamMap.h is included for DISPLAY ONLY — formatZone/parseZone/mapSlotToZone
@@ -240,6 +241,20 @@ void ParamGridPanel::refreshParamKnobs(const FaustEngine::ParamList& params)
             content.addAndMakeVisible(*tb);
             c.widget = std::move(tb);
         }
+        else if (isChipEnum(p))
+        {
+            // ADR-038 F2: a small discrete NumEntry (SAW/SQR/TRI,
+            // SYNC/FREE/PING-PONG) renders as a chip row instead of an
+            // IncDec stepper. No sliderAtt/buttonAtt — ChipRow owns its own
+            // juce::ParameterAttachment (see that class's header comment for
+            // why ButtonAttachment can't represent this), which is also why
+            // layoutControls()/placeControlInCell() give it the FULL cell
+            // body: they size by `c.buttonAtt != nullptr`, which is
+            // deliberately left null here.
+            auto row = std::make_unique<ChipRow>(processor.apvts, id, p);
+            content.addAndMakeVisible(*row);
+            c.widget = std::move(row);
+        }
         else
         {
             // TYPE only. Every styling decision — slider style, text box, readout —
@@ -264,6 +279,115 @@ void ParamGridPanel::refreshParamKnobs(const FaustEngine::ParamList& params)
 
     layoutControls();
     ++refreshCount;     // see refreshCountForTest() in the header
+}
+
+bool ParamGridPanel::isChipEnum(const FaustEngine::ParamInfo& p)
+{
+    if (p.kind != FaustEngine::Kind::NumEntry)
+        return false;
+    if (! ParamMap::isDiscrete(p) || p.step <= 0.0f || ! (p.max > p.min))
+        return false;
+
+    // Small enough to read as a row of chips rather than overflow it. The
+    // mockup's own worked examples top out at three (SAW/SQR/TRI,
+    // SYNC/FREE/PING-PONG); four leaves headroom without inventing a case
+    // nothing has asked for.
+    constexpr int kMaxChipValues = 4;
+    const int count = static_cast<int>(std::round((p.max - p.min) / p.step)) + 1;
+    return count >= 2 && count <= kMaxChipValues;
+}
+
+// ── ChipRow ──────────────────────────────────────────────────────────────────
+ParamGridPanel::ChipRow::ChipRow(juce::AudioProcessorValueTreeState& state,
+                                 const juce::String& paramId,
+                                 const FaustEngine::ParamInfo& metaIn)
+    : meta(metaIn),
+      attachment(*state.getParameter(paramId),
+                [this](float v) { setFromNormalisedValue(v); },
+                state.undoManager)
+{
+    const int n = indexCount();
+    for (int i = 0; i < n; ++i)
+    {
+        auto* b = chips.add(new juce::ToggleButton());
+        // State is driven entirely by setFromNormalisedValue() below via the
+        // attachment round-trip -- see this class's header comment for why
+        // JUCE's own click-toggles-state/radio-group bookkeeping is
+        // deliberately not used here.
+        b->setClickingTogglesState(false);
+        const float realValue = meta.min + static_cast<float>(i) * meta.step;
+        b->setButtonText(ParamMap::formatZone(realValue, meta));
+        addAndMakeVisible(b);
+        b->onClick = [this, i] { attachment.setValueAsCompleteGesture(indexToSlot(i)); };
+    }
+
+    attachment.sendInitialUpdate();
+}
+
+void ParamGridPanel::ChipRow::resized()
+{
+    auto bounds = getLocalBounds();
+    const int n = chips.size();
+    if (n <= 0)
+        return;
+    constexpr int gap = 2;
+    const int w = juce::jmax(1, (bounds.getWidth() - gap * (n - 1)) / n);
+    for (int i = 0; i < n; ++i)
+    {
+        chips[i]->setBounds(bounds.removeFromLeft(w));
+        if (i < n - 1)
+            bounds.removeFromLeft(gap);
+    }
+}
+
+int ParamGridPanel::ChipRow::indexCount() const
+{
+    return static_cast<int>(std::round((meta.max - meta.min) / meta.step)) + 1;
+}
+
+float ParamGridPanel::ChipRow::indexToSlot(int index) const
+{
+    return ParamMap::mapZoneToSlot(meta.min + static_cast<float>(index) * meta.step, meta);
+}
+
+void ParamGridPanel::ChipRow::setFromNormalisedValue(float slotValue)
+{
+    const float realValue = ParamMap::mapSlotToZone(slotValue, meta);
+    const int selected = juce::jlimit(0, juce::jmax(0, chips.size() - 1),
+        static_cast<int>(std::round((realValue - meta.min) / meta.step)));
+    for (int i = 0; i < chips.size(); ++i)
+        chips[i]->setToggleState(i == selected, juce::dontSendNotification);
+}
+
+int ParamGridPanel::ChipRow::selectedIndexForTest() const
+{
+    for (int i = 0; i < chips.size(); ++i)
+        if (chips[i]->getToggleState())
+            return i;
+    return -1;
+}
+
+void ParamGridPanel::ChipRow::clickChipForTest(int chipIndex) const
+{
+    if (chipIndex >= 0 && chipIndex < chips.size())
+        chips[chipIndex]->triggerClick();
+}
+
+int ParamGridPanel::chipSelectedIndexForTest(int index) const
+{
+    if (index < 0 || index >= static_cast<int>(controls.size()))
+        return -1;
+    if (auto* row = dynamic_cast<ChipRow*>(controls[static_cast<size_t>(index)].widget.get()))
+        return row->selectedIndexForTest();
+    return -1;
+}
+
+void ParamGridPanel::clickChipForTest(int index, int chipIndex) const
+{
+    if (index < 0 || index >= static_cast<int>(controls.size()))
+        return;
+    if (auto* row = dynamic_cast<ChipRow*>(controls[static_cast<size_t>(index)].widget.get()))
+        row->clickChipForTest(chipIndex);
 }
 
 void ParamGridPanel::applyPresentation(Control& c)
@@ -352,6 +476,37 @@ void ParamGridPanel::applyPresentation(Control& c)
     sl->setColour(juce::Slider::thumbColourId, accent);
     sl->setColour(juce::Slider::trackColourId, accent);
     sl->setColour(juce::Slider::rotarySliderFillColourId, accent);
+
+    // ── Bipolar detent (ADR-038 F1) ──────────────────────────────────────────
+    // When this control's REAL Faust range straddles zero (Detune, Pan), its
+    // value arc should fill from a CENTRE detent, not from the rotary's start
+    // angle the way every other control does. The detent is the NORMALISED
+    // position of real zero on the control's own range, `-min/(max-min)` --
+    // never assumed to be 0.5. A perfectly symmetric range is not guaranteed
+    // (session 020's own trap: "Iron Strip EQ is ±12 dB, but a drive-offset
+    // might be −0.5..+1.0"), and `meta.min`/`meta.max` are the real Faust
+    // bounds, not the pooled slot's own range: every macro slot's underlying
+    // AudioParameterFloat is registered with an explicit, uniform
+    // NormalisableRange<float>(0.0f, 1.0f) (PluginProcessor.cpp, PF-040's own
+    // load-bearing comment says this must stay explicit), so
+    // `sl->getMinimum()`/`getMaximum()` report 0..1 for every control
+    // regardless of the real Faust range -- the true range only survives in
+    // `meta`.
+    // Stashed as a Component property because
+    // GeneratedFaceLookAndFeel::drawRotarySlider only ever receives a bare
+    // juce::Slider&, never this Control/meta pair; re-set on every
+    // applyPresentation() call for the same reason the accent above is, so a
+    // style change never leaves a stale tag behind.
+    if (c.meta.min < 0.0f && c.meta.max > 0.0f)
+    {
+        // min < 0 < max already forces max - min > 0 by construction (max > 0
+        // > min), so this can never divide by zero under the branch above --
+        // asserted anyway, as a named invariant a future edit to that
+        // condition (e.g. loosening `<`/`>` to `<=`/`>=`) would otherwise
+        // silently depend on without anyone noticing it had to.
+        jassert(c.meta.max > c.meta.min);
+        sl->getProperties().set("bipolarDetent", -c.meta.min / (c.meta.max - c.meta.min));
+    }
 
     // ── Style override ──────────────────────────────────────────────────────
     // Rotary and Horizontal are user view choices and win over the Faust Kind.
@@ -1064,6 +1219,9 @@ ParamGridPanel::WidgetKind ParamGridPanel::controlKindForTest(int index) const
         return WidgetKind::Unknown;
 
     auto* w = controls[static_cast<size_t>(index)].widget.get();
+    if (dynamic_cast<ChipRow*>(w) != nullptr)
+        return WidgetKind::ChipRow;
+
     if (dynamic_cast<juce::ToggleButton*>(w) != nullptr)
         return WidgetKind::Toggle;
 
@@ -1221,6 +1379,7 @@ const char* ParamGridPanel::widgetKindName(WidgetKind k)
         case WidgetKind::VerticalSlider:   return "VerticalSlider";
         case WidgetKind::IncDec:           return "IncDec";
         case WidgetKind::Toggle:           return "Toggle";
+        case WidgetKind::ChipRow:          return "ChipRow";
         case WidgetKind::Unknown:
         default:                           return "Unknown";
     }

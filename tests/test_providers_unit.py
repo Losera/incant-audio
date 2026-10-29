@@ -362,7 +362,7 @@ class TestPostBackoff:
         responses = [_status_response(429)] * providers._MAX_BACKOFF_TRIES
         with patch.object(providers.httpx, "post", side_effect=responses), \
              patch.object(providers.time, "sleep"):
-            with pytest.raises(RuntimeError, match="failed after"):
+            with pytest.raises(providers.RateLimited, match="HTTP 429"):
                 providers._post_with_backoff("http://x/chat/completions", {}, {})
 
     def test_client_errors_are_not_retried(self):
@@ -373,6 +373,28 @@ class TestPostBackoff:
             with pytest.raises(RuntimeError):
                 providers._post_with_backoff("http://x/chat/completions", {}, {})
         assert post.call_count == 1
+
+    def test_daily_quota_is_classified_without_sleeping(self):
+        # Measured 2026-07-21: Gemini's free tier returns a daily-quota 429 with
+        # its own hours-long retryDelay. Honoring it would burn the generation
+        # budget sleeping toward a window that doesn't reopen in time.
+        response = _status_response(429, retry_after="3353")
+        response.text = "tokens per day (TPD): Limit 200000, Used 199939"
+        with patch.object(providers.httpx, "post", return_value=response) as post, \
+             patch.object(providers.time, "sleep") as sleep:
+            with pytest.raises(providers.QuotaExhausted) as caught:
+                providers._post_with_backoff("http://x/chat/completions", {}, {})
+        assert caught.value.scope == "daily"
+        assert caught.value.retry_after == 3353.0
+        assert post.call_count == 1
+        assert not sleep.called
+
+    def test_server_outage_becomes_typed_after_backoff(self):
+        responses = [_status_response(503)] * providers._MAX_BACKOFF_TRIES
+        with patch.object(providers.httpx, "post", side_effect=responses), \
+             patch.object(providers.time, "sleep"):
+            with pytest.raises(providers.ProviderUnavailable):
+                providers._post_with_backoff("http://x/chat/completions", {}, {})
 
 
 class TestSdkRetryWrapper:
@@ -413,7 +435,7 @@ class TestSdkRetryWrapper:
     def test_gives_up_after_the_retry_budget(self):
         call = MagicMock(side_effect=RuntimeError("429 RESOURCE_EXHAUSTED"))
         with patch.object(providers.time, "sleep"):
-            with pytest.raises(RuntimeError):
+            with pytest.raises(providers.ProviderUnavailable):
                 providers._call_with_retry(call)()
         assert call.call_count == providers._MAX_BACKOFF_TRIES
 
@@ -459,8 +481,9 @@ class TestIsRetryable:
         call = MagicMock(side_effect=RuntimeError(
             "429 RESOURCE_EXHAUSTED GenerateRequestsPerDayPerProjectPerModel-FreeTier"))
         with patch.object(providers.time, "sleep") as sleep:
-            with pytest.raises(RuntimeError):
+            with pytest.raises(providers.QuotaExhausted) as caught:
                 providers._call_with_retry(call)()
+        assert caught.value.scope == "daily"
         assert call.call_count == 1
         assert not sleep.called
 
@@ -605,15 +628,18 @@ class TestProviderAwarePreflight:
         assert providers.preflight_prior_source(
             "system", huge, 4096, provider="not-a-real-provider") is False
 
-    def test_ollama_stock_default_matches_pf_043(self):
-        """PF-043 cross-reference: stock ollama (no num_ctx override — verified
-        2026-08-13 via `ollama show qwen2.5-coder:7b`, which prints no
-        Parameters/num_ctx line for the repo's declared default model) gets
-        request_token_budget=4096 unless PLUGINFORGE_OLLAMA_NUM_CTX overrides
-        it. This assumes the running test process has not set that override,
-        same assumption tests/conftest.py already makes about PLUGINFORGE_*.
+    def test_ollama_default_matches_pf_043_fix(self):
+        """PF-043 cross-reference: the repo's declared default model is now
+        qwen2.5-coder:7b-16k, whose own Modelfile carries `PARAMETER num_ctx
+        16384` (verified live 2026-09-13 via `ollama show
+        qwen2.5-coder:7b-16k`) — so request_token_budget defaults to 16384,
+        matching that model's real context, unless PLUGINFORGE_OLLAMA_NUM_CTX
+        overrides it. This assumes the running test process has not set that
+        override, same assumption tests/conftest.py already makes about
+        PLUGINFORGE_*.
         """
-        assert providers.PROVIDERS["ollama"].request_token_budget == 4096
+        assert providers.PROVIDERS["ollama"].request_token_budget == 16384
+        assert providers.PROVIDERS["ollama"].default_model == "qwen2.5-coder:7b-16k"
 
 
 class TestListModels:

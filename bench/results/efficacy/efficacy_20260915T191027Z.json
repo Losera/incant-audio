@@ -1,0 +1,25 @@
+[
+  {
+    "provider": "groq",
+    "model": "openai/gpt-oss-120b",
+    "effect_id": "trivial-01",
+    "category": "trivial",
+    "tier": "L4",
+    "prompt": "A stereo gain utility: single gain parameter in decibels, range -60 to +12 dB, default 0 dB, 0.1 dB steps, converted dB-to-linear and applied equally to both channels.",
+    "dsl": "faust",
+    "code": "import(\"stdfaust.lib\");\ngain = hslider(\"Gain [unit:dB]\", 0, -60, 12, 0.1) : ba.db2linear : si.smoo;\nprocess = _ * gain, _ * gain;",
+    "first_try_compiles": true,
+    "attempts": 1,
+    "retry_success": false,
+    "errors": [],
+    "timestamp": "2026-09-15T19:10:27.483442+00:00",
+    "terminal_reason": "compiled",
+    "retry_after_s": null,
+    "provider_wall_s": 1.296609,
+    "validation_wall_s": 0.055712,
+    "cell_wall_s": 1.352372,
+    "estimated_prompt_tokens": 3871,
+    "estimated_output_tokens": 39,
+    "token_estimate_method": "groq_char_calibration_v1"
+  }
+]
