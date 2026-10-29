@@ -1,7 +1,76 @@
-# PluginForge — Status  (2026-09-04)
+# PluginForge — Status  (2026-10-10)
 
 Rewritten each session per COLLABORATION.md §5. Single writer, no merge conflicts.
 Narrative history lives in git and in `docs/sessions/`.
+
+**2026-10-10 — targeted reconciliation, not a from-scratch rewrite.** Three weeks of
+merges (PRs #95–#98) had landed with nothing here reflecting them. Folded in below:
+
+1. **PF-082 fixed** (PR #96) — a plug-in window reopen (REAPER tab-away/tab-back, not a
+   project reload) was destroying and recreating the editor without replaying the
+   generated grid/face; the editor now replays from a processor-held snapshot.
+   `EditorSessionTest` scenario 58 is the red-then-green proof. Two adjacent lifetime
+   bugs found during that fix were filed, not folded in: **PF-083** (medium, open —
+   compile callbacks never cleared in the editor destructor) and **PF-084** (low, open —
+   two simultaneously-open editors race on one callback slot).
+2. **The health schema landed** (PR #97) — `tools/health_report.py` had run exactly once
+   since July; it now has a fourth `product` lane ($0, document-only) wired into
+   `tools/check.sh full`, scoring defect burden, every `Proposed` ADR, and two known
+   drifts. One of those drifts is this file's own "Assumed" counter — see that section
+   below; it is now a *named*, not a silent, gap. See `docs/HEALTH_SCHEMA.md`.
+3. **ADR-043 and ADR-044 drafted, both `Proposed`, neither decided** (PR #98). ADR-043
+   (model routing) scopes landing PF-081 *before* any routing change — nothing in it has
+   landed. ADR-044 (GUI generation) diagnoses the shipping `UiIr`/`ui_face` path as
+   capped by vocabulary, not by archetype count, and proposes raising it to a design
+   system rather than widening the archetype list. Full research grounding, a competitor
+   audit, and five additional shell-GUI recommendations (none yet an ADR) are in the
+   session artifact: `https://claude.ai/code/artifact/b20c80d3-4762-4fb5-b9b0-4ca129f994fa`.
+4. **A sibling session corrected the faust-rs study** (PR #95, merged the same day) —
+   the published repair-loop *mechanism* (PF-076) was withdrawn (the A/B result stands,
+   the caret-anchoring explanation does not — neither arm's request ever contains the
+   program being repaired), and a new finding was added: faust-rs's own repair-suggestion
+   list is stripped from the feedback text 87% of the time for `syntax`-class failures.
+   **The GRAME correction draft needs this finding added before posting** — see "Waiting
+   on you" #1, which was last touched 2026-09-24 and predates PR #95.
+5. **A sibling session is live right now, do not disturb it.** `.worktrees/efficacy-semantics`
+   is on branch docs/adr-045-usage-pattern-axis, **PR #99 open, not merged** ("a usage-pattern
+   axis for efficacy studies"), and an untracked bench/results/repair_ab/wp3_20261009.json
+   suggests the pre-registered WP3 experiment (named in PR #95 as "implemented, never
+   run") may now be running or done. Check that worktree's own state before assuming
+   either way.
+6. **Worktree cleanup, partial.** The three worktrees this session's own work used
+   (`pf082-gui-reopen`, `health-schema`, `adr-drafts`) are removed — their branches are
+   fully merged. The nine flagged stale-but-unremoved below from 2026-09-12→15 are
+   untouched; still a human/future-session call, not mechanical from here.
+
+**2026-09-18 — full rewrite, reconciled against `origin/main` (`d54d8fe`) and `docs/BUGS.md`.**
+Prompted by an adversarial review this session ran across all three concurrently-running
+sessions on this checkout (findings: artifact `28036260-0d47-4fa1-b4e7-2c7cde41f4c0`), which
+surfaced three separate truth defects in this file and one in a published artifact — all now
+fixed here:
+
+1. **"Waiting on you #7" was stale** — it asked for review on PR #78 before merge; #78
+   merged 2026-09-12 as `55fc78d`. Removed; see "Landed 2026-09-12 → 2026-09-15" below.
+2. **"Broken #7" (PF-043) was marked fixed in its own text and left in the ranked list
+   anyway** — its own parenthetical said to remove it "on the next full STATUS.md rewrite."
+   This is that rewrite; it's gone.
+3. **PF-011 disagrees with `docs/BUGS.md`'s own registry** — this file's "Assumed" section
+   says PF-011 closed 2026-09-08; `docs/BUGS.md`'s registry row still lists it `open`. Both
+   are partly right and the drift is now stated explicitly rather than picked a side (see
+   "Assumed," below).
+4. **Landed work since the last full rewrite (2026-09-09) was under-recorded**: PR #82
+   (F1, bipolar-knob), #83 (soundfetch 0.4.0), #84 (PF-043 fix), #85 (ADR-039/040), #86
+   (ADR-041 accepted), #87 (PF-032 WP2), #88 (ADR reclassification), #89 (PF-024 named-mono
+   sub-case), #90 (ADR-041 step 1) are folded in below.
+5. **The false artifact** (a 2026-09-17 UI-roadmap page written from a checkout 38 commits
+   behind `origin/main`, presenting shipped ADR-035 steps 2–6 as "nothing like this exists
+   yet") was corrected and republished to its original URL this session.
+
+Also newly true and worth stating plainly: **ADR-038's explicitly-first move, E1 (AOT
+export emit), has not started** — `tools/export_repo.py:100` is still
+`// Placeholder: passthrough`, no branch existed for it before today. Two sessions were
+dispatched today (`feat/e1-aot-emit`, `feat/interactive-capture-harness`) to work on E1 and
+on an interactive-session capture harness respectively — see the artifact above for why.
 
 **Start a session with `/orient`**, not by reading this file top to bottom. It injects live
 repo state, **the CI line**, this file's open sections, and a staleness banner if it falls
@@ -33,12 +102,37 @@ One line per capability, each naming its evidence. "Builds clean" is not a capab
   closed 2026-08-06; `EditorSessionTest` scenario 25 is the red-then-green proof.
 - **State persistence** (save patch + knob values, reopen, recompile). Implemented `c34bbb6`;
   covered by `EditorSessionTest`.
-- **Sample search via Internet Archive.** PF-054/PF-055 fixed 2026-08-13, `SoundfetchClientTest`
-  + a live venv smoke test. (Freesound still 403s on a dead key — PF-056, Waiting on you.)
+- **Sample search via Internet Archive and Openverse, credential-free.** PF-054/PF-055
+  fixed 2026-08-13; upgraded to soundfetch 0.4.0 2026-09-13 (the installed 0.4.0 *build*
+  predated `src/soundfetch/__main__.py`, so `python -m soundfetch` — the argv PluginForge
+  builds — failed on it despite the matching version string; the 0.4.0 *tag*, `651b021`,
+  has it). Openverse added and made the sample browser's default: no credentials, unaffected
+  by PF-056. `SoundfetchClientTest` (32 checks) + `EditorSessionTest` scenario 38 + a live
+  network smoke test (`openverse search "rain"`, real result). (Freesound still 403s on a
+  dead key — PF-056, Waiting on you — but the failure is now legible: a non-network
+  `status --json` preflight distinguishes "no key configured" from "key configured but
+  rejected", and a 403 names Freesound instead of showing the raw message unattributed.)
 - **The full 125-cell efficacy grid runs end to end.** 2026-08-28, `ollama qwen2.5-coder:7b`
   (CPU), PF-041/PF-042-fixed judge — `bench/results/efficacy/efficacy_ollama_20260828_judged.json`.
   Compile rate 84–92% retry-corrected and tier-independent; semantic fidelity declines
   monotonically, judge mean 1.57/2 (L4) → 0.36/2 (L0). The pipeline degrades gracefully.
+- **The grid also ran end to end on `groq` / `openai/gpt-oss-120b`** — the shipping-tier
+  model. All 125 cells generated code (started 2026-08-31, completed 2026-09-07); committed
+  on branch `task/efficacy-groq-125` (`efficacy_groq_20260831.json`, 125 cells: 114
+  compiled, 9 compile_failed, 2 rate_limited). Re-scored 2026-09-08 with
+  `bench/score_efficacy.py` ($0, no quota, no `--judge`): retry-corrected compile **L4 23/25
+  (92%) · L3 24/25 (96%) · L2 24/25 (96%) · L1 21/25 (84%) · L0 22/25 (88%)**. Not a
+  monotonic tier gradient — L2–L4 are flat and L1 is a trough. First-try tells the story:
+  L2/L3/L4 all 84%, **L1 collapses to 48%**, L0 recovers to 72%. The L1 tier is "sensory
+  metaphor only, no effect or parameter names"; L0 is "named artist/gear reference" — a
+  specific device name (`SSL console fader`, `LA-2A`) is more actionable to the model than
+  an abstract metaphor. L1's failures are semantic, not syntactic (error-class tagging:
+  SEMANTIC 9 / SYNTAX 4 at L1, vs 2–4 elsewhere). Orthogonally, the `dynamics` category is
+  weak at *every* tier (first-try 20–60%) — largely a `routing_arity` mechanism now
+  diagnosed and partly mitigated (defect #1; prompt fix PR #75, single re-run 2026-09-09).
+  Caveat: n=1 per cell (PF-031's ≥3-run bar unmet), unjudged, and `dynamics-03`/L1's 3rd
+  corrective attempt was cut off by a rate limit and recorded as a failure — so
+  retry-corrected is a lower bound, understated by at most 1/125 (inside L1).
 - **Spectral judge produces a per-prompt verdict** (report-only, not gated). PF-041/PF-042
   closed 2026-08-06.
 
@@ -73,10 +167,9 @@ One line per capability, each naming its evidence. "Builds clean" is not a capab
   against it with **no `PLUGINFORGE_*` and no `config.json` hand-edit** → the human
   generated a working effect, provider `ollama` (the seeded default; local, zero
   credentials), runtime resolved through the installed `config.json` + venv. PF-065 and
-  PF-071 close on this. **One follow-up** (PR #46): the installer seeds
-  `PLUGINFORGE_PROVIDER=gemini` but omits `google-genai` from `requirements.txt`, so the
-  *seeded default* can't run until #46 lands or the seed changes to `ollama`. Deferred:
-  in-plugin API-key entry (v2).
+  PF-071 close on this. The `google-genai` follow-up (PR #46, `52903d5`, merged 2026-09-01)
+  synced the shipped `requirements.txt` to `bench/requirements.txt` so the seeded `gemini`
+  default runs on a clean install — PF-077 closed. Deferred: in-plugin API-key entry (v2).
 
 **Decisions on record.** ADR-030 (no LangGraph), ADR-031 (no Obsidian infra; ID-resolution
 checks + `tools/kg.py` instead) — both Accepted 2026-08-27, merged PR #30. **ADR-032**
@@ -89,46 +182,138 @@ provider-precedence rule; §3–§5 hygiene) were applied, plus the two 2026-09-
 (re-arm the accept button after `markStale()`; wire the provider picker to
 `onRecommendationInvalidated`) and two dead-branch removals (`target_mismatch` off the plain
 `generate()` path; the `request.get("budget")` fallback). `check.sh full` + CI green.
+**ADR-035** (per-plugin generated faces) — Accepted 2026-09-03, PR #56; pipeline Steps 1–5
+wired end to end by 2026-09-07 (above), Step 6 / A5 open as PR #78. **ADR-038** (re-sequence
+generated-face richness + plugin export ahead of Phase 6) — Accepted 2026-09-09 by explicit
+user decision, PR #79 (`3162647`, docs only). Accepts ADR-023 + its 2026-08-13 amendment as
+the export design of record (`Proposed` → `Accepted`); opens a "faces v2" track and runs its
+cheap steps — **faces F1–F3**, **export E1–E3** — *parallel to* Phases 3–4, not after a
+release. **F4** (visualizer subsystem) is now ADR-041 (Accepted 2026-09-15, PR #86) — see
+below. **E4** (face export) remains gated behind its own future ADR. The critical path —
+PF-024, PF-032, the Phase-4 release — is explicitly unchanged, and export is not cut as a
+public release while those defects are open. **F1 landed** (PR #82, `b73c860`, 2026-09-12 —
+bipolar-knob arc fill + centre detent, `GKnobGeometry.h`). Next: F2/F3, and **E1** (in-process
+AOT Faust emit via `libfaust`'s `generateAuxFilesFromString`) — **not yet started as of
+2026-09-18**, ahead of ADR-038's own explicit sequencing (dispatched today, see the rewrite
+note above). Ladders: `docs/sessions/020-generated-faces-v2.md`. **ADR-038 itself carries a
+2026-09-15 reclassification note** (below, PR #88) — "recorded here as a routine
+scheduling/resequencing decision, not architectural direction under COLLABORATION.md §2
+trigger-2." That downgrades the *decision record*, not the work it authorized: F1–F3/E1–E3
+still describe what's actually landing and in what order, and nothing above should be read
+as still-live architectural weight beyond that.
 
-**Open, not yet landed — PR #65** (`feat/ui-face-wire`, ADR-035 A3b): wires the ui_face
-producer (#59) into the compile-success callback so `GeneratedFaceLookAndFeel` (#61) sees a
-real theme instead of always the Ember default — `PluginEditor.cpp`'s compile callback
-builds the captured param table, calls `promptPanel.requestUiFace()`, applies the result via
-the existing `applyUiIr()`/`applyGeneratedFace()` when it's a valid schema-3 answer, falls
-back to the deterministic layout on any failure. **The redesign this PR actually is:** the
-first attempt gave `ui_face` its own independent subprocess-spawning thread
-(`UiFaceClient`), which reproduced a real `EditorSessionTest` hang (JUCE assertions in
-`juce_TemporaryFile.cpp`/`juce_Component.cpp`, then a stall) — root-caused via gdb thread
-dumps and `/proc/<pid>/task` inspection (ptrace was blocked in this sandbox; `wchan`/
-`anon_pipe_read` on the stuck thread was the actual evidence) to two lifecycle races only a
-**second thread** can create: (1) a real Generate arriving before a ui_face job's
-`ChildProcess` registers is invisible to `activeChild->kill()` — a documented no-op on
-null — so the subprocess started anyway and blocked the worker behind it; (2)
-`ChildProcess::kill()` is SIGKILL to the **direct child only**, so an orphaned grandchild
-(`sleep 30` under `/bin/sh`, exactly `EditorSessionTest` scenario 9's teardown probe) keeps
-the pipe open and `readAllProcessOutput()` blocks on it regardless of the direct child
-already being dead. **Fix:** route `ui_face` through `PromptPanel`'s existing, already-proven
-worker thread as a second, lower-priority job kind instead of a second thread — there is
-exactly one thread in the process that ever spawns a subprocess, same as before this
-session; `UiFaceClient.h/.cpp` and an intermediate `SubprocessForkLock.h` (a narrower,
-insufficient first fix attempt) are gone, not in the PR. Also fixed:
-`FakeGenerator.h`'s capture-based test doubles (`writeSuccessCapturing`,
-`writeRecommendation{,Failure}ThenSuccess`) were letting a background ui_face call clobber
-the `request.json`/`argv.txt` files ~20 pre-existing scenarios assert against, since it hits
-the same installed fake script — patched to bypass `action:"ui_face"` requests without
-touching the capture (a test-harness fix, not production). **Verified:** every `check.sh
-full` harness run directly (the wrapper itself kept getting killed by the sandbox on the
-rebuild step, so each of the ~20 binaries was run by hand with the same flags/env);
-`EditorSessionTest` 428/0 in ~60s (was hanging / 23-50 failures / 4-5 min before both race
-fixes); `PromptPanelThreadingTest` (the PF-006 regression test) 9/0, teardown 423ms;
-`ParamPoolTsanTest`/`AuditionThreadingTest`/`NoteRingTsanTest` clean under ThreadSanitizer;
-every other harness green. PR CI: `test` passed, `build-host` still running as of this
-write. **Not verified:** a real DAW/Standalone session with a live LLM provider —
-`EditorSessionTest`'s `FakeGenerator` is the evidence so far; `docs/sessions/018-incant-ui-faces-and-shell.md` and
-`docs/design/incant-ui/GENERATION_PLAN.md` still call this gap undifferentiated "A3", not
-updated. Tier 2
-(COLLABORATION.md §3, new threading surface) — **needs a human review before merge**, the
-same bar #61 got and didn't (below).
+**ADR-039** (cross-provider failover: cloud rate limits fall back to local only) —
+**Proposed**, PR #85 (docs only, 2026-09-13), not reclassified. **ADR-040** (hardware
+envelope for local generation — measure before optimizing) — also PR #85, but **carries the
+same 2026-09-15 reclassification as ADR-038 above** (PR #88): "a routine measurement
+methodology note," not live architectural direction, despite still showing status
+`Proposed` in `docs/decisions.md` itself. **ADR-041** (a `FaceVisual` drawing layer for
+generated faces — ADR-038's F4, six independently-reviewable steps, each its own Tier
+review) — **Accepted 2026-09-15 by explicit user decision, PR #86**, not reclassified;
+step 1 (`ArchetypeLayout::VisualRegion` + `Result::visuals`, `rail()` returns its reserved
+display region instead of discarding it) **landed same day, PR #90**. **Eight prior
+decisions — ADR-006, 026, 028, 030, 031, 034, 038, 040 — were reclassified as routine
+scheduling/sequencing/methodology calls dressed as ADRs, in their own status notes, nothing
+removed or reworded** — **PR #88** (`98b7906`), branch docs/adr-reclassify-routine; per that
+commit's own message, triggered by the maintainer's doc-output-pollution concern. The first
+version of this rewrite named PR #88 without connecting it back to ADR-038/040 above —
+fixed here.
+
+**Landed 2026-09-04 → 2026-09-07 — the ADR-035 generated-face pipeline is now wired end
+to end** (five PRs on top of #58/#59/#61 below; narrative in `docs/sessions/020-generated-faces-v2.md`):
+
+- **PR #63** (`886be7a`, A4 / ADR-035 gap 4) — `host/Source/ArchetypeLayout.h`: free
+  functions (no JUCE dep), `columns()` / `split()` / `rail()` section-and-control geometry
+  for `synth-panel` / `channel-strip` / `tape-unit` / `texture-field`. `pedal` / `utility` /
+  `""` / unknown keep the existing grid unchanged. Inert until an IR names a supported
+  archetype.
+- **PR #64** (`487155f`, A3d) — `GeneratedFaceLookAndFeel::drawRotarySlider` GKnob arc
+  geometry (1.2π→2.8π, hairline track from `README.md:253`'s ink-alpha rule, 2px pointer).
+  **Real pre-existing bug fixed along the way:** `ParamGridPanel::applyPresentation()`
+  (ADR-022 §3) hardcoded each slider's colours from the old heuristic accent, shadowing
+  *any* LookAndFeel's ColourScheme — a generated face's accent never reached a widget.
+  `faceAccentActive` gate added.
+- **PR #65** (`421821a`, A3b) — `PluginEditor.cpp`'s compile-success callback builds the
+  captured param table, calls `promptPanel.requestUiFace()`, and applies a valid schema-3
+  answer via `applyUiIr()`/`applyGeneratedFace()`, falling back to the deterministic layout
+  on any failure. **The redesign this PR actually is:** a first attempt gave `ui_face` its
+  own subprocess-spawning thread (`UiFaceClient`), which reproduced a real `EditorSessionTest`
+  hang — root-caused via gdb thread dumps + `/proc/<pid>/task` (`anon_pipe_read` on the stuck
+  thread was the evidence) to two lifecycle races only a **second thread** can create:
+  (1) a Generate arriving before the ui_face job's `ChildProcess` registers is invisible to
+  `activeChild->kill()` (a no-op on null), so the subprocess ran anyway and blocked the
+  worker; (2) `ChildProcess::kill()` is SIGKILL to the **direct child only**, so an orphaned
+  `sleep`-under-`/bin/sh` grandchild keeps the pipe open and `readAllProcessOutput()` blocks.
+  **Fix:** route `ui_face` through `PromptPanel`'s existing single worker thread as a
+  lower-priority job kind — `UiFaceClient.h/.cpp` and an interim `SubprocessForkLock.h` are
+  gone. Also patched `FakeGenerator.h` to bypass `action:"ui_face"` capture so a background
+  call can't clobber the `request.json`/`argv.txt` ~20 scenarios assert against.
+  `EditorSessionTest` 428/0 (was hanging); `PromptPanelThreadingTest` 9/0; TSan trio clean;
+  CI green on `421821a`. **Merged directly by the human** — like #61, no formal GitHub
+  review artifact.
+- **PR #67** (`fa85f59`, A3c) — five embedded display/readout typefaces (Space Grotesk,
+  Barlow Condensed, Oswald, Archivo, IBM Plex Mono; OFL, variable fonts instanced to static
+  weights), `GeneratedFaceLookAndFeel` font dispatch, theme-aware `ParamGridPanel` label /
+  heading fonts, `setFaceAccent()` refactored so accent + fonts refresh atomically.
+- **PR #69** (`c8f27b4` + `1b43361`) — layout fix from a live screenshot that reproduced
+  over-sectioning (one heading per knob), `lg`-knob misalignment, and ~5/6 dead panel
+  space on a 4-param generation. `perRowFor(count, span)` packs 1–4 controls per row (a
+  pure function of count, never pixel width — preserves the `contentHeightForSections()`
+  invariant); `layoutFor()` is now **total** (`row()` as `default:`, `isSupported()`
+  deleted); `size:"lg"` renders solo full-width; thin sections merge in
+  `deriveLayoutFromGroups()`. `UiDesignGallery` baseline re-accepted (`1b43361`).
+
+**Not verified:** a real DAW/Standalone session with a live LLM provider driving the face —
+`EditorSessionTest`'s `FakeGenerator` is the evidence so far. **PR #78 (ADR-035 Step 6 / A5)** was the
+verification-loop step — **merged 2026-09-12 as `55fc78d`.** It consumes the persisted
+`uiIr` on reopen (new `uiIrSourceKey` state-blob attribute, a `juce::String::hashCode64`
+fixed polynomial hash) so a restored project re-applies the accepted face instead of
+re-deriving Ember and re-spending a `ui_face` call, plus a gallery quota-leak fix found
+doing it. Additive v3 amendment, no `kStateSchemaVersion` bump.
+
+**Landed 2026-09-08 (reconciled by the 2026-09-09 consolidation pass):** **PR #73**
+(`2f03141`, doc corrections to the session-loaded files — `CLAUDE.md` toolchain re-read from
+the box (kernel 7.1.8-arch1-3, CMake 4.4.2, Python 3.14.7), `VST3/AU` → `VST3 + Standalone`,
+the already-regenerated "Faust 2.85.5 deferral" paragraph deleted; `INTERFACE.md` citations
+re-anchored to symbols after a ~700-line line-number drift; `PLUGIN_HEALTH_PLAN.md` internal
+contradiction removed. Prose only, `check.sh fast` green). **PR #72** (`7970d66`, ADR-011
+credential precheck now resolves the request's own `provider` instead of the import-time
+`DEFAULT_PROVIDER` — closes an ADR-012 free-only bypass where a request naming paid
+`anthropic` walked around `assert_free` when `DEFAULT_PROVIDER` was free; a malformed
+`--json` payload now returns ADR-011 JSON, not a traceback. Human-reviewed 2026-09-07.
+**Watch:** `tests/conftest.py` now `setdefault`s `PLUGINFORGE_ALLOW_PAID=1` suite-wide, so
+the free-only guard is off by default in tests — a future free-only regression test must pop
+the key. 843 non-integration tests pass; CI green). **PR #70** (`704963a`, issue-#26 repro
+suite hardening — `score_repair_ab` aggregates `--samples K>1` cells before pairing (K=1 a
+strict no-op), `bench/repair_ab_repro/requirements.txt` pins scipy, `verify.py` floors any p-value
+below `1e-8`; `expected.json` moves 4 bounds, `checks_expected` stays 367; `verify.py`
+REPRODUCED, issue26 suite 101 passed). **PR #74 / PR #75** are reflected in the PF-011
+closure ("Assumed" section) and defect #1 (PF-024) respectively. `/change-report` for all
+four: `docs/records/change-reports-2026-09-08-merges.md`.
+
+**Landed 2026-09-12 → 2026-09-15:** **PR #82** (`b73c860`, F1 — the bipolar-knob bugfix,
+ungated per COLLABORATION.md §1; see the ADR paragraph above). **PR #83** (soundfetch
+upgraded to 0.4.0 + Openverse; reflected in the sample-search "Works" bullet above).
+**PR #84** (`c9655da`, PF-043 fixed — ollama's declared default model raised to
+`qwen2.5-coder:7b-16k`, 16384-token context; detail folded into Broken defect history,
+`docs/BUGS.md`). **PR #85 / #86** (ADR-039/040 proposed, ADR-041 accepted — see the ADR
+paragraph above). **PR #87** (`fix/pf032-gate-time-units`, PF-032 WP2 — the att/hold/rel
+unit-contract fix + gate few-shot; free-tier 6/6 pass vs. a confound-corrected control's
+5/6 broken; groq still owed — full detail in Broken #2 below). **PR #88** (ADR
+reclassification, docs only — see the ADR paragraph above). **PR #89**
+(`fix/pf024-named-mono-routing`, PF-024's named-mono-fed-a-stereo-chain sub-pattern — mixed
+free-tier result, 2/5 cells clearly fixed, 1 ambiguous, 1 shifted, 1 unchanged; groq still
+owed — full detail in Broken #1 below). **PR #90** (`feat/adr041-step1-visual-region`, ADR-041
+step 1 — see the ADR paragraph above).
+
+**Landed 2026-09-09 → 2026-09-10:** **PR #76** (`1bdb38d`, the consolidation pass itself —
+the four change reports above + the targeted §5 edits for the 09-08 batch); **PR #77**
+(`c2cc779`, the single 25-cell dynamics re-run verifying the #75 fix — result folded into
+defect #1); **PR #71** (`6fe6679`, renamed the issue-#26 repro package to
+`bench/repair_ab_repro/` — the old `bench/issue26/` path no longer exists — and its scripts
+to descriptive names (`frs_rederive_issue26.py` → `frs_rederive.py`,
+`run_issue26_pipeline.sh` → `run_repair_ab_pipeline.sh`, etc.); held for the GRAME handoff,
+merged once the rename was confirmed not to break `verify.py`).
 
 **Landed 2026-09-03 (evening, after PR #57 below):** four PRs, in landing order — **PR #58**
 (`da5594d`, `host/Source/ThemeValidate.h` — WCAG contrast gate for a `UiIr::Theme`: `text` ≥
@@ -148,7 +333,7 @@ and closed two hygiene gaps — the documented pipeline scripts were silently re
 report artifacts to the pre-screen view for want of a `--screen` flag, plus an orphan
 pre-screen chart PNG. New `bench/score_repair_ab.py` caret-preservation metric + a
 `verify.py` check, `expected.json` checks_expected 311→367, new
-`tests/test_issue26_readme_numbers.py` pinning the README prose to `verify.observe()`.
+`tests/test_repair_ab_readme_numbers.py` pinning the README prose to `verify.observe()`.
 **`~/issue26-reply.md` was updated to match** — confirmed this session by reading the draft:
 it already cites `1ad968a` and the 58%/4% figures, not stale.) **PR #59** (`4508ac4`,
 `llm/ui_face.py` + a `ui_face` action in `generate.py` + `llm/prompts/ui_face_prompt.md` +
@@ -266,14 +451,69 @@ repaired-within-2 on `qwen2.5-coder:3b`). Caveat: all of it is small models on C
 
 Registry with IDs, severity, discovery dates: `docs/BUGS.md`.
 
+**Added 2026-09-24, not yet folded into the ranking below — read this first.** *(PF-079,
+high, open.)* The compile gate this whole ladder is ranked against systematically overstates
+success: real render-safety runs 25–40pp below compile rate on the committed groq/ollama
+125-cell archives (`docs/records/efficacy-adversarial-review-2026-09-23.md` §B1). Two
+`dynamics`-category idioms fail identically across two independent generator models and are
+now root-caused directly against the Faust stdlib (not "unidentified" as first filed): an
+**upward expander's makeup gain has no ceiling** (`gain_db = select2(level_db < threshold, 0,
+(threshold-level_db)*(ratio-1))` — `ba.linear2db` floors at −758.6 dB single-precision,
+so the gain follows the signal to +728.6 dB at the silence limit; measured +715 dB), and a
+**brick-wall limiter's `select2` arms are inverted** (`select2(c,a,b)` returns `a` when `c`
+is *false* — every sample at or below threshold gets replaced by the threshold constant,
+0.98855 at the default; measured DC 0.95–0.98). Both are promptable; neither fix is landed
+yet (`docs/BUGS.md` PF-079). Also landed this date: PF-076's public mechanism
+(caret-anchoring) was withdrawn — the A/B *result* is unchanged, the *causal story* was
+wrong, because the repair loop (and the shipping Fresh-mode retry path, PF-081) never shows
+the model the program it is repairing. See PF-076/PF-080/PF-081 in `docs/BUGS.md`.
+
 **1. One generation defect is evidenced; the rest is sampling.** *(PF-024/PF-032, high,
 open.)* Karplus-Strong's `recursion_cycle` fails to compile across every archive and the one
 tier that compiles renders +79.6 dB runaway; the sidechain compressor fails every run with a
 *different* error. `routing_arity` is now PF-024's dominant first-attempt failure class
 (22/44 error strings on the 125-cell grid).
+  **Diagnosed 2026-09-08** (full trace: the session log / PR): the dynamics category's
+  `routing_arity` failures (10/25 cells) are one mechanism — the model passes the audio
+  signal as a trailing `_` argument to a stdlib effect (`co.compressor_stereo(r,t,a,rl,_,_)`,
+  `ef.gate_stereo(...,_,_)`), which is a hard arity error because the library function
+  reuses `x,y` internally. `misceffects.lib:182`, `compressors.lib:1002`. **Mitigation
+  landed** (PR #75, `a778853`): a dynamics few-shot replaced the tape-flanger few-shot in
+  `system_prompt.txt`, the "renders SILENCE" claim on the gate rule was corrected to "hard
+  arity error", and `error_classes.ROUTING_ARITY` got a `RETRY_HINT` (was raw stderr only;
+  `dynamics-01`/L4 and `dynamics-03`/L4 each repeated the identical error on all 3 attempts).
+  **Verified 2026-09-09, n=1, single re-run of all 25 dynamics cells on the fixed prompt**
+  (`bench/results/efficacy/efficacy_groq_dynamics_postfix_20260909.json`):
+  *the targeted pattern is gone* — `co./ef. X_stereo(...,_,_)` in generated code **8/25 → 0/25**,
+  `routing_arity` first-attempt errors **10/25 → 4/25**. `dynamics-03`/L4 (baseline
+  `compile_failed`, the flagship) is now a first-try pass with the correct idiom. *Net
+  compile rate barely moved* — first-try **8/25 → 9/25**, retry-corrected **16/22 → 17/22**
+  on the 22 cells not cut short by groq's TPM limit — because failures partly rotated into
+  `syntax` errors (6→9): the model now calls the compressor correctly but botches makeup
+  gain (`: *makeup`, prefix-op) and other adjacent things the fix does not target. Honest
+  read: the fix does what it was built to do; dynamics has multiple independent failure
+  modes and this closed one. n=1 keeps it short of a verdict (PF-031 wants ≥3).
+  **A second, independent PF-024 sub-pattern was targeted 2026-09-15** (`fix/pf024-named-mono-routing`,
+  PR #89): a named mono Faust definition fed into a stereo chain. Mixed free-tier result —
+  2/5 cells clearly fixed, 1 ambiguous, 1 shifted to a different error, 1 unchanged. Like
+  the dynamics mitigation, this is a real but partial result; groq (the shipping model) is
+  not yet measured.
 
 **2. The noise gate still renders silent.** *(PF-032's surviving half, high, open.)* Warm-LP
-renders silent 1/4 at L4 on the grid.
+renders silent 1/4 at L4 on the grid. The gate: real defect is the att/hold/rel
+time-constant arguments (`misceffects.lib` wants seconds; the model variously pre-converts
+to samples, writes implausible whole-second literals, or runs a time value through
+`ba.db2linear`) — not the standing thresh/`db2linear` hypothesis, which did not reproduce.
+**2026-09-15: WP2 landed** (`fix/pf032-gate-time-units`) — the STRICT RULES unit-contract
+clause and `gen_stdlib_block.py`'s Dynamics descriptions now name the seconds contract
+explicitly, plus a new worked gate few-shot; paid for by trimming three unused stdlib
+entries from the effect profile. **Free-tier result: 6/6 pass** vs. a confound-corrected
+control's 5/6 broken (the original 2026-09-12 5/6-silent number ran on ollama's stock
+4096-token context, before PF-043's fix — re-measured clean before claiming the delta).
+Honest caveat: most passing generations reproduced the new few-shot near-verbatim, so this
+is a real but not yet a generalization-proven result. **Groq (the shipping model) is still
+not measured** — needs `--i-authorize-spend`, gated on separate authorization per this
+project's own consult rule. Detail: `docs/BUGS.md` PF-032.
 
 **3. The DAW still sees raw slots.** *(follow-up to PF-037, medium, open, unfiled.)* No
 section grouping / titled cards in the host parameter view.
@@ -292,22 +532,32 @@ experience regardless.
 latched (silence) or missed it. `OfflineSynthRenderTest` is 184/0 on fixtures, so it is a
 specific patch under a specific runtime state.
 
-**7. The declared ollama model cannot hold its own prompt.** *(PF-043, medium, open.)*
-
-**8. `score_efficacy.py --judge` spends quota.** *(unfiled, medium, open.)* Takes a lock
+**7. `score_efficacy.py --judge` spends quota.** *(unfiled, medium, open.)* Takes a lock
 (`bench/score_efficacy.py:558,569`); the quota cost is the real remaining half.
 
-**9. Audible discontinuity on the 2nd-generation DSP swap in a host.** *(PF-073, low, open,
+**8. Audible discontinuity on the 2nd-generation DSP swap in a host.** *(PF-073, low, open,
 found 2026-08-28, needs a captured repro.)* "Not a very smooth transition." No `setParamValue`
 flood in the log. A brief recompile gap is expected; a click is not.
 
-**10. A chord sounded like ~5 voices from a strictly-mono engine.** *(PF-075, low, open,
+**9. A chord sounded like ~5 voices from a strictly-mono engine.** *(PF-075, low, open,
 found 2026-08-28.)* Almost certainly overlapping release tails + reverb from the mono voice —
 the disambiguating held-chord test (all 5 sustain vs 4 decay) has not been run.
 
-**11. Knob ordering is Faust's own.** *(PF-038, low, open.)*
+**10. Knob ordering is Faust's own.** *(PF-038, low, open.)*
 
-**12. MIDI-fidelity gaps in a real session.** *(triaged 2026-08-16, all pre-existing, none a
+**11. A compile finishing while the editor window is closed is silently dropped.**
+*(PF-083, medium, open, found 2026-10-09.)* `~PluginForgeEditor` never clears
+`processor.onFaustCompileSuccess`/`onFaustCompileFailure`/`onUiStyleChanged` — the
+`SafePointer` null check makes the stale callback a no-op rather than a crash, but the
+result is never replayed when a new editor later appears. Same root cause as the fixed
+PF-082, different trigger; not fixed.
+
+**12. Two simultaneously-open editors race on one callback slot.** *(PF-084, low, open,
+found 2026-10-09.)* A REAPER FX-chain editor plus a floating window, or two hosts
+embedding the same instance, both overwrite the processor's single-slot compile
+callbacks — only the last-constructed editor's grid/face updates on a later compile.
+
+**11. MIDI-fidelity gaps in a real session.** *(triaged 2026-08-16, all pre-existing, none a
 regression.)* Monophonic by design (`FaustEngine.cpp:519-524`, deliberate), block-granularity
 MIDI (~10.7 ms jitter, documented in-code), a hardcoded 2.0 s tail (`PluginProcessor.h:85`),
 no MIDI CC mapping (`PluginProcessor.cpp:288-317`).
@@ -323,54 +573,104 @@ better; A/B, McNemar p<1e-3; 2026-08-30, PR #41); the OS→JUCE QWERTY keypress 
 (2026-08-28, session 017); "never been in an interactive DAW" (2026-08-28, session 017);
 PF-069 hardcoded efficacy budget and PF-070 compiler-hang crash (2026-08-29, PR #35);
 PF-063 CI-staleness banner (2026-08-17); PF-066 stale octave assertion and PF-067 uncapped
-`anthropic` pin (2026-08-25).
+`anthropic` pin (2026-08-25); **PF-043** (ollama's stock 4096-token context couldn't hold
+the system prompt — default model raised to `qwen2.5-coder:7b-16k`, 16384-token context;
+2026-09-13, PR #84, `c9655da`); **PF-082** (a reopened plugin window lost its generated
+grid and face — the editor constructor now replays a processor-held snapshot;
+2026-10-09, PR #96, `f3ffe10`, `EditorSessionTest` scenario 58 red→green).
 
-**Filed this session, on a branch not yet merged** (so no ID cited here until it lands —
-ADR-031): the installer's `requirements.txt` omits `google-genai`, so the seeded-default
-provider `gemini` can't run on a clean install. Fix + registry row in **PR #46**, `check.sh`
-+ CI green, awaiting merge. Also unfiled: a granular-family observation from the REAPER pass
-— `"pitch synchronous granulizer"` routed to `granular_effect` and the family control gate
+**Unfiled:** a granular-family observation from the REAPER pass — `"pitch synchronous
+granulizer"` routed to `granular_effect` and the family control gate
 (`llm/generate.py:435-448`) rejected every retry for missing required control groups; folds
 into PF-024's family-failure sampling, notes in `scratchpad/pf065-reaper-observations.md`.
+*(The `google-genai` gap that stood here is now PF-077, fixed — PR #46, above.)*
 
 ---
 
 ## Assumed, never checked
 
-- **The efficacy tier gradient is unknown on the shipping model.** *(PF-011.)* The 125-cell
-  grid ran once, on `ollama qwen2.5-coder:7b` (CPU) — compile rate tier-independent,
-  fidelity monotonically declining. **Still assumed:** whether that gradient holds on
-  `groq`'s `openai/gpt-oss-120b`. Progress since the last rewrite: 51 cells committed at
-  `HEAD` (up from ~29), and the run has advanced to **89/125 in the working tree, not yet
-  committed** — re-scored this session with `bench/score_efficacy.py` ($0, no quota spent):
-  retry-corrected compile by tier is L4 16/18 (89%), L3 17/18 (94%), L2 17/18 (94%), L1
-  15/18 (83%), L0 16/17 (94%) — noisier than "flat" but not a clean gradient either.
-  **The heuristic semantic-pass-rate proxy *does* now show a monotonic decline** — L4 94% →
-  L3 88% → L2 82% → L1 73% → L0 62% — consistent in shape with the ollama run's fidelity
-  finding, though it is a heuristic (`expected_primitives` any-of match), not the judged
-  score. Resume with `python bench/run_efficacy_study.py --provider groq --resume --out
-  bench/results/efficacy/efficacy_groq_20260831.json` next quota window; still n=1 per cell
-  (PF-031's ≥3-run bar unmet) and unjudged (`--judge` spends quota — defect #8).
+The most important section (COLLABORATION.md §5). **Format contract:** every open claim
+is a top-level bullet, bolded headline first — `- **<claim>.**` — because that is what
+both `tools/check.sh assumed` and `tools/status_digest.sh` parse to produce the one
+number. Unbulleted prose underneath a bullet is supporting evidence for that claim, not a
+second one. A claim written as a bare bold paragraph with no leading `- ` is invisible to
+the count even though a human reading the section sees it immediately — this is not
+hypothetical, it happened (`tools/health_report.py`'s `_check_assumed_drift` exists
+because of it; `tools/check.sh assumed` now cross-checks against that same detector and
+fails loud, rather than silently, if the two disagree again). Items move out of here only
+when someone produces evidence, never by reformatting.
+
+- **The compile gate was assumed to track real plugin success; checked 2026-09-23, and
+  it doesn't.** *(PF-079, high, open.)* `faust -lang cpp` accept/reject overstates
+  render-safety by 25–40pp on the committed archives — see "Broken" above for the number
+  and the two root-caused failure classes. This is exactly the kind of claim this section
+  exists to track; it was missing from here even after the defect was filed, which is its
+  own small instance of the thing `check.sh assumed` is supposed to catch.
+
+- **The groq 125-cell efficacy grid answers the tier-gradient question but not the
+  generalization one — n≥3 per cell is still owed.** *(PF-031, medium, open.)* The grid
+  closed PF-011 at n=1 (2026-09-08): the groq / `openai/gpt-oss-120b` grid completed all
+  125 cells and was scored ($0). Result in "Works" above: no monotonic tier gradient
+  (L2–L4 flat ~84% first-try), a sharp L1 metaphor-only trough (48%), and a
+  category-level dynamics weakness at every tier. The `--resume` next-action that stood
+  here for a week was a no-op — `prepare_resume` (`bench/run_efficacy_study.py:329`)
+  keeps every record that carries `code`, and all 125 did; the grid was already
+  generated, just uncommitted.
+  But `system_prompt.txt` changed after that grid was measured — the tape-flanger
+  few-shot became a `co.compressor_stereo` few-shot and the `routing_arity` retry hint
+  was added (defect #1) — so `efficacy_groq_20260831.json`'s dynamics numbers are the
+  *pre-fix* baseline. A fresh single run of the 25 dynamics cells on the fixed prompt
+  landed 2026-09-09 (`efficacy_groq_dynamics_postfix_20260909.json`, committed; see
+  defect #1 for the result), but that is n=1 on one category, not the n≥3/125-cell bar
+  PF-031 sets. The other four categories in `efficacy_groq_20260831.json` are unaffected
+  by the prompt edit and still current, also at n=1. A judged fidelity pass (`--judge`
+  spends quota, defect #7) is also still owed.
+  *Registry note:* `docs/BUGS.md`'s PF-011 row disagreed with this section until
+  2026-09-24 — it read `open` under its original, narrower 2026-07-23 framing
+  ("Efficacy pilot generalizes to nothing, N=50, 1 model, 2/5 categories"), superseded by
+  the 125-cell grid above. `docs/BUGS.md`'s own preamble says to "believe neither, read
+  the code" when the two disagree; reconciled 2026-09-24, flipped `open`→`closed` (a
+  status legalized the same day as this reformat — see `docs/BUGS.md`'s Conventions),
+  citing this paragraph and the 2026-09-08 close date.
 
 ---
 
 ## Next three things
 
-1. *(evidence)* **Resume and commit the groq 125-cell efficacy run.** Same command as
-   before — at **89/125 in the working tree, uncommitted** (51/125 is the last committed
-   checkpoint). Resumes when the daily quota permits; it checkpoints harmlessly if not.
-   Worth a `git add -p`/commit of the current progress before it resumes further, so a crash
-   doesn't lose the 38 uncommitted cells. Moves PF-011 out of Assumed, the one number this
-   project steers by. Score with `bench/score_efficacy.py` (compile rate first; `--judge`
-   spends quota — defect #8).
+1. *(evidence)* **Re-run the groq efficacy grid at n≥3 (PF-031).** The single dynamics
+   re-run (2026-09-09, defect #1) confirmed the prompt fix kills the `_,_)` pattern but left
+   the compile-rate verdict inside n=1 noise. A real number needs all 125 cells × 3 with
+   per-cell aggregation. `run_efficacy_study.py --provider groq` (spends quota; groq's
+   ~8k-TPM limit paces it to ~1 cell/90s, so this is a multi-day grind — resume-loop it).
+   Also owed: the makeup-gain follow-up — the dynamics few-shot stops at the compressor call
+   and the model then writes `: *makeup`; showing `: par(i, 2, *(makeup))` would need ~120
+   chars of prompt headroom back (trim one `gen_stdlib_block.py` curated entry).
+   **In flight, uncommitted:** `.worktrees/efficacy-pf031` (branch
+   bench/efficacy-groq-n3-20260915) already has a rep-1 checkpoint — see "Waiting on you"
+   #6, do not disturb it.
 2. **Capture repros for PF-072 and PF-074.** The two medium in-host findings are
    currently unactionable — each needs the triggering patch source and the action
-   immediately before. Needs an interactive host session; until then they can only be
-   re-observed.
-3. **PF-032 silent noise gate — re-measure on the shipping model.** Highest-severity open
-   generation defect (#2). The prompt already carries the fix text; the drafted plan
-   `~/.claude/plans/phase3-pf032-silent-noise-gate.md` leads with a re-measurement WP to
-   see whether `groq`/`gpt-oss-120b` obeys it.
+   immediately before. **The capture harness landed** (PR #93, `bench/capture.py`,
+   `PLUGINFORGE_CAPTURE=1`) — what's still missing is the interactive host session
+   itself to run it in, which needs a human in a DAW, not more code.
+3. **PF-032 silent noise gate — groq re-measurement.** Highest-severity open generation
+   defect (#2). WP2 (retargeted at att/hold/rel, not the original thresh/`db2linear`
+   hypothesis) landed 2026-09-15 on `fix/pf032-gate-time-units` with a clean free-tier
+   result (6/6 vs. a confound-corrected control's 5/6 broken); the one step left is the
+   shipping-model (`groq`) benchmark, gated on separate spend authorization.
+
+**Authorized, parallel, not blocking the Next three.** ADR-038's cheap steps —
+**F1 landed** (PR #82, bipolar-knob arc fill), **F2/F3** (chip rows, bespoke archetype
+geometry) still open, **E1–E3** (AOT emit → wire `processBlock` → prove sound + un-gate
+`/export`). One step per session, each independently landable;
+`docs/sessions/020-generated-faces-v2.md` has the order and the `file:line` traps.
+**F4 is now ADR-041 (Accepted 2026-09-15, PR #86)** — its own landing ladder (prep commit →
+`FaceContext` → `FaceVisual`/F4a → PF-052 split → offline eval/F4b → ring buffer/F4c).
+**Step 1 (prep commit) landed** — `ArchetypeLayout::VisualRegion` + `Result::visuals`,
+`rail()` returns its reserved display region instead of discarding it. Next: step 2
+(`FaceContext` + `TypefaceRegistry`) once F2/F3/E1–E3 are further along — that step's own
+pause trigger applies if it's seen crowding out PF-024/PF-032. E4 remains gated behind its
+own future ADR.
 
 **Displaced, not urgent.** A piano roll (requested, unplanned; needs a note grid *and* a
 clock — no host transport in Standalone).
@@ -379,16 +679,33 @@ clock — no host transport in Standalone).
 
 ## Waiting on you
 
-1. **Post the GRAME reply.** `~/issue26-reply.md` — read in full this session, current and
-   not stale: it cites `1ad968a` (PR #60, the *second* integrity pass — supersedes #55's
-   `78fb9db`) and the corrected 58%/4% caret-preservation mechanism, not the earlier "edit
-   at that spot and re-break it" framing #60 found backwards. Every link resolves
-   anonymously; a cold clone at `1ad968a` runs `verify.py` green (367 checks). COLLABORATION.md
-   §2 — **a human reviews the wording and posts it** (Claude must not `gh issue comment`).
-   Delete the draft after. Then (deferred to a later session): edit the existing
-   `issue-26-repro` release body **in place** to mark it superseded and repoint its Method
-   link at `1ad968a`; optionally cut a new non-prerelease `issue-26-repro-v2` at `1ad968a`.
-   **Do not move the existing tag** (`f50daa8`).
+1. **Post a correction to the GRAME reply — the earlier draft was already sent, and one of
+   its claims is now known wrong.** *(Corrected 2026-09-24; this item's prior text was
+   stale.)* The reply this item used to describe **was already posted 2026-09-08**
+   (comment 4 on `Losera/incant-audio#26`), citing commit `704963a`, not `1ad968a` as
+   previously recorded here — `~/issue26-reply.md` no longer exists (deleted per its own
+   "delete the draft after" instruction). But that posted comment's mechanism claim — *"the
+   caret is precise enough that the small model treats the quoted line as correct and
+   rewrites around it"* — has since been **verified false against source** (2026-09-24,
+   prompted by an external adversarial review): neither arm's request contains the program
+   being repaired, so there is no visible caret to rewrite around. The A/B *result* it was
+   attached to is unchanged. A correction is needed on the thread. COLLABORATION.md §2 — **a
+   human reviews the wording and posts it** (Claude must not `gh issue comment`). The two
+   repro paths given to Letz in that comment (`docker-verify`, `bench/issue26/`) were also
+   found broken and are fixed as of this session (PF-080) — worth a line in the same
+   correction rather than a separate follow-up. Then (deferred to a later session): edit the
+   existing `issue-26-repro` release body **in place** to mark it superseded and repoint its
+   Method link at the current pin; optionally cut a new non-prerelease `issue-26-repro-v2`.
+   **Do not move the existing tag** (`f50daa8`). **This item is itself now stale as of
+   2026-10-10** — PR #95 added a fourth correction point (faust-rs's own repair-suggestion
+   list stripped from 87% of `syntax`-class feedback) and softened two numbers in the
+   original "51/51" claim (the 36-program corpus is unrecoverable, only 15/51 re-derives;
+   the "C++: 0/15 stable error codes" cell was a hard-coded `+= 0`, not a measured count).
+   The draft to post is `docs/records/issue26-correction-draft-2026-09-24.md`, but it
+   predates PR #95 and needs those two additions before a human posts it. PR #95 also
+   drafted three separate, narrower upstream-actionable issues (version pinning,
+   `FRS-EVAL-0099` misdiagnosis, a contradictory cause-note) — none filed yet, same
+   "a human reviews and posts" rule applies.
 2. **A listening pass on the interactive-session patches.** COLLABORATION.md §1 — whether a
    generated plugin *sounds like what was asked for* has no instrument and is not delegable.
    The render oracle proved the WP6 patches were not broken; it cannot tell you they were
@@ -403,19 +720,100 @@ clock — no host transport in Standalone).
    `phase3-pf024-invalid-generation-families.md`. Each leads with a re-measurement WP: the
    prompt already contains the fix text for all three, and the open question is whether the
    shipping model obeys it.
-6. **The provider-resilience work moved, corrected this session** — it is no longer an
-   uncommitted worktree. It was pushed as `origin/feat/provider-resilience` (`9f260a0`,
-   "WIP: interactive provider resilience (fallback chain) — UNREVIEWED SNAPSHOT") and the
-   worktree removed. Still needs a review/merge decision, just not at risk of being lost.
-   `design/ember-console` + `origin/fix/ember-console-palette` still kept pending your
-   triage (Ember Console repaint) — unchanged.
-7. **PR #65 (A3b) needs a review before merge — this is now the pressing one.** ADR-035
-   flags this step as new UI architecture (AGENTS.md §4); #61 (A3a) merged directly with no
-   GitHub review recorded, and #65 is what actually makes that code live in production, so
-   the gap #61 left open now matters. `~/.worktrees/ui-face-wire` (branch
-   `feat/ui-face-wire`) holds the work; remove the worktree once #65 merges or is
-   abandoned.
-8. **Untracked personal files left alone**, as always — the two notes at the repo root, the
+6. **Branch + worktree cleanup — performed 2026-10-12.** The cleanup this section carried as
+   "reconciled, not yet performed" for three weeks is done. Before deleting anything, four
+   read-only agents audited the branches this file's prior passes could not resolve
+   mechanically (squash-merges don't show as ancestors — verified three independent ways:
+   `merge-base --is-ancestor`, `git cherry` patch-id, `merge-tree` tree equality, cross-checked
+   against `gh pr list --state merged`).
+
+   **Result: 26 of 32 local branches deleted, 16 of 20 worktrees removed, 23 remote branches
+   deleted, ~39 GB reclaimed (56 GB → 17 GB).** The primary checkout moved from the stale
+   `pr-92-review` (38 commits behind) to `main`, fast-forward only — no reset, no history
+   rewrite. `tools/check.sh fast` is green on the result.
+
+   **Nothing was discarded without a recoverable copy.** Five archive tags were pushed to
+   `origin` *before* any deletion, for every worktree that held uncommitted work on an
+   already-merged branch: `archive/runtime-agnostic-workflow-2026-10-12`,
+   `archive/pf079-dynamics-stdlib-2026-10-12`, `archive/capture-harness-wip-2026-10-12`,
+   `archive/e1-aot-emit-wip-2026-10-12`, `archive/provider-resilience-snapshot-2026-10-12`.
+   `git show <tag> --stat` renders each preserved diff.
+
+   **Four branches this file's "DO NOT delete" list protected were resolved on evidence,
+   not deleted blind:**
+   - `feat/f2-f3-face-ladder` — **kept, pushed to origin.** ADR-038 F2/F3 (chip rows,
+     bespoke archetype geometry) is still "Authorized, parallel" per this file's own §Next-three
+     note and unsuperseded by ADR-044 (`docs/decisions.md:3544`, still `Proposed`). Its two
+     uncommitted files were not scratch work — a **finished** F3 implementation (column
+     height-balancing, a `transport-display` `VisualRegion`, a new `testColumnsBalanceHeight`)
+     that existed in no git object at all. Committed as-is (`0d067f2`,
+     **unbuilt, unverified** — say so if you pick this up) before anything else happened, then
+     pushed. Rebasing onto today's `main` will hit exactly one trivial conflict: both this
+     branch and PR #96 (PF-082) appended a test named `scenario58_...` at EOF — renumber this
+     branch's to 59.
+   - `feat/shell-command-bar` — **kept, pushed to origin.** ADR-036's "B0" disclosure-square
+     prep, direction-neutral per `docs/decisions.md:2259`, so it survives even if shell
+     direction 2a is abandoned. Merges against today's `main` with **zero conflicts**
+     (verified via `git merge-tree`). Correction to this file's own prior framing: the apparent
+     "−362 test lines" was a diff-direction artifact of being 58 commits stale, not the branch
+     deleting tests — its own test-file change is `+8/−5`.
+   - `chore/runtime-agnostic-workflow` — **archived, then deleted.** Preserved complete
+     (15 files, among them a new AGENTS.md and tools/agent_session.py) in
+     `archive/runtime-agnostic-workflow-2026-10-12` (e.g.
+     `archive/runtime-agnostic-workflow-2026-10-12:tools/agent_session.py`). Still genuinely
+     untriaged; nothing in this
+     cleanup evaluated whether the refactor itself is wanted, only that it is not lost.
+   - `feat/provider-resilience` — **archived, then deleted, on evidence, overriding this
+     file's own "still needs review/merge" note.** Two of its three pieces are already on
+     `main`, independently and later: the provider picker (ADR-032, PRs #42/#43) and the
+     per-request credential precheck (PR #72 — `tests/test_generate_unit.py`'s own docstring
+     records the identical correction one day after this branch's snapshot). The third piece —
+     a cloud↔cloud provider fallback chain — is the design `docs/decisions.md:2788` (ADR-039)
+     explicitly rejects on prompt-disclosure and cost grounds; ADR-039 asks for cloud→local
+     only. **Salvage pointer, not yet acted on:** this branch's typed `QuotaExhausted`
+     (subclasses `RateLimited`, carries `.scope`) and `ProviderUnavailable` exceptions are a
+     complete, test-covered implementation of **ADR-039 Decision step 1**
+     (`docs/decisions.md:2698-2703`, *"a prerequisite bugfix, independent of failover"*), which
+     `main` still lacks — `llm/providers.py` has `_is_daily_quota` but still raises a bare
+     `RuntimeError` at the end of `_post_with_backoff`/`_call_with_retry`. Cherry-pick from
+     `archive/provider-resilience-snapshot-2026-10-12:llm/providers.py` +
+     `...:tests/test_providers_unit.py` rather than rewriting it. If you'd rather read `9f260a0`
+     yourself before accepting this deletion, it's tagged either way — nothing is lost.
+
+   **One branch was discovered mid-cleanup that no tracked file had ever mentioned:**
+   `task/offline-eval-pilot` — a complete, self-contained, **$0, provider-free** deterministic
+   eval harness (`task/offline-eval-pilot:bench/run_eval.py`, 468 lines;
+   `task/offline-eval-pilot:bench/cases.json`; 13 Faust fixtures;
+   `task/offline-eval-pilot:tests/test_run_eval.py`) that had sat on exactly one disk,
+   unpushed, since 2026-09-07. Verified not redundant with ADR-037's unbuilt
+   bench/evaluate_against_plan.py, which does not exist on any branch yet (that scores
+   real generations against their own persisted `acceptancePlan`; this regression-tests curated
+   fixtures against hand-written expectations — complementary, not overlapping, bar THD which
+   `render_oracle.py` already computes) and verified still API-compatible with today's `main`
+   (every `render_oracle`/`p6_capture` symbol it imports still exists with a matching
+   signature). **Kept, pushed to origin.** Not yet executed against `main` — that's still owed.
+
+   **Three stale entries in the prior "DO NOT delete" list, corrected:**
+   branch bench/efficacy-groq-n3-20260915's "LIVE — uncommitted checkpoint" was no longer
+   true — its uncommitted JSON was byte-identical (35,419 B) to the copy already committed on
+   `main`, untouched for 27 days; branch docs/status-md-2026-10-10-reconciliation merged as #100
+   (`002da7f`); and the `.worktrees/efficacy-semantics` "NOT safe to touch" warning protected
+   PR #99, which has since merged — the sibling session it was guarding against has finished.
+
+   **The nine 2026-09-12→15 worktrees this file flagged as stale-but-unremoved, plus
+   `efficacy-pf031`/`efficacy-semantics`/`pf032-remeasure`, are removed.**
+
+   **The remaining-worktree inventory that used to be hand-maintained here is retired as
+   of 2026-10-20 (workflow audit) — it goes stale within days by construction, and did:
+   this paragraph once named eight worktrees already gone and omitted eight that existed.**
+   `python tools/integration_report.py` (surfaced automatically by `/orient`) computes, live,
+   every worktree and local branch's three-dot contribution vs `origin/main`, how far behind,
+   dirty-path count, whether it is pushed, and whether a PR exists — read that instead of a
+   paragraph that can only describe the moment it was written. Report-only; it pushes nothing
+   and opens no PRs (COLLABORATION.md §2 — gate the write, never the run). Finding what a
+   stranded branch actually contains is still a `git log`/`git diff origin/main...<branch>`
+   read, same as always — never `..`, see that script's own docstring for why.
+7. **Untracked personal files left alone**, as always — the two notes at the repo root, the
    unshipped brief skill, the product-architecture draft under bench/. The
    `design_handoff_generated_plugin_faces/` bundle from the last rewrite is **resolved,
    confirmed this session** — it was distilled into `docs/design/incant-ui/` in PR #56 (a

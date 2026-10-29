@@ -38,9 +38,10 @@ Selection
                            preflight admission math below — it does not itself
                            configure ollama's num_ctx; that still requires a
                            Modelfile (README.md "Known generation limitations").
-                           Defaults to 4096, ollama's stock runtime default,
-                           which the repo's declared default model
-                           (qwen2.5-coder:7b) does not override.
+                           Defaults to 16384, matching the repo's declared
+                           default model qwen2.5-coder:7b-16k's own
+                           `PARAMETER num_ctx 16384` (PF-043, fixed 2026-09-13
+                           — verified live via `ollama show`).
 
 generate.py loads PluginForge/.env before reading these, and juce::ChildProcess
 inherits the environment, so setting PLUGINFORGE_PROVIDER in .env reaches the plugin
@@ -267,6 +268,25 @@ class RateLimited(RuntimeError):
         self.retry_after = retry_after
 
 
+class QuotaExhausted(RateLimited):
+    """A provider quota whose reset is materially longer than an interactive retry.
+
+    A RateLimited subtype so old callers keep their existing handling, while a
+    caller that cares can distinguish a daily allocation from a short RPM
+    throttle and route to an explicitly-approved fallback immediately instead of
+    waiting out an hours-long Retry-After.
+    """
+
+    def __init__(self, message: str, retry_after: float | None = None,
+                 scope: str = "daily"):
+        super().__init__(message, retry_after)
+        self.scope = scope
+
+
+class ProviderUnavailable(RuntimeError):
+    """A retryable transport/server failure that survived bounded backoff."""
+
+
 class OutputTruncated(RuntimeError):
     """The model hit its output cap mid-program. Maps to reason="truncated".
 
@@ -393,14 +413,20 @@ class ProviderSpec:
 # PF-060/PF-043: ollama's per-request budget depends on the SELECTED MODEL's
 # context, and unlike gemini's inputTokenLimit it cannot be read back live from
 # the OpenAI-compat chat-completions endpoint this adapter uses (no models.list
-# equivalent exposes num_ctx). Default to 4096: `ollama show qwen2.5-coder:7b`
-# (checked 2026-08-13) prints no "Parameters / num_ctx" line, meaning the
-# repo's declared default model has no override and gets ollama's stock
-# runtime default — which is exactly the PF-043 defect (open, not fixed here).
-# README.md already tells a developer wanting more to create a model with
-# `num_ctx 16384`; this override is how that choice reaches the preflight math
-# without PluginForge trying to parse Modelfiles.
-_OLLAMA_NUM_CTX = int(os.environ.get("PLUGINFORGE_OLLAMA_NUM_CTX", "4096"))
+# equivalent exposes num_ctx). `ollama show qwen2.5-coder:7b` (checked
+# 2026-08-13) prints no "Parameters / num_ctx" line — the stock 4096-token
+# runtime default plus the 4096-token min_max_tokens output floor left ~480
+# tokens of headroom against the 3,614-token system prompt (PF-043).
+# PF-043 FIX (2026-09-13): the repo's declared default model is now
+# qwen2.5-coder:7b-16k, which carries `PARAMETER num_ctx 16384` baked into its
+# own Modelfile (`ollama show qwen2.5-coder:7b-16k` prints "Parameters /
+# num_ctx 16384" — verified live, not assumed). The default below now matches
+# that model's real context instead of ollama's stock default, so a developer
+# who has not set PLUGINFORGE_OLLAMA_NUM_CTX still gets accurate preflight
+# admission math. Anyone pointing PLUGINFORGE_MODEL at a different local model
+# must still set this override themselves — PluginForge cannot read a
+# Modelfile's num_ctx back from the running server.
+_OLLAMA_NUM_CTX = int(os.environ.get("PLUGINFORGE_OLLAMA_NUM_CTX", "16384"))
 
 PROVIDERS: dict[str, ProviderSpec] = {
     "gemini": ProviderSpec(
@@ -510,7 +536,13 @@ PROVIDERS: dict[str, ProviderSpec] = {
     "ollama": ProviderSpec(
         name="ollama",
         kind="openai_compat",
-        default_model="qwen2.5-coder:7b",
+        # PF-043 (fixed 2026-09-13): qwen2.5-coder:7b (stock, 4096-token
+        # context) left ~480 tokens of generation headroom against the
+        # 3,614-token system prompt — silent truncation past that. The -16k
+        # variant carries `PARAMETER num_ctx 16384` in its own Modelfile
+        # (verified via `ollama show qwen2.5-coder:7b-16k`), matching
+        # _OLLAMA_NUM_CTX's own default below.
+        default_model="qwen2.5-coder:7b-16k",
         env_var=None,
         base_url="http://localhost:11434/v1",
         signup_url="https://ollama.com",
@@ -520,7 +552,10 @@ PROVIDERS: dict[str, ProviderSpec] = {
         min_max_tokens=4096,
         request_token_budget=_OLLAMA_NUM_CTX,
         notes="Fully local: no key, no quota, works offline, can never be billing "
-              "blocked. Needs `sudo pacman -S ollama` + `ollama pull <model>`.",
+              "blocked. Needs `sudo pacman -S ollama` + `ollama pull qwen2.5-coder:7b` "
+              "+ a Modelfile `FROM qwen2.5-coder:7b` / `PARAMETER num_ctx 16384` "
+              "saved as `qwen2.5-coder:7b-16k` (PF-043) — the stock 4096-context "
+              "pull alone truncates generation.",
     ),
     "anthropic": ProviderSpec(
         name="anthropic",
@@ -851,8 +886,16 @@ def _call_with_retry(call, budget=None):
             try:
                 return call(*args, **kwargs)
             except Exception as exc:  # noqa: BLE001 — re-raised below if not retryable
-                if attempt == _MAX_BACKOFF_TRIES - 1 or not _is_retryable(exc):
+                if _is_daily_quota(exc):
+                    hint = _RETRY_HINT_RE.search(str(exc))
+                    delay = float(hint.group(1)) + 1.0 if hint else None
+                    raise QuotaExhausted(str(exc), retry_after=delay) from exc
+                if not _is_retryable(exc):
                     raise
+                if attempt == _MAX_BACKOFF_TRIES - 1:
+                    raise ProviderUnavailable(
+                        f"provider remained unavailable after {_MAX_BACKOFF_TRIES} "
+                        f"attempts: {exc}") from exc
                 hint = _RETRY_HINT_RE.search(str(exc))
                 # +1s: the server's own hint is the earliest permissible moment.
                 delay = float(hint.group(1)) + 1.0 if hint else min(2.0 ** attempt, 60.0)
@@ -902,6 +945,12 @@ def _post_with_backoff(url: str, headers: dict, payload: dict, budget=None) -> d
         if response.status_code == 429 or response.status_code >= 500:
             if attempt < _MAX_BACKOFF_TRIES - 1:
                 delay = _retry_after_seconds(response, attempt)
+                if response.status_code == 429 and _is_daily_quota(RuntimeError(response.text)):
+                    raise QuotaExhausted(
+                        f"provider daily quota is exhausted; reset in about "
+                        f"{delay:.0f}s — {last_error}",
+                        retry_after=delay,
+                    )
                 if budget is not None and not budget.can_sleep(delay):
                     # Distinguish throttling from a stall: the advice differs.
                     # RateLimited takes retry_after too, BudgetExhausted's
@@ -917,9 +966,19 @@ def _post_with_backoff(url: str, headers: dict, payload: dict, budget=None) -> d
                     raise BudgetExhausted(message)
                 time.sleep(delay)
                 continue
+            if response.status_code == 429:
+                raise RateLimited(last_error,
+                                  retry_after=_retry_after_seconds(response, attempt))
+            raise ProviderUnavailable(
+                f"provider remained unavailable after {_MAX_BACKOFF_TRIES} attempts — "
+                f"{last_error}")
         break
 
-    raise RuntimeError(f"Request to {url} failed after {_MAX_BACKOFF_TRIES} attempts — {last_error}")
+    if last_error.startswith(("Connect", "Read", "Write", "Pool", "Network")):
+        raise ProviderUnavailable(
+            f"provider transport remained unavailable after {_MAX_BACKOFF_TRIES} "
+            f"attempts — {last_error}")
+    raise RuntimeError(f"Request to {url} failed — {last_error}")
 
 
 # ── The seam every call site uses ─────────────────────────────────────────────

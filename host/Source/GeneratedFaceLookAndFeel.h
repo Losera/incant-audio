@@ -1,5 +1,6 @@
 #pragma once
 #include "ForgeLookAndFeel.h"
+#include "GKnobGeometry.h"
 #include "ThemeValidate.h"
 #include "UiIr.h"
 #include <cmath>
@@ -146,6 +147,23 @@ public:
         // oversight; a light face's track will read slightly fainter than its
         // own mockup until that is revisited.
         trackColour = text.withAlpha(0.10f);
+
+        // ADR-038 F2: chip-styled ToggleButton colours, stored for the same
+        // reason trackColour is -- drawToggleButton() below needs them on
+        // every paint and neither is a ColourScheme UIColour slot. `onAccent`
+        // (just computed above for the highlightedText slot) is reused
+        // verbatim rather than hard-coding `surface`: the mockup's own words
+        // are "surface text colour when on", but this class already resolved
+        // the WCAG-aware choice between surface and text for "text sitting on
+        // the accent fill", and a light-theme face (Iron Strip) can have an
+        // accent surface itself doesn't read against -- reusing onAccent
+        // keeps chip-on-text and every other accent-backed label in this face
+        // consistent instead of introducing a second, possibly-disagreeing
+        // rule for the same visual situation.
+        chipOnFill  = accent;
+        chipOnText  = onAccent;
+        chipOffLine = line;
+        chipOffText = text.withAlpha(0.6f);
     }
 
     // The SAME validated accent this constructor just built its ColourScheme
@@ -309,12 +327,27 @@ public:
         {
             const auto fill = slider.findColour(juce::Slider::rotarySliderFillColourId);
 
-            // GKnob's own guard ("v > 0.004"): a near-zero arc renders as
-            // visible noise at the rounded cap, not as "no value yet".
-            if (sliderPos > 0.004f)
+            // ADR-038 F1: ParamGridPanel::applyPresentation() tags a bipolar
+            // control (its REAL Faust range straddles zero -- Detune, Pan)
+            // with a "bipolarDetent" Component property: the NORMALISED
+            // position of real zero on that control's own range
+            // (-min/(max-min) -- never assumed to be 0.5, a symmetric range
+            // is not guaranteed). See that call site's own comment for why
+            // the tag exists at all rather than reading
+            // slider.getMinimum()/getMaximum() here directly. Absent for a
+            // unipolar control (NamedValueSet::operator[] on a missing key
+            // returns a void var). The angle arithmetic itself lives in
+            // GKnobGeometry.h, tested there without a JUCE dependency.
+            const juce::var detentVar   = slider.getProperties()["bipolarDetent"];
+            const bool      hasDetent   = ! detentVar.isVoid();
+            const float     detent      = hasDetent ? static_cast<float>(detentVar) : 0.0f;
+            const float arcStart =
+                GKnobGeometry::arcStartAngle(hasDetent, detent, rotaryStartAngle, rotaryEndAngle);
+
+            if (GKnobGeometry::arcHasFill(hasDetent, detent, sliderPos))
             {
                 juce::Path value;
-                value.addCentredArc(cx, cy, r, r, 0.0f, rotaryStartAngle, toAngle, true);
+                value.addCentredArc(cx, cy, r, r, 0.0f, arcStart, toAngle, true);
                 g.setColour(fill);
                 g.strokePath(value, juce::PathStrokeType(strokeW, juce::PathStrokeType::curved,
                                                           juce::PathStrokeType::rounded));
@@ -332,11 +365,62 @@ public:
         }
     }
 
+    // ADR-038 F2 (docs/sessions/020-generated-faces-v2.md, Track F): chip-
+    // styled toggle. Replaces LookAndFeel_V4's default -- a small rounded
+    // tick box plus a left-aligned label (juce_LookAndFeel_V4.cpp:328-350,
+    // `drawToggleButton` calling `drawTickBox` at a fixed 4px inset) -- with
+    // a full-bounds filled-or-outlined chip, matching the mockup's SAW/SQR/TRI
+    // and FREEZE/REVERSE rows. `ForgeLookAndFeel`'s own audit (this file's
+    // parent, see its header comment) said ColourScheme alone covered
+    // drawToggleButton; that was true for a plain checkbox-style toggle and
+    // is no longer true for a chip, which needs to be selectable-pill shaped,
+    // not tick-plus-label -- so this is the first bespoke override for it in
+    // either class.
+    //
+    // Applies to EVERY ToggleButton this LookAndFeel draws, not only ChipRow
+    // members: a lone Button/CheckButton-kind param (ParamGridPanel.cpp's
+    // ToggleButton branch, unchanged by F2) gets the same chip look, which is
+    // exactly right for a mockup pair like FREEZE/REVERSE -- two independent
+    // boolean params drawn side by side, not one ChipRow.
+    void drawToggleButton(juce::Graphics& g, juce::ToggleButton& button,
+                          bool /*shouldDrawButtonAsHighlighted*/, bool /*shouldDrawButtonAsDown*/) override
+    {
+        const auto bounds = button.getLocalBounds().toFloat().reduced(1.0f);
+        constexpr float corner = 3.0f;
+
+        if (button.getToggleState())
+        {
+            g.setColour(chipOnFill);
+            g.fillRoundedRectangle(bounds, corner);
+            g.setColour(chipOnText);
+        }
+        else
+        {
+            g.setColour(chipOffLine);
+            g.drawRoundedRectangle(bounds, corner, 1.0f);
+            g.setColour(chipOffText);
+        }
+
+        // GKnob.dc.html's chip spec: mono readout family, 9-10px, ~.1em
+        // tracking. readoutFont() is this class's own public method (above),
+        // theme-aware the same way every other label in this face is.
+        g.setFont(readoutFont(9.5f).withExtraKerningFactor(0.1f));
+        g.drawFittedText(button.getButtonText(), bounds.getSmallestIntegerContainer(),
+                         juce::Justification::centred, 1);
+    }
+
 private:
     // A3d: see drawRotarySlider() above. Not a ColourScheme UIColour --
     // computed once in the constructor, reused on every paint of every
     // rotary this LookAndFeel draws.
     juce::Colour trackColour = Theme::outline;
+
+    // ADR-038 F2: see drawToggleButton() above. Same "computed once in the
+    // constructor, not a ColourScheme slot" shape as trackColour.
+    juce::Colour chipOnFill  = Theme::accent;
+    juce::Colour chipOnText  = Theme::background;
+    juce::Colour chipOffLine = Theme::outline;
+    juce::Colour chipOffText = Theme::textPrimary;
 
     // A3c: the five typefaces new to this class, loaded once per attach --
     // see the COST note at the top of this file's header comment. Same

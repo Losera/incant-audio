@@ -9,7 +9,7 @@
 [![LLVM JIT](https://img.shields.io/badge/LLVM-22.1.8-green.svg)](https://llvm.org/)
 [![License: Proprietary](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE)
 
-**Incant Audio** turns natural language descriptions into real-time VST3 audio effects and polyphonic synthesizers. Describe the sound or signal processor you want in plain English, and Incant Audio generates, validates, JIT-compiles, and loads native machine code into a live audio plugin—complete with dynamic GUI controls—without stopping playback.
+**Incant Audio** turns natural language descriptions into real-time VST3 audio effects and monophonic synthesizers. Describe the sound or signal processor you want in plain English, and Incant Audio generates, validates, JIT-compiles, and loads native machine code into a live audio plugin—complete with dynamic GUI controls—without stopping playback.
 
 ---
 
@@ -31,7 +31,7 @@
 
 ## ✨ Key Capabilities
 
-- 🎹 **Audio Effects & Polyphonic Synths**: Describe lowpass filters, tube saturators, stereo choruses, ADSR polyphonic synthesizers, or multi-stage effect chains.
+- 🎹 **Audio Effects & Monophonic Synths**: Describe lowpass filters, tube saturators, stereo choruses, ADSR monophonic synthesizers, or multi-stage effect chains.
 - ⚡ **Zero-Drop JIT Compilation**: Faust DSL is compiled to native machine code via `libfaust` and `LLVM` on a background thread. Dynamic DSP swapping occurs atomically with zero audio dropouts or lock contention.
 - 🔄 **Self-Correcting LLM Feedback Loop**: If generated DSP fails compilation, compiler error output (`stderr`) is automatically fed back to the LLM for up to 3 repair retries.
 - 🎛️ **Pre-allocated Dynamic Parameter Pool**: A fixed 64-slot dynamic parameter pool maps parameters to physical units (Hz, dB, ms, exponential/logarithmic curves) instantly exposed to host DAWs.
@@ -98,10 +98,16 @@ create a versioned archive or install a packaged build locally, see
 
 ### Known generation limitations
 
-- The default Ollama model needs a larger context than its stock 4096-token
-  setting. Create/use a model with `num_ctx 16384` before selecting Ollama; the
-  stock configuration can truncate generated Faust silently. See PF-043 in
-  [`docs/BUGS.md`](docs/BUGS.md).
+- The registry's declared default Ollama model is `qwen2.5-coder:7b-16k`, not
+  the stock `qwen2.5-coder:7b` pull — the stock model's 4096-token context
+  leaves too little room for the system prompt and can truncate generated
+  Faust silently. Create the larger-context model once, after pulling the
+  base model:
+  ```
+  ollama pull qwen2.5-coder:7b
+  printf 'FROM qwen2.5-coder:7b\nPARAMETER num_ctx 16384\n' | ollama create qwen2.5-coder:7b-16k -f -
+  ```
+  See PF-043 in [`docs/BUGS.md`](docs/BUGS.md).
 - A known generated noise-gate fixture compiles but renders silence because its
   threshold is converted from dB twice. Compile success alone does not establish
   audible output; see PF-032 in [`docs/BUGS.md`](docs/BUGS.md).

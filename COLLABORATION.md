@@ -209,6 +209,15 @@ Defects, worst first. Each: what breaks, where, and whether a fix is in flight.
 The most important section. Things believed true that nobody has verified —
 stale baselines, untested paths, numbers measured under conditions that have
 since changed. Items move out of here only when someone produces evidence.
+**Format contract (added 2026-10-20, after a real drift):** every claim is a
+top-level bullet, bolded headline first — `- **<claim>.**` — because that is
+what `tools/check.sh assumed` and `tools/status_digest.sh` parse to produce
+"the one number" (CLAUDE.md). A claim written as a bare bold paragraph with
+no leading `- ` is invisible to the count even though a human reading the
+section sees it immediately; this happened for real (PF-079 sat unparsed for
+two days) and both parsers now cross-check against
+`tools/health_report.py`'s `_check_assumed_drift` and fail loud, not
+silently, if they disagree with the prose again.
 
 ## Next three things
 Exactly three. Not a backlog. **One of the three is reserved for evidence** and

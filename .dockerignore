@@ -1,4 +1,4 @@
-# The only Docker build in this repo is bench/issue26/Dockerfile (the issue-#26
+# The only Docker build in this repo is bench/repair_ab_repro/Dockerfile (the repair-ab
 # reproduction image — see docs/decisions.md ADR-034). Its build context is the
 # repo root so the shared bench/ and llm/ modules are in scope, but it COPYs only
 # a handful of files. Everything below is large build output or local-only state
@@ -10,7 +10,7 @@
 **/__pycache__
 **/*.pyc
 
-# C++ / JUCE build trees — gigabytes, never needed by the issue-#26 image
+# C++ / JUCE build trees — gigabytes, never needed by the repair-ab repro image
 host/build
 host/build-release
 host/JUCE

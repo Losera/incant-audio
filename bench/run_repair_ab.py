@@ -18,7 +18,7 @@ DESIGN
                              and the `help` remedy, with the box-expr noise dropped
 
     The repair model is fixed (qwen2.5-coder:3b, temperature=0 — run-to-run
-    stability unaudited; see docs/BUGS.md and WP5 in bench/issue26/METHODOLOGY.md)
+    stability unaudited; see docs/BUGS.md and WP5 in bench/repair_ab_repro/METHODOLOGY.md)
     regardless of which model first produced the program, so the only intended
     variable is the feedback text. A small local model is deliberate: it is where
     compiler-feedback quality should matter most, and it is what the #26 question
@@ -54,7 +54,7 @@ from run_efficacy_study import (  # noqa: E402
 )
 import frs_check  # noqa: E402
 # The paired corrective loop itself lives in repair_ab_core so this harness and
-# bench/issue26/repair_ab_standalone.py share one implementation of the loop and
+# bench/repair_ab_repro/repair_ab_standalone.py share one implementation of the loop and
 # the feedback construction — byte-identical given the same model and compilers,
 # not merely a re-implementation of the same design.
 from repair_ab_core import (  # noqa: E402

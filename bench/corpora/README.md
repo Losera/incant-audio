@@ -2,7 +2,7 @@
 
 A dataset of **real, LLM-generated Faust programs that the C++ Faust compiler
 rejects**, each paired with both compilers' diagnostics and a machine
-classification of the failure. Built for the issue-#26 repair-loop A/B
+classification of the failure. Built for the faust-rs repair-loop A/B
 ([Losera/incant-audio#26](https://github.com/Losera/incant-audio/issues/26)); it
 is also usable on its own as a faust-rs regression / diagnostic-quality corpus.
 
@@ -54,7 +54,7 @@ All 202 have at least one faust-rs stable code (`frs_codes`).
 
 ## Schema
 
-Field-by-field data dictionary: **[`../issue26/SCHEMA.md`](../issue26/SCHEMA.md)**
+Field-by-field data dictionary: **[`../repair_ab_repro/SCHEMA.md`](../repair_ab_repro/SCHEMA.md)**
 (§ *Corpus*). One example failing record:
 
 ```json
@@ -108,8 +108,8 @@ newer faust-rs changes arms B/C without the corpus being rebuilt.
 
 ## Using it
 
-- **Reproduce the issue-#26 result:** see [`../issue26/README.md`](../issue26/README.md).
-- **faust-rs diagnostic-quality check:** `bench/frs_rederive_issue26.py` runs both
+- **Reproduce the repair-loop A/B result:** see [`../repair_ab_repro/README.md`](../repair_ab_repro/README.md).
+- **faust-rs diagnostic-quality check:** `bench/frs_rederive.py` runs both
   compilers over the 15 never-compiled cells and prints the
   location / stable-code / remedy comparison.
 - **Your own analysis:** the file is a plain JSON list; every field is documented
@@ -119,7 +119,7 @@ newer faust-rs changes arms B/C without the corpus being rebuilt.
 
 ## Licence and attribution
 
-`repair_corpus_20260830.json` and the field dictionary `../issue26/SCHEMA.md`
+`repair_corpus_20260830.json` and the field dictionary `../repair_ab_repro/SCHEMA.md`
 are released under **[CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/)** —
 share and adapt freely, including commercially, with attribution. Full terms:
 [`LICENSE`](LICENSE) in this directory (and the repository-root
@@ -127,7 +127,7 @@ share and adapt freely, including commercially, with attribution. Full terms:
 
 This is the **only** dataset in the repository under an open licence. The
 issue-#26 reproduction harness is separately under the MIT License
-(`/LICENSE` exception (b), and [`../issue26/LICENSE`](../issue26/LICENSE));
+(`/LICENSE` exception (b), and [`../repair_ab_repro/LICENSE`](../repair_ab_repro/LICENSE));
 everything else remains proprietary ("All rights reserved").
 
 The dataset embeds LLM-generated Faust source and natural-language prompts

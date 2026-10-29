@@ -4,7 +4,7 @@ Faust repair corpus — license
 Files covered
 -------------
     bench/corpora/repair_corpus_20260830.json
-    bench/issue26/SCHEMA.md   (the field-by-field data dictionary)
+    bench/repair_ab_repro/SCHEMA.md   (the field-by-field data dictionary)
 
 These files, and no others in this repository, are licensed under the
 

@@ -3,6 +3,161 @@
 #include "ParamMap.h"        // mapZoneToSlot, for LoadMode::Fresh (PF-020)
 #include "ParamIdentity.h"   // kSchemeVersion, stamped into the state blob
 #include <cmath>
+#include <mutex>
+
+// ---------------------------------------------------------------------------
+// FileLogger install (PF-074 follow-on). Before this, every juce::Logger::
+// writeToLog call in this file and FaustEngine.cpp fell through to
+// outputDebugString -> an unbuffered std::cerr write
+// (juce_SystemStats_linux.cpp:46-49) that a GUI-launched DAW simply discards.
+// That is why a real incident (docs/BUGS.md PF-074) left no trace at all.
+//
+// #if JucePlugin_Build_VST3 || JucePlugin_Build_Standalone: PluginProcessor.cpp
+// is compiled into all 25 build targets via the shared PF_CORE_SOURCES list
+// (host/CMakeLists.txt), including 16 juce_add_console_app test harnesses and
+// 7 bare add_executables. Both macros are defined ONLY on targets created
+// through juce_add_plugin's per-format machinery
+// (JUCEModuleSupport.cmake:280 -- target_compile_definitions(${target} ...
+// "JucePlugin_Build_${opt}=${flag_value}")); everywhere else they are plain
+// undefined identifiers, which the preprocessor evaluates as 0 in a #if --
+// not an error. So this compiles to nothing in every test harness (keeping
+// them on the project's existing tempDirectory convention, never the real
+// $HOME) and to a real install in exactly the two plugin targets.
+#if JucePlugin_Build_VST3 || JucePlugin_Build_Standalone
+namespace
+{
+    // JUCE's FileLogger has no ongoing rotation: the size cap in its
+    // constructor is checked ONCE, at construction (juce_FileLogger.h:51-52),
+    // and createDateStampedLogger() passes 0 for it anyway since
+    // getNonexistentSibling() always makes a fresh file
+    // (juce_FileLogger.cpp:121-131) -- so left alone this grows one file per
+    // DAW session forever. Mirrors Projucer's own hand-rolled pruning
+    // (jucer_Application.cpp's deleteLogger(), which keeps the newest 50) --
+    // JUCE provides nothing here on its own.
+    constexpr int kMaxKeptLogs = 30;
+
+    void prunePastKeptLogs(const juce::File& logDir, const juce::String& filePrefix)
+    {
+        if (! logDir.isDirectory())
+            return;
+
+        juce::Array<juce::File> matching;
+        for (const auto& entry : juce::RangedDirectoryIterator(logDir, false, filePrefix + "*"))
+            matching.add(entry.getFile());
+
+        if (matching.size() <= kMaxKeptLogs)
+            return;
+
+        // createDateStampedLogger names files "<prefix><YYYY-MM-DD_HH-MM-SS>",
+        // so a plain lexicographic sort is already a correct chronological one.
+        matching.sort();
+        for (int i = 0; i < matching.size() - kMaxKeptLogs; ++i)
+            matching[i].deleteFile();
+    }
+
+    // Refcounted install/teardown -- NOT a leak-and-forget. (An earlier version
+    // of this deliberately leaked the FileLogger instead, reasoning that
+    // leaking one small object for the process's life was a cheap trade
+    // against the multi-instance hazards below. That reasoning was wrong in
+    // practice, not just in theory: actually running the Standalone build
+    // showed JUCE's own JUCE_LEAK_DETECTOR firing on every quit --
+    // "*** Leaked objects detected: 1 instance(s) of class FileLogger",
+    // juce_LeakedObjectDetector.h:92 -- a live jassert on every developer run
+    // of the Debug build tools/check.sh produces. Refcounting is the correct
+    // fix, confirmed by rerunning after the change, not a tradeoff to
+    // document around.)
+    //
+    // A DAW routinely loads more than one instance of this same plugin in one
+    // process, and Logger::currentLogger is one process-wide static
+    // (juce_Logger.cpp:35) -- so install happens on the FIRST live instance
+    // and teardown on the LAST, under a mutex because
+    // Logger::setCurrentLogger/getCurrentLogger are not themselves
+    // thread-safe (a plain non-atomic static, juce_Logger.cpp:35,37,42-43).
+    // This project's own test harnesses construct PluginForgeProcessor
+    // instances nested inside one another (e.g. StatePersistenceTest.cpp's
+    // `donor` constructed inside a scope that already holds a live processor)
+    // -- irrelevant here since the #if above compiles this whole file-local
+    // namespace out of every test target, so only the real multi-instance-DAW
+    // case ever reaches this code.
+    std::mutex& fileLoggerMutex()
+    {
+        static std::mutex m;
+        return m;
+    }
+
+    int& fileLoggerRefCount()
+    {
+        static int count = 0;
+        return count;
+    }
+
+    juce::FileLogger*& installedFileLogger()
+    {
+        static juce::FileLogger* logger = nullptr;
+        return logger;
+    }
+
+    void acquireFileLogger()
+    {
+        std::lock_guard<std::mutex> lock(fileLoggerMutex());
+        if (fileLoggerRefCount()++ > 0)
+            return; // an earlier live instance already installed it
+
+        const juce::String filePrefix = (PF_IS_SYNTH != 0)
+                                             ? "PluginForge-Synth_"
+                                             : "PluginForge-Host_";
+
+        // getSystemLogFileFolder() (juce_FileLogger.cpp:102-109) resolves to
+        // userApplicationDataDirectory on Linux -- ~/.config, via
+        // XDG_CONFIG_HOME -- with no automatic "/Logs" subfolder of its own;
+        // Projucer adds that subfolder itself the same way, by folding it
+        // into the subdirectory argument below. "Incant-Audio" (not
+        // "PluginForge") matches this repo's one existing precedent for a
+        // plugin-written user-data path -- SoundfetchClient::defaultCacheRoot()
+        // already uses ~/.config/Incant-Audio/Samples -- and CLAUDE.md's
+        // branding rule: "Incant Audio" for anything user-facing, which a log
+        // folder is.
+        const juce::File logDir = juce::File::getSpecialLocation(
+                                       juce::File::userApplicationDataDirectory)
+                                       .getChildFile("Incant-Audio")
+                                       .getChildFile("Logs");
+
+        prunePastKeptLogs(logDir, filePrefix);
+
+        auto* logger = juce::FileLogger::createDateStampedLogger(
+            "Incant-Audio/Logs", filePrefix, ".log",
+            juce::String(JucePlugin_Name) + " log opened "
+                + juce::Time::getCurrentTime().toString(true, true));
+
+        // Fail open: a logger that could not be created (read-only path, full
+        // disk) costs a log, never a generation -- the same rationale
+        // llm/generate.py's own prompt logger states for the identical
+        // situation (log_user_prompt()'s docstring).
+        if (logger != nullptr)
+        {
+            installedFileLogger() = logger;
+            juce::Logger::setCurrentLogger(logger);
+        }
+    }
+
+    void releaseFileLogger()
+    {
+        std::lock_guard<std::mutex> lock(fileLoggerMutex());
+        if (--fileLoggerRefCount() > 0)
+            return; // other live instances still need it
+
+        if (installedFileLogger() != nullptr)
+        {
+            // Order matters: juce::Logger::~Logger() asserts currentLogger !=
+            // this (juce_Logger.cpp:28-33), so the global pointer must be
+            // cleared before the object it points at is destroyed.
+            juce::Logger::setCurrentLogger(nullptr);
+            delete installedFileLogger();
+            installedFileLogger() = nullptr;
+        }
+    }
+}
+#endif
 
 // SUBTLE: the input bus is REQUIRED for the effect target and OPTIONAL for the
 // instrument target, and that single boolean is what decides whether a DAW will
@@ -22,6 +177,9 @@ PluginForgeProcessor::PluginForgeProcessor()
       apvts(*this, nullptr, "STATE", createParameterLayout()),
       paramPool(apvts)
 {
+#if JucePlugin_Build_VST3 || JucePlugin_Build_Standalone
+    acquireFileLogger();
+#endif
 }
 
 PluginForgeProcessor::~PluginForgeProcessor()
@@ -32,6 +190,15 @@ PluginForgeProcessor::~PluginForgeProcessor()
     // paramPool, so ~FaustEngine would otherwise run after ~ParamPool — with a
     // compile potentially still in flight calling remap() on a destroyed pool.
     faustEngine.shutdown();
+
+#if JucePlugin_Build_VST3 || JucePlugin_Build_Standalone
+    // After faustEngine.shutdown(), deliberately: that call joins this
+    // instance's own compile worker, so by the time the logger might be torn
+    // down (only on the LAST live instance -- see releaseFileLogger()), this
+    // instance's own thread that could still call writeToLog is guaranteed
+    // already stopped.
+    releaseFileLogger();
+#endif
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout
@@ -652,6 +819,23 @@ void PluginForgeProcessor::loadFaustCode(const juce::String& faustCode,
                 // thread can never observe a blob whose values, labels and
                 // assignment came from different compiles.
                 currentSlotIds = remapResult.slotIds;
+
+                // PF-082: a zone-stripped replay copy, captured in the same
+                // critical section for the same reason as currentSlotIds above.
+                // `zone` is this DSP instance's live memory and dangles the
+                // moment it is replaced; `params` (= paramPool.publishedSlots())
+                // is only safe to read for the rest of THIS compile-thread call
+                // (PluginEditor.cpp's own comment on the onFaustCompileSuccess
+                // callback says the same thing about its copy). Every entry
+                // gets a non-null sentinel in place of its real zone so a
+                // later reader's `zone != nullptr` occupancy check -- the only
+                // thing any consumer does with zone outside pushToFaust --
+                // keeps working without ever storing something dereferenceable.
+                lastPublishedParamsSnapshot = params;
+                static FAUSTFLOAT replaySentinel = 0.0f;
+                for (auto& p : lastPublishedParamsSnapshot)
+                    if (p.zone != nullptr)
+                        p.zone = &replaySentinel;
             }
 
             // A new patch gets a clean verdict: clear any latched mute from the
@@ -689,10 +873,28 @@ void PluginForgeProcessor::loadFaustCode(const juce::String& faustCode,
             // this thread, while the buffer is live and published.
             if (onFaustCompileSuccess)
                 onFaustCompileSuccess(paramPool.publishedSlots());
+
+            // PF-074 follow-on: which LoadMode + prompt drove this compile was
+            // invisible anywhere outside the editor's own in-memory state. One
+            // line, after the swap is fully committed, so a live log can answer
+            // "did the New/Add/Redo the user pressed actually produce a healthy
+            // DSP" without needing the DAW session itself.
+            juce::Logger::writeToLog(
+                "PluginForge: compile OK, mode="
+                + juce::String(mode == LoadMode::Fresh ? "Fresh"
+                                   : mode == LoadMode::Iterate ? "Iterate" : "Restore")
+                + " instrument=" + juce::String(faustEngine.isInstrument() ? "yes" : "no")
+                + " family=" + resolvedFamily
+                + " prompt=\"" + prompt + "\"");
         }
         else
         {
-            juce::Logger::writeToLog("FaustEngine compile error: " + juce::String(error));
+            juce::Logger::writeToLog(
+                "FaustEngine compile error: " + juce::String(error)
+                + " (mode="
+                + juce::String(mode == LoadMode::Fresh ? "Fresh"
+                                   : mode == LoadMode::Iterate ? "Iterate" : "Restore")
+                + ")");
 
             // Fire the canonical failure callback plus the deprecated alias
             // (FLEET req #7). Both are fired only until S3 migrates the editor's
@@ -796,6 +998,11 @@ static const juce::Identifier kUiStyleId       ("uiStyle");
 // Added 2026-09-01. A v3 AMENDMENT, not a schema bump -- see the "generated-
 // plugin faces" paragraph in the format block above. Absent => UiIr::empty().
 static const juce::Identifier kUiIrId          ("uiIr");
+// Added 2026-09-08 (ADR-035 A5). A v3 AMENDMENT, not a schema bump: absent in
+// every earlier blob, restored as "", which uiIrForRestoredSource() treats as
+// "no match" -- so an old project reopens re-deriving and re-requesting its
+// face exactly as it did before.
+static const juce::Identifier kUiIrSourceKeyId ("uiIrSourceKey");
 // schemaVersion 2 (2026-08-02). The slot -> ParamIdentity map, and the derivation
 // scheme that produced it. See getStateInformation for the format and
 // setStateInformation for what a v1 blob (which has none of this) does instead.
@@ -837,10 +1044,31 @@ UiIr::Layout PluginForgeProcessor::uiIr() const
     return currentUiIr;
 }
 
-void PluginForgeProcessor::setUiIr(const UiIr::Layout& layout)
+void PluginForgeProcessor::setUiIr(const UiIr::Layout& layout, const juce::String& sourceKey)
 {
     std::lock_guard<std::mutex> lock(metaMutex);
-    currentUiIr = layout;
+    currentUiIr          = layout;
+    currentUiIrSourceKey = sourceKey;
+}
+
+UiIr::Layout PluginForgeProcessor::uiIrForRestoredSource(const juce::String& sourceKey) const
+{
+    std::lock_guard<std::mutex> lock(metaMutex);
+    if (sourceKey.isNotEmpty() && sourceKey == currentUiIrSourceKey)
+        return currentUiIr;
+    return UiIr::empty();
+}
+
+juce::String PluginForgeProcessor::uiIrSourceKeyForTest() const
+{
+    std::lock_guard<std::mutex> lock(metaMutex);
+    return currentUiIrSourceKey;
+}
+
+FaustEngine::ParamList PluginForgeProcessor::lastPublishedParamsForReplay() const
+{
+    std::lock_guard<std::mutex> lock(metaMutex);
+    return lastPublishedParamsSnapshot;
 }
 
 void PluginForgeProcessor::getStateInformation(juce::MemoryBlock& destData)
@@ -863,6 +1091,11 @@ void PluginForgeProcessor::getStateInformation(juce::MemoryBlock& destData)
         root.setProperty(kUiIrId,
                          juce::JSON::toString(UiIr::toVar(currentUiIr), true),
                          nullptr);
+        // ADR-035 A5: the source key currentUiIr is bound to, so a restore can
+        // tell a still-valid saved face from one left over from a different
+        // patch. Absent in a pre-2026-09-08 blob -> restored as "" -> never
+        // matches -> the editor re-derives and re-requests exactly as before.
+        root.setProperty(kUiIrSourceKeyId, currentUiIrSourceKey, nullptr);
 
         // ── The slot -> identity map (schemaVersion 2) ──────────────────────
         // Without this, a restore knows every knob's VALUE and nothing about
@@ -1031,10 +1264,16 @@ void PluginForgeProcessor::setStateInformation(const void* data, int sizeInBytes
     // returns "", juce::JSON::parse("") yields a void var, and UiIr::parse()
     // maps that to UiIr::empty() (schema 0) -- the "no IR" state those blobs
     // were saved in. A malformed or newer-schema string lands on the same
-    // fallback. Restored but not yet consumed for rendering (see uiIr()'s
-    // header): the editor re-derives on the restore recompile.
+    // fallback. ADR-035 A5: the editor re-applies this on the restore recompile
+    // IFF it is a schema-3 face whose source key still matches (uiIrForRestoredSource);
+    // a derived schema-0/2 layout is rebuilt from the params as before.
     const UiIr::Layout uiIrLayout =
         UiIr::parse(juce::JSON::parse(root.getProperty(kUiIrId, juce::String()).toString()));
+    // ADR-035 A5. "" for a pre-2026-09-08 blob, which never matches a live
+    // source key, so the editor re-derives and re-requests exactly as it did
+    // before this attribute existed.
+    const juce::String uiIrSourceKey =
+        root.getProperty(kUiIrSourceKeyId, juce::String()).toString();
 
     {
         std::lock_guard<std::mutex> lock(metaMutex);
@@ -1044,6 +1283,7 @@ void PluginForgeProcessor::setStateInformation(const void* data, int sizeInBytes
         currentGenerationFamilySource = familySource;
         currentUiStyle     = style;
         currentUiIr        = uiIrLayout;
+        currentUiIrSourceKey = uiIrSourceKey;
     }
 
     // Tell any open editor before the restore recompile below: the compile will

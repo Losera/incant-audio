@@ -24,12 +24,28 @@ public:
         juce::String error, localPath;
     };
 
+    // PF-056 legibility preflight: `<provider> status --json` is a non-network
+    // credential doctor (soundfetch cli.py's status_hint/status branch) --
+    // it reports whether a provider's credentials are configured without ever
+    // printing the credential itself. credentialsConfigured is true both when
+    // a provider needs none (archive, openverse -- no "status" key at all in
+    // their payload) and when one is present and set; it is false only when a
+    // provider that needs a key reports it missing. This cannot see whether a
+    // *configured* key is valid -- that only shows up as a search/download 403.
+    struct ProviderStatus
+    {
+        bool ok = false;
+        bool credentialsConfigured = true;
+        juce::String hint, error;
+    };
+
     explicit SoundfetchClient(juce::File cacheRoot = defaultCacheRoot());
     SearchResponse search(const juce::String& provider, const juce::String& query,
                           int maxResults = kDefaultMaxResults);
     DownloadResponse download(const juce::String& provider,
                               const juce::String& providerId,
                               const juce::String& manifestPath);
+    ProviderStatus status(const juce::String& provider);
     void cancel();
 
     static juce::File defaultCacheRoot();

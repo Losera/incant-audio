@@ -398,14 +398,19 @@ class TestIncrementalWrite:
         response = MagicMock()
         response.status_code = 429
         response.headers = {"Retry-After": "86400"}
-        response.text = '{"error":"daily quota"}'
+        # Deliberately NOT a daily-quota body (contrast with the sibling test
+        # above) -- this control isolates budget-awareness from quota
+        # classification. A daily-quota 429 is now typed and fails fast
+        # (providers.QuotaExhausted) regardless of budget; a generic throttle
+        # with no budget still blindly retries, which is what this pins.
+        response.text = '{"error":"rate limited, try again later"}'
         sleeps = []
 
         # Legacy benchmark behavior: budget=None accepts every server delay,
         # retries five times, and asks to sleep four full days in aggregate.
         with patch.object(efs.providers.httpx, "post", return_value=response) as post, \
              patch.object(efs.providers.time, "sleep", side_effect=sleeps.append):
-            with pytest.raises(RuntimeError, match="failed after 5 attempts"):
+            with pytest.raises(efs.providers.RateLimited, match="HTTP 429"):
                 efs.providers._post_with_backoff(
                     "https://example.invalid", {}, {}, budget=None)
 

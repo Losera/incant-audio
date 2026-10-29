@@ -166,7 +166,12 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
         face.components = safeThis->lastDerivedComponentsForUiFace;
         safeThis->paramGridPanel.applyUiIr(face);
         safeThis->applyGeneratedFace(face.theme);
-        safeThis->processor.setUiIr(face);
+        // Stamp the face with the key of the source it describes so a later
+        // reopen re-applies it without a regenerate (ADR-035 A5). currentSource()
+        // is the patch this face was produced for -- the request rode the
+        // compile that committed it.
+        safeThis->processor.setUiIr(
+            face, juce::String(safeThis->processor.currentSource().hashCode64()));
     };
     recommendationPanel.onGenerate = [safeThis = juce::Component::SafePointer<PluginForgeEditor>(this)]
         (const juce::var& plan, const juce::String& provider, const juce::String& model)
@@ -299,29 +304,9 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
             if (safeThis->promptPanel.priorSourceDroppedForTest())
                 status += "  (prior source dropped — refine became a fresh generation)";
             safeThis->promptPanel.setStatus(status);
-            safeThis->paramGridPanel.refreshParamKnobs(params);
-            // ADR-022 Track 1.2: derive a sectioned layout purely from Faust
-            // group nesting already present in `params` -- no prompt change,
-            // no LLM involvement. Called unconditionally; deriveLayoutFromGroups
-            // itself leaves `sections` empty when sectioning would not help,
-            // and applyUiIr's own "sections.empty()" branch is already the
-            // "render the flat grid" path (ADR-029 §4 -- see that function's
-            // comment for why this moved off ir.schema != 1), so an ungrouped
-            // or sparse patch is unaffected byte-for-byte.
-            const auto derivedLayout = ParamGridPanel::deriveLayoutFromGroups(
-                params, safeThis->processor.isInstrumentForTest());
-            safeThis->paramGridPanel.applyUiIr(derivedLayout);
-            // ADR-035 Step 3: dress paramGridPanel in the layout's theme.
-            // deriveLayoutFromGroups() only ever produces the Ember default,
-            // so this is always a no-op detach FROM THIS CALL -- the ui_face
-            // request below is what may later replace `derivedLayout` with a
-            // real theme, asynchronously, via the exact same two calls.
-            safeThis->applyGeneratedFace(derivedLayout.theme);
-            // Hand the layout to the processor so it rides the state blob
-            // (UiIr schema 3, Step 1). Persistence only -- the restore path
-            // does not feed this back into applyUiIr() yet; this callback
-            // re-derives from `params` on every compile, restore included.
-            safeThis->processor.setUiIr(derivedLayout);
+            const auto rebuild = safeThis->rebuildGridAndFace(params);
+            const UiIr::Layout& layoutToApply = rebuild.layout;
+            const bool haveCachedFace = rebuild.usedCachedFace;
 
             // ADR-035 §5/A3b: post-compile UI face request, queued on
             // PromptPanel's own worker (requestUiFace() -- see its header
@@ -334,6 +319,11 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
             // (no script resolved, timeout, malformed JSON, an explicit
             // schema-0 decline) leaves it exactly as applied above -- see
             // llm/ui_face.py's "never a broken face, never bad audio".
+            //
+            // Skipped entirely when a cached face was just restored (ADR-035
+            // A5): the accepted face is already on screen and re-requesting it
+            // would only spend quota to reproduce it.
+            if (! haveCachedFace)
             {
                 juce::Array<juce::var> paramsJson;
                 for (const auto& p : params)
@@ -381,7 +371,7 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
                     // Read back by onUiFaceResult (set once in the
                     // constructor) once the request completes -- see
                     // lastDerivedComponentsForUiFace's header comment.
-                    safeThis->lastDerivedComponentsForUiFace = derivedLayout.components;
+                    safeThis->lastDerivedComponentsForUiFace = rebuild.derivedComponents;
                     safeThis->promptPanel.requestUiFace(juce::var(reqObj));
                 }
             }
@@ -432,6 +422,77 @@ PluginForgeEditor::PluginForgeEditor(PluginForgeProcessor& p)
                 safeThis->keyboardPanel.focusForPlaying();
         });
     };
+
+    // PF-082: REAPER (and any other VST3 host following the standard
+    // IPlugView lifecycle) destroys and recreates this editor on tab-away /
+    // tab-back -- `removed()` drops the JUCE ContentWrapperComponent,
+    // `attached()` later calls createEditor() fresh (see
+    // juce_audio_plugin_client_VST3.cpp). The processor is untouched by
+    // this, so currentFaustSource/currentUiIr/the published params all
+    // survive -- but nothing above re-asked for them, because the ONLY code
+    // that has ever built the grid or attached a face is the compile-success
+    // callback above, which fires on a COMPILE, not a construction. A
+    // reopen is not a compile, so every other editor construction left the
+    // grid at its freshly-constructed empty state: no controls, no face, no
+    // title but the literal "PluginForge", and updateWindowSizeForParams()
+    // then shrinks the window to its empty-grid height on top of that --
+    // which is what reads as "the GUI disappeared".
+    //
+    // The fix is symmetric with what CodeEditorPanel and PromptPanel already
+    // do in their own constructors (re-seed from the processor's source of
+    // record) -- this just does it for the one panel that carries the
+    // plugin's entire appearance. Guarded on a non-empty snapshot so a
+    // brand-new project (nothing has ever compiled) takes none of this path
+    // and stays exactly as before: an empty grid is correct there.
+    if (const auto replay = processor.lastPublishedParamsForReplay(); ! replay.empty())
+    {
+        rebuildGridAndFace(replay);
+        updateWindowSizeForParams();
+        resized();
+        const bool instrument = processor.isInstrumentForTest();
+        keyboardPanel.setPlayable(instrument);
+    }
+}
+
+PluginForgeEditor::FaceRebuildResult
+PluginForgeEditor::rebuildGridAndFace(const FaustEngine::ParamList& params)
+{
+    paramGridPanel.refreshParamKnobs(params);
+    // ADR-022 Track 1.2: derive a sectioned layout purely from Faust group
+    // nesting already present in `params` -- no prompt change, no LLM
+    // involvement. Called unconditionally; deriveLayoutFromGroups itself
+    // leaves `sections` empty when sectioning would not help, and applyUiIr's
+    // own "sections.empty()" branch is already the "render the flat grid"
+    // path (ADR-029 §4), so an ungrouped or sparse patch is unaffected
+    // byte-for-byte.
+    const auto derivedLayout = ParamGridPanel::deriveLayoutFromGroups(
+        params, processor.isInstrumentForTest());
+
+    // ADR-035 A5: a reopened PROJECT carries the face it was saved with in
+    // the state blob, keyed to the source it describes. PF-082 generalises
+    // the same lookup to a reopened WINDOW: `params` may be arriving from
+    // either a fresh compile or processor.lastPublishedParamsForReplay(), and
+    // in both cases the right face is whatever is cached for the CURRENT
+    // source, if anything is.
+    const juce::String sourceKey =
+        juce::String(processor.currentSource().hashCode64());
+    const UiIr::Layout cachedFace = processor.uiIrForRestoredSource(sourceKey);
+    const bool haveCachedFace = (cachedFace.schema == 3);
+
+    const UiIr::Layout& layoutToApply = haveCachedFace ? cachedFace : derivedLayout;
+    paramGridPanel.applyUiIr(layoutToApply);
+    // ADR-035 Step 3: dress paramGridPanel in the layout's theme.
+    // deriveLayoutFromGroups() only ever produces the Ember default, so
+    // absent a cached face this is a no-op detach -- a later ui_face result
+    // (compile path only, see onFaustCompileSuccess below) may still swap in
+    // a real theme via these same two calls.
+    applyGeneratedFace(layoutToApply.theme);
+    // Hand the layout back to the processor so it rides the state blob,
+    // stamped with the key of the source it describes (ADR-035 A5). Also
+    // correct on a reopen: re-stamping what was already stored is a no-op.
+    processor.setUiIr(layoutToApply, sourceKey);
+
+    return { layoutToApply, haveCachedFace, derivedLayout.components };
 }
 
 void PluginForgeEditor::applyControlStyle(const juce::String& styleName)
@@ -539,6 +600,21 @@ PluginForgeEditor::~PluginForgeEditor()
     // the one contract in one shape (ADR-035 Step 3).
     paramGridPanel.setLookAndFeel(nullptr);
     setLookAndFeel(nullptr);
+
+    // PF-083: the constructor installs three processor callbacks
+    // (onUiStyleChanged, onFaustCompileFailure, onFaustCompileSuccess), each
+    // capturing a SafePointer<PluginForgeEditor> to `this`. The SafePointer
+    // already makes a late firing harmless rather than a use-after-free -- but
+    // "harmless" is not the same as "handled": a compile that finishes after
+    // this destructor runs still fires the callback, the SafePointer resolves
+    // to nullptr, and the result (status text, grid refresh, the style sync)
+    // is silently dropped on the floor instead of just not applying to a dead
+    // editor. Clear all three explicitly so the processor's callback slots
+    // are empty the instant this editor stops existing, rather than lingering
+    // bound to a SafePointer whose only job left is to no-op.
+    processor.onUiStyleChanged = nullptr;
+    processor.onFaustCompileFailure = nullptr;
+    processor.onFaustCompileSuccess = nullptr;
 }
 
 // ADR-035 Step 3. See the header for the contract; the lifetime reasoning is in
@@ -644,6 +720,16 @@ juce::String PluginForgeEditor::gridControlLabelFontNameForTest(int i) const
     return paramGridPanel.controlLabelFontNameForTest(i);
 }
 
+int PluginForgeEditor::gridChipSelectedIndexForTest(int i) const
+{
+    return paramGridPanel.chipSelectedIndexForTest(i);
+}
+
+void PluginForgeEditor::clickGridChipForTest(int i, int chipIndex) const
+{
+    paramGridPanel.clickChipForTest(i, chipIndex);
+}
+
 void PluginForgeEditor::timerCallback()
 {
     // Instant attack, exponential release — the standard meter ballistics that
@@ -673,6 +759,16 @@ void PluginForgeEditor::timerCallback()
                                  : "ran away to full scale";
             promptPanel.setStatus(juce::String("DSP MUTED - output ") + why
                                       + ". Generate again to reset.");
+            juce::Logger::writeToLog(
+                juce::String("PluginForge: OutputGuard MUTED, output ") + why);
+        }
+        else
+        {
+            // PF-074 follow-on: the clearing transition previously had no
+            // record anywhere -- only the engaging one set a UI string, so
+            // there was no way to tell "never muted" apart from "muted, then
+            // cleared by the next successful compile" after the fact.
+            juce::Logger::writeToLog("PluginForge: OutputGuard cleared (new compile succeeded)");
         }
     }
 
