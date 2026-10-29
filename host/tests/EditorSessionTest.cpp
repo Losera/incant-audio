@@ -203,6 +203,17 @@ g = hslider("Gain", 0.5, 0, 1, 0.01);
 process = _ * g, _ * g;
 )";
 
+// ADR-038 F2: a 3-value nentry (SAW/SQR/TRI's shape) alongside a plain
+// continuous control, so the scenario can assert the enum renders as a
+// ChipRow while an ordinary slider on the same patch is unaffected. `wave`
+// genuinely affects the output (shifts the oscillator's pitch) for the same
+// constant-folding reason kEveryKindPatch's own comment names.
+const char* kChipEnumPatch = R"(import("stdfaust.lib");
+wave = nentry("Waveform", 0, 0, 2, 1);
+gain = hslider("Gain", 0.5, 0, 1, 0.01);
+process = os.osc(220 + wave * 10) * gain, os.osc(220 + wave * 10) * gain;
+)";
+
 // Latches OutputGuard's Runaway trip. Modelled on OfflineRenderTest's
 // pathological controls: a constant at full scale for long enough to trip.
 const char* kRunawayPatch = R"(import("stdfaust.lib");
@@ -4347,6 +4358,135 @@ void scenario58_windowReopenRebuildsGridAndFace(const juce::File& tmp)
     snapshot(e2, "58_window_reopen_face_preserved");
 }
 
+// 59 — PF-083. The constructor installs three processor callbacks
+// (onUiStyleChanged, onFaustCompileFailure, onFaustCompileSuccess), each
+// capturing a SafePointer<PluginForgeEditor> to `this`. Before the fix,
+// destroying the editor left all three still assigned on the processor --
+// harmless in the sense that the SafePointer makes a late firing a no-op
+// rather than a use-after-free, but any compile that finished after close
+// still silently vanished instead of just not applying to a dead editor.
+// This scenario does not need a real compile: it only has to show the
+// processor's callback slots are non-empty right after construction (so the
+// test would be vacuously green if the constructor ever stopped assigning
+// them) and empty again the instant the editor that assigned them is gone.
+void scenario59_destructorClearsProcessorCallbacks()
+{
+    scenario("59. closing the editor clears the processor's compile callbacks",
+             "PF-083: onUiStyleChanged/onFaustCompileFailure/onFaustCompileSuccess "
+             "must not stay bound to a destroyed editor's SafePointer.");
+
+    PluginForgeProcessor processor;
+    processor.prepareToPlay(48000.0, 512);
+
+    check(!static_cast<bool>(processor.onUiStyleChanged)
+          && !static_cast<bool>(processor.onFaustCompileFailure)
+          && !static_cast<bool>(processor.onFaustCompileSuccess),
+          "no editor has ever existed yet, so all three start empty");
+
+    {
+        PluginForgeEditor e { processor };
+        check(static_cast<bool>(processor.onUiStyleChanged)
+              && static_cast<bool>(processor.onFaustCompileFailure)
+              && static_cast<bool>(processor.onFaustCompileSuccess),
+              "constructing an editor assigns all three callback slots");
+        // e destroyed here -- the window-close half of a tab-away.
+    }
+
+    check(!static_cast<bool>(processor.onUiStyleChanged),
+          "RED before the fix: onUiStyleChanged must be cleared on close, not "
+          "left bound to a dead SafePointer");
+    check(!static_cast<bool>(processor.onFaustCompileFailure),
+          "RED before the fix: onFaustCompileFailure must be cleared on close");
+    check(!static_cast<bool>(processor.onFaustCompileSuccess),
+          "RED before the fix: onFaustCompileSuccess must be cleared on close -- "
+          "this is the slot whose silent drop PF-083 is actually about, since "
+          "it is what would have refreshed the grid/status on a late compile");
+}
+
+// 60 — ADR-038 F2's own "done when": a small discrete nentry renders as a
+// chip row, and clicking a chip moves the ACTUAL slot value, not just the
+// widget's own idea of what's lit. Renumbered from 58 -> 60 on merge with
+// origin/main (2026-10-20): PF-082/PF-083 landed scenarios 58/59 on main
+// while this branch sat unpushed, so this scenario moved to the next free
+// number rather than colliding with either.
+void scenario60_chipEnumRendersAndToggles()
+{
+    scenario("60. a 3-value nentry renders as a chip row and toggling moves the slot",
+             "ADR-038 F2 -- E1 was the export spike, this is the face-ladder counterpart");
+
+    Session s;
+    const bool ok = loadAndSettle(s, kChipEnumPatch, 2);
+    check(ok, "a 2-param patch (a 3-value enum + a plain slider) compiled and reached the grid");
+    if (! ok) return;
+
+    auto slotOfLabel = [&](const juce::String& want) {
+        for (int i = 0; i < s.editor.gridControlCountForTest(); ++i)
+            if (s.editor.gridControlLabelForTest(i) == want)
+                return i;
+        return -1;
+    };
+
+    const int waveSlot = slotOfLabel("Waveform");
+    const int gainSlot = slotOfLabel("Gain");
+    check(waveSlot >= 0 && gainSlot >= 0, "both 'Waveform' and 'Gain' controls exist");
+    if (waveSlot < 0)
+        return;
+
+    const auto waveKind = s.editor.gridControlKindForTest(waveSlot);
+    check(waveKind == WidgetKind::ChipRow,
+          juce::String("'Waveform' renders as a ChipRow, got ")
+              + ParamGridPanel::widgetKindName(waveKind));
+
+    // The plain slider on the SAME patch must be unaffected -- this is a
+    // per-control decision, not a mode switch.
+    if (gainSlot >= 0)
+    {
+        const auto gainKind = s.editor.gridControlKindForTest(gainSlot);
+        check(gainKind == WidgetKind::HorizontalSlider,
+              juce::String("'Gain' is unaffected, still a HorizontalSlider, got ")
+                  + ParamGridPanel::widgetKindName(gainKind));
+    }
+
+    check(s.editor.gridChipSelectedIndexForTest(waveSlot) == 0,
+          "chip 0 (the patch's declared default) is selected before any click");
+
+    s.editor.clickGridChipForTest(waveSlot, 2);
+    pump(50);
+
+    check(s.editor.gridChipSelectedIndexForTest(waveSlot) == 2,
+          "chip 2 is selected after clicking it, chip 0 is not");
+
+    // Independently confirm the click moved the ACTUAL parameter, not just the
+    // ChipRow's own cached idea of which chip is lit -- same "ask the
+    // widget/param, not the decision logic" convention this file's other
+    // *ForTest accessors already follow (controlValueForTest's own header
+    // comment). A 0..2 range at chip index 2 is slot 1.0 exactly.
+    if (auto* rp = s.processor.apvts.getParameter(ParamPool::slotId(waveSlot)))
+        check(std::abs(rp->getValue() - 1.0f) < 1.0e-4f,
+              "the APVTS slot itself reached 1.0 (index 2 of a 0..2 range), not "
+              "merely a widget that LOOKS toggled");
+    else
+        check(false, "APVTS exposes the Waveform slot's parameter");
+
+    snapshot(s.editor, "60_chip_row");
+
+    // A second snapshot WITH a face attached (scenario 50's own Velvet Drift
+    // tokens) -- the filled/outlined chip paint (drawToggleButton override,
+    // GeneratedFaceLookAndFeel.h) only ever engages once a
+    // GeneratedFaceLookAndFeel is attached; the snapshot above used the
+    // shell's default Ember LookAndFeel, which never exercises it. Whether
+    // this READS right is a human judgement (COLLABORATION.md §1) -- no
+    // assertion here, this is the artifact for that look.
+    UiIr::Theme velvet;
+    velvet.surface = "#0e0f13";
+    velvet.text    = "#eef2ee";
+    velvet.accent  = "#8fe3c1";
+    velvet.display = "grotesk";
+    s.editor.applyGeneratedFace(velvet);
+    check(s.editor.gridFaceActiveForTest(), "the face attached for the chip-styled snapshot");
+    snapshot(s.editor, "60b_chip_row_generated_face");
+}
+
 } // namespace
 
 int main()
@@ -4427,6 +4567,8 @@ int main()
     scenario56_uiFaceEnvGuardSuppressesRequest(tmp);
     scenario57_saveBeforeFaceReturnsRegeneratesOnReopen(tmp);
     scenario58_windowReopenRebuildsGridAndFace(tmp);
+    scenario59_destructorClearsProcessorCallbacks();
+    scenario60_chipEnumRendersAndToggles();
 
     tmp.deleteRecursively();
 

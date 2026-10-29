@@ -140,6 +140,10 @@ public:
     juce::Colour gridControlWidgetColourForTest(int i, int colourId) const;
     // A3c: the ACTUAL typeface name a control's name label resolves to.
     juce::String gridControlLabelFontNameForTest(int i) const;
+    // ADR-038 F2: which chip a ChipRow control currently has lit, and a way
+    // to simulate pressing one without a real mouse event.
+    int          gridChipSelectedIndexForTest(int i) const;
+    void         clickGridChipForTest(int i, int chipIndex) const;
     // T1 (ADR-022 Track 1.2): the sectioned layout applyUiIr() is currently
     // holding, if any. Forwarded rather than exposing paramGridPanel itself,
     // same rule as every accessor above.

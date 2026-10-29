@@ -581,6 +581,21 @@ PluginForgeEditor::~PluginForgeEditor()
     // the one contract in one shape (ADR-035 Step 3).
     paramGridPanel.setLookAndFeel(nullptr);
     setLookAndFeel(nullptr);
+
+    // PF-083: the constructor installs three processor callbacks
+    // (onUiStyleChanged, onFaustCompileFailure, onFaustCompileSuccess), each
+    // capturing a SafePointer<PluginForgeEditor> to `this`. The SafePointer
+    // already makes a late firing harmless rather than a use-after-free -- but
+    // "harmless" is not the same as "handled": a compile that finishes after
+    // this destructor runs still fires the callback, the SafePointer resolves
+    // to nullptr, and the result (status text, grid refresh, the style sync)
+    // is silently dropped on the floor instead of just not applying to a dead
+    // editor. Clear all three explicitly so the processor's callback slots
+    // are empty the instant this editor stops existing, rather than lingering
+    // bound to a SafePointer whose only job left is to no-op.
+    processor.onUiStyleChanged = nullptr;
+    processor.onFaustCompileFailure = nullptr;
+    processor.onFaustCompileSuccess = nullptr;
 }
 
 // ADR-035 Step 3. See the header for the contract; the lifetime reasoning is in
@@ -686,6 +701,16 @@ juce::String PluginForgeEditor::gridControlLabelFontNameForTest(int i) const
     return paramGridPanel.controlLabelFontNameForTest(i);
 }
 
+int PluginForgeEditor::gridChipSelectedIndexForTest(int i) const
+{
+    return paramGridPanel.chipSelectedIndexForTest(i);
+}
+
+void PluginForgeEditor::clickGridChipForTest(int i, int chipIndex) const
+{
+    paramGridPanel.clickChipForTest(i, chipIndex);
+}
+
 void PluginForgeEditor::timerCallback()
 {
     // Instant attack, exponential release — the standard meter ballistics that
@@ -715,6 +740,16 @@ void PluginForgeEditor::timerCallback()
                                  : "ran away to full scale";
             promptPanel.setStatus(juce::String("DSP MUTED - output ") + why
                                       + ". Generate again to reset.");
+            juce::Logger::writeToLog(
+                juce::String("PluginForge: OutputGuard MUTED, output ") + why);
+        }
+        else
+        {
+            // PF-074 follow-on: the clearing transition previously had no
+            // record anywhere -- only the engaging one set a UI string, so
+            // there was no way to tell "never muted" apart from "muted, then
+            // cleared by the next successful compile" after the fact.
+            juce::Logger::writeToLog("PluginForge: OutputGuard cleared (new compile succeeded)");
         }
     }
 
