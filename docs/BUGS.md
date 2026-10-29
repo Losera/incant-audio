@@ -122,6 +122,7 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-083 | **`~PluginForgeEditor` never clears `processor.onFaustCompileSuccess`/`onFaustCompileFailure`/`onUiStyleChanged`.** Found during the PF-082 diagnosis. If a Faust compile completes on the compile thread while the editor window happens to be closed, the stored `std::function`s still fire; the `SafePointer` null check inside each (`PluginEditor.cpp:272` etc.) makes the call a silent no-op rather than a crash, so the compile result is simply dropped and never replayed when a new editor later appears — compounding with PF-082's own symptom rather than being fixed by its constructor replay (the replay reads the processor's *last published* snapshot, which is correct for the common case, but a compile that finishes *during* the closed window is the one case the snapshot by itself cannot surface until the editor is told to re-read it). Not fixed here; PF-082's scope was the constructor-time replay, not callback lifetime | medium | open | S3 Plugin UX | `PluginEditor.cpp:536-550` (destructor), `:272,293` (callback assignments) | 2026-10-09 | — |
 | PF-084 | **Two simultaneously-open editors over the same processor (a REAPER FX-chain editor plus a floating window, or two hosts embedding the same instance) silently race on the single-slot compile callbacks.** Found during the PF-082 diagnosis. `processor.onFaustCompileSuccess`/`onFaustCompileFailure`/`onUiStyleChanged` are each one `std::function` member on the processor; whichever editor constructed most recently overwrites the other's assignment, so only the last-constructed editor's grid/face ever updates on a subsequent compile. `onUiStyleChanged`'s own header comment (`PluginProcessor.h:284-288`) already anticipates a second open editor; the two compile callbacks do not. Out of scope for PF-082, which fixes the single-editor reopen case | low | open | S3 Plugin UX | `PluginProcessor.h:284-288`, `PluginEditor.cpp` (callback assignments) | 2026-10-09 | — |
 | PF-085 | **Generated patches can declare `min = 0` on resonance/Q-like parameters with no floor anywhere in the pipeline — no prompt rule, no generator-side check, no host-side floor.** `ParamMap::mapSlotToZone` (`host/Source/ParamMap.h:130`) delivers a declared minimum to the Faust zone verbatim. On the bare DSP this is an immediate, deterministic NaN: `fi.resonlp`'s `a1 = 1/Q` (`/usr/share/faust/filters.lib:2185-2193`) divides by zero the instant the bound parameter reaches its declared floor. Found during PF-074's first captured repro (`bench/repro/pf074/sweep_driver.cpp` reproduces the NaN on the bare DSP every time); the real host path is shielded at every timescale tried in that repro (`si.smoo`'s slew between the host's 0-1 control and the zone absorbs the jump before the filter sees an exact zero), so this has not been observed live — but the bare-DSP repro shows the hazard is real and only accidentally unobserved so far. Not fixed here: `ParamMap`'s mapping between APVTS and Faust is Tier 2 (COLLABORATION.md §3), and the actual fix is a range decision (a host-side floor, a generator-side rejection, or a prompt rule forbidding `min = 0` on resonance-like controls), not a bug with one obvious patch | medium | open | S1 Backend | `host/Source/ParamMap.h:130`, `bench/repro/pf074/sweep_driver.cpp`, `/usr/share/faust/filters.lib:2185-2193` | 2026-10-18 | — |
+| PF-086 | **`ubuntu-latest` rolled 24.04 -> 26.04 and `pf_cpu_shim` stopped controlling the JIT's ISA, so PF-036's protection is no longer in force in CI.** The shim still loads (its marker symbol resolves) but the CPU name no longer reaches codegen: on 26.04 both arms of `JitTargetTest` emit byte-identical census numbers (tremolo `evex=1 kmask=2 vex=54` under **both** `x86-64` and `znver4`), which is exactly the signature `host/tools/pf_cpu_shim.cpp`'s own docstring predicts -- "a shim that stopped working would make them identical." Not a repo regression: the green run `6c3adf3` (2026-10-21, image `ubuntu24/20261012.334`, `libfaust2t64 amd64 2.70.3+ds`) and the red run `85ca7b5` (2026-10-29, image `ubuntu26/20261025.179`, `libfaust2t64 amd64v3 2.81.10+ds`) have no repo change between them that touches the JIT, the shim, CMake or the workflow. Reproduced green on the dev box (faust 2.88.0, LLVM 23.1.3, `JitTargetTest` built standalone: `x86-64` evex=0/vex=0 vs `znver4` evex=1/vex=63), so the mechanism is sound and LLVM's `@LLVM_23.1` symbol-version bump is not the cause -- 26.04's `amd64v3` (x86-64-v3, AVX2 baseline) libfaust is the material difference. **Mitigated by pinning `runs-on: ubuntu-24.04`, not fixed.** Open question: does the AVX-512-masked EPYC 9V74 runner class that caused PF-036 still exist, i.e. is the shim still needed at all? | high | open | S4 Testing | `.github/workflows/test.yml:85`, `host/tools/pf_cpu_shim.cpp`, `host/tests/JitTargetTest.cpp` | 2026-10-29 | — |
 | PF-082 | **A VST3 host destroying and recreating the plug-in editor (tab-away/tab-back, not a project reload) loses the generated grid and face.** Reported live from a REAPER session. `JUCE/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp:1832-1848,2084-2091` (`removed()`) really does delete `PluginForgeEditor`; `:1781-1792,2266-2277` (`attached()`) really does construct a fresh one. The only code that has ever built `ParamGridPanel`'s controls or attached a generated face is the compile-success callback (`PluginEditor.cpp`'s `processor.onFaustCompileSuccess`, wired from `PluginProcessor.cpp:690-691`), and a bare re-construction is not a compile — `refreshParamKnobs` had exactly one caller in the whole repo before this fix. `currentUiIr`/`currentFaustSource`/the published params all survive in the processor untouched; the editor simply never asked for them, so a fresh one came up with an empty grid, no face, the literal title `"PluginForge"`, and a window shrunk by `updateWindowSizeForParams()` to its empty-grid height — which reads as "the GUI disappeared." `CodeEditorPanel`/`PromptPanel` already re-seed themselves from the processor in their own constructors for the identical reason (`PromptPanel.h:119-124` names the hazard by name); `ParamGridPanel` never got the same treatment. **Fixed:** `PluginProcessor` now keeps a zone-stripped replay snapshot (`lastPublishedParamsSnapshot`/`lastPublishedParamsForReplay()`), and `PluginForgeEditor`'s constructor replays it through a new shared `rebuildGridAndFace()` helper (also used by the compile-success callback) when non-empty. `EditorSessionTest` scenario 58 is the red-then-green proof: 4 checks fail without the constructor replay (grid count, face active, title, accent) and pass with it, with zero regressions across the other 57 scenarios (502 checks total). Filed separately, not folded in: (1) `~PluginForgeEditor` never clears `processor.onFaustCompileSuccess`/`onFaustCompileFailure`/`onUiStyleChanged`, so a compile completing while the window is closed is silently dropped; (2) two simultaneously-open editors overwrite each other's single-slot compile callbacks; (3) `ArchetypeLayout::Result::visuals` (ADR-041 step 1) has no consumer, so a `texture-field` face has a permanently blank display region, independent of this bug | high | fixed | S3 Plugin UX | `PluginEditor.cpp` (`rebuildGridAndFace`, constructor), `PluginEditor.h`, `PluginProcessor.h:333-342,480+`, `PluginProcessor.cpp` (compile-success critical section) | 2026-10-09 | 2026-10-09 |
 
 ---
@@ -2985,3 +2986,60 @@ requirement set — a test that `pip install`s the actual `requirements.txt` int
 venv would have caught this and would catch the next omission; (b) nothing asserts
 `requirements.txt` ⊇ `bench/requirements.txt`, or that every provider adapter's imports are
 covered by a pinned dep.
+
+---
+
+### PF-086 — `pf_cpu_shim` stopped controlling the JIT's ISA when `ubuntu-latest` moved to 26.04. *(open 2026-10-29, pinned not fixed)*
+
+`main` went red on 2026-10-29 with `JitTargetTest` reporting 5 failures, and the cause was
+not in this repository.
+
+**The two runs, either side of the break.** No commit between them touches the JIT, the
+shim, CMake, `host/`, or the workflow:
+
+| | commit | runner image | libfaust | JitTargetTest |
+|---|---|---|---|---|
+| green | `6c3adf3` 2026-10-21 | `ubuntu-24.04` (`ubuntu24/20261012.334`) | `amd64` 2.70.3+ds-1.1build2 | PASSED — 0 failures |
+| red | `85ca7b5` 2026-10-29 | `ubuntu-26.04` (`ubuntu26/20261025.179`) | **`amd64v3`** 2.81.10+ds-1 | FAILED — 5 failures |
+
+**The signature is the one the shim predicted for itself.** `host/tools/pf_cpu_shim.cpp`
+closes with: *"If a future LLVM changes this signature, the symptom is a wrong-looking CPU
+name rather than a silent no-op — and JitTargetTest fails, because it asserts the two CPU
+settings produce DIFFERENT code. A shim that stopped working would make them identical."*
+On 26.04 they are identical — tremolo reports `evex=1 kmask=2 vex=54` under both `x86-64`
+and `znver4`. `pf_cpu_shim_present()` still resolves, so the `.so` loads; it is the
+`getHostCPUName` override that no longer reaches codegen.
+
+**What was ruled out.** Built `JitTargetTest` standalone on the dev box — it links libfaust
+only, no JUCE, so this needs no CMake or JUCE build — against faust 2.88.0 and LLVM 23.1.3:
+
+```
+conservative CPU (x86-64)   tremolo evex=0 kmask=0 vex=0
+AVX-512 CPU (znver4)        tremolo evex=1 kmask=2 vex=63
+PASSED -- 0 failure(s)
+```
+
+So the interposition mechanism still works, and the LLVM symbol-version bump from
+`@LLVM_22.1` (recorded in the shim's docstring) to `@LLVM_23.1` (what libfaust 2.88.0 now
+imports) is **not** the cause — an unversioned `LD_PRELOAD` definition still satisfies the
+versioned reference. libfaust 2.88.0 also still imports only `getHostCPUName`, not
+`getHostCPUFeatures`, so the name is still the documented mechanism.
+
+The material difference is that 26.04 ships libfaust as **`amd64v3`** — Ubuntu's
+x86-64-v3 variant, which requires an AVX2 baseline. Why that defeats interposition is not
+yet established, and establishing it is this defect's remaining work.
+
+**Mitigation, not a fix.** `runs-on` is pinned to `ubuntu-24.04` on both jobs
+(`.github/workflows/test.yml:27,85`), restoring the environment every harness here was
+verified against. Two things this does not do:
+
+1. It does not make PF-036's protection work on 26.04. That protection is **unverified**
+   there, and 24.04 runners will eventually be retired, so this has a deadline.
+2. It does not tell us whether the shim is still needed. PF-036 existed because GitHub's
+   EPYC 9V74 runners named AVX-512 while the hypervisor masked it. If that runner class is
+   gone from the fleet, the right answer may be to delete the shim rather than repair it —
+   and `JitTargetTest`'s red arm would then need re-baselining, because its green arm is
+   only meaningful while the red arm is live.
+
+**Do not bump `runs-on` back to `ubuntu-latest` to turn a red pipeline green.** That is the
+move this entry exists to prevent.
