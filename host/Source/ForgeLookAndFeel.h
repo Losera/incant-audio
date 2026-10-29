@@ -173,13 +173,20 @@ public:
         });
     }
 
-    // Routes every TextButton (codeToggle, styleToggle, and the Faust NumEntry
-    // +/- buttons createSliderButton hands back unmodified) onto Theme's type
-    // scale instead of LookAndFeel_V4's un-themed default
-    // (juce_LookAndFeel_V4.cpp:276-279).
-    juce::Font getTextButtonFont (juce::TextButton&, int) override
+    // Routes every TextButton (the Faust NumEntry +/- buttons createSliderButton
+    // hands back unmodified, and any other TextButton) onto Theme's type scale
+    // instead of LookAndFeel_V4's un-themed default (juce_LookAndFeel_V4.cpp:
+    // 276-279). The disclosure squares (ADR-036 B0, componentID "disclosureSquare")
+    // are the exception: they carry glyphs ("{ }", "◎") that Big Shoulders
+    // Display has no coverage for -- checked with fontTools.getBestCmap() against
+    // BigShouldersDisplay-SemiBold.ttf: U+25CE is absent, so `label()` renders it
+    // as .notdef. JetBrains Mono covers the icon-ish code points, so the squares
+    // ask for `mono()`.
+    juce::Font getTextButtonFont (juce::TextButton& b, int) override
     {
-        return resolveFont (Theme::Type::label());
+        return resolveFont (b.getComponentID() == "disclosureSquare"
+                                ? Theme::Type::mono()
+                                : Theme::Type::label());
     }
 
     // Base implementation (LookAndFeel_V2::createSliderTextBox,

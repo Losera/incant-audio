@@ -275,7 +275,15 @@ public:
     {
         return ParamGridPanel::controlStyleName(paramGridPanel.controlStyle());
     }
-    juce::String styleButtonTextForTest() const { return styleToggle.getButtonText(); }
+    // The disclosure squares carry a glyph, not a caption (ADR-036 B0), so the
+    // style a user can read off the style square is its tooltip. const_cast:
+    // SettableTooltipClient::getTooltip() is non-const only because TooltipClient
+    // declares it so — the body is `{ return tooltipString; }`, a pure getter
+    // (juce_TooltipClient.h:80), no mutation.
+    juce::String styleButtonTooltipForTest() const
+    {
+        return const_cast<juce::TextButton&>(styleToggle).getTooltip();
+    }
 
     void         setCodeVisibleForTest(bool on) { setCodeViewVisible(on); }
     bool         codeVisibleForTest() const { return codeEditorPanel.isVisible(); }
@@ -571,12 +579,19 @@ private:
 
     // Disclosure for the read-only Faust view. Off by default: the code is for
     // the user who wants it, and a no-code tool must not open on a wall of DSL.
-    juce::TextButton codeToggle { "Show code" };
+    // A fixed 30px glyph square since ADR-036 B0 — "{ }", not a caption — so the
+    // title text truncates under a narrow window instead of the control
+    // vanishing. What it means is in its tooltip. Toggle state mirrors
+    // codeEditorPanel.isVisible().
+    juce::TextButton codeToggle { "{ }" };
 
     // Control-style selector. A view control, not a parameter — it never reaches
     // the DSP (see PluginForgeProcessor::setUiStyle). Cycles rather than opening a
     // menu: three options is below the threshold where a popup earns its click.
-    juce::TextButton styleToggle { "Knobs: auto" };
+    // Also a 30px glyph square (ADR-036 B0): a single "◎", the style it is in
+    // named by its tooltip, drawn in the accent when the style is not the
+    // default ("auto").
+    juce::TextButton styleToggle { juce::String (juce::CharPointer_UTF8 ("\xE2\x97\x8E")) };
     void cycleControlStyle();
     // Push a stored style name into the panel and refresh the button caption.
     // Called from the processor's onUiStyleChanged and on construction, so a
