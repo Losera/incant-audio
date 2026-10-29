@@ -1,0 +1,674 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Incant Audio — Generation UX prototype</title>
+  <style>
+    :root {
+      --bg: #050505;
+      --surface: #0c0c0c;
+      --raised: #131313;
+      --raised-2: #191817;
+      --outline: #383838;
+      --outline-hot: #6b3528;
+      --text: #f5f0e6;
+      --muted: #a49b90;
+      --dim: #8a8378;
+      --accent: #ff4b1f;
+      --progress: #ffb03d;
+      --danger: #ec3b52;
+      --good: #69d39a;
+      --info: #75b9e7;
+      --radius: 7px;
+      --shadow: 0 26px 80px rgba(0, 0, 0, .58);
+      font-family: "Work Sans", Inter, ui-sans-serif, system-ui, sans-serif;
+      color-scheme: dark;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 72% 15%, rgba(255, 75, 31, .075), transparent 28rem),
+        linear-gradient(#070707, var(--bg));
+      color: var(--text);
+    }
+
+    button, input, select { font: inherit; }
+    button { color: inherit; }
+    button:focus-visible, input:focus-visible, select:focus-visible {
+      outline: 2px solid var(--progress);
+      outline-offset: 2px;
+    }
+
+    .page {
+      width: min(1180px, calc(100% - 32px));
+      margin: 24px auto 48px;
+    }
+
+    .prototype-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 12px;
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: .02em;
+    }
+
+    .prototype-bar strong { color: var(--text); font-weight: 600; }
+    .state-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+    .state-tabs button {
+      border: 1px solid var(--outline);
+      background: var(--surface);
+      border-radius: 999px;
+      padding: 6px 10px;
+      cursor: pointer;
+      font-size: 11px;
+    }
+    .state-tabs button.active { border-color: var(--accent); color: var(--accent); }
+
+    .plugin {
+      position: relative;
+      min-height: 570px;
+      overflow: hidden;
+      background: var(--bg);
+      border: 1px solid #292929;
+      border-radius: 10px;
+      box-shadow: var(--shadow);
+    }
+
+    .titlebar {
+      height: 42px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #252525;
+      padding: 0 14px 0 16px;
+      background: rgba(8, 8, 8, .94);
+    }
+    .brand {
+      font-family: "Big Shoulders Display", "Arial Narrow", sans-serif;
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: .055em;
+      text-transform: uppercase;
+    }
+    .brand i { color: var(--accent); font-style: normal; }
+    .patch-name { color: var(--muted); font-size: 12px; }
+    .header-actions { display: flex; gap: 8px; }
+
+    .icon-button, .ghost-button {
+      border: 1px solid var(--outline);
+      background: transparent;
+      border-radius: 5px;
+      min-height: 28px;
+      padding: 0 10px;
+      cursor: pointer;
+      color: var(--muted);
+    }
+    .icon-button:hover, .ghost-button:hover { border-color: #5a554f; color: var(--text); }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(0, 1.55fr) minmax(330px, .8fr);
+      min-height: 468px;
+    }
+
+    .instrument {
+      padding: 18px;
+      border-right: 1px solid #292929;
+      background:
+        linear-gradient(125deg, rgba(255,255,255,.018), transparent 40%),
+        var(--bg);
+    }
+    .instrument-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: end;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #252525;
+    }
+    .eyebrow {
+      color: var(--muted);
+      font-family: "Big Shoulders Display", "Arial Narrow", sans-serif;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .15em;
+      text-transform: uppercase;
+    }
+    .instrument-title { margin-top: 4px; font-size: 18px; letter-spacing: .01em; }
+    .live-badge { color: var(--good); font-size: 11px; }
+
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(90px, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+    .control-card {
+      min-height: 145px;
+      border: 1px solid #252525;
+      background: linear-gradient(180deg, #111, #0b0b0b);
+      border-radius: var(--radius);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 11px;
+    }
+    .knob {
+      position: relative;
+      width: 68px;
+      height: 68px;
+      border-radius: 50%;
+      background:
+        radial-gradient(circle at 50% 50%, #161616 52%, transparent 54%),
+        conic-gradient(from 220deg, var(--accent) 0 61%, #2a2928 61% 78%, transparent 78%);
+    }
+    .knob::before {
+      content: "";
+      position: absolute;
+      left: 32px;
+      top: 12px;
+      width: 3px;
+      height: 22px;
+      border-radius: 3px;
+      background: var(--text);
+      transform-origin: 1.5px 22px;
+      transform: rotate(42deg);
+    }
+    .control-name { font-size: 12px; font-weight: 600; }
+    .control-value { font: 11px ui-monospace, monospace; color: var(--accent); }
+
+    .authoring {
+      position: relative;
+      padding: 16px;
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .authoring-head { display: flex; justify-content: space-between; align-items: center; }
+    .mode-pair { display: flex; gap: 5px; }
+    .mini-select {
+      border: 1px solid var(--outline);
+      background: var(--raised);
+      color: var(--muted);
+      border-radius: 5px;
+      padding: 5px 8px;
+      font-size: 11px;
+    }
+
+    .prompt {
+      width: 100%;
+      min-height: 126px;
+      resize: none;
+      border: 1px solid #323232;
+      background: #080808;
+      color: var(--text);
+      border-radius: var(--radius);
+      padding: 12px;
+      line-height: 1.45;
+      font-size: 13px;
+    }
+    .prompt::placeholder { color: var(--dim); }
+
+    .generate-row { display: flex; gap: 8px; align-items: center; }
+    .engine-pill {
+      flex: 1;
+      min-width: 0;
+      height: 38px;
+      border: 1px solid var(--outline);
+      border-radius: 6px;
+      background: var(--raised);
+      padding: 0 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      text-align: left;
+    }
+    .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--good); flex: none; box-shadow: 0 0 0 3px rgba(105,211,154,.08); }
+    .engine-text { min-width: 0; flex: 1; }
+    .engine-text strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+    .engine-text small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 9px; margin-top: 1px; }
+    .chevron { color: var(--muted); }
+    .generate {
+      height: 38px;
+      border: 1px solid var(--accent);
+      background: var(--accent);
+      color: #100604;
+      border-radius: 6px;
+      font-weight: 800;
+      padding: 0 17px;
+      cursor: pointer;
+    }
+    .generate:hover { background: #ff6945; }
+
+    .journey {
+      border-top: 1px solid #252525;
+      padding-top: 11px;
+    }
+    .steps { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
+    .step { position: relative; color: var(--dim); font-size: 9px; padding-top: 9px; }
+    .step::before { content: ""; position: absolute; left: 0; right: 3px; top: 0; height: 2px; background: #2d2d2d; }
+    .step.done { color: var(--muted); }
+    .step.done::before { background: var(--good); }
+    .step.active { color: var(--progress); }
+    .step.active::before { background: var(--progress); box-shadow: 0 0 10px rgba(255,176,61,.5); }
+
+    .notice {
+      display: none;
+      border: 1px solid #3c3322;
+      background: #17130c;
+      border-radius: 6px;
+      padding: 9px 10px;
+      color: #dfc99f;
+      font-size: 11px;
+      line-height: 1.35;
+    }
+    .notice.show { display: flex; gap: 8px; }
+    .notice strong { color: var(--progress); }
+
+    .status-line {
+      margin-top: auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      min-height: 24px;
+      color: var(--muted);
+      font-size: 10px;
+    }
+    .status-line .good { color: var(--good); }
+    .details-link { border: 0; background: transparent; padding: 0; color: var(--muted); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+
+    .sample-strip {
+      height: 59px;
+      border-top: 1px solid #292929;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 16px;
+      color: var(--muted);
+      background: #080808;
+      font-size: 11px;
+    }
+    .sample-wave { flex: 1; height: 24px; opacity: .55; background: repeating-linear-gradient(90deg, transparent 0 5px, #55443e 5px 6px); mask: linear-gradient(0deg, transparent 5%, #000 35% 65%, transparent 95%); }
+
+    .popover {
+      display: none;
+      position: absolute;
+      z-index: 5;
+      right: 118px;
+      top: 222px;
+      width: 300px;
+      border: 1px solid #4a4540;
+      border-radius: 9px;
+      background: #11100f;
+      box-shadow: var(--shadow);
+      padding: 8px;
+    }
+    .popover.open { display: block; }
+    .popover-title { padding: 7px 8px 9px; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .11em; }
+    .route-option {
+      width: 100%;
+      border: 1px solid transparent;
+      background: transparent;
+      border-radius: 6px;
+      padding: 9px;
+      display: grid;
+      grid-template-columns: 9px 1fr auto;
+      gap: 9px;
+      text-align: left;
+      cursor: pointer;
+    }
+    .route-option:hover { background: #191817; }
+    .route-option.selected { border-color: var(--outline-hot); background: #1b1210; }
+    .route-option strong { display: block; font-size: 11px; }
+    .route-option small { display: block; color: var(--muted); font-size: 9px; margin-top: 2px; }
+    .route-tag { color: var(--dim); font-size: 9px; }
+    .popover-footer { display: flex; justify-content: space-between; border-top: 1px solid #2c2a28; margin-top: 6px; padding: 9px 8px 3px; }
+    .link-button { border: 0; background: transparent; color: var(--accent); padding: 0; cursor: pointer; font-size: 10px; }
+
+    .scrim {
+      display: none;
+      position: absolute;
+      inset: 42px 0 0;
+      z-index: 8;
+      background: rgba(0,0,0,.66);
+      backdrop-filter: blur(2px);
+      padding: 24px;
+    }
+    .scrim.open { display: flex; align-items: center; justify-content: center; }
+    .settings {
+      width: min(820px, 100%);
+      max-height: 490px;
+      display: grid;
+      grid-template-columns: 180px 1fr;
+      overflow: hidden;
+      border: 1px solid #47423e;
+      border-radius: 10px;
+      background: #0e0e0e;
+      box-shadow: var(--shadow);
+    }
+    .settings-nav { background: #090909; border-right: 1px solid #292929; padding: 16px 10px; }
+    .settings-nav h2 { margin: 0 9px 16px; font-size: 14px; }
+    .nav-item { display: block; width: 100%; border: 0; border-radius: 5px; background: transparent; color: var(--muted); text-align: left; padding: 8px 9px; font-size: 11px; }
+    .nav-item.active { background: #20120e; color: var(--text); border-left: 2px solid var(--accent); }
+    .settings-main { overflow: auto; padding: 18px 20px 22px; }
+    .settings-head { display: flex; justify-content: space-between; align-items: start; margin-bottom: 16px; }
+    .settings-head h2 { margin: 0; font-size: 17px; }
+    .settings-head p { margin: 5px 0 0; color: var(--muted); font-size: 10px; max-width: 470px; line-height: 1.4; }
+    .close { width: 28px; height: 28px; padding: 0; border: 1px solid var(--outline); border-radius: 5px; background: transparent; color: var(--muted); cursor: pointer; }
+
+    .role-section { margin-top: 16px; }
+    .role-heading { display: flex; justify-content: space-between; align-items: end; margin-bottom: 7px; }
+    .role-heading h3 { margin: 0; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+    .role-heading span { color: var(--muted); font-size: 9px; }
+    .provider-card {
+      border: 1px solid #302f2d;
+      border-radius: 8px;
+      background: var(--raised);
+      padding: 12px;
+      margin-bottom: 8px;
+    }
+    .provider-card.primary { border-color: #75412f; box-shadow: inset 3px 0 var(--accent); }
+    .provider-top { display: flex; align-items: center; gap: 9px; }
+    .provider-logo { width: 30px; height: 30px; border: 1px solid #47423e; border-radius: 6px; display: grid; place-items: center; color: var(--accent); font-weight: 800; }
+    .provider-copy { flex: 1; }
+    .provider-copy strong { font-size: 12px; }
+    .provider-copy small { display: block; color: var(--muted); font-size: 9px; margin-top: 2px; }
+    .badge { border: 1px solid #3b5445; border-radius: 999px; color: var(--good); padding: 3px 7px; font-size: 8px; text-transform: uppercase; letter-spacing: .07em; }
+    .badge.off { border-color: #4a4540; color: var(--muted); }
+    .provider-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--muted); font-size: 9px; margin-top: 10px; padding-top: 9px; border-top: 1px solid #292827; }
+    .provider-actions { display: flex; gap: 6px; margin-top: 9px; }
+    .small-button { border: 1px solid var(--outline); border-radius: 5px; background: #0d0d0d; color: var(--muted); padding: 5px 8px; cursor: pointer; font-size: 9px; }
+    .small-button.accent { border-color: #783c2b; color: var(--accent); }
+
+    .quota-bar { height: 4px; border-radius: 4px; background: #2a2928; margin-top: 10px; overflow: hidden; }
+    .quota-bar i { display: block; height: 100%; width: 34%; background: var(--progress); }
+    .quota-copy { display: flex; justify-content: space-between; margin-top: 4px; color: var(--muted); font-size: 8px; }
+
+    .secret-form { display: none; margin-top: 10px; padding-top: 10px; border-top: 1px solid #2b2a28; }
+    .secret-form.open { display: grid; grid-template-columns: 1fr auto; gap: 7px; }
+    .secret-form label { grid-column: 1 / -1; color: var(--muted); font-size: 9px; }
+    .secret-form input { min-width: 0; border: 1px solid var(--outline); border-radius: 5px; background: #080808; color: var(--text); padding: 7px 8px; font-size: 10px; }
+    .secret-note { grid-column: 1 / -1; color: var(--dim); font-size: 8px; line-height: 1.4; }
+
+    .model-drawer {
+      display: none;
+      position: absolute;
+      z-index: 10;
+      inset: 42px 0 0 auto;
+      width: min(440px, 100%);
+      padding: 18px;
+      overflow: auto;
+      border-left: 1px solid #49433f;
+      background: #0c0c0c;
+      box-shadow: -24px 0 70px rgba(0,0,0,.5);
+    }
+    .model-drawer.open { display: block; }
+    .model-head { display: flex; justify-content: space-between; align-items: start; }
+    .model-head h2 { margin: 0; font-size: 16px; }
+    .model-head p { color: var(--muted); margin: 5px 0 15px; font-size: 10px; }
+    .model-search { width: 100%; border: 1px solid var(--outline); border-radius: 6px; background: #080808; color: var(--text); padding: 8px 9px; font-size: 10px; margin-bottom: 10px; }
+    .model-card { display: grid; grid-template-columns: 8px 1fr auto; gap: 9px; padding: 11px 9px; border: 1px solid transparent; border-bottom-color: #292929; cursor: pointer; }
+    .model-card:hover { background: var(--raised); }
+    .model-card.selected { border-color: #673827; border-radius: 6px; background: #1b1210; }
+    .model-card strong { display: block; font-size: 11px; }
+    .model-card small { display: block; color: var(--muted); font-size: 9px; margin-top: 3px; }
+    .model-score { text-align: right; color: var(--muted); font-size: 8px; }
+    .model-score b { display: block; color: var(--good); font-size: 9px; margin-bottom: 3px; }
+
+    .state-error .status-dot { background: var(--danger); box-shadow: 0 0 0 3px rgba(236,59,82,.1); }
+    .state-error .engine-text small { color: var(--danger); }
+    .state-error .generate { background: transparent; color: var(--accent); }
+    .state-quota .notice { display: flex; gap: 8px; }
+    .state-quota .step:nth-child(-n+2)::before { background: var(--good); }
+    .state-quota .step:nth-child(3)::before { background: var(--progress); }
+    .state-working .step:nth-child(-n+2) { color: var(--muted); }
+    .state-working .step:nth-child(-n+2)::before { background: var(--good); }
+    .state-working .step:nth-child(3) { color: var(--progress); }
+    .state-working .step:nth-child(3)::before { background: var(--progress); box-shadow: 0 0 10px rgba(255,176,61,.5); }
+
+    @media (max-width: 760px) {
+      .page { width: min(700px, calc(100% - 16px)); margin-top: 8px; }
+      .prototype-bar { align-items: flex-start; flex-direction: column; }
+      .plugin { min-height: 640px; }
+      .workspace { grid-template-columns: 1fr; }
+      .instrument { display: none; }
+      .authoring { min-height: 530px; }
+      .settings { grid-template-columns: 1fr; max-height: 550px; }
+      .settings-nav { display: none; }
+      .popover { right: 16px; left: 16px; top: 230px; width: auto; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <div class="prototype-bar">
+      <div><strong>Generation experience prototype</strong> · click Engine, Models, or Settings</div>
+      <div class="state-tabs" role="group" aria-label="Prototype state">
+        <button class="active" data-state="ready">Ready</button>
+        <button data-state="working">Generating</button>
+        <button data-state="quota">Quota fallback</button>
+        <button data-state="error">Local unavailable</button>
+      </div>
+    </div>
+
+    <section class="plugin" id="plugin" aria-label="Incant Audio plugin prototype">
+      <header class="titlebar">
+        <div><span class="brand">Incant <i>Audio</i></span> <span class="patch-name">/ Rust Effect</span></div>
+        <div class="header-actions">
+          <button class="ghost-button" id="modelsButton">Models</button>
+          <button class="icon-button" id="settingsButton" aria-label="Open settings">Settings</button>
+        </div>
+      </header>
+
+      <div class="workspace">
+        <section class="instrument" aria-label="Generated plugin controls">
+          <div class="instrument-head">
+            <div><div class="eyebrow">Saturation</div><div class="instrument-title">Rust Effect</div></div>
+            <div class="live-badge">● DSP LIVE</div>
+          </div>
+          <div class="controls">
+            <div class="control-card"><div class="knob"></div><div class="control-name">Drive</div><div class="control-value">7.2 dB</div></div>
+            <div class="control-card"><div class="knob" style="filter:hue-rotate(12deg)"></div><div class="control-name">Tone</div><div class="control-value">3.80 kHz</div></div>
+            <div class="control-card"><div class="knob" style="filter:hue-rotate(-9deg)"></div><div class="control-name">Mix</div><div class="control-value">64 %</div></div>
+          </div>
+        </section>
+
+        <section class="authoring" aria-label="Describe and generate">
+          <div class="authoring-head">
+            <div class="eyebrow">Describe the sound</div>
+            <div class="mode-pair">
+              <select class="mini-select" aria-label="Plugin family"><option>Auto → Effect</option><option>Granular Effect</option></select>
+              <select class="mini-select" aria-label="Generation mode"><option>New</option><option>Add</option><option>Redo</option><option>Plan</option></select>
+            </div>
+          </div>
+
+          <textarea class="prompt" aria-label="Sound description">A warm, slightly broken preamp that thickens bass without losing the attack.</textarea>
+
+          <div class="generate-row">
+            <button class="engine-pill" id="engineButton" aria-haspopup="true" aria-expanded="false">
+              <span class="status-dot"></span>
+              <span class="engine-text"><strong id="engineTitle">Local · Qwen Coder 7B</strong><small id="engineSubtitle">Candidate · ready · no quota</small></span>
+              <span class="chevron">⌄</span>
+            </button>
+            <button class="generate">Generate</button>
+          </div>
+
+          <div class="notice" id="notice"><span>↪</span><span><strong>Cloud Assist quota reached.</strong><br>Continued locally with your original description.</span></div>
+
+          <div class="journey">
+            <div class="steps" aria-label="Generation progress">
+              <div class="step done">Understand</div>
+              <div class="step done">Generate</div>
+              <div class="step active">Validate</div>
+              <div class="step">Repair</div>
+              <div class="step">Load</div>
+            </div>
+          </div>
+
+          <div class="status-line">
+            <span id="statusCopy"><span class="good">Ready.</span> Local engine checked 18s ago.</span>
+            <button class="details-link">Details</button>
+          </div>
+
+          <div class="popover" id="enginePopover" role="dialog" aria-label="Choose generation route">
+            <div class="popover-title">For the next generation</div>
+            <button class="route-option selected" data-route="recommended">
+              <span class="status-dot"></span><span><strong>Local — Candidate</strong><small>Qwen Coder 7B · evaluation required</small></span><span class="route-tag">NO QUOTA</span>
+            </button>
+            <button class="route-option" data-route="fast">
+              <span class="status-dot"></span><span><strong>Local — Fast</strong><small>Qwen Coder 3B · lower memory and latency</small></span><span class="route-tag">LOCAL</span>
+            </button>
+            <button class="route-option" data-route="assist">
+              <span class="status-dot" style="background:var(--info)"></span><span><strong>Research Assist</strong><small>Cloud design brief → local synthesis</small></span><span class="route-tag">1 CLOUD CALL</span>
+            </button>
+            <div class="popover-footer"><button class="link-button" id="openModelsFromPopover">Browse models</button><button class="link-button" id="openSettingsFromPopover">Manage engines</button></div>
+          </div>
+        </section>
+      </div>
+
+      <footer class="sample-strip"><span class="eyebrow">Audition</span><span>drum_loop.wav</span><div class="sample-wave"></div><button class="ghost-button">Play</button></footer>
+
+      <aside class="model-drawer" id="modelDrawer" aria-label="Model browser">
+        <div class="model-head"><div><h2>Local synthesis models</h2><p>Only installed, reachable models are shown.</p></div><button class="close" id="closeModels" aria-label="Close">×</button></div>
+        <input class="model-search" type="search" placeholder="Search installed models…" aria-label="Search models">
+        <div class="model-card selected"><span class="status-dot"></span><span><strong>Qwen 2.5 Coder 7B</strong><small>Ollama · Q4 · 4.7 GB · 32K advertised context</small></span><span class="model-score"><b>Candidate</b>not promoted</span></div>
+        <div class="model-card"><span class="status-dot"></span><span><strong>Qwen 2.5 Coder 3B</strong><small>Ollama · Q4 · 1.9 GB · 32K advertised context</small></span><span class="model-score"><b>Fast</b>4 GB fit</span></div>
+        <div class="model-card"><span class="status-dot" style="background:var(--progress)"></span><span><strong>Custom Faust model</strong><small>Ollama · context must be verified at runtime</small></span><span class="model-score"><b style="color:var(--progress)">Unmeasured</b>advanced</span></div>
+        <div class="role-section">
+          <div class="role-heading"><h3>What these labels mean</h3></div>
+          <div class="provider-card"><div style="font-size:10px;line-height:1.55;color:var(--muted)"><b style="color:var(--text)">Candidate</b> means awaiting the Incant Audio corpus, latency, installation, and listening gates. Popularity and generic coding benchmarks do not qualify a model.</div></div>
+        </div>
+      </aside>
+
+      <div class="scrim" id="settingsScrim">
+        <section class="settings" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+          <nav class="settings-nav"><h2>Settings</h2><button class="nav-item active">AI Engines</button><button class="nav-item">Runtime paths</button><button class="nav-item">Sound sources</button><button class="nav-item">Diagnostics</button></nav>
+          <div class="settings-main">
+            <div class="settings-head"><div><h2 id="settingsTitle">AI Engines</h2><p>Choose a dependable local generator. Cloud connections are optional and never receive a prompt unless you enable Research Assist.</p></div><button class="close" id="closeSettings" aria-label="Close settings">×</button></div>
+
+            <section class="role-section">
+              <div class="role-heading"><h3>Local synthesis</h3><span>Required role</span></div>
+              <div class="provider-card primary">
+                <div class="provider-top"><div class="provider-logo">O</div><div class="provider-copy"><strong>Ollama · Localhost</strong><small>http://127.0.0.1:11434 · no key · no prompt leaves this computer</small></div><span class="badge">Ready</span></div>
+                <div class="provider-meta"><span>Model <b>qwen2.5-coder:7b</b></span><span>Context <b>16K verified</b></span><span>Memory <b>4.7 GB</b></span></div>
+                <div class="provider-actions"><button class="small-button accent">Choose model</button><button class="small-button">Check connection</button><button class="small-button">Endpoint</button></div>
+              </div>
+            </section>
+
+            <section class="role-section">
+              <div class="role-heading"><h3>Optional cloud assist</h3><span>Design brief only · one call</span></div>
+              <div class="provider-card">
+                <div class="provider-top"><div class="provider-logo">G</div><div class="provider-copy"><strong>Groq</strong><small>Key stored in the operating-system credential vault</small></div><span class="badge">Connected</span></div>
+                <div class="quota-bar"><i></i></div><div class="quota-copy"><span>Estimated from provider headers</span><span>Resets in 6h 24m</span></div>
+                <div class="provider-actions"><button class="small-button">Check connection</button><button class="small-button connect-button">Replace key</button><button class="small-button">Disconnect</button></div>
+                <div class="secret-form"><label for="groqKey">Groq API key</label><input id="groqKey" type="password" placeholder="gsk_••••••••••••" autocomplete="off"><button class="small-button accent">Store securely</button><div class="secret-note">Prototype only. Production storage requires the platform credential-store ADR; the key must never enter config.json, DAW state, argv, request files, or logs.</div></div>
+              </div>
+              <div class="provider-card">
+                <div class="provider-top"><div class="provider-logo">G</div><div class="provider-copy"><strong>Google Gemini</strong><small>No credential connected · available for Research Assist</small></div><span class="badge off">Not connected</span></div>
+                <div class="provider-actions"><button class="small-button connect-button">Connect API key</button><button class="small-button">Provider info</button></div>
+                <div class="secret-form"><label for="googleKey">Google API key</label><input id="googleKey" type="password" placeholder="Enter key" autocomplete="off"><button class="small-button accent">Store securely</button><div class="secret-note">Checking the connection lists models without intentionally running a generation. Quota may still be unavailable until a provider response reports it.</div></div>
+              </div>
+            </section>
+          </div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const plugin = document.getElementById('plugin');
+    const popover = document.getElementById('enginePopover');
+    const engineButton = document.getElementById('engineButton');
+    const drawer = document.getElementById('modelDrawer');
+    const scrim = document.getElementById('settingsScrim');
+    const title = document.getElementById('engineTitle');
+    const subtitle = document.getElementById('engineSubtitle');
+    const statusCopy = document.getElementById('statusCopy');
+
+    function closeLayers() {
+      popover.classList.remove('open');
+      drawer.classList.remove('open');
+      scrim.classList.remove('open');
+      engineButton.setAttribute('aria-expanded', 'false');
+    }
+
+    engineButton.addEventListener('click', () => {
+      const next = !popover.classList.contains('open');
+      closeLayers();
+      popover.classList.toggle('open', next);
+      engineButton.setAttribute('aria-expanded', String(next));
+    });
+
+    function openModels() { closeLayers(); drawer.classList.add('open'); }
+    function openSettings() { closeLayers(); scrim.classList.add('open'); }
+    document.getElementById('modelsButton').addEventListener('click', openModels);
+    document.getElementById('openModelsFromPopover').addEventListener('click', openModels);
+    document.getElementById('closeModels').addEventListener('click', closeLayers);
+    document.getElementById('settingsButton').addEventListener('click', openSettings);
+    document.getElementById('openSettingsFromPopover').addEventListener('click', openSettings);
+    document.getElementById('closeSettings').addEventListener('click', closeLayers);
+    scrim.addEventListener('click', event => { if (event.target === scrim) closeLayers(); });
+
+    document.querySelectorAll('.route-option').forEach(option => option.addEventListener('click', () => {
+      document.querySelectorAll('.route-option').forEach(row => row.classList.remove('selected'));
+      option.classList.add('selected');
+      const route = option.dataset.route;
+      if (route === 'fast') {
+        title.textContent = 'Local · Qwen Coder 3B';
+        subtitle.textContent = 'Fast · ready · no quota';
+      } else if (route === 'assist') {
+        title.textContent = 'Research Assist → Local';
+        subtitle.textContent = 'One cloud planning call · local Faust synthesis';
+      } else {
+        title.textContent = 'Local · Qwen Coder 7B';
+        subtitle.textContent = 'Candidate · ready · no quota';
+      }
+      closeLayers();
+    }));
+
+    document.querySelectorAll('.connect-button').forEach(button => button.addEventListener('click', () => {
+      const form = button.closest('.provider-card').querySelector('.secret-form');
+      form.classList.toggle('open');
+      if (form.classList.contains('open')) form.querySelector('input').focus();
+    }));
+
+    const stateText = {
+      ready: ['Local · Qwen Coder 7B', 'Candidate · ready · no quota', '<span class="good">Ready.</span> Local engine checked 18s ago.'],
+      working: ['Local · Qwen Coder 7B', 'Generating Faust locally · 12.8 tok/s', 'Validating generated Faust… attempt 1 of 3.'],
+      quota: ['Local · Qwen Coder 7B', 'Cloud assist skipped · local generation active', 'Cloud Assist resets at 12:34. Local synthesis is unaffected.'],
+      error: ['Local engine unavailable', 'Ollama is not reachable at localhost:11434', 'Start Ollama or choose another local endpoint.']
+    };
+    document.querySelectorAll('.state-tabs button').forEach(button => button.addEventListener('click', () => {
+      document.querySelectorAll('.state-tabs button').forEach(tab => tab.classList.remove('active'));
+      button.classList.add('active');
+      const state = button.dataset.state;
+      plugin.classList.remove('state-working', 'state-quota', 'state-error');
+      if (state !== 'ready') plugin.classList.add(`state-${state}`);
+      title.textContent = stateText[state][0];
+      subtitle.textContent = stateText[state][1];
+      statusCopy.innerHTML = stateText[state][2];
+      closeLayers();
+    }));
+
+    document.addEventListener('keydown', event => { if (event.key === 'Escape') closeLayers(); });
+
+    // Reproducible review captures without a browser-automation dependency:
+    // ?state=quota selects a state; ?open=settings|models|engine opens a layer.
+    const review = new URLSearchParams(location.search);
+    const requestedState = document.querySelector(`.state-tabs button[data-state="${review.get('state')}"]`);
+    if (requestedState) requestedState.click();
+    if (review.get('open') === 'settings') openSettings();
+    if (review.get('open') === 'models') openModels();
+    if (review.get('open') === 'engine') engineButton.click();
+  </script>
+</body>
+</html>
