@@ -1,3 +1,8 @@
+---
+name: cockpit
+description: Launch the PluginForge dev-cockpit — the localhost:8765 server that mirrors the running Standalone plugin with live screenshots and param-state polling. Use when iterating on plugin UI and you need to see the real rendered interface rather than reason about the code. Trigger on "launch the cockpit", "show me the plugin UI", "start dev-cockpit", "/cockpit".
+---
+
 # /cockpit — Launch the PluginForge dev-cockpit
 
 Launches the localhost dev-cockpit server that mirrors the running PluginForge

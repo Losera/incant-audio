@@ -111,7 +111,7 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-071 | The XDG-installed Python runtime (`~/.local/share/pluginforge/llm/`, the PF-065 fix's step-3 resolution target) is a **stale, unconfigured trap**: it is a 2026-08-15 copy where `providers.py` still has `DEFAULT_PROVIDER = "anthropic"` (predates the groq default) and there is no `.env` beside it. When a DAW launched from a desktop launcher loads the plugin (no `PLUGINFORGE_LLM_SCRIPT`, `~/.vst3` bundle so the upward walk misses the repo), resolution lands here → unset provider resolves to the **paid** provider → `PaidProviderError` surfaces as an "anthropic provider error". PF-065's "partial fix" traded an honest "generate.py not found" for a silent-wrong 6-week-old runtime. **Fixed on the same PR chain as PF-065 (#42/#43/#45) and closed on the same clean-machine REAPER pass 2026-09-01**: `install_release.sh` now *creates* `~/.config/pluginforge/config.json` (pointing at a fresh venv + `generate.py`) and `resolveGenerateScript()` consults it before the XDG step, so a launcher-started DAW resolves the installed runtime, never the stale XDG copy. Verified provider on the pass was `ollama` (free/local), not the paid fallback | high | fixed | S1 Backend | `host/Source/PromptPanel.cpp` (`resolveGenerateScript`), `tools/install_release.sh` | 2026-08-28 | 2026-09-01 |
 | PF-072 | Refine ("Add" / "Redo") mode produced a **degenerate single dry/wet knob** patch where the same prompt in "New" mode produced a full patch with all the expected controls. Observed once in-host (session 017 WP6), `groq` / `gpt-oss-120b`, prompt "a warm analog reverb with chorus" as a refine over a working reverb. The refine *mechanism* verified correct on `gemini` afterward (surgical Add kept all 6 prior controls + added the 2 chorus controls), so this is generation quality / model variance, not a routing bug — but a 1-knob result is a broken user experience regardless of cause | medium | open | S2 Prompting UX | `llm/generate.py` refine path; `llm/prompts/system_prompt.txt` | 2026-08-28 | — |
 | PF-073 | Audible discontinuity when a 2nd generation swaps the live DSP in a host — the operator reported "there didn't seem to be a very smooth transition between the generates." Not characterised (click vs. gap vs. dropout length; no `setParamValue` flood seen). The swap protocol (`audioBusy` drain guard + compile-callback-before-`ready`) is a load-bearing invariant; a brief gap during recompile is expected, an audible click is not. Needs a captured repro to tell which | low | open | S1 Backend | `host/Source/FaustEngine.cpp` swap path, `docs/fixplan_pushtofaust_swap.md` | 2026-08-28 | — |
-| PF-074 | A generated **instrument patch produced NaN/Inf during normal play**, forcing a regeneration to recover. `OutputGuard` is designed to catch non-finite output and **latch-mute even for instruments** (`OutputGuard.h:89`, "NonFinite always latches regardless of policy"), so either it caught it (silence, regen cleared the latch) or it did not (a real hole). The operator saw "NaN/inf" — where (REAPER meter? the plugin?) and whether audio went silent or stayed broken was not captured. `OfflineSynthRenderTest` (184 checks, 0 failures) shows the synth audio path + OutputGuard are healthy on the tested fixtures, so this is a specific generated patch under a specific runtime condition. Needs the triggering patch + action captured | medium | open | S1 Backend | `host/Source/OutputGuard.{h,cpp}`, `host/Source/FaustEngine.cpp` | 2026-08-28 | — |
+| PF-074 | A generated **instrument patch produced NaN/Inf during normal play**, forcing a regeneration to recover. **2026-10-12: first captured repro landed and falsified every internal hypothesis tested** — the `Resonance` `min=0` NaN is real on the bare DSP but is shielded by `si.smoo` through the real `apvts`/host path at any speed tried (single jump, 1.6s sustained dwell, realistic 2s drag matching the actual gesture); the "New"-mode regeneration reproduced verbatim came back healthy. Lead explanation is now outside this codebase (REAPER session-local — routing/track-arm, precedented at `docs/sessions/017-phase2-interactive-host.md:366`), pending a live capture with a `FileLogger` (not yet installed). Full evidence: `bench/repro/pf074/README.md` | medium | open | S1 Backend | `host/Source/OutputGuard.{h,cpp}`, `host/Source/FaustEngine.cpp`, `bench/repro/pf074/` | 2026-08-28 | 2026-10-12 |
 | PF-075 | Instrument polyphony: `FaustEngine` is **strictly monophonic** (one `currentNote`, one gate, last-note priority, no per-voice cloning — `FaustEngine.cpp:547-562`), but the operator playing a chord in-host heard "more than 3 voices, up to 5". Most likely overlapping **release tails + reverb** from a mono voice (each note gated off when the next arrives, but its envelope/reverb keeps ringing) — which would confirm the mono model and be nice musical behaviour. The disambiguating test — hold a sustained 5-note chord: do all 5 sustain, or do 4 decay leaving 1 — has not been run | low | open | S3 Plugin UX | `host/Source/FaustEngine.cpp:547-562` | 2026-08-28 | — |
 | PF-076 | **faust-rs diagnostics fed to the repair loop *reduce* its success rate** (issue #26). A/B over 202 C++-rejected Faust programs, repaired from the identical start with raw C++ stderr vs `faust-rs --check` rendered: repaired-within-2 dropped from 75% to 44% (`qwen2.5-coder:3b`, n=202) and 72% to 50% (`7b` Q3, n=120), McNemar p<1e-3 both, arm A also fewer attempts. *(These are the raw-202/raw-120 percentages; `bench/repair_ab_repro/README.md` and the posted GitHub comment cite the program-screened 192/115 view — 74%→43% and 73%→49%. Checked 2026-09-24: both pairs are internally consistent, not a numeric error — raw A=151/202=75%, raw B=88/202=44%, matching this row; screened A=143/192=74%, matching the README. Two correct views of the same run, previously undocumented as such.)* Trimming faust-rs to code+message+caret (arm C) changed nothing. **The raw A/B numbers stand; the mechanism is now RESOLVED, not withdrawn — WP3, 2026-10-11, `docs/records/wp3-results-2026-10-11.md`.** ~~Mechanism: precise localisation makes a weak model edit at the caret and re-break it~~ (withdrawn 2026-09-24) — ~~regenerating from the spec with faust-rs's filtered diagnostic did worse than with raw C++ stderr, cause unknown~~ (superseded 2026-10-11). **The actual mechanism: it was never about faust-rs.** A pre-registered 5-arm factorial (matched wrapper, source-line visibility an explicit toggle) found faust-rs's diagnostic content alone shows NO effect (B2n vs A2, p=0.545); showing the model one caret-quoted line of its own broken source is the entire driver, independent of whose diagnostic that line comes from (B2 vs B2n p=5.32e-10, C2 vs C2n p=1.86e-13). Not a defect in faust-rs (diagnostics are a human win — stable code + location 15/15 vs C++ 0/15 + 8/15); not even a faust-rs-specific finding about automated repair — a finding about showing weak models their own broken source. Untested: frontier model, FRS code as a *branch* signal, resending the failing source (now filed as **PF-081**), faust-rs's own repair-sequence list (stripped by `_clean_message` in every arm — now a lower-priority question, since content alone is already shown inert) | — (evidence) | closed | S4 Testing | `bench/run_repair_ab.py`, `bench/results/repair_ab/repair_ab_20260830{,_7b}.json` | 2026-08-30 | 2026-08-30 |
 | PF-077 | The shipped `requirements.txt` omits `google-genai`, so a clean `install.sh` builds a venv that **cannot run the provider its own seeded `.env` defaults to** (`.env.example` sets `PLUGINFORGE_PROVIDER=gemini`). `providers.py`'s gemini adapter does `from google import genai` (`llm/providers.py:680,991`) → `ModuleNotFoundError: No module named 'google'` for a launcher-started DAW off a fresh install. groq / openrouter (both httpx) and ollama (local) work; anthropic is already pinned. `bench/requirements.txt:2` has carried `google-genai>=1.0.0` since the gemini adapter landed — the root file the installer ships was just never synced to it. Found during the PF-065 clean-machine install rehearsal (2026-09-01, scratch `HOME`, `install.sh` → venv → `providers.py --check gemini`) | medium | fixed | S1 Backend | `requirements.txt`, `llm/providers.py:680` | 2026-09-01 | this session |
@@ -1748,6 +1748,65 @@ a parameter value, a sustained state). What was not captured: whether audio went
 (guard worked, regen cleared the latch) or *stayed broken* (guard hole). **Next:** if it
 recurs, note the exact patch source and the action immediately before, and whether MIDI
 panic / stop-start / editor reopen recovers it short of regenerating.
+
+**2026-10-12 — the first captured repro, and it falsified every internal hypothesis it was
+tested against.** A second REAPER incident with the same shape: "tu tu neurotic style bass
+synth" played, operator raised Resonance and moved Cutoff/Attack, sound stopped and never
+came back; a fresh regeneration (New mode) was also silent. This time both generations
+survived in `logs/prompts.jsonl` (`neuro-bass-worked.dsp` / `neuro-bass-regen-silent.dsp`,
+preserved at `bench/repro/pf074/`), so the exact inputs could be replayed outside REAPER —
+first against the bare compiled Faust DSP (`bench/repro/pf074/sweep_driver.cpp`), then
+against the real `PluginForgeProcessor` built from the project's own CMake objects
+(`bench/repro/pf074/host_repro.cpp`, reusing `host/tests/OfflineRenderTest.cpp`'s
+`loadAndAwait` idiom), driving the apvts path the real UI knobs use, not a bare Faust zone.
+
+Results, each a falsification of the matching row in
+`~/.claude/plans/i-was-trying-out-steady-graham.md`'s hypothesis table:
+
+- **The mechanism is real but is not what fired.** Both patches declare `Resonance` with
+  `min = 0`; `fi.resonlp`'s `a1 = 1/Q` (`/usr/share/faust/filters.lib:2185-2193`) is an
+  immediate NaN at `Q == 0`, confirmed on the bare compiled DSP with **zero smoothing** —
+  non-finite on the very first sample, every time. But every parameter reaching the DSP
+  through `si.smoo` in the generated code, driven through the real `apvts` → `pushToFaust`
+  → `ParamMap::mapSlotToZone` path: a single jump to `Resonance = 0`, a **1.6-second
+  sustained dwell** at that value, and a realistic ~2-second continuous drag matching the
+  user's own gesture (Resonance 0.7→5 while Cutoff swept the full range in both directions)
+  — none of them produced a single non-finite sample or a guard trip. The smoother shields
+  the degenerate value from ever being realized as literal `0.0f` input to the filter on any
+  timescale tried. `OutputGuard` did engage its **limiter** during the aggressive sweep
+  (peak pinned at exactly `kCeiling = 0.966051`), correctly in `Report` policy (both patches'
+  `isInstrument()` read `true`) — loud and bounded, not muted, exactly as ADR-020 specifies.
+- **The "New"-mode regeneration was reproduced verbatim and came back healthy.** Loading
+  `neuro-bass-worked.dsp`, breaking nothing by design (per the point above), then pressing
+  "New" into `neuro-bass-regen-silent.dsp` via `LoadMode::Fresh`: compile succeeded,
+  `isInstrument()` true, un-muted, peak 0.9655. The regenerated patch's own declared
+  defaults were separately confirmed finite and bounded on the bare DSP too — it has no
+  internal defect at rest.
+- **Net result:** every hypothesis that placed the defect inside PluginForge's own
+  DSP-generation, parameter, or guard path is now falsified against the *exact* captured
+  patches and the *exact* reported gesture, using the real production code rather than a
+  reimplementation. That is a real result, not a dead end — it redirects the leading
+  explanation outside this codebase. `docs/sessions/017-phase2-interactive-host.md:366`
+  already recorded a precedent of this exact shape: *"Synth on a dedicated track: no sound
+  — not a plugin bug — REAPER track arm/monitor config."* A REAPER-session-local cause
+  (routing, track arm/monitor state, or an audio-device condition outside the plugin) is now
+  the lead explanation for *why this specific session* went silent, pending the live
+  capture below.
+- **Confirmed, independently worth hardening regardless of this incident:** `Resonance`
+  (and `Cutoff`) declaring `min = 0` is unguarded by any prompt rule, generator check, or
+  host-side floor — `ParamMap::mapSlotToZone` delivers a declared minimum verbatim
+  (`ParamMap.h:130`). It is unreachable through normal knob automation at any speed tested,
+  but a DAW that writes raw automation (not drag deltas) or a very long sustained hold could
+  still reach it eventually, and the degenerate point should not exist regardless.
+
+**Still not captured, and now the actual blocker:** no `FileLogger` was installed, so the
+live REAPER session left no trace of what the host itself saw. **Next, concretely:** install
+a `juce::FileLogger` (smallest useful change this surfaced) and arm
+`PLUGINFORGE_COCKPIT_STATE` (`PluginEditor.cpp:228-230`, already built, never switched on) for
+the next live session; if the REAPER project from this incident still exists, its persisted
+`faustSource` + knob state (`PluginProcessor.cpp:718-720`) is the one still-unexamined
+artifact. Full detail, including the falsified-hypothesis table and the repro commands:
+`bench/repro/pf074/README.md`.
 
 **PF-075 — chord sounded like 5 voices from a mono engine.** `FaustEngine::noteOn/noteOff`
 is strictly monophonic — one `currentNote`, one gate, last-note priority
