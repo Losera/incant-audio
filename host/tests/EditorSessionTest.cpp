@@ -203,6 +203,17 @@ g = hslider("Gain", 0.5, 0, 1, 0.01);
 process = _ * g, _ * g;
 )";
 
+// ADR-038 F2: a 3-value nentry (SAW/SQR/TRI's shape) alongside a plain
+// continuous control, so the scenario can assert the enum renders as a
+// ChipRow while an ordinary slider on the same patch is unaffected. `wave`
+// genuinely affects the output (shifts the oscillator's pitch) for the same
+// constant-folding reason kEveryKindPatch's own comment names.
+const char* kChipEnumPatch = R"(import("stdfaust.lib");
+wave = nentry("Waveform", 0, 0, 2, 1);
+gain = hslider("Gain", 0.5, 0, 1, 0.01);
+process = os.osc(220 + wave * 10) * gain, os.osc(220 + wave * 10) * gain;
+)";
+
 // Latches OutputGuard's Runaway trip. Modelled on OfflineRenderTest's
 // pathological controls: a constant at full scale for long enough to trip.
 const char* kRunawayPatch = R"(import("stdfaust.lib");
@@ -2626,11 +2637,21 @@ void scenario34_qwertyAfterGeneration(const juce::File& tmp)
 //      must render the ordinary flat grid, not a heading over a few knobs).
 void scenario35_sectionedLayoutOrdersAndSuppresses()
 {
-    scenario("35. sectioned layout: canonical group order, suppressed when sparse",
+    scenario("35. sectioned layout: canonical group order, thin groups folded, suppressed when sparse",
              "deriveLayoutFromGroups ranks Osc before Filter before Env before Fx "
-             "-- the reverse of Faust's own alphabetical report -- and returns no "
-             "sections at all for <=1 non-empty group or <4 controls");
+             "-- the reverse of Faust's own alphabetical report -- collapses to one "
+             "section when NO group is real, folds a lone singleton forward into the "
+             "preceding real group otherwise, and returns no sections at all for "
+             "<=1 non-empty group or <4 controls");
 
+    // CORRECTED (fix/pedal-layout-packing): this used to assert 4 SEPARATE
+    // sections for this exact patch -- one knob per heading, the live defect
+    // a real "warm analog tape saturation effect with input drive, tone,
+    // output level, and a wet/dry mix" generation reproduced (see
+    // ArchetypeLayout.h's header comment and STATUS.md). No group here holds
+    // more than one control, so it collapses to ONE "Controls" section -- the
+    // deliberate, tested behaviour change, not a regression.
+    //
     // Four groups, one control each, declared (and therefore Faust-reported)
     // in ALPHABETICAL order: Env, Filter, Fx, Osc -- the exact case F4 names.
     const char* kFourGroupPatch = R"(import("stdfaust.lib");
@@ -2645,16 +2666,68 @@ process = _ * amt, _ * amt;
     Session s;
     check(loadAndSettle(s, kFourGroupPatch, 4), "the 4-group patch compiled");
 
-    const auto& sections = s.editor.gridActiveSectionsForTest();
-    check(sections.size() == 4,
-          juce::String("expected 4 sections, got ") + juce::String((int) sections.size()));
-    if (sections.size() == 4)
     {
-        const char* expected[] = { "Osc", "Filter", "Env", "Fx" };
-        for (int i = 0; i < 4; ++i)
-            check(juce::String(sections[(size_t) i].title) == expected[i],
-                  juce::String("section ") + juce::String(i) + " expected '" + expected[i]
-                      + "', got '" + juce::String(sections[(size_t) i].title) + "'");
+        const auto& sections = s.editor.gridActiveSectionsForTest();
+        check(sections.size() == 1,
+              juce::String("expected 1 merged section, got ") + juce::String((int) sections.size()));
+        if (sections.size() == 1)
+        {
+            check(juce::String(sections[0].title) == "Controls",
+                  juce::String("expected the merged section titled 'Controls', got '")
+                      + juce::String(sections[0].title) + "'");
+            check(sections[0].controls.size() == 4,
+                  "the merged section still carries all four controls, none dropped");
+            // Ranked order (Osc -> Filter -> Env -> Fx) survives the merge --
+            // the merge concatenates groups in their already-ranked order, it
+            // does not re-sort or reverse it.
+            const char* expected[] = { "Freq", "Cutoff", "Attack", "Mix" };
+            for (int i = 0; i < 4 && i < (int) sections[0].controls.size(); ++i)
+                check(sections[0].controls[(size_t) i].paramLabel == expected[i],
+                      juce::String("merged control ") + juce::String(i) + " expected '" + expected[i]
+                          + "', got '" + juce::String(sections[0].controls[(size_t) i].paramLabel) + "'");
+        }
+    }
+
+    // Two real groups stay two sections -- the fold only touches singletons,
+    // never a group that already reads as real grouping.
+    const char* kTwoByTwoPatch = R"(import("stdfaust.lib");
+osc  = vgroup("Osc",    hslider("Freq", 0.5, 0, 1, 0.01) + hslider("Shape", 0.5, 0, 1, 0.01));
+filt = vgroup("Filter", hslider("Cutoff", 0.5, 0, 1, 0.01) + hslider("Reso", 0.5, 0, 1, 0.01));
+amt = (osc + filt) * 0.25;
+process = _ * amt, _ * amt;
+)";
+    check(loadAndSettle(s, kTwoByTwoPatch, 4), "the 2-groups-of-2 patch compiled");
+    check(s.editor.gridActiveSectionsForTest().size() == 2,
+          "two real groups stay separate sections, not merged");
+
+    // The case the average rule got wrong: [2, 2, 1]. Osc(2) + Filter(2) are
+    // real; Fx(1) is a lone knob. Average is 5/3 = 1 (< 2), so the old rule
+    // flattened ALL THREE into one grid, discarding the Osc/Filter grouping
+    // the patch got right. The fold keeps them: Fx's control moves forward
+    // into Filter (its preceding real group by rank), leaving two sections.
+    const char* kTwoTwoOnePatch = R"(import("stdfaust.lib");
+osc  = vgroup("Osc",    hslider("Freq", 0.5, 0, 1, 0.01) + hslider("Shape", 0.5, 0, 1, 0.01));
+filt = vgroup("Filter", hslider("Cutoff", 0.5, 0, 1, 0.01) + hslider("Reso", 0.5, 0, 1, 0.01));
+fx   = vgroup("Fx",     hslider("Mix", 0.5, 0, 1, 0.01));
+amt = (osc + filt + fx) * 0.2;
+process = _ * amt, _ * amt;
+)";
+    check(loadAndSettle(s, kTwoTwoOnePatch, 5), "the [2,2,1] patch compiled");
+    {
+        const auto& sec = s.editor.gridActiveSectionsForTest();
+        check(sec.size() == 2,
+              juce::String("[2,2,1] folds the singleton, keeps two sections, got ")
+                  + juce::String((int) sec.size()));
+        if (sec.size() == 2)
+        {
+            check(juce::String(sec[0].title) == "Osc" && sec[0].controls.size() == 2,
+                  "first section is still Osc with its two controls");
+            check(juce::String(sec[1].title) == "Filter" && sec[1].controls.size() == 3,
+                  "the lone Fx control folded into Filter, which now holds three");
+            check(sec[1].controls.size() == 3
+                      && sec[1].controls[2].paramLabel == "Mix",
+                  "the folded control is appended after Filter's own, not interleaved");
+        }
     }
 
     // Threshold guard #1: kFourParamPatch (defined above, §2 in this file) has
@@ -3944,6 +4017,476 @@ void scenario48_runtimePathsCallout(const juce::File& tmp)
     if (oldPython.isNotEmpty()) ::setenv("PLUGINFORGE_PYTHON", oldPython.toRawUTF8(), 1);
 }
 
+// 53 — ADR-035 A5. A project saved with a generated face reopens WEARING that
+// face, and WITHOUT asking the producer for a new one. Before this the compile-
+// success callback re-derived the Ember default on every compile (the restore
+// recompile included) and fired a fresh ui_face request each time -- a reopen
+// silently spent provider quota to reproduce a face the user already had.
+void scenario53_savedFaceRestoredWithoutRegenerate(const juce::File& tmp)
+{
+    scenario("53. a saved face is restored on reopen, no regenerate",
+             "ADR-035 A5: the persisted UiIr (keyed to its source) is re-applied "
+             "on the restore recompile; the post-compile ui_face request is "
+             "skipped because the accepted face is already on screen.");
+
+    const int fillId = juce::Slider::rotarySliderFillColourId;
+
+    FakeGenerator::install(FakeGenerator::writeSuccessThenFaceCounted(
+        tmp, "gen53", kFourParamPatch,
+        "#0e0f13" /* surface */, "#eef2ee" /* text */, "#8fe3c1" /* accent */,
+        "pedal", { "Alpha", "Beta" }, { "Gamma", "Delta" }));
+
+    juce::MemoryBlock blob;
+    juce::Colour savedAccent;
+    {
+        Session s;
+        s.editor.submitPromptForTest("a patch worth a face");
+        check(pumpUntil([&] { return s.editor.statusTextForTest().contains("DSP live"); }),
+              "the initial generate compiled");
+        check(pumpUntil([&] { return s.editor.gridFaceActiveForTest(); }),
+              "the post-compile ui_face request attached a face");
+        check(FakeGenerator::uiFaceRequestCount(tmp, "gen53") == 1,
+              "exactly one ui_face request for the initial generate");
+
+        savedAccent = s.editor.gridFaceColourForTest(fillId);
+        check(s.processor.uiIrForTest().schema == 3, "the processor is holding a schema-3 face");
+        check(s.processor.uiIrSourceKeyForTest().isNotEmpty(),
+              "the face was stamped with a source key");
+
+        s.processor.getStateInformation(blob);
+        check(blob.getSize() > 0, "the session serialised");
+    }
+
+    // The reopened project: a fresh processor + editor, restored from the blob.
+    Session s2;
+    s2.processor.setStateInformation(blob.getData(), (int) blob.getSize());
+    check(pumpUntil([&] { return s2.editor.gridControlCountForTest() == 4; }),
+          "the restore recompile rebuilt the grid");
+    check(pumpUntil([&] { return s2.editor.gridFaceActiveForTest(); }),
+          "the reopened grid is wearing a face again");
+
+    check(s2.editor.gridFaceColourForTest(fillId) == savedAccent,
+          "the restored face's accent matches the one that was saved, "
+          "not the Ember default");
+
+    // The whole point: the restore did NOT ask for a new face. Give a
+    // background request every chance to have fired (there is no positive
+    // event for "a call that never happened"), then confirm the counter is
+    // still 1.
+    pumpUntil([&] { return false; }, 500);
+    check(FakeGenerator::uiFaceRequestCount(tmp, "gen53") == 1,
+          "still exactly one ui_face request total -- the reopen re-used the "
+          "saved face instead of regenerating it");
+
+    snapshot(s2.editor, "53_face_restored_no_regen");
+}
+
+// 54 — ADR-035 A5 / Step 2, through the editor. ThemeValidateTest proves the
+// pure per-token substitution; this proves the EDITOR renders it: one
+// unreadable colour is replaced with the Ember token for THAT field while the
+// face's other tokens survive and the face is not rejected wholesale.
+void scenario54_themeRejectedPerToken(const juce::File& tmp)
+{
+    scenario("54. a face with one unreadable token degrades that token only",
+             "a `text` colour that fails the 7:1 contrast gate is swapped for "
+             "the Ember default in the rendered LookAndFeel; `surface` and "
+             "`accent` are kept, and the face still attaches.");
+
+    // surface + accent are fine; `text` #151210 on this dark surface is ~1.1:1,
+    // well under the 7:1 floor (the same shape as ThemeValidateTest's per-token
+    // isolation case).
+    FakeGenerator::install(FakeGenerator::writeSuccessThenFace(
+        tmp, "gen54", kFourParamPatch,
+        "#17140f" /* surface, valid */,
+        "#151210" /* text, fails the gate */,
+        "#e0973f" /* accent, valid */));
+
+    Session s;
+    s.editor.submitPromptForTest("a patch with a barely-legible face");
+    check(pumpUntil([&] { return s.editor.statusTextForTest().contains("DSP live"); }),
+          "the patch compiled");
+    check(pumpUntil([&] { return s.editor.gridFaceActiveForTest(); }),
+          "the face attached -- one bad token does not reject the whole face");
+
+    const auto text = s.editor.gridFaceColourForTest(juce::Label::textColourId);
+    check(text == juce::Colour(Theme::textPrimary),
+          juce::String("the unreadable `text` token was replaced with the Ember "
+                       "default #f5f0e6 -- got ") + text.toDisplayString(true));
+    check(text != juce::Colour::fromString(juce::String("ff151210")),
+          "the rendered text colour is NOT the unreadable value the producer sent");
+
+    const auto surface = s.editor.gridFaceColourForTest(juce::ResizableWindow::backgroundColourId);
+    check(surface == juce::Colour::fromString(juce::String("ff17140f")),
+          "the valid `surface` token was kept verbatim");
+
+    const auto accent = s.editor.gridFaceColourForTest(juce::Slider::rotarySliderFillColourId);
+    check(accent == juce::Colour::fromString(juce::String("ffe0973f")),
+          "the valid `accent` token was kept verbatim");
+    check(accent != juce::Colour(Theme::accent),
+          "the kept accent is the face's, not the Ember fallback");
+
+    snapshot(s.editor, "54_theme_rejected_per_token");
+}
+
+// 55 — ADR-035 A5 / A4. ParamGridLayoutTest proves ArchetypeLayout places
+// every control exactly once for every archetype; this proves the editor
+// ROUTES a schema-3 `archetype` into that path -- the panel takes the LLM's
+// sections, not the heuristic's, and no control is dropped.
+void scenario55_archetypeSectionsReachTheGrid(const juce::File& tmp)
+{
+    scenario("55. an LLM archetype + sections drive the param grid",
+             "applyUiIr() with a schema-3 face routes `archetype` and the "
+             "producer's own sections into the sectioned layout; every "
+             "captured control still appears.");
+
+    FakeGenerator::install(FakeGenerator::writeSuccessThenFaceCounted(
+        tmp, "gen55", kTwoGroupPatch,
+        "#0e1417" /* surface */, "#e6f1f3" /* text */, "#4ec9d6" /* accent */,
+        "channel-strip", { "Freq", "Detune" }, { "Mix", "Depth" }));
+
+    Session s;
+    s.editor.submitPromptForTest("a channel strip");
+    check(pumpUntil([&] { return s.editor.statusTextForTest().contains("DSP live"); }),
+          "the 2-group patch compiled");
+    check(pumpUntil([&] { return s.editor.gridFaceActiveForTest(); }),
+          "the channel-strip face attached");
+
+    const auto& sections = s.editor.gridActiveSectionsForTest();
+    check(sections.size() == 2,
+          juce::String("the panel is holding the producer's two sections, got ")
+              + juce::String((int) sections.size()));
+
+    int placed = 0;
+    for (const auto& sec : sections)
+        placed += (int) sec.controls.size();
+    check(placed == 4,
+          juce::String("every captured control is placed in a section, got ")
+              + juce::String(placed));
+    check(s.editor.gridControlCountForTest() == 4,
+          "the grid still renders all four controls");
+
+    snapshot(s.editor, "55_archetype_sections");
+}
+
+// 56 — PF-078. The UiDesignGallery snapshot harness must not fire a real
+// ui_face LLM request per fixture. The guard is an env var read once in
+// PromptPanel's constructor; this is the "seen failing" evidence for it (a
+// control this project only trusts once it has watched it gate) -- with the
+// var set the request never fires, and the SAME setup without it does.
+void scenario56_uiFaceEnvGuardSuppressesRequest(const juce::File& tmp)
+{
+    scenario("56. PLUGINFORGE_NO_UI_FACE suppresses the post-compile face request",
+             "PF-078: with the var set (as UiDesignGallery sets it) a compile "
+             "makes no ui_face request and no provider subprocess; without it "
+             "the identical setup does.");
+
+    // ── guard ON: no request, no face ────────────────────────────────────────
+    {
+        ::setenv("PLUGINFORGE_NO_UI_FACE", "1", 1);
+        FakeGenerator::install(FakeGenerator::writeSuccessThenFaceCounted(
+            tmp, "gen56on", kFourParamPatch, "#0e0f13", "#eef2ee", "#8fe3c1",
+            "pedal", { "Alpha", "Beta" }, { "Gamma", "Delta" }));
+
+        Session s;   // PromptPanel reads the var here, in its constructor
+        s.editor.submitPromptForTest("a patch whose face must not be requested");
+        check(pumpUntil([&] { return s.editor.statusTextForTest().contains("DSP live"); }),
+              "the patch still compiles with the guard on");
+        pumpUntil([&] { return false; }, 500);   // give a request every chance
+        check(FakeGenerator::uiFaceRequestCount(tmp, "gen56on") == 0,
+              "guard on: zero ui_face requests");
+        check(! s.editor.gridFaceActiveForTest(),
+              "guard on: the deterministic Ember layout stays, no face attached");
+        ::unsetenv("PLUGINFORGE_NO_UI_FACE");
+    }
+
+    // ── guard OFF: the same setup DOES request a face (the red case) ─────────
+    {
+        FakeGenerator::install(FakeGenerator::writeSuccessThenFaceCounted(
+            tmp, "gen56off", kFourParamPatch, "#0e0f13", "#eef2ee", "#8fe3c1",
+            "pedal", { "Alpha", "Beta" }, { "Gamma", "Delta" }));
+
+        Session s;
+        s.editor.submitPromptForTest("a patch whose face IS requested");
+        check(pumpUntil([&] { return s.editor.statusTextForTest().contains("DSP live"); }),
+              "the patch compiled");
+        check(pumpUntil([&] { return s.editor.gridFaceActiveForTest(); }),
+              "guard off: the face request fired and attached a face");
+        check(FakeGenerator::uiFaceRequestCount(tmp, "gen56off") >= 1,
+              "guard off: at least one ui_face request -- the guard is what "
+              "made the difference above");
+    }
+
+    ::unsetenv("PLUGINFORGE_NO_UI_FACE");   // hygiene if scenarios are reordered
+}
+
+// 57 — ADR-035 A5 edge. A project SAVED while the ui_face request is still in
+// flight carries only the derived (schema-2) layout, not an accepted face. On
+// reopen the key matches the source but the layout is not schema 3, so
+// uiIrForRestoredSource's result is not treated as a cached face -- the editor
+// re-derives and re-requests, which is correct: nothing was ever accepted to
+// restore. This is the "regeneration in flight at save" risk, pinned.
+void scenario57_saveBeforeFaceReturnsRegeneratesOnReopen(const juce::File& tmp)
+{
+    scenario("57. saving before the face lands => reopen regenerates it",
+             "the blob keyed to the source carries the schema-2 derived layout; "
+             "a schema<3 restore is not a cached face, so the reopen re-requests.");
+
+    // 2s sleep on the ui_face branch: the request cannot possibly have completed
+    // by the time this scenario saves, right after 'DSP live'.
+    FakeGenerator::install(FakeGenerator::writeSuccessThenFaceCounted(
+        tmp, "gen57", kFourParamPatch, "#0e0f13", "#eef2ee", "#8fe3c1",
+        "pedal", { "Alpha", "Beta" }, { "Gamma", "Delta" }, /* uiFaceSleepSeconds */ 2));
+
+    juce::MemoryBlock blob;
+    {
+        Session s;
+        s.editor.submitPromptForTest("a patch saved before its face returns");
+        check(pumpUntil([&] { return s.editor.statusTextForTest().contains("DSP live"); }),
+              "the patch compiled");
+
+        // Save immediately -- the (slow) ui_face request is still running.
+        s.processor.getStateInformation(blob);
+        check(s.processor.uiIrForTest().schema != 3,
+              "at save time the processor holds the derived layout, not a face");
+        check(FakeGenerator::uiFaceRequestCount(tmp, "gen57") == 0,
+              "the in-flight ui_face request had not completed at save time");
+        check(! s.editor.gridFaceActiveForTest(), "no face was on screen either");
+    }
+
+    // Reopen: no accepted face to restore, so it regenerates (waits out the
+    // fake's 2s sleep -- hence the longer pumpUntil budget).
+    Session s2;
+    s2.processor.setStateInformation(blob.getData(), (int) blob.getSize());
+    check(pumpUntil([&] { return s2.editor.gridControlCountForTest() == 4; }),
+          "the restore recompile rebuilt the grid");
+    check(pumpUntil([&] { return s2.editor.gridFaceActiveForTest(); }, 12000),
+          "the reopen re-requested a face and attached it (nothing was cached)");
+    check(FakeGenerator::uiFaceRequestCount(tmp, "gen57") == 1,
+          "exactly one completed ui_face request -- the reopen's own");
+}
+
+// 58 — PF-082. A WINDOW reopen, not a project reload: the processor stays
+// alive and already holds a live, faced patch; only the editor is destroyed
+// and a fresh one constructed over the SAME processor, with no
+// setStateInformation anywhere in the scenario. This is what a real VST3
+// host does on tab-away/tab-back (removed()/attached() destroy and recreate
+// just the ContentWrapperComponent+editor -- JUCE's own VST3 client code,
+// not this plugin's). Session (used everywhere else in this file) cannot
+// express that: it constructs processor and editor together and ties their
+// lifetimes, so this scenario hand-declares the processor itself, the same
+// way scenario 25's restore-before-editor half had to.
+//
+// Before the PF-082 fix: the only code that ever called refreshParamKnobs/
+// applyUiIr/applyGeneratedFace was the compile-success callback, which does
+// not fire on a bare construction. The second editor came up with an empty
+// grid, no face, the literal title "PluginForge", and a window shrunk by
+// updateWindowSizeForParams() to its empty-grid height -- which is what
+// reads as "the GUI disappeared" when it happens inside a real host.
+void scenario58_windowReopenRebuildsGridAndFace(const juce::File& tmp)
+{
+    scenario("58. closing and reopening the EDITOR (not the project) keeps "
+             "the grid and face",
+             "PF-082: processor.lastPublishedParamsForReplay() lets a freshly "
+             "constructed editor rebuild the grid/face over an already-live "
+             "processor, with no compile and no setStateInformation involved.");
+
+    FakeGenerator::install(FakeGenerator::writeSuccessThenFaceCounted(
+        tmp, "gen58", kFourParamPatch, "#0e0f13", "#eef2ee", "#8fe3c1",
+        "pedal", { "Alpha", "Beta" }, { "Gamma", "Delta" }));
+
+    PluginForgeProcessor processor;
+    processor.prepareToPlay(48000.0, 512);
+
+    int savedHeight = 0;
+    juce::String savedTitle;
+    const int fillId = juce::Slider::rotarySliderFillColourId;
+    juce::Colour savedAccent;
+    {
+        PluginForgeEditor e1 { processor };
+        e1.setSize(900, 500);
+        e1.submitPromptForTest("a patch worth keeping its face on reopen");
+        check(pumpUntil([&] { return e1.statusTextForTest().contains("DSP live"); }),
+              "the initial generate compiled");
+        check(pumpUntil([&] { return e1.gridFaceActiveForTest(); }),
+              "the post-compile ui_face request attached a face");
+        check(e1.gridControlCountForTest() == 4, "the first editor shows all 4 controls");
+
+        savedHeight = e1.getHeight();
+        savedTitle  = e1.gridTitleForTest();
+        savedAccent = e1.gridFaceColourForTest(fillId);
+        check(savedTitle != "PluginForge",
+              "the generated title replaced the shell default on the first editor");
+
+        // e1 is destroyed here -- the window-close half of a tab-away, with
+        // `processor` (declared outside this scope) surviving untouched.
+    }
+
+    // The reopen: a brand-new editor over the SAME, already-live processor.
+    // No compile happens (nothing changed), and no setStateInformation runs
+    // (this is not a project reload) -- the only thing that can rebuild the
+    // grid is PF-082's constructor replay. Deliberately NO setSize() call
+    // here (unlike e1, which needs one before its generate ever runs): the
+    // constructor's own replay already calls updateWindowSizeForParams() for
+    // the grid it just rebuilt, and overriding that back to the constructor's
+    // initial 900x500 is exactly the empty-shell height this scenario exists
+    // to rule out.
+    PluginForgeEditor e2 { processor };
+
+    check(e2.gridControlCountForTest() == 4,
+          "the reopened editor shows all 4 controls with no compile and no "
+          "restore -- the grid was replayed from the processor's snapshot");
+    check(e2.gridFaceActiveForTest(),
+          "the reopened editor is wearing a generated face again");
+    check(e2.gridTitleForTest() == savedTitle,
+          "the reopened title matches what was generated, not the "
+          "\"PluginForge\" shell default an empty grid would show");
+    check(e2.gridFaceColourForTest(fillId) == savedAccent,
+          "the reopened face's accent matches the one the first editor had, "
+          "not the Ember default an empty/unfaced grid would fall back to");
+    check(e2.getHeight() == savedHeight,
+          "the reopened window is the SAME height as the first editor's, not "
+          "the ~400px empty-grid shell updateWindowSizeForParams() produces "
+          "for zero controls");
+
+    // No new ui_face request: a window reopen should cost no quota, the same
+    // invariant scenario 53 proves for a project reopen.
+    pumpUntil([&] { return false; }, 500);
+    check(FakeGenerator::uiFaceRequestCount(tmp, "gen58") == 1,
+          "still exactly one ui_face request total -- reopening the WINDOW "
+          "did not trigger a second one");
+
+    snapshot(e2, "58_window_reopen_face_preserved");
+}
+
+// 59 — PF-083. The constructor installs three processor callbacks
+// (onUiStyleChanged, onFaustCompileFailure, onFaustCompileSuccess), each
+// capturing a SafePointer<PluginForgeEditor> to `this`. Before the fix,
+// destroying the editor left all three still assigned on the processor --
+// harmless in the sense that the SafePointer makes a late firing a no-op
+// rather than a use-after-free, but any compile that finished after close
+// still silently vanished instead of just not applying to a dead editor.
+// This scenario does not need a real compile: it only has to show the
+// processor's callback slots are non-empty right after construction (so the
+// test would be vacuously green if the constructor ever stopped assigning
+// them) and empty again the instant the editor that assigned them is gone.
+void scenario59_destructorClearsProcessorCallbacks()
+{
+    scenario("59. closing the editor clears the processor's compile callbacks",
+             "PF-083: onUiStyleChanged/onFaustCompileFailure/onFaustCompileSuccess "
+             "must not stay bound to a destroyed editor's SafePointer.");
+
+    PluginForgeProcessor processor;
+    processor.prepareToPlay(48000.0, 512);
+
+    check(!static_cast<bool>(processor.onUiStyleChanged)
+          && !static_cast<bool>(processor.onFaustCompileFailure)
+          && !static_cast<bool>(processor.onFaustCompileSuccess),
+          "no editor has ever existed yet, so all three start empty");
+
+    {
+        PluginForgeEditor e { processor };
+        check(static_cast<bool>(processor.onUiStyleChanged)
+              && static_cast<bool>(processor.onFaustCompileFailure)
+              && static_cast<bool>(processor.onFaustCompileSuccess),
+              "constructing an editor assigns all three callback slots");
+        // e destroyed here -- the window-close half of a tab-away.
+    }
+
+    check(!static_cast<bool>(processor.onUiStyleChanged),
+          "RED before the fix: onUiStyleChanged must be cleared on close, not "
+          "left bound to a dead SafePointer");
+    check(!static_cast<bool>(processor.onFaustCompileFailure),
+          "RED before the fix: onFaustCompileFailure must be cleared on close");
+    check(!static_cast<bool>(processor.onFaustCompileSuccess),
+          "RED before the fix: onFaustCompileSuccess must be cleared on close -- "
+          "this is the slot whose silent drop PF-083 is actually about, since "
+          "it is what would have refreshed the grid/status on a late compile");
+}
+
+// 60 — ADR-038 F2's own "done when": a small discrete nentry renders as a
+// chip row, and clicking a chip moves the ACTUAL slot value, not just the
+// widget's own idea of what's lit. Renumbered from 58 -> 60 on merge with
+// origin/main (2026-10-20): PF-082/PF-083 landed scenarios 58/59 on main
+// while this branch sat unpushed, so this scenario moved to the next free
+// number rather than colliding with either.
+void scenario60_chipEnumRendersAndToggles()
+{
+    scenario("60. a 3-value nentry renders as a chip row and toggling moves the slot",
+             "ADR-038 F2 -- E1 was the export spike, this is the face-ladder counterpart");
+
+    Session s;
+    const bool ok = loadAndSettle(s, kChipEnumPatch, 2);
+    check(ok, "a 2-param patch (a 3-value enum + a plain slider) compiled and reached the grid");
+    if (! ok) return;
+
+    auto slotOfLabel = [&](const juce::String& want) {
+        for (int i = 0; i < s.editor.gridControlCountForTest(); ++i)
+            if (s.editor.gridControlLabelForTest(i) == want)
+                return i;
+        return -1;
+    };
+
+    const int waveSlot = slotOfLabel("Waveform");
+    const int gainSlot = slotOfLabel("Gain");
+    check(waveSlot >= 0 && gainSlot >= 0, "both 'Waveform' and 'Gain' controls exist");
+    if (waveSlot < 0)
+        return;
+
+    const auto waveKind = s.editor.gridControlKindForTest(waveSlot);
+    check(waveKind == WidgetKind::ChipRow,
+          juce::String("'Waveform' renders as a ChipRow, got ")
+              + ParamGridPanel::widgetKindName(waveKind));
+
+    // The plain slider on the SAME patch must be unaffected -- this is a
+    // per-control decision, not a mode switch.
+    if (gainSlot >= 0)
+    {
+        const auto gainKind = s.editor.gridControlKindForTest(gainSlot);
+        check(gainKind == WidgetKind::HorizontalSlider,
+              juce::String("'Gain' is unaffected, still a HorizontalSlider, got ")
+                  + ParamGridPanel::widgetKindName(gainKind));
+    }
+
+    check(s.editor.gridChipSelectedIndexForTest(waveSlot) == 0,
+          "chip 0 (the patch's declared default) is selected before any click");
+
+    s.editor.clickGridChipForTest(waveSlot, 2);
+    pump(50);
+
+    check(s.editor.gridChipSelectedIndexForTest(waveSlot) == 2,
+          "chip 2 is selected after clicking it, chip 0 is not");
+
+    // Independently confirm the click moved the ACTUAL parameter, not just the
+    // ChipRow's own cached idea of which chip is lit -- same "ask the
+    // widget/param, not the decision logic" convention this file's other
+    // *ForTest accessors already follow (controlValueForTest's own header
+    // comment). A 0..2 range at chip index 2 is slot 1.0 exactly.
+    if (auto* rp = s.processor.apvts.getParameter(ParamPool::slotId(waveSlot)))
+        check(std::abs(rp->getValue() - 1.0f) < 1.0e-4f,
+              "the APVTS slot itself reached 1.0 (index 2 of a 0..2 range), not "
+              "merely a widget that LOOKS toggled");
+    else
+        check(false, "APVTS exposes the Waveform slot's parameter");
+
+    snapshot(s.editor, "60_chip_row");
+
+    // A second snapshot WITH a face attached (scenario 50's own Velvet Drift
+    // tokens) -- the filled/outlined chip paint (drawToggleButton override,
+    // GeneratedFaceLookAndFeel.h) only ever engages once a
+    // GeneratedFaceLookAndFeel is attached; the snapshot above used the
+    // shell's default Ember LookAndFeel, which never exercises it. Whether
+    // this READS right is a human judgement (COLLABORATION.md §1) -- no
+    // assertion here, this is the artifact for that look.
+    UiIr::Theme velvet;
+    velvet.surface = "#0e0f13";
+    velvet.text    = "#eef2ee";
+    velvet.accent  = "#8fe3c1";
+    velvet.display = "grotesk";
+    s.editor.applyGeneratedFace(velvet);
+    check(s.editor.gridFaceActiveForTest(), "the face attached for the chip-styled snapshot");
+    snapshot(s.editor, "60b_chip_row_generated_face");
+}
+
 } // namespace
 
 int main()
@@ -3951,7 +4494,7 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInit;
 
     std::printf("EditorSessionTest -- a simulated human session against the real editor\n");
-    std::printf("  50 scenarios, no network, no quota, snapshots to artifacts/images/\n");
+    std::printf("  scenarios, no network, no quota, snapshots to artifacts/images/\n");
 
     auto tmp = juce::File::getSpecialLocation(juce::File::tempDirectory)
                    .getChildFile("pluginforge_editor_session");
@@ -4018,6 +4561,14 @@ int main()
     scenario50_generatedFaceScopedToParamGrid();
     scenario51_uiFaceRequestAppliesGeneratedFace(tmp);
     scenario52_generatedFaceHeadingFont();
+    scenario53_savedFaceRestoredWithoutRegenerate(tmp);
+    scenario54_themeRejectedPerToken(tmp);
+    scenario55_archetypeSectionsReachTheGrid(tmp);
+    scenario56_uiFaceEnvGuardSuppressesRequest(tmp);
+    scenario57_saveBeforeFaceReturnsRegeneratesOnReopen(tmp);
+    scenario58_windowReopenRebuildsGridAndFace(tmp);
+    scenario59_destructorClearsProcessorCallbacks();
+    scenario60_chipEnumRendersAndToggles();
 
     tmp.deleteRecursively();
 

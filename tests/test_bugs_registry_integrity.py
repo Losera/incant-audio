@@ -65,7 +65,7 @@ import pytest
 REPO = Path(__file__).resolve().parent.parent
 BUGS_MD = REPO / "docs" / "BUGS.md"
 
-REGISTRY_STATUSES = {"open", "in-progress", "fixed", "wontfix"}
+REGISTRY_STATUSES = {"open", "in-progress", "fixed", "wontfix", "closed"}
 
 RESOLVED = "resolved"
 UNRESOLVED = "unresolved"
@@ -73,6 +73,7 @@ UNRESOLVED = "unresolved"
 _BUCKET_OF_STATUS = {
     "fixed": RESOLVED,
     "wontfix": RESOLVED,
+    "closed": RESOLVED,
     "open": UNRESOLVED,
     "in-progress": UNRESOLVED,
 }
@@ -102,7 +103,7 @@ def parse_registry(text: str) -> dict[str, str]:
     """Return {PF-ID: status} for every row of the registry table.
 
     Tolerant of extra whitespace and markdown emphasis around the status token, but
-    only accepts one of the four documented registry statuses -- a row this loose
+    only accepts one of the five documented registry statuses -- a row this loose
     match cannot classify is skipped rather than guessed at.
     """
     statuses: dict[str, str] = {}
@@ -216,7 +217,16 @@ class TestRegistryTableIsParseable:
     def test_known_statuses(self, registry):
         assert registry["PF-029"] == "fixed"
         assert registry["PF-031"] == "fixed"
-        assert registry["PF-032"] == "in-progress"
+        assert registry["PF-032"] == "fixed"
+
+    def test_closed_rows_are_not_silently_dropped(self, registry):
+        """Regression: `closed` was not in REGISTRY_STATUSES until 2026-10-20
+        (workflow audit), so parse_registry() silently skipped PF-011 and
+        PF-076 entirely -- both rows, and both the open-count and
+        tools/health_report.py's bug-bucketing that reuses this parser, were
+        two rows short of docs/BUGS.md's real total with no error raised."""
+        assert registry.get("PF-011") == "closed"
+        assert registry.get("PF-076") == "closed"
 
 
 class TestDetailHeaderClassifier:

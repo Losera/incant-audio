@@ -101,6 +101,10 @@ target_compile_definitions(PluginForgeHost PRIVATE
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
     JUCE_VST3_CAN_REPLACE_VST2=0
+    # Without this, a failed jassert in a Debug build routes to DBG() only
+    # (juce_Logger.cpp), never to Logger::writeToLog() -- so it would never
+    # reach the FileLogger installed in PluginProcessor's constructor.
+    JUCE_LOG_ASSERTIONS=1
 )
 
 # libfaust ships as a shared library on Arch Linux at /usr/lib/libfaust.so.
@@ -168,6 +172,7 @@ target_compile_definitions(PluginForgeSynth PRIVATE
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
     JUCE_VST3_CAN_REPLACE_VST2=0
+    JUCE_LOG_ASSERTIONS=1
 )
 
 target_link_libraries(PluginForgeSynth PRIVATE
@@ -509,6 +514,22 @@ add_executable(ParamGridLayoutTest tests/ParamGridLayoutTest.cpp)
 target_compile_features(ParamGridLayoutTest PRIVATE cxx_std_17)
 target_compile_options(ParamGridLayoutTest PRIVATE -fsanitize=address,undefined -g -O1)
 target_link_options(ParamGridLayoutTest PRIVATE -fsanitize=address,undefined)
+
+# ---------------------------------------------------------------------------
+# GKnobGeometryTest -- the bipolar-knob arc-start math
+# (host/Source/GKnobGeometry.h, host/tests/GKnobGeometryTest.cpp), ADR-038 F1.
+#
+# Same shape as ParamGridLayoutTest immediately above: GKnobGeometry.h was
+# factored OUT of GeneratedFaceLookAndFeel::drawRotarySlider specifically so
+# this arithmetic could have a fast, no-JUCE test, since GeneratedFaceLookAndFeel.h
+# itself pulls in juce_gui_basics for every other method and could never be
+# this build's translation unit. Pure float arithmetic, no dependency on
+# either JUCE or libfaust.
+# ---------------------------------------------------------------------------
+add_executable(GKnobGeometryTest tests/GKnobGeometryTest.cpp)
+target_compile_features(GKnobGeometryTest PRIVATE cxx_std_17)
+target_compile_options(GKnobGeometryTest PRIVATE -fsanitize=address,undefined -g -O1)
+target_link_options(GKnobGeometryTest PRIVATE -fsanitize=address,undefined)
 
 # ---------------------------------------------------------------------------
 # NoteRingTest / NoteRingTsanTest -- the message->audio note queue
@@ -961,6 +982,28 @@ add_executable(JitTargetTest tests/JitTargetTest.cpp)
 target_compile_features(JitTargetTest PRIVATE cxx_std_17)
 target_compile_options(JitTargetTest PRIVATE -fno-rtti -g -O1)
 target_link_libraries(JitTargetTest PRIVATE ${LIBFAUST_LIB} ${CMAKE_DL_LIBS})
+
+# ---------------------------------------------------------------------------
+# AotEmitTest -- ADR-038 E1, the AOT-emit spike (host/Source/AotEmit.h,
+# host/tests/AotEmitTest.cpp). Exercises generateAuxFilesFromString end to
+# end: the ADR-023 amendment verified the symbol exists and links but never
+# ran it. Round-trips the emitted header through a real `g++ -c` against a
+# stub main, per the E1 "done when" in docs/sessions/020-generated-faces-v2.md.
+#
+# Same shape as JitTargetTest immediately above -- calls a libfaust API
+# directly with no JUCE -- but unlike JitTargetTest this TU never touches
+# libfaust's own polymorphic C++ types (dsp/llvm_dsp/llvm_dsp_factory), only
+# the free functions generateAuxFilesFromString/generateSHA1 over plain
+# strings, so ASan/UBSan carries no vptr risk here the way the
+# FaustEngine.cpp-linking harnesses have (see StatePersistenceTest's comment
+# for that case) and needs no -fno-sanitize=vptr escape hatch. -fno-rtti still
+# matches libfaust.so's own build.
+# ---------------------------------------------------------------------------
+add_executable(AotEmitTest tests/AotEmitTest.cpp)
+target_compile_features(AotEmitTest PRIVATE cxx_std_17)
+target_compile_options(AotEmitTest PRIVATE -fno-rtti -fsanitize=address,undefined -g -O1)
+target_link_options(AotEmitTest PRIVATE -fsanitize=address,undefined)
+target_link_libraries(AotEmitTest PRIVATE ${LIBFAUST_LIB})
 
 # ---------------------------------------------------------------------------
 # UiDesignGallery -- the design instrument for docs/ui_design_plan.md §3

@@ -1,0 +1,534 @@
+[
+  {
+    "effect_id": "trivial-01",
+    "tier": "L4",
+    "category": "trivial",
+    "prompt": "A stereo gain utility: single gain parameter in decibels, range -60 to +12 dB, default 0 dB, 0.1 dB steps, converted dB-to-linear and applied equally to both channels.",
+    "provider": "groq",
+    "model": "openai/gpt-oss-120b",
+    "source_archive": "bench/results/efficacy/efficacy_groq_20260831.json",
+    "faust_code": "import(\"stdfaust.lib\");\ngain = hslider(\"Gain [unit:dB]\", 0, -60, 12, 0.1) : ba.db2linear : si.smoo;\nprocess = _ * gain, _ * gain;",
+    "analysis": {
+      "schema": 2,
+      "rendered": true,
+      "tail": {
+        "evaluated": true,
+        "note": "",
+        "tail_ms": 0.0,
+        "tail_truncated": false,
+        "tail_ratio_db": -323.13170746050906,
+        "env_db_final": -219.93299093425364,
+        "ref_rms": 0.09923149781549692,
+        "burst_end_ms": 250.0,
+        "inert": true,
+        "frame_ms": 5.0
+      },
+      "measurement": {
+        "ok": true,
+        "reasons": [],
+        "has_nan_inf": false,
+        "is_silent": false,
+        "peak": 0.47318246960639954,
+        "rms": 0.09933315639094796,
+        "rms_ratio_db": -0.07400922050150022,
+        "dc_offset": 0.00024507186869907353,
+        "n_frames": 96000,
+        "n_channels": 2,
+        "never_decays": false,
+        "tail_gate_evaluated": true,
+        "env_db_final": -219.93299093425364,
+        "pitch_gate_evaluated": false,
+        "cents_error": Infinity,
+        "out_of_tune": false,
+        "codes": []
+      },
+      "features": {
+        "band_gain_db": {
+          "50-200": -0.06733214542838228,
+          "200-800": -0.10646895508420881,
+          "800-1200": -0.0986255396631992,
+          "1200-4000": -0.06981100439994081,
+          "4000-8000": -0.07131478708305924,
+          "8000-20000": -0.07572739540767061
+        },
+        "centroid_in_hz": 11968.244636452271,
+        "centroid_out_hz": 11968.398024954997,
+        "centroid_shift_oct": 1.8489880585516586e-05,
+        "crest_in_db": 13.484922981869481,
+        "crest_out_db": 13.558688216584041
+      }
+    }
+  },
+  {
+    "effect_id": "filters-01",
+    "tier": "L4",
+    "category": "filters",
+    "prompt": "A stereo resonant low-pass filter: 24 dB/oct ladder-style response, cutoff 20 Hz-20 kHz with exponential taper defaulting to 1 kHz, resonance Q 0.5-10, and gentle saturation for analog character.",
+    "provider": "groq",
+    "model": "openai/gpt-oss-120b",
+    "source_archive": "bench/results/efficacy/efficacy_groq_20260831.json",
+    "faust_code": "import(\"stdfaust.lib\");\ncutoff = hslider(\"Cutoff [unit:Hz]\", 1000, 20, 20000, 1) : si.smoo;\nq = hslider(\"Resonance Q\", 1.0, 0.5, 10, 0.01) : si.smoo;\ndrive = hslider(\"Drive\", 0.2, 0, 1, 0.01) : si.smoo;\nfilter = fi.resonlp(cutoff, q, 1.0) : fi.resonlp(cutoff, q, 1.0);\nchannel(x) = x : filter : ef.cubicnl(drive, 0);\nprocess = channel, channel;",
+    "analysis": {
+      "schema": 2,
+      "rendered": true,
+      "tail": {
+        "evaluated": true,
+        "note": "",
+        "tail_ms": 5.0,
+        "tail_truncated": false,
+        "tail_ratio_db": -26.05237610990318,
+        "env_db_final": -216.5424628778398,
+        "ref_rms": 0.06716192630945352,
+        "burst_end_ms": 250.0,
+        "inert": true,
+        "frame_ms": 5.0
+      },
+      "measurement": {
+        "ok": true,
+        "reasons": [],
+        "has_nan_inf": false,
+        "is_silent": false,
+        "peak": 0.2437654584646225,
+        "rms": 0.06332244741980113,
+        "rms_ratio_db": -3.984740094534036,
+        "dc_offset": 0.0005977280943143694,
+        "n_frames": 96000,
+        "n_channels": 2,
+        "never_decays": false,
+        "tail_gate_evaluated": true,
+        "env_db_final": -216.5424628778398,
+        "pitch_gate_evaluated": false,
+        "cents_error": Infinity,
+        "out_of_tune": false,
+        "codes": []
+      },
+      "features": {
+        "band_gain_db": {
+          "50-200": 8.058745625242771,
+          "200-800": 9.503073715735855,
+          "800-1200": 7.850219300026517,
+          "1200-4000": -8.028143126753942,
+          "4000-8000": -48.51162628404397,
+          "8000-20000": -62.21508912705801
+        },
+        "centroid_in_hz": 11968.244636452271,
+        "centroid_out_hz": 810.9187068552,
+        "centroid_shift_oct": -3.8835104656646604,
+        "crest_in_db": 13.484922981869481,
+        "crest_out_db": 11.708289482433297
+      }
+    }
+  },
+  {
+    "effect_id": "filters-05",
+    "tier": "L3",
+    "category": "filters",
+    "prompt": "a high-shelf filter for adding air to vocals",
+    "provider": "groq",
+    "model": "openai/gpt-oss-120b",
+    "source_archive": "bench/results/efficacy/efficacy_groq_20260831.json",
+    "faust_code": "import(\"stdfaust.lib\");\nprocess = par(i, 2, hs) with {\n    cutoff = hslider(\"Cutoff [unit:Hz]\", 8000, 1000, 20000, 1) : si.smoo;\n    gain   = hslider(\"Shelf Gain [unit:dB]\", 6, -12, 12, 0.1) : si.smoo;\n    hs = fi.highshelf(2, gain, cutoff);\n};",
+    "analysis": {
+      "schema": 2,
+      "rendered": true,
+      "tail": {
+        "evaluated": true,
+        "note": "",
+        "tail_ms": 5.0,
+        "tail_truncated": false,
+        "tail_ratio_db": -46.52778531693958,
+        "env_db_final": -223.33098984137763,
+        "ref_rms": 0.1467403302219806,
+        "burst_end_ms": 250.0,
+        "inert": true,
+        "frame_ms": 5.0
+      },
+      "measurement": {
+        "ok": true,
+        "reasons": [],
+        "has_nan_inf": false,
+        "is_silent": false,
+        "peak": 0.739097535610199,
+        "rms": 0.1477974446743826,
+        "rms_ratio_db": 3.377444573409564,
+        "dc_offset": 0.000209966134047999,
+        "n_frames": 96000,
+        "n_channels": 2,
+        "never_decays": false,
+        "tail_gate_evaluated": true,
+        "env_db_final": -223.33098984137763,
+        "pitch_gate_evaluated": false,
+        "cents_error": Infinity,
+        "out_of_tune": false,
+        "codes": []
+      },
+      "features": {
+        "band_gain_db": {
+          "50-200": 0.00035424536719770626,
+          "200-800": -0.0679972915277949,
+          "800-1200": -0.25047392770542803,
+          "1200-4000": -1.85663453893926,
+          "4000-8000": -8.140834130077714,
+          "8000-20000": 4.391137043685096
+        },
+        "centroid_in_hz": 11968.244636452271,
+        "centroid_out_hz": 14695.055771489977,
+        "centroid_shift_oct": 0.2961192644027501,
+        "crest_in_db": 13.484922981869481,
+        "crest_out_db": 13.980696575197694
+      }
+    }
+  },
+  {
+    "effect_id": "time-based-01",
+    "tier": "L4",
+    "category": "time-based",
+    "prompt": "A stereo delay: delay time 1-2000 ms defaulting to 350 ms, feedback 0-95%, dry/wet mix 0-100%, using an interpolated delay line for click-free time changes.",
+    "provider": "groq",
+    "model": "openai/gpt-oss-120b",
+    "source_archive": "bench/results/efficacy/efficacy_groq_20260831.json",
+    "faust_code": "import(\"stdfaust.lib\");\nMAXD = 192000;\ndtime = hslider(\"Delay Time [unit:ms]\", 350, 1, 2000, 1) : si.smoo\n        : *(ma.SR/1000.0) : min(MAXD-1) : max(1);\nfb    = hslider(\"Feedback [unit:%]\", 0.5, 0, 0.95, 0.01) : si.smoo;\nmix   = hslider(\"Dry/Wet\", 0.5, 0, 1, 0.01) : si.smoo;\nechoCh(x) = x * (1 - mix) + (x : (+ : de.fdelay(MAXD, dtime)) ~ *(fb)) * mix;\nprocess = echoCh, echoCh;",
+    "analysis": {
+      "schema": 2,
+      "rendered": true,
+      "tail": {
+        "evaluated": true,
+        "note": "",
+        "tail_ms": 1750.0,
+        "tail_truncated": true,
+        "tail_ratio_db": -2.1687249372194985,
+        "env_db_final": -29.58797725127993,
+        "ref_rms": 0.049686814485103516,
+        "burst_end_ms": 250.0,
+        "inert": false,
+        "frame_ms": 5.0
+      },
+      "measurement": {
+        "ok": true,
+        "reasons": [],
+        "has_nan_inf": false,
+        "is_silent": false,
+        "peak": 0.3526335656642914,
+        "rms": 0.06369910835768598,
+        "rms_ratio_db": -3.93322687054886,
+        "dc_offset": 0.000271712846736828,
+        "n_frames": 96000,
+        "n_channels": 2,
+        "never_decays": false,
+        "tail_gate_evaluated": true,
+        "env_db_final": -29.58797725127993,
+        "pitch_gate_evaluated": false,
+        "cents_error": Infinity,
+        "out_of_tune": false,
+        "codes": []
+      },
+      "features": {
+        "band_gain_db": {
+          "50-200": -2.8878257211443548,
+          "200-800": -2.844872782474157,
+          "800-1200": -2.7373773349990973,
+          "1200-4000": -2.844200484632176,
+          "4000-8000": -3.15709339410369,
+          "8000-20000": -4.244131478663795
+        },
+        "centroid_in_hz": 11968.244636452271,
+        "centroid_out_hz": 11505.137248438148,
+        "centroid_shift_oct": -0.05693337596081458,
+        "crest_in_db": 13.484922981869481,
+        "crest_out_db": 14.863805905990347
+      }
+    }
+  },
+  {
+    "effect_id": "time-based-03",
+    "tier": "L3",
+    "category": "time-based",
+    "prompt": "a subtle chorus effect with rate and depth",
+    "provider": "groq",
+    "model": "openai/gpt-oss-120b",
+    "source_archive": "bench/results/efficacy/efficacy_groq_20260831.json",
+    "faust_code": "import(\"stdfaust.lib\");\nrate = hslider(\"Rate [unit:Hz]\", 0.5, 0.01, 5, 0.01) : si.smoo;\ndepth = hslider(\"Depth\", 0.2, 0, 1, 0.01) : si.smoo;\nmix = hslider(\"Mix\", 0.3, 0, 1, 0.01) : si.smoo;\nmaxDel = 4096;\nlfo(f) = os.lf_triangle(f) * 0.5 + 0.5;\nvoice(f, x) = de.fdelay(maxDel, (10.0 + 20.0 * depth * lfo(f)) * ma.SR * 0.001, x);\nchorusCh(f, x) = x * (1 - mix) + voice(f, x) * mix;\nprocess = chorusCh(rate), chorusCh(rate * 1.13);",
+    "analysis": {
+      "schema": 2,
+      "rendered": true,
+      "tail": {
+        "evaluated": true,
+        "note": "",
+        "tail_ms": 15.0,
+        "tail_truncated": false,
+        "tail_ratio_db": -23.944090700390134,
+        "env_db_final": -217.39570391204154,
+        "ref_rms": 0.07409436759091952,
+        "burst_end_ms": 250.0,
+        "inert": false,
+        "frame_ms": 5.0
+      },
+      "measurement": {
+        "ok": true,
+        "reasons": [],
+        "has_nan_inf": false,
+        "is_silent": false,
+        "peak": 0.38933131098747253,
+        "rms": 0.07461868161291685,
+        "rms_ratio_db": -2.558942505116551,
+        "dc_offset": 0.0001996038803899692,
+        "n_frames": 96000,
+        "n_channels": 2,
+        "never_decays": false,
+        "tail_gate_evaluated": true,
+        "env_db_final": -217.39570391204154,
+        "pitch_gate_evaluated": false,
+        "cents_error": Infinity,
+        "out_of_tune": false,
+        "codes": []
+      },
+      "features": {
+        "band_gain_db": {
+          "50-200": -2.1191044366217135,
+          "200-800": -2.3097792782294784,
+          "800-1200": -2.4079881065140114,
+          "1200-4000": -2.360312164367318,
+          "4000-8000": -2.446769079950145,
+          "8000-20000": -2.6053509990848243
+        },
+        "centroid_in_hz": 11968.244636452271,
+        "centroid_out_hz": 11855.410525799334,
+        "centroid_shift_oct": -0.01366594907271868,
+        "crest_in_db": 13.484922981869481,
+        "crest_out_db": 14.349435212857887
+      }
+    }
+  },
+  {
+    "effect_id": "dynamics-01",
+    "tier": "L1",
+    "category": "dynamics",
+    "prompt": "glue my mix so it feels dense and controlled, like a firm hand keeping every sound in its place",
+    "provider": "groq",
+    "model": "openai/gpt-oss-120b",
+    "source_archive": "bench/results/efficacy/efficacy_groq_20260831.json",
+    "faust_code": "import(\"stdfaust.lib\");\ndrywet = hslider(\"Dry/Wet [unit:%]\", 0.8, 0, 1, 0.01) : si.smoo;\nratio  = hslider(\"Ratio\", 4, 1, 10, 0.1) : si.smoo;\nthresh = hslider(\"Threshold [unit:dB]\", -12, -60, 0, 0.1) : si.smoo;\nattMs  = hslider(\"Attack [unit:ms]\", 10, 1, 100, 1) : si.smoo;\nrelMs  = hslider(\"Release [unit:ms]\", 100, 10, 500, 1) : si.smoo;\nattSec = attMs : *(0.001);\nrelSec = relMs : *(0.001);\ncomp   = co.compressor_stereo(ratio, thresh, attSec, relSec);\nprocess = _,_ : ef.dryWetMixer(drywet, comp);",
+    "analysis": {
+      "schema": 2,
+      "rendered": true,
+      "tail": {
+        "evaluated": true,
+        "note": "",
+        "tail_ms": 0.0,
+        "tail_truncated": false,
+        "tail_ratio_db": -323.76825087418376,
+        "env_db_final": -219.93920520276785,
+        "ref_rms": 0.09930251780775272,
+        "burst_end_ms": 250.0,
+        "inert": true,
+        "frame_ms": 5.0
+      },
+      "measurement": {
+        "ok": true,
+        "reasons": [],
+        "has_nan_inf": false,
+        "is_silent": false,
+        "peak": 0.47319576144218445,
+        "rms": 0.10018295003702785,
+        "rms_ratio_db": -1.761558475271789e-05,
+        "dc_offset": 0.00021567560436421,
+        "n_frames": 96000,
+        "n_channels": 2,
+        "never_decays": false,
+        "tail_gate_evaluated": true,
+        "env_db_final": -219.93920520276785,
+        "pitch_gate_evaluated": false,
+        "cents_error": Infinity,
+        "out_of_tune": false,
+        "codes": []
+      },
+      "features": {
+        "band_gain_db": {
+          "50-200": -2.2574261525469118e-05,
+          "200-800": -1.2343829888772438e-05,
+          "800-1200": -2.201437545311842e-05,
+          "1200-4000": -2.013094792108198e-05,
+          "4000-8000": -1.3980815787459261e-05,
+          "8000-20000": -1.878280892390378e-05
+        },
+        "centroid_in_hz": 11968.244636452271,
+        "centroid_out_hz": 11968.24402078551,
+        "centroid_shift_oct": -7.421467651771111e-08,
+        "crest_in_db": 13.484922981869481,
+        "crest_out_db": 13.484940597454234
+      }
+    }
+  },
+  {
+    "effect_id": "dynamics-01",
+    "tier": "L0",
+    "category": "dynamics",
+    "prompt": "that punchy 'everything glued together' drum sound on Dr. Dre records",
+    "provider": "groq",
+    "model": "openai/gpt-oss-120b",
+    "source_archive": "bench/results/efficacy/efficacy_groq_20260831.json",
+    "faust_code": "import(\"stdfaust.lib\");\nhpCut = hslider(\"HP Cut [unit:Hz]\", 30, 20, 200, 1) : si.smoo;\nhp = fi.highpass(2, hpCut);\nlsFreq = hslider(\"Low Shelf Freq [unit:Hz]\", 120, 40, 500, 1) : si.smoo;\nlsGain = hslider(\"Low Shelf Gain [unit:dB]\", 6, -12, 12, 0.1) : ba.db2linear : si.smoo;\nls = fi.lowshelf(2, lsGain, lsFreq);\nhsFreq = hslider(\"High Shelf Freq [unit:Hz]\", 8000, 2000, 20000, 1) : si.smoo;\nhsGain = hslider(\"High Shelf Gain [unit:dB]\", -3, -12, 0, 0.1) : ba.db2linear : si.smoo;\nhs = fi.highshelf(2, hsGain, hsFreq);\ndrive = hslider(\"Saturation Drive\", 0.5, 0, 1, 0.01) : si.smoo;\nsat = ef.cubicnl(drive, 0);\ncompRatio = hslider(\"Comp Ratio\", 4, 1, 10, 0.1) : si.smoo;\ncompThresh = hslider(\"Comp Thresh [unit:dB]\", -20, -60, 0, 0.1) : si.smoo;\ncompAtt = hslider(\"Comp Attack [unit:ms]\", 5, 0.1, 100, 0.1) : si.smoo;\ncompRel = hslider(\"Comp Release [unit:ms]\", 50, 10, 500, 1) : si.smoo;\ncompMix = hslider(\"Comp Mix\", 0.5, 0, 1, 0.01) : si.smoo;\ncomp = ef.dryWetMixer(compMix, co.compressor_stereo(compRatio, compThresh, compAtt, compRel));\nfb1 = hslider(\"Reverb FB1\", 0.7, 0, 0.99, 0.01) : si.smoo;\nfb2 = hslider(\"Reverb FB2\", 0.7, 0, 0.99, 0.01) : si.smoo;\ndamp = hslider(\"Reverb Damp\", 0.5, 0, 1, 0.01) : si.smoo;\nrevMix = hslider(\"Reverb Mix\", 0.3, 0, 1, 0.01) : si.smoo;\nrev = re.stereo_freeverb(fb1, fb2, damp, 30);\nrevWet = ef.dryWetMixer(revMix, rev);\nprocess = _,_ <: hp, hp :> _,_ <: ls, ls :> _,_ <: hs, hs :> _,_ <: sat, sat :> _,_ <: comp, comp :> _,_ <: revWet, revWet :> _,_;",
+    "analysis": {
+      "schema": 2,
+      "rendered": true,
+      "tail": {
+        "evaluated": true,
+        "note": "",
+        "tail_ms": 600.0,
+        "tail_truncated": false,
+        "tail_ratio_db": -4.342765102974145,
+        "env_db_final": -162.68917173480065,
+        "ref_rms": 2.8377699555933558,
+        "burst_end_ms": 250.0,
+        "inert": false,
+        "frame_ms": 5.0
+      },
+      "measurement": {
+        "ok": true,
+        "reasons": [],
+        "has_nan_inf": false,
+        "is_silent": false,
+        "peak": 12.556192398071289,
+        "rms": 2.813802236597945,
+        "rms_ratio_db": 28.96997747469367,
+        "dc_offset": 0.028449892080151962,
+        "n_frames": 96000,
+        "n_channels": 2,
+        "never_decays": false,
+        "tail_gate_evaluated": true,
+        "env_db_final": -162.68917173480065,
+        "pitch_gate_evaluated": false,
+        "cents_error": Infinity,
+        "out_of_tune": false,
+        "codes": []
+      },
+      "features": {
+        "band_gain_db": {
+          "50-200": 24.200161932130783,
+          "200-800": 31.09496096553469,
+          "800-1200": 30.874478965953998,
+          "1200-4000": 30.629264170451812,
+          "4000-8000": 24.871889342460946,
+          "8000-20000": 28.480812963335747
+        },
+        "centroid_in_hz": 11968.244636452271,
+        "centroid_out_hz": 12755.00431024614,
+        "centroid_shift_oct": 0.09185181647141792,
+        "crest_in_db": 13.484922981869481,
+        "crest_out_db": 12.991287825000033
+      }
+    }
+  },
+  {
+    "effect_id": "dynamics-01",
+    "tier": "L3",
+    "category": "dynamics",
+    "prompt": "a compressor with threshold, ratio, attack, and release",
+    "provider": "groq",
+    "model": "openai/gpt-oss-120b",
+    "source_archive": "bench/results/efficacy/efficacy_groq_20260831.json",
+    "faust_code": "import(\"stdfaust.lib\");\nratio  = hslider(\"Ratio\", 4, 1, 20, 0.1) : si.smoo;\nthresh = hslider(\"Threshold [unit:dB]\", -20, -60, 0, 0.1) : si.smoo;\natt    = hslider(\"Attack [unit:ms]\", 10, 0.1, 200, 0.1) : si.smoo : *(0.001);\nrel    = hslider(\"Release [unit:ms]\", 100, 10, 1000, 1) : si.smoo : *(0.001);\nprocess = co.compressor_stereo(ratio, thresh, att, rel, _, _);",
+    "analysis": {
+      "schema": 2,
+      "rendered": true,
+      "tail": {
+        "evaluated": false,
+        "note": "output silent while driven",
+        "tail_ms": 0.0,
+        "tail_truncated": false,
+        "tail_ratio_db": -Infinity,
+        "env_db_final": -Infinity,
+        "ref_rms": 0.0,
+        "burst_end_ms": 250.0,
+        "inert": true,
+        "frame_ms": 5.0
+      },
+      "measurement": {
+        "ok": false,
+        "reasons": [
+          "output is silent (rms 0.00e+00)"
+        ],
+        "has_nan_inf": false,
+        "is_silent": true,
+        "peak": 0.0,
+        "rms": 0.0,
+        "rms_ratio_db": -Infinity,
+        "dc_offset": 0.0,
+        "n_frames": 96000,
+        "n_channels": 2,
+        "never_decays": false,
+        "tail_gate_evaluated": false,
+        "env_db_final": -Infinity,
+        "pitch_gate_evaluated": false,
+        "cents_error": Infinity,
+        "out_of_tune": false,
+        "codes": [
+          "silent"
+        ]
+      },
+      "features": {
+        "band_gain_db": {
+          "50-200": -254.76850718897708,
+          "200-800": -260.636842246377,
+          "800-1200": -259.0163541452335,
+          "1200-4000": -267.33579456435587,
+          "4000-8000": -268.85915549983645,
+          "8000-20000": -273.6677802929141
+        },
+        "centroid_in_hz": 11968.244636452271,
+        "centroid_out_hz": 0.0,
+        "centroid_shift_oct": 0.0,
+        "crest_in_db": 13.484922981869481,
+        "crest_out_db": 0.0
+      }
+    }
+  },
+  {
+    "effect_id": "dynamics-01",
+    "tier": "L4",
+    "category": "dynamics",
+    "prompt": "A stereo feed-forward compressor: threshold -60 to 0 dB, ratio 1:1 to 20:1, attack 0.1-100 ms, release 10-1000 ms, with makeup gain.",
+    "provider": "groq",
+    "model": "openai/gpt-oss-120b",
+    "source_archive": "bench/results/efficacy/efficacy_groq_20260831.json",
+    "faust_code": "import(\"stdfaust.lib\");\nthreshold = hslider(\"Threshold [unit:dB]\", -30, -60, 0, 0.1) : si.smoo;\nratio = hslider(\"Ratio\", 4, 1, 20, 0.1) : si.smoo;\nattack = hslider(\"Attack [unit:ms]\", 10, 0.1, 100, 0.1) : si.smoo : *(ma.SR/1000.0);\nrelease = hslider(\"Release [unit:ms]\", 100, 10, 1000, 1) : si.smoo : *(ma.SR/1000.0);\nmakeup = hslider(\"Makeup Gain [unit:dB]\", 0, -20, 20, 0.1) : ba.db2linear : si.smoo;\nprocess = _,_ : co.compressor_stereo(ratio, threshold, attack, release, _, _) * makeup;",
+    "analysis": {
+      "schema": 2,
+      "rendered": false,
+      "unsupported": false,
+      "error": "faust -json failed: ERROR : sequential composition A:B\nThe number of outputs [3] of A must be equal to the number of inputs [2] of B\n\nHere  A = (((_ : abs),(_ : abs) : + : abs : \\(x21).(\\(x22).(((1.0f,((x21,x22 : >),(((hslider(\"Release [unit:ms]\", 1e+02f, 1e+01f, 1e+03f, 1.0f) : \\(x37).(\\(x38).(((1.0f,(1,(44.1f,(1.92e+"
+    }
+  },
+  {
+    "effect_id": "dynamics-01",
+    "tier": "L2",
+    "category": "dynamics",
+    "prompt": "something that evens out my track's volume - it catches the loud hits and lifts the quiet parts so everything sits together",
+    "provider": "groq",
+    "model": "openai/gpt-oss-120b",
+    "source_archive": "bench/results/efficacy/efficacy_groq_20260831.json",
+    "faust_code": "import(\"stdfaust.lib\");\nratio   = hslider(\"Ratio\", 4, 1, 20, 0.1) : si.smoo;\nthresh  = hslider(\"Threshold [unit:dB]\", -20, -60, 0, 0.1) : si.smoo;\natt     = hslider(\"Attack [unit:ms]\", 10, 0.1, 200, 0.1) : si.smoo;\nrel     = hslider(\"Release [unit:ms]\", 100, 10, 500, 1) : si.smoo;\nmakeup  = hslider(\"Makeup Gain [unit:dB]\", 0, -12, 12, 0.1) : ba.db2linear : si.smoo;\nprocess = _,_ : co.compressor_stereo(ratio, thresh, att, rel) : * makeup;",
+    "analysis": {
+      "schema": 2,
+      "rendered": false,
+      "unsupported": false,
+      "error": "faust -json failed: p.dsp:7 : ERROR : syntax error, unexpected IDENT"
+    }
+  },
+  {
+    "effect_id": "generative-02",
+    "tier": "L3",
+    "category": "generative",
+    "prompt": "a sawtooth synth with an ADSR envelope",
+    "provider": "groq",
+    "model": "openai/gpt-oss-120b",
+    "source_archive": "bench/results/efficacy/efficacy_groq_20260831.json",
+    "faust_code": "import(\"stdfaust.lib\");\nprocess = par(i,2,saw) with {\n    freq = hslider(\"Freq [unit:Hz]\", 440, 20, 20000, 1) : si.smoo;\n    attackMs = hslider(\"Attack [unit:ms]\", 10, 1, 5000, 1) : si.smoo;\n    decayMs = hslider(\"Decay [unit:ms]\", 100, 1, 5000, 1) : si.smoo;\n    sustain = hslider(\"Sustain\", 0.7, 0, 1, 0.01) : si.smoo;\n    releaseMs = hslider(\"Release [unit:ms]\", 200, 1, 5000, 1) : si.smoo;\n    gate = hslider(\"Gate\", 0, 0, 1, 1);\n    at = attackMs * 0.001;\n    dt = decayMs * 0.001;\n    rt = releaseMs * 0.001;\n    env = en.adsr(at, dt, sustain, rt, gate);\n    saw = os.sawtooth(freq) * env;\n};",
+    "analysis": {
+      "schema": 2,
+      "rendered": false,
+      "unsupported": true,
+      "error": "zero-input patch (0 in, 2 out) \u2014 generators are outside this harness; see UnsupportedPatch"
+    }
+  }
+]

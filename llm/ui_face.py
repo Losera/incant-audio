@@ -33,6 +33,16 @@ MAX_SECTIONS = 6
 MAX_CONTROLS = 64          # the ParamPool slot budget; a face cannot exceed it
 MAX_LG_CONTROLS = 2        # "lg is what tells the user which knob the plugin is about"
 
+# A section with fewer than this many controls does not read as real grouping
+# -- it is a heading over a lone knob, "its own tiny plugin". The live defect:
+# a real "warm analog tape saturation effect with input drive, tone, output
+# level, and a wet/dry mix" generation produced 4 sections, 1 knob each.
+# Restructure, don't reject: every other degradation in this file keeps the
+# face rather than discarding it for one bad judgment call, and the
+# deterministic host fallback (ParamGridPanel::deriveLayoutFromGroups())
+# folds the same shape the same way.
+MIN_CONTROLS_PER_SECTION = 2
+
 _LIMITS = {
     "tokens": 40,
     "id": 24,
@@ -188,7 +198,41 @@ def parse_and_validate_face(raw: str | dict[str, Any],
             sections.append({"id": section_id, "title": title,
                              "span": span, "controls": controls})
 
-    if not MIN_SECTIONS <= len(sections) <= MAX_SECTIONS:
+    # Fold single-control sections rather than reject the face. A heading over
+    # one knob reads as its own tiny plugin, not part of a grouped panel. Keyed
+    # on whether ANY section is real (>= MIN_CONTROLS_PER_SECTION), not on the
+    # average -- [1,1,4] and [3,1] both average >= 2 yet both leave a lone-knob
+    # heading standing. Mirrors ParamGridPanel::deriveLayoutFromGroups() so the
+    # host fallback and the LLM path degrade the same shape the same way:
+    #   * no real section  -> one "Controls" section holding everything, order
+    #     preserved (the "input drive / tone / output / wet-dry mix" case).
+    #   * some real section -> fold each singleton forward into the preceding
+    #     real section (a leading singleton goes into the first real one), so
+    #     [2,2,1] stays two sections, not one flat grid.
+    restructured = False
+    if len(sections) > 1:
+        real = [s for s in sections if len(s["controls"]) >= MIN_CONTROLS_PER_SECTION]
+        if len(real) < len(sections):
+            restructured = True
+            if not real:
+                merged = [c for s in sections for c in s["controls"]]
+                sections = [{"id": "controls", "title": "Controls", "span": 1,
+                             "controls": merged}]
+            else:
+                folded: list[dict[str, Any]] = []
+                pending: list[dict[str, str]] = []
+                for s in sections:
+                    if len(s["controls"]) >= MIN_CONTROLS_PER_SECTION:
+                        folded.append({**s, "controls": pending + list(s["controls"])})
+                        pending = []
+                    elif folded:
+                        folded[-1]["controls"] = folded[-1]["controls"] + s["controls"]
+                    else:
+                        pending += s["controls"]
+                sections = folded   # real >= 1, so pending is always drained
+
+    min_sections = 1 if restructured else MIN_SECTIONS
+    if not min_sections <= len(sections) <= MAX_SECTIONS:
         raise InvalidFace(
             f"a face needs {MIN_SECTIONS}-{MAX_SECTIONS} non-empty sections, got {len(sections)}")
     if len(seen_params) > MAX_CONTROLS:

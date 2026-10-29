@@ -37,6 +37,7 @@
 #include "../Source/ParamGridLayout.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <functional>
 
 namespace
@@ -274,6 +275,15 @@ bool renderFixture(const juce::File& dsp, const juce::File& outDir, Record& rec,
 
 int main(int argc, char** argv)
 {
+    // PF-078: this harness renders the real editor, whose compile-success
+    // callback fires a post-compile ui_face request. resolveGenerateScript()
+    // finds the repo's own llm/generate.py (a sibling of the build tree), which
+    // load_dotenv()s PluginForge/.env — so without this every fixture would make
+    // a live provider call from a snapshot run. Set before any PromptPanel is
+    // constructed; the child process would inherit it too, but the guard in
+    // PromptPanel::requestUiFace() means one is never spawned.
+    ::setenv("PLUGINFORGE_NO_UI_FACE", "1", 1);
+
     juce::ScopedJuceInitialiser_GUI juceInit;
 
     // Flags are pulled out first so the two positional args keep their existing

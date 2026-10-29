@@ -23,8 +23,14 @@ jobs:
   # workflow's wall clock, across the 5 most recent successful runs,
   # 2026-08-15): 0.4-0.7 minutes. 15 gives over 20x margin for a slow pip
   # resolve without coming anywhere near masking a genuine hang.
+  # RUNNER IMAGE IS PINNED, NOT `ubuntu-latest` (2026-10-29, PF-036 regression).
+  # See the identical pin on build-host below for the full evidence; in short:
+  # `ubuntu-latest` rolled 24.04 -> 26.04 on 2026-10-25 and the new image's
+  # libfaust (2.81.10, amd64v3) broke pf_cpu_shim's interposition, turning main red
+  # with no repo change. This job does not use libfaust, but it is pinned too so
+  # both jobs describe one reproducible environment rather than two moving ones.
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
 
     steps:
@@ -55,13 +61,17 @@ jobs:
         # stdlib and compiler, which this job deliberately does not install. It is
         # run for real in the build-host job below, which already has both.
 
-      - name: Reproduce the issue-#26 numbers (bench/issue26/verify.py)
-        run: python bench/issue26/verify.py
-        # The published repro command for issue #26 (scipy only, ~1 s). It is
-        # NOT part of the product but it is what an external reviewer runs, so
-        # CI must catch it breaking. If the committed corpus / result JSONs or
-        # the fidelity sidecars are deliberately re-frozen, update
-        # bench/issue26/expected.json in the same commit.
+      - name: Reproduce the repair-loop A/B numbers (bench/repair_ab_repro/verify.py)
+        run: |
+          pip install -r bench/repair_ab_repro/requirements.txt
+          python bench/repair_ab_repro/verify.py
+        # The published repro command for issue #26 (scipy only, ~1 s), run the
+        # same way an external reviewer runs it — via its own pinned
+        # requirements.txt, not the numpy+scipy the job installs above for the
+        # render oracle. It is NOT part of the product but CI must catch it
+        # breaking. If the committed corpus / result JSONs or the fidelity
+        # sidecars are deliberately re-frozen, update
+        # bench/repair_ab_repro/expected.json in the same commit.
 
   # timeout-minutes: added 2026-08-15, same incident as the `test` job's note
   # above -- this is the job that actually hung (twice) on "Install system
@@ -71,8 +81,40 @@ jobs:
   # 14.4-21.6 minutes, average 17.8. 40 gives ~2x margin over the observed max
   # for legitimate variance (cold JUCE-source cache, runner contention) while
   # cutting the worst-case silent-hang window from 360 minutes to 40.
+  # RUNNER IMAGE IS PINNED, NOT `ubuntu-latest` (2026-10-29, PF-036 regression).
+  #
+  # `ubuntu-latest` is a moving target and it moved. Measured from the two runs
+  # either side of the break, with no repo change between them:
+  #
+  #   green  2026-10-21  6c3adf3  Image ubuntu-24.04 (ubuntu24/20261012.334)
+  #                               libfaust2t64 amd64   2.70.3+ds-1.1build2
+  #                               JitTargetTest: PASSED -- 0 failure(s)
+  #
+  #   red    2026-10-29  85ca7b5  Image ubuntu-26.04 (ubuntu26/20261025.179)
+  #                               libfaust2t64 amd64v3 2.81.10+ds-1
+  #                               JitTargetTest: FAILED -- 5 failure(s)
+  #
+  # The failure signature is the one pf_cpu_shim.cpp's own docstring predicts for a
+  # shim that has stopped working: "A shim that stopped working would make them
+  # identical." On 26.04 both arms emit byte-identical census numbers (tremolo
+  # evex=1 kmask=2 vex=54 under BOTH "x86-64" and "znver4"), so the CPU name no
+  # longer reaches codegen. The marker symbol still resolves, so the .so loads --
+  # it is the getHostCPUName override that does not bind.
+  #
+  # Reproduced on the dev box to rule out a repo cause: faust 2.88.0 + LLVM 23.1.3,
+  # JitTargetTest built standalone (it links libfaust only, no JUCE) -> PASSED, 0
+  # failures, x86-64 giving evex=0/vex=0 against znver4's evex=1/vex=63. So the
+  # shim mechanism is sound and LLVM's symbol-version bump to @LLVM_23.1 is not the
+  # cause. 26.04's libfaust is built for the x86-64-v3 baseline (amd64v3), which is
+  # the material difference and is not something a shim can undo.
+  #
+  # NOT FIXED, ONLY PINNED. PF-036's protection is unverified on ubuntu-26.04, and
+  # 24.04 will eventually be retired. Moving forward needs its own work: establish
+  # why interposition fails against an amd64v3 libfaust, or find whether the
+  # AVX-512-masked runner class that caused PF-036 still exists at all. Do not bump
+  # this to `ubuntu-latest` to make a red pipeline green.
   build-host:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
 
     steps:
@@ -258,7 +300,7 @@ jobs:
       # with CI green, and running it catches a fixture that will not compile
       # or a grid that never settles (see the "Run UiDesignGallery" step below).
       - name: Build behavioural test harnesses
-        run: cmake --build build-ci --target OfflineRenderTest OfflineSynthRenderTest PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery ParamIdentityTest NoteRingTest NoteRingTsanTest AuditionThreadingTest ValidationGateTest SoundfetchClientTest GenerationProfilesAutoTest UiIrTest ThemeValidateTest PromptPanelPathResolutionTest ParamGridLayoutTest
+        run: cmake --build build-ci --target OfflineRenderTest OfflineSynthRenderTest PromptPanelThreadingTest EditorSessionTest JitTargetTest pf_cpu_shim OutputGuardTest ParamMapTest StatePersistenceTest UiDesignGallery ParamIdentityTest NoteRingTest NoteRingTsanTest AuditionThreadingTest ValidationGateTest SoundfetchClientTest GenerationProfilesAutoTest UiIrTest ThemeValidateTest PromptPanelPathResolutionTest ParamGridLayoutTest GKnobGeometryTest AotEmitTest
 
       # ── PF-036: pin the JIT's target CPU for every harness that JITs ────────
       # GitHub's hosted fleet mixes EPYC 7763 (Zen 3, no AVX-512), Xeon 8573C
@@ -340,9 +382,16 @@ jobs:
       # ParamGridLayoutTest joined with ADR-035 gap 4 / session 018 track A4:
       # ArchetypeLayout.h's section/control placement (columns/split/rail),
       # pure rect arithmetic, no display -- same shape as ParamIdentityTest.
-      - name: Run the pure harnesses (OutputGuard, ParamMap, StatePersistence, ParamIdentity, NoteRing, ValidationGate, SoundfetchClient, GenerationProfilesAuto, UiIr, ThemeValidate, PromptPanelPathResolution, ParamGridLayout)
+      # GKnobGeometryTest joined with ADR-038 F1: the bipolar-knob arc-start
+      # math, factored out of GeneratedFaceLookAndFeel.h so it could run here
+      # instead of only inside a full JUCE build. Pure float arithmetic.
+      # AotEmitTest joined with ADR-038 E1 (docs/sessions/020-generated-faces-v2.md
+      # Track E): round-trips generateAuxFilesFromString's emitted AOT header
+      # through a real `g++ -c` against a stub main. No display; shells out to
+      # the compiler already required to build this repo, not a new dependency.
+      - name: Run the pure harnesses (OutputGuard, ParamMap, StatePersistence, ParamIdentity, NoteRing, ValidationGate, SoundfetchClient, GenerationProfilesAuto, UiIr, ThemeValidate, PromptPanelPathResolution, ParamGridLayout, GKnobGeometry, AotEmit)
         run: |
-          for t in OutputGuardTest ParamMapTest StatePersistenceTest ParamIdentityTest NoteRingTest ValidationGateTest SoundfetchClientTest GenerationProfilesAutoTest UiIrTest ThemeValidateTest PromptPanelPathResolutionTest ParamGridLayoutTest; do
+          for t in OutputGuardTest ParamMapTest StatePersistenceTest ParamIdentityTest NoteRingTest ValidationGateTest SoundfetchClientTest GenerationProfilesAutoTest UiIrTest ThemeValidateTest PromptPanelPathResolutionTest ParamGridLayoutTest GKnobGeometryTest AotEmitTest; do
             BIN="$(find build-ci -type f -name "$t" | head -n 1)"
             if [ -z "$BIN" ]; then
               echo "$t binary not found" >&2

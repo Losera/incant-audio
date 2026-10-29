@@ -74,7 +74,7 @@ public:
     // Mirrors the *ForTest convention in PluginForgeProcessor and PromptPanel.
     enum class WidgetKind
     {
-        Rotary, HorizontalSlider, VerticalSlider, IncDec, Toggle, Unknown
+        Rotary, HorizontalSlider, VerticalSlider, IncDec, Toggle, ChipRow, Unknown
     };
 
     // ── Control style (purely visual) ───────────────────────────────────────
@@ -266,7 +266,70 @@ public:
     juce::String controlLabelFontNameForTest(int index) const;
     static const char* widgetKindName(WidgetKind k);
 
+    // ADR-038 F2: which chip is currently on (0-based, -1 if index isn't a
+    // ChipRow control), and a way to simulate pressing one without a real
+    // mouse event -- same juce::Button::triggerClick() EditorSessionTest
+    // already uses for the plain toggle-kind controls.
+    int  chipSelectedIndexForTest(int index) const;
+    void clickChipForTest(int index, int chipIndex) const;
+
 private:
+    // ADR-038 F2 (docs/sessions/020-generated-faces-v2.md, Track F): N
+    // mutually-exclusive ToggleButtons bound to ONE macro slot.
+    // juce::AudioProcessorValueTreeState::ButtonAttachment is 0..1-only
+    // (juce_ParameterAttachments.h:222-... — a plain Button::Listener toggling
+    // the param between 0 and 1) and cannot represent a >2-value choice, so
+    // this binds through juce::ParameterAttachment directly instead
+    // (juce_ParameterAttachments.h:46-122) -- JUCE's own documented extension
+    // point for "a custom UI element that isn't a Slider/Button/ComboBox", not
+    // a workaround: its header explicitly says to build a class exactly like
+    // this one around it. `setValueAsCompleteGesture` is used because a chip
+    // press is a one-off change, not a drag (contrast SliderParameterAttachment's
+    // begin/setValueAsPartOfGesture/end triplet for a continuous drag).
+    //
+    // Every button's toggle state is driven ENTIRELY by the attachment's
+    // callback (setFromNormalisedValue, called once synchronously from
+    // sendInitialUpdate() and again after every value change, confirmed by
+    // reading ParameterAttachment::parameterValueChanged/handleAsyncUpdate,
+    // juce_ParameterAttachments.cpp:90-105 -- it runs handleAsyncUpdate()
+    // SYNCHRONOUSLY when already on the message thread, so a click's visual
+    // update is not deferred a frame). No juce::Button::setRadioGroupId /
+    // setClickingTogglesState is used: JUCE's own radio-group bookkeeping
+    // would duplicate what the attachment round-trip already guarantees, and
+    // "one code path decides what's lit" is easier to reason about than two
+    // that are expected to agree.
+    class ChipRow : public juce::Component
+    {
+    public:
+        ChipRow(juce::AudioProcessorValueTreeState& state, const juce::String& paramId,
+                const FaustEngine::ParamInfo& metaIn);
+
+        void resized() override;
+
+        int  selectedIndexForTest() const;
+        void clickChipForTest(int chipIndex) const;
+
+    private:
+        int   indexCount() const;
+        float indexToSlot(int index) const;
+        void  setFromNormalisedValue(float slotValue);
+
+        FaustEngine::ParamInfo meta;
+        juce::OwnedArray<juce::ToggleButton> chips;
+        juce::ParameterAttachment attachment;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ChipRow)
+    };
+
+    // ADR-038 F2: is `p` a small enough discrete NumEntry to render as a chip
+    // row instead of an IncDec stepper? Reuses ParamMap::isDiscrete() --
+    // already true for a Faust [style:menu{...}]/[style:radio{...}] annotation
+    // (ADR-029 §2, FaustEngine.h:85-93) or a whole-integer step -- rather than
+    // inventing a second detection rule; the only new condition is the
+    // cardinality cap, so a 0..127 integer-step NumEntry (a raw MIDI CC value,
+    // say) stays a stepper instead of sprouting 128 chips.
+    static bool isChipEnum(const FaustEngine::ParamInfo& p);
+
     // One control = its widget (Slider OR ToggleButton), a name label, and exactly
     // one attachment (the other stays null). Declaration order is deliberate: the
     // attachments come AFTER the label and the widget so they are destroyed BEFORE
@@ -429,10 +492,10 @@ private:
     void layoutSectioned();
 
     // Carves one cell rect into a label row plus a widget body and applies
-    // both — the placement step shared by layoutSectioned()'s grid path and
-    // its ADR-035-gap-4 archetype path (ArchetypeLayout.h), so the two only
-    // ever differ in how a cell's RECTANGLE is computed, never in what
-    // happens once one exists.
+    // both — the placement step shared by layoutSectioned()'s sectioned path
+    // (every archetype, via ArchetypeLayout.h) and the unsectioned flat-grid
+    // path in layoutControls(), so the two only ever differ in how a cell's
+    // RECTANGLE is computed, never in what happens once one exists.
     void placeControlInCell(Control& c, juce::Rectangle<int> cell);
 
     // Lookup from IR control label → the actual widget Control pointer.

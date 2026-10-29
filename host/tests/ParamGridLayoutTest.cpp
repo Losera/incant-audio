@@ -23,6 +23,7 @@
 #include "../Source/ArchetypeLayout.h"
 
 #include <iostream>
+#include <map>
 #include <set>
 #include <string>
 #include <vector>
@@ -58,15 +59,18 @@ using ArchetypeLayout::Rect;
 using ArchetypeLayout::Result;
 using ArchetypeLayout::SectionInput;
 
-// Every rect this Result produced -- headings AND controls -- pairwise
-// non-overlapping. A section heading overlapping its own or another
+// Every rect this Result produced -- headings, controls AND visual regions --
+// pairwise non-overlapping. A section heading overlapping its own or another
 // section's controls, or two columns bleeding into each other, would both
-// show up here.
+// show up here; so would a VisualRegion (ADR-041 step 1) landing on top of a
+// control it was supposed to be reserved space AWAY from.
 void expectNoOverlaps(const Result& r, const std::string& label)
 {
     std::vector<Rect> all = r.headings;
     for (const auto& c : r.controls)
         all.push_back(c.bounds);
+    for (const auto& v : r.visuals)
+        all.push_back(v.bounds);
 
     for (size_t i = 0; i < all.size(); ++i)
         for (size_t j = i + 1; j < all.size(); ++j)
@@ -124,7 +128,7 @@ void expectFullCoverage(const Result& r, const std::vector<SectionInput>& sectio
 // Drive + Tone, three controls each).
 std::vector<SectionInput> sixParamEffect()
 {
-    return { SectionInput{ 3, 1 }, SectionInput{ 3, 1 } };
+    return { SectionInput{ 3, 1, {} }, SectionInput{ 3, 1, {} } };
 }
 
 // An 18-param synth: four sections of uneven size and span, modelled on the
@@ -133,10 +137,10 @@ std::vector<SectionInput> sixParamEffect()
 std::vector<SectionInput> eighteenParamSynth()
 {
     return {
-        SectionInput{ 4, 1 },   // Osc
-        SectionInput{ 4, 2 },   // Filter -- the wide "lg" cutoff column
-        SectionInput{ 5, 1 },   // Env
-        SectionInput{ 5, 1 },   // Fx
+        SectionInput{ 4, 1, {} },   // Osc
+        SectionInput{ 4, 2, {} },   // Filter -- the wide "lg" cutoff column
+        SectionInput{ 5, 1, {} },   // Env
+        SectionInput{ 5, 1, {} },   // Fx
     };
 }
 
@@ -145,18 +149,115 @@ constexpr int kHeadingH = 20; // ParamGridPanel::kHeadingH
 constexpr int kGapH = 4;     // ParamGridPanel::kSectionGapH
 constexpr int kWidth = 900;
 
-void testIsSupported()
+// CORRECTED (fix/pedal-layout-packing): isSupported() and the second,
+// ungeometried grid path it gated are both gone. layoutFor() is now TOTAL --
+// "pedal", "utility", "", and any archetype name this build predates all
+// resolve to row(), a real geometry, not a fallback a caller has to detect
+// and special-case. This is what a real 4-param "pedal" generation used to
+// hit: one section per parameter, x=0 for every control, a `size:"lg"`
+// control's centre landing at a different x than its siblings.
+void testLayoutForIsTotal()
 {
-    using ArchetypeLayout::isSupported;
-    expectTrue(isSupported("synth-panel"),   "synth-panel is a supported archetype");
-    expectTrue(isSupported("channel-strip"), "channel-strip is a supported archetype");
-    expectTrue(isSupported("tape-unit"),     "tape-unit is a supported archetype");
-    expectTrue(isSupported("texture-field"), "texture-field is a supported archetype");
-    expectTrue(! isSupported("pedal"),       "pedal falls through to the existing grid");
-    expectTrue(! isSupported("utility"),     "utility falls through to the existing grid");
-    expectTrue(! isSupported(""),            "the empty archetype falls through to the existing grid");
-    expectTrue(! isSupported("some-future-archetype"),
-               "an unrecognised name falls through, not crashes");
+    const auto sections = sixParamEffect();
+    for (const std::string& archetype :
+         { std::string("pedal"), std::string("utility"), std::string(""),
+           std::string("some-future-archetype") })
+    {
+        const std::string label = "layoutFor/" + (archetype.empty() ? std::string("<empty>") : archetype);
+        const auto r = ArchetypeLayout::layoutFor(archetype, sections, kWidth, kRowH, kHeadingH, kGapH);
+        expectNoOverlaps(r, label);
+        expectFullCoverage(r, sections, label);
+    }
+
+    // pedal (row -- sections stacked, one atop the other) and channel-strip
+    // (columns -- sections side by side) must be genuinely different
+    // geometries, not "pedal" silently aliasing onto columns(). For two
+    // equal-shaped sections, row() stacks their heights serially while
+    // columns() lets them share a y-origin side by side, so the two total
+    // heights necessarily differ here.
+    const auto viaPedal   = ArchetypeLayout::layoutFor("pedal", sections, kWidth, kRowH, kHeadingH, kGapH);
+    const auto viaChannel = ArchetypeLayout::layoutFor("channel-strip", sections, kWidth, kRowH, kHeadingH, kGapH);
+    expectTrue(viaPedal.contentHeight != viaChannel.contentHeight,
+               "pedal (row, stacked) and channel-strip (columns, side by side) are different geometries");
+}
+
+// Packing: more than one control per row inside a section, a PURE function
+// of controlCount/span (never of pixel width -- see ArchetypeLayout.h's
+// header comment on why). row() is the archetype that exercises this for
+// the common few-controls "pedal" case directly (no column/split/rail
+// region math in the way).
+void testRowPackingProperties()
+{
+    for (int n = 1; n <= 12; ++n)
+    {
+        std::vector<SectionInput> sections = { SectionInput{ n, 1, {} } };
+        const std::string label = "row/n=" + std::to_string(n);
+        const auto r = ArchetypeLayout::row(sections, kWidth, kRowH, kHeadingH, kGapH);
+        expectNoOverlaps(r, label);
+        expectFullCoverage(r, sections, label);
+
+        std::map<int, std::vector<const ArchetypeLayout::PlacedControl*>> byY;
+        for (const auto& c : r.controls)
+            byY[c.bounds.y].push_back(&c);
+        for (const auto& [y, rowControls] : byY)
+        {
+            const int w0 = rowControls.front()->bounds.w;
+            for (const auto* c : rowControls)
+            {
+                expectEq(c->bounds.w, w0, label + ": every control in one row shares its width");
+                expectEq(c->bounds.y, y, label + ": every control in one row shares its y");
+            }
+        }
+    }
+}
+
+// size:"lg" == SectionInput::large[i] now means "this control renders alone
+// on its own full-width row" -- replacing the old width-doubling
+// (`w = cellW * (size=="lg"?2:1)` at the SAME x=0) that caused a live
+// misalignment defect: JUCE centres a rotary slider within whatever bounds
+// it is given, so the old double-width `lg` control's visual centre landed
+// at a different x than every `md` sibling's.
+void testLargeControlGetsItsOwnRow()
+{
+    std::vector<SectionInput> sections = { SectionInput{ 4, 1, { false, true, false, false } } };
+    const auto r = ArchetypeLayout::row(sections, kWidth, kRowH, kHeadingH, kGapH);
+    expectNoOverlaps(r, "large-control");
+    expectFullCoverage(r, sections, "large-control");
+
+    const ArchetypeLayout::PlacedControl* solo = nullptr;
+    for (const auto& c : r.controls)
+        if (c.index == 1)
+            solo = &c;
+    expectTrue(solo != nullptr, "large-control: index 1 was placed");
+    if (solo != nullptr)
+    {
+        expectEq(solo->bounds.w, kWidth, "large-control: the lg control spans the full row width");
+        for (const auto& c : r.controls)
+            if (c.index != 1)
+                expectTrue(c.bounds.y != solo->bounds.y,
+                           "large-control: a packed control never shares the solo row's y");
+    }
+}
+
+// contentHeight must be identical regardless of the width layoutFor() is
+// called with -- contentHeightForSections() (ParamGridPanel.cpp) can call it
+// with width==0 before the shell has granted the panel a size yet, and its
+// answer has to match what the real width later produces. This is also the
+// property that rules out juce::FlexBox-style width-driven wrapping for the
+// packing above (see ArchetypeLayout.h's header comment).
+void testContentHeightIsWidthIndependent()
+{
+    const auto sections = eighteenParamSynth();
+    for (const std::string& archetype :
+         { std::string("synth-panel"), std::string("channel-strip"),
+           std::string("tape-unit"), std::string("texture-field"), std::string("pedal") })
+    {
+        const int h0    = ArchetypeLayout::layoutFor(archetype, sections, 0,    kRowH, kHeadingH, kGapH).contentHeight;
+        const int h400  = ArchetypeLayout::layoutFor(archetype, sections, 400,  kRowH, kHeadingH, kGapH).contentHeight;
+        const int h1200 = ArchetypeLayout::layoutFor(archetype, sections, 1200, kRowH, kHeadingH, kGapH).contentHeight;
+        expectEq(h400,  h0, archetype + ": contentHeight independent of width (0 vs 400)");
+        expectEq(h1200, h0, archetype + ": contentHeight independent of width (0 vs 1200)");
+    }
 }
 
 void testColumnsNoOverlapAndFullCoverage()
@@ -205,7 +306,114 @@ void testRailNoOverlapAndFullCoverage()
         for (const auto& h : r.headings)
             minX = std::min(minX, h.x);
         expectTrue(minX > 0, "rail: a display region is reserved left of the rail column");
+
+        // ADR-041 step 1: that reserved region is now an actual VisualRegion
+        // in r.visuals, not just an inferable gap -- exactly one, spanning
+        // x=0 to the rail column's own left edge, at the content's full
+        // height (the "one height function" rule: the display region is not
+        // a second, independent height source).
+        expectEq(static_cast<int>(r.visuals.size()), 1, "rail/" + label + ": exactly one VisualRegion");
+        if (r.visuals.size() == 1)
+        {
+            const auto& v = r.visuals[0];
+            expectTrue(v.id == "display", "rail/" + label + ": VisualRegion is named \"display\"");
+            expectEq(v.bounds.x, 0, "rail/" + label + ": VisualRegion starts at x=0");
+            expectEq(v.bounds.w, minX, "rail/" + label + ": VisualRegion width matches the rail column's left edge");
+            expectEq(v.bounds.h, r.contentHeight, "rail/" + label + ": VisualRegion height matches contentHeight");
+        }
     }
+}
+
+// F3: split()/"tape-unit" now reserves a VisualRegion too (the mockup's
+// reel/readout/selector strip, README.md §1c) -- rail() is no longer the
+// only one. columns() and row() still have nothing analogous and must not
+// silently start fabricating one.
+void testOnlyRailAndSplitProduceAVisualRegion()
+{
+    const auto sections = eighteenParamSynth();
+    expectTrue(ArchetypeLayout::columns(sections, kWidth, kRowH, kHeadingH, kGapH).visuals.empty(),
+               "columns: no VisualRegion");
+    expectTrue(ArchetypeLayout::row(sections, kWidth, kRowH, kHeadingH, kGapH).visuals.empty(),
+               "row: no VisualRegion");
+
+    const auto r = ArchetypeLayout::split(sections, kWidth, kRowH, kHeadingH, kGapH);
+    expectEq(static_cast<int>(r.visuals.size()), 1, "split: exactly one VisualRegion");
+    if (r.visuals.size() == 1)
+    {
+        const auto& v = r.visuals[0];
+        expectTrue(v.id == "transport-display", "split: VisualRegion is named \"transport-display\"");
+        expectEq(v.bounds.x, 0, "split: VisualRegion starts at x=0");
+        expectEq(v.bounds.h, r.contentHeight, "split: VisualRegion height matches contentHeight");
+
+        // Every control and heading must start at or right of the reserved
+        // strip -- same property testRailNoOverlapAndFullCoverage asserts for
+        // rail()'s own reserved region.
+        int minX = kWidth;
+        for (const auto& c : r.controls)
+            minX = std::min(minX, c.bounds.x);
+        for (const auto& h : r.headings)
+            minX = std::min(minX, h.x);
+        expectEq(v.bounds.w, minX, "split: VisualRegion width matches the control area's left edge");
+    }
+}
+
+// F3: columns() no longer packs every column at its own independent
+// density -- a column with fewer controls now spreads them across MORE rows
+// so its total height approaches the tallest column's, rather than sitting
+// visibly shorter (the defect columns()'s own header comment used to name:
+// "Velvet Drift's OSC/FILTER/ENV/FX columns are visibly uneven").
+void testColumnsBalanceHeight()
+{
+    // Four sections shaped like Velvet Drift: three small (3 controls each)
+    // and one bigger (6 controls). At the OLD independent packing, each small
+    // column packs at its own perRowFor(3,1)=2-per-row density (2 rows) while
+    // the busy column needs perRowFor(6,1)=2-per-row (3 rows) -- visibly
+    // uneven. These particular counts (3 vs 6, both span 1) are chosen so the
+    // NEW target-rows redistribution divides EXACTLY -- ceil(3/3)=1 per row
+    // across 3 rows for the small columns, matching the busy column's own 3
+    // rows precisely -- so this test can assert equality rather than only
+    // "closer than before", a stronger regression guard for the mechanism
+    // even though it does not always divide this cleanly in general (see
+    // columns()'s own comment).
+    std::vector<SectionInput> sections = {
+        SectionInput{ 3, 1, {} },   // Osc
+        SectionInput{ 3, 1, {} },   // Filter
+        SectionInput{ 3, 1, {} },   // Fx
+        SectionInput{ 6, 1, {} },   // Env -- the busy column
+    };
+    const auto r = ArchetypeLayout::columns(sections, kWidth, kRowH, kHeadingH, kGapH);
+    expectNoOverlaps(r, "columns/balance");
+    expectFullCoverage(r, sections, "columns/balance");
+
+    // Per-column content height = the y of that section's LAST control's
+    // bottom edge, recovered from r.controls by section index.
+    std::map<int, int> bottomBySection;
+    for (const auto& c : r.controls)
+        bottomBySection[c.section] = std::max(bottomBySection[c.section], c.bounds.y + c.bounds.h);
+
+    expectEq(static_cast<int>(bottomBySection.size()), 4, "columns/balance: all four columns placed controls");
+    if (bottomBySection.size() == 4)
+    {
+        const int busy = bottomBySection[3];
+        for (int s = 0; s < 3; ++s)
+            expectEq(bottomBySection[s], busy,
+                     "columns/balance: small column " + std::to_string(s)
+                         + " matches the busy column's height exactly");
+    }
+
+    // The mechanism must be a genuine change, not a no-op that happens to
+    // pass the check above by coincidence: assert the OLD (targetRows=0)
+    // behaviour on the same input would NOT have balanced, so this test
+    // fails loudly if the redistribution is ever silently removed.
+    Result unbalanced;
+    unbalanced.headings.resize(sections.size());
+    int yUnbalanced = 0;
+    ArchetypeLayout::stackColumn(sections, { 0 }, 0, kWidth, kRowH, kHeadingH, kGapH, unbalanced, yUnbalanced);
+    int yBusyUnbalanced = 0;
+    ArchetypeLayout::stackColumn(sections, { 3 }, 0, kWidth, kRowH, kHeadingH, kGapH, unbalanced, yBusyUnbalanced);
+    expectTrue(yUnbalanced != yBusyUnbalanced,
+               "columns/balance: sanity -- the SAME sections at independent (targetRows=0) "
+               "packing really do end up uneven, confirming the balance above is real");
 }
 
 void testLayoutForDispatchesConsistently()
@@ -235,7 +443,7 @@ void testSpanWidensColumn()
     // span-2 section's column must be wider -- "a section's span widens its
     // column" (GENERATION_PLAN.md Gap 4) is the one property that
     // distinguishes columns() from a plain equal-width split.
-    std::vector<SectionInput> sections = { SectionInput{ 3, 1 }, SectionInput{ 3, 2 } };
+    std::vector<SectionInput> sections = { SectionInput{ 3, 1, {} }, SectionInput{ 3, 2, {} } };
     const auto r = ArchetypeLayout::columns(sections, 900, kRowH, kHeadingH, kGapH);
     expectTrue(r.headings[1].w > r.headings[0].w,
                "columns: a span-2 section's column is wider than a span-1 section's");
@@ -247,7 +455,8 @@ void testEmptySectionsDoesNotCrash()
 {
     std::vector<SectionInput> empty;
     for (const auto& archetype :
-         { std::string("synth-panel"), std::string("tape-unit"), std::string("texture-field") })
+         { std::string("synth-panel"), std::string("tape-unit"), std::string("texture-field"),
+           std::string("pedal") })
     {
         const auto r = ArchetypeLayout::layoutFor(archetype, empty, kWidth, kRowH, kHeadingH, kGapH);
         expectEq(static_cast<int>(r.headings.size()), 0, archetype + ": no sections, no headings");
@@ -262,12 +471,17 @@ void testNarrowWidthDegradesRailGracefully()
     // negative-width display region or an empty rail -- it takes the whole
     // width instead (the same "degrade, never crash or go negative" posture
     // UiIr::parse() takes for a malformed field).
-    std::vector<SectionInput> sections = { SectionInput{ 2, 1 } };
+    std::vector<SectionInput> sections = { SectionInput{ 2, 1, {} } };
     const auto r = ArchetypeLayout::rail(sections, 100, kRowH, kHeadingH, kGapH);
     expectNoOverlaps(r, "rail/narrow-width");
     expectFullCoverage(r, sections, "rail/narrow-width");
     expectTrue(r.headings[0].x >= 0, "rail: narrow width never produces a negative x");
     expectTrue(r.headings[0].w <= 100, "rail: narrow width never widens past the available width");
+
+    // ADR-041 step 1: the degraded case (rail takes the entire width, x=0)
+    // must NOT produce a zero-width VisualRegion -- a reserved region with no
+    // area is worse than no region at all.
+    expectTrue(r.visuals.empty(), "rail: narrow width produces no VisualRegion, not a zero-width one");
 }
 
 } // namespace
@@ -276,14 +490,19 @@ int main()
 {
     std::cout << "ParamGridLayoutTest — ArchetypeLayout.h (ADR-035 gap 4)\n";
 
-    testIsSupported();
+    testLayoutForIsTotal();
     testColumnsNoOverlapAndFullCoverage();
     testSplitNoOverlapAndFullCoverage();
     testRailNoOverlapAndFullCoverage();
+    testOnlyRailAndSplitProduceAVisualRegion();
     testLayoutForDispatchesConsistently();
     testSpanWidensColumn();
     testEmptySectionsDoesNotCrash();
     testNarrowWidthDegradesRailGracefully();
+    testRowPackingProperties();
+    testLargeControlGetsItsOwnRow();
+    testContentHeightIsWidthIndependent();
+    testColumnsBalanceHeight();
 
     std::cout << checks - failures << "/" << checks << " checks passed\n";
 

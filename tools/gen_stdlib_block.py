@@ -117,20 +117,31 @@ CURATED: list[tuple[str, list[tuple[str, str, str]]]] = [
     ("Modulation effects", [
         ("pf", "flanger_mono",   "mono flanger -- NOTE the pf. namespace, not ef."),
         ("pf", "phaser2_mono",   "mono phaser"),
-        ("pf", "vibrato2_mono",  "vibrato"),
+        # pf.vibrato2_mono dropped 2026-10-20 to buy PF-079 headroom: zero
+        # occurrences (plain-substring, not just call-site) across every
+        # bench/results/*.json and bench/results/efficacy/*.json archive, and
+        # flanger_mono + phaser2_mono already demonstrate this group's entire
+        # point -- the pf. namespace, not ef. -- so nothing unique is lost.
     ]),
     ("Dynamics", [
         # PF-032: the generated noise gate pre-converted thresh with ba.db2linear
         # and rendered EXACTLY 0.0. thresh is dB (misceffects.lib:129,164;
         # compressors.lib:140) and the library converts internally at
         # misceffects.lib:188 -- so a pre-conversion is applied twice.
-        ("co", "compressor_mono",         "mono compressor; thresh in dB, pass it raw"),
-        ("co", "compressor_stereo",       "stereo compressor, linked; thresh in dB, raw"),
+        # PF-032 (retargeted, WP1 2026-09-14/15): att/hold/rel are documented as
+        # raw SECONDS (misceffects.lib:127-130) and carried NO unit annotation
+        # here at all -- the model reliably applies *(0.001) to att/rel when it
+        # declares its OWN slider (the compressor few-shot below), but reuses an
+        # existing ms-labelled slider raw, or scales by ma.SR/1000 as if
+        # converting to samples, when no annotation says otherwise. 5/6 fresh
+        # control-arm generations against the unannotated text were broken.
+        ("co", "compressor_mono",         "mono compressor; thresh dB raw, att/rel SECONDS"),
+        ("co", "compressor_stereo",       "stereo compressor, linked; thresh dB raw, att/rel SECONDS"),
         ("co", "limiter_1176_R4_mono",    "1176-style limiter, mono"),
         ("co", "limiter_1176_R4_stereo",  "1176-style limiter, stereo"),
-        ("ef", "gate_mono",               "noise gate, mono; thresh in dB, pass it raw"),
-        ("ef", "gate_stereo",             "noise gate, stereo; thresh in dB, pass it raw"),
-        ("an", "amp_follower_ar",         "envelope follower with attack/release"),
+        ("ef", "gate_mono",               "noise gate, mono; thresh dB raw, att/hold/rel SECONDS"),
+        ("ef", "gate_stereo",             "noise gate, stereo; thresh dB raw, att/hold/rel SECONDS"),
+        ("an", "amp_follower_ar",         "envelope follower; att/rel SECONDS"),
     ]),
     ("Distortion / saturation", [
         ("ef", "cubicnl",            "cubic nonlinearity -- soft saturation / drive"),
@@ -147,7 +158,12 @@ CURATED: list[tuple[str, list[tuple[str, str, str]]]] = [
         ("os", "osc",       "sine oscillator"),
         ("os", "sawtooth",  "band-limited sawtooth"),
         ("os", "square",    "band-limited square"),
-        ("os", "triangle",  "band-limited triangle"),
+        # os.triangle dropped from the EFFECT profile 2026-10-20 to buy PF-079
+        # headroom: zero occurrences in bench/results/*.json or
+        # bench/results/efficacy/*.json, and the single-argument "oscillator
+        # takes a frequency" shape is already demonstrated three times over
+        # (osc/sawtooth/square) plus lf_triangle below -- not touched in
+        # CURATED_INSTRUMENT, which keeps its own os.triangle entry.
         ("os", "lf_triangle", "low-frequency triangle -- use for LFOs"),
         ("no", "noise",     "white noise; no arguments"),
     ]),
@@ -157,16 +173,27 @@ CURATED: list[tuple[str, list[tuple[str, str, str]]]] = [
     ]),
     ("Conversions and helpers", [
         ("ba", "db2linear",  "decibels to linear gain"),
-        ("ba", "linear2db",  "linear gain to decibels"),
         ("ba", "midikey2hz", "MIDI note number to Hz"),
-        ("ba", "sec2samp",   "seconds to samples"),
         ("ba", "bypass1",    "bypass switch around a mono effect"),
         ("ba", "bypass2",    "bypass switch around a stereo effect"),
         ("si", "smoo",       "one-pole smoothing -- use on slider values to avoid zipper noise"),
         ("ma", "SR",         "current sample rate; no arguments"),
-        ("ma", "PI",         "pi; no arguments"),
     ]),
 ]
+# PF-032 (retargeted, 2026-09-15): ba.sec2samp, ma.PI and ba.linear2db dropped
+# from the EFFECT profile (not touched in CURATED_INSTRUMENT) to pay for the
+# att/hold/rel unit-contract fix above -- test_prompt_headroom.py's "mild
+# growth guard" needs real margin, not just slack > 0. None of the three is
+# used by any few-shot in either prompt and no test asserts their presence.
+# sec2samp is additionally adjacent to the exact error class this fix
+# targets (a seconds->samples conversion where the library wants raw
+# seconds). ba.midikey2hz stays per this file's own note above: an absent
+# entry invites an invented one, and it has no safe alternate spelling a
+# model would reach for instead -- db2linear (kept, used constantly by every
+# dB-labelled slider few-shot) is the same case. linear2db is its rarely-
+# needed inverse (meter/analysis direction, not signal processing) and a
+# model that needs it can write the formula inline without a plausible wrong
+# name to invent. Re-check this reasoning before trimming further.
 
 
 # ── Instrument selection ──────────────────────────────────────────────────────
@@ -328,7 +355,18 @@ def find_signature(lib_path: Path, func: str, all_libs: list[Path],
 
     params = _params_of(text, func)
     if params is not None:
-        return "(" + ", ".join(params) + ")"
+        # PF-024: a function declared with its audio signal(s) as explicit
+        # trailing params (gate_mono(thresh,att,hold,rel,x), not point-free)
+        # renders that param here, directly contradicting STRICT RULES'
+        # "audio arrives by composition" rule -- the 2026-08-28 grid's
+        # dynamics-03 failure copied exactly this shape:
+        # `gate = ef.gate_mono(threshold, attack, 0.1, release, _); process =
+        # _,_ : gate : _,_;`. Strip trailing x/y -- Faust's own near-universal
+        # convention for "this position is the audio signal, not a control" --
+        # same treatment the genuinely point-free functions above already get.
+        while params and params[-1] in ("x", "y"):
+            params.pop()
+        return "(" + ", ".join(params) + ")" if params else ""
 
     if _depth < 4:
         alias = _alias_of(text, func)

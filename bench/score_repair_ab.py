@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """bench/score_repair_ab.py — turn a run_repair_ab.py result file into the
-issue-#26 answer: does faust-rs feedback shorten the repair loop?
+answer to: does faust-rs feedback shorten the repair loop?
 
 Reads bench/results/repair_ab/repair_ab_<date>.json (one record per
 (program, arm)), pairs by code_sha, and reports:
@@ -27,7 +27,7 @@ FAIL_SCORE = CORRECTIVE_ATTEMPTS + 1     # censored value for "never green"
 
 # arm A's feedback is `faust -lang cpp` stderr .strip()[:500] — the product's
 # real cap (bench/run_benchmark.py:246). A record whose attempt-1 arm-A feedback
-# is exactly this long was truncated; see bench/issue26/METHODOLOGY.md L6.
+# is exactly this long was truncated; see bench/repair_ab_repro/METHODOLOGY.md L6.
 STDERR_CAP = 500
 
 
@@ -45,18 +45,66 @@ def combos(records: list[dict]) -> list[tuple[str, str]]:
     return [(m, a) for m in models for a in ("B", "C") if (m, a) in seen and (m, "A") in seen]
 
 
+def _aggregate_cell(samples: list[dict]) -> dict:
+    """Collapse the K sample records of one (code_sha, arm) cell to a single record.
+
+    K == 1  → the record itself, unchanged. The committed issue-#26 data has
+    exactly one sample per cell, so this branch is a strict no-op there and the
+    published numbers do not move (METHODOLOGY.md WP1: "K=1 a strict no-op").
+
+    K > 1   → majority vote on `repaired` (a tie counts as NOT repaired — the
+    conservative call, matching repair_ab_standalone.py's `_summarise`);
+    `attempts_to_green` the upper median over the green samples. The
+    representative `attempt_log` and second-error fields are taken from the
+    first sample whose `repaired` matches the majority verdict, so every
+    downstream per-attempt metric (rescue, caret-line preservation, the
+    stderr-cap strata) runs on one real, internally-consistent trajectory
+    rather than a Frankenstein average. Transport-aborted samples
+    (`terminal_reason` set) do not vote; a cell with only aborted samples
+    stays aborted.
+    """
+    if len(samples) == 1:
+        return samples[0]
+    real = [s for s in samples if not s.get("terminal_reason")]
+    if not real:
+        return dict(samples[0])            # all aborted — keep one, terminal_reason carries
+    greens = sum(1 for s in real if s["repaired"])
+    repaired = greens * 2 > len(real)
+    rep = next((s for s in real if bool(s["repaired"]) == repaired), real[0])
+    agg = dict(rep)
+    agg["attempt_log"] = [dict(a) for a in rep.get("attempt_log") or []]   # own copy
+    agg["repaired"] = repaired
+    if repaired:
+        atg = sorted(s["attempts_to_green"] for s in real if s["repaired"])
+        agg["attempts_to_green"] = atg[len(atg) // 2]
+    else:
+        agg["attempts_to_green"] = None
+    agg["samples_aggregated"] = len(samples)
+    agg["samples_green"] = greens
+    return agg
+
+
 def load_pairs(records: list[dict], model: str, treatment: str,
                include: set[str] | None = None) -> list[tuple[dict, dict]]:
     """Paired (arm-A, treatment) records by code_sha for one repair model.
 
     `include`, if given, restricts to those code_shas — used to apply the
     corpus program screen (bench/corpus_screen.py) without touching the result
-    file. `include=None` is the historical behaviour, byte for byte.
+    file.
+
+    A (code_sha, arm) cell with more than one record — a `--samples K>1` run —
+    is collapsed by `_aggregate_cell` (majority-green, upper-median attempts)
+    BEFORE pairing, so `--samples 5` scores as a 5-sample cell rather than
+    silently as whichever sample happened to be written last (the pre-2026-09
+    behaviour, METHODOLOGY.md WP1). K=1 — every committed cell — is untouched.
     """
-    by_sha: dict[str, dict[str, dict]] = defaultdict(dict)
+    by_cell: dict[tuple[str, str], list[dict]] = defaultdict(list)
     for r in records:
         if r["repair_model"] == model and (include is None or r["code_sha"] in include):
-            by_sha[r["code_sha"]][r["arm"]] = r
+            by_cell[(r["code_sha"], r["arm"])].append(r)
+    by_sha: dict[str, dict[str, dict]] = defaultdict(dict)
+    for (sha, arm), cell in by_cell.items():
+        by_sha[sha][arm] = _aggregate_cell(cell)
     return [(v["A"], v[treatment])
             for v in by_sha.values() if "A" in v and treatment in v]
 
@@ -356,7 +404,7 @@ def make_chart(s: dict, chart_file: Path) -> None:
     ax.set_xticklabels(classes, rotation=30, ha="right")
     ax.set_ylim(0, 115)
     ax.set_ylabel("Repaired within 2 corrective attempts (%)")
-    ax.set_title(f"issue #26 repair-loop A/B — {s['model']}, temp=0  (n={s['n']})")
+    ax.set_title(f"faust-rs repair-loop A/B — {s['model']}, temp=0  (n={s['n']})")
     ax.legend()
     ax.grid(axis="y", linestyle="--", alpha=0.5, zorder=0)
     for bars, pcts in [(ba, a_pct), (bb, b_pct)]:

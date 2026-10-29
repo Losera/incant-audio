@@ -25,7 +25,9 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 ## Conventions
 - **Severity:** `critical` (product doesn't work / data loss) · `high` · `medium` · `low`.
   Original arch-review P0/P1/P2 grades noted in the detail where they apply.
-- **Status:** `open` · `in-progress` (fix in flight) · `fixed` · `wontfix`.
+- **Status:** `open` · `in-progress` (fix in flight) · `fixed` (resolved by a code
+  change) · `closed` (resolved by evidence — a benchmark result, a registry
+  reconciliation, a withdrawn hypothesis — not a code change) · `wontfix`.
 - **Lane:** owning FLEET.md lane responsible for the fix (S5 records; S5 never fixes).
 - **File:line** is given at HEAD where meaningful; where a working-tree draft has moved lines,
   both are noted in the detail.
@@ -46,7 +48,7 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-008 | No generated plugin has ever been listened to (P6 audible battery unrun) | high | fixed | S4 Testing | `docs/p6_test_battery.md` | 2026-07-23 | ran 2026-07-24 (4 clean / 3 flaky / 7 fail) |
 | PF-009 | Every benchmark number on record is void (measured on the deleted prompt) | medium | fixed | S4 Testing | `bench/results/results_20260728_groq.json` | 2026-07-23 | 22/25 measured 2026-07-28 |
 | PF-010 | Prompt rewrite is unmeasured — verified *correct*, not *better* | medium | fixed | S4 Testing | `llm/prompts/system_prompt.txt` | 2026-07-23 | before/after measured 2026-07-28 |
-| PF-011 | Efficacy pilot generalizes to nothing (N=50, 1 model, 2/5 categories) | medium | open | S4 Testing | `bench/run_efficacy_study.py` | 2026-07-23 | — |
+| PF-011 | Efficacy pilot generalizes to nothing (N=50, 1 model, 2/5 categories). **Closed 2026-09-08** (STATUS.md, `docs/BUGS.md:1333`) — the groq/`openai/gpt-oss-120b` grid completed all 125 cells and was scored; row corrected 2026-09-24 after this drift was found (registry said `open`, two other documents said `closed`, for 16 days) | medium | closed | S4 Testing | `bench/run_efficacy_study.py`, `bench/results/efficacy/efficacy_groq_20260831.json` | 2026-07-23 | 2026-09-08 |
 | PF-012 | No cross-model comparison exists (ADR-008 "Under evaluation"). **Closed 2026-07-30: groq/gpt-oss-120b vs ollama/qwen2.5-coder:7b, 2 runs each, with error bars** | low | fixed | S4 Testing | `bench/results/results_20260730_*` | 2026-07-23 | pending commit |
 | PF-013 | Semantic fidelity unmeasured. **Judge EXECUTED 2026-07-30 (44 graded, 0 errors) — that half closed; measurement now blocked on PF-041/PF-042, not quota** | medium | open | S4 Testing | `bench/score_efficacy.py` | 2026-07-23 | — |
 | PF-014 | No real user prompt has ever been recorded (`generate.py` logs nothing) | low | fixed | S1 Backend | `llm/generate.py` `log_user_prompt` | 2026-07-23 | pending commit |
@@ -59,7 +61,7 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-021 | Stale error persists in PromptPanel across a new Generate (never cleared on submit) | medium | fixed | S2 Prompting UX | `PromptPanel.cpp:195-200` | 2026-07-24 | `18e862e` (2026-07-25) |
 | PF-022 | `currentFaustSource`/`currentPrompt` committed before compile success — a failed generate poisons the source-of-record and any later save/restore | high | fixed | S1 Backend | `PluginProcessor.cpp:148,180-181` | 2026-07-24 | `4a84c1c` (2026-07-25) |
 | PF-023 | `FaustEngine::process()` has no `activeDSP` null guard (latent audio-thread segfault; defense-in-depth) | medium | fixed | S1 Backend | `FaustEngine.cpp` `process()` | 2026-07-24 | `4a84c1c` (2026-07-25) |
-| PF-024 | Generation produces invalid Faust for stereo routing / unbounded delays / ping-pong / artist-reference prompts (P6 #2,#6,#9,#10) | high | in-progress | S1 Backend | `llm/prompts/system_prompt.txt` | 2026-07-24 | `a4f942e` prompt-side; unmeasured |
+| PF-024 | Generation produces invalid Faust for stereo routing / unbounded delays / ping-pong / artist-reference prompts (P6 #2,#6,#9,#10). **09-15: named-mono-in-stereo-chain sub-pattern targeted, mixed free-tier result (2/5 clear, 1 ambiguous, 1 shifted, 1 unchanged)** | high | in-progress | S1 Backend | `llm/prompts/system_prompt.txt` | 2026-07-24 | `a4f942e` prompt-side; dynamics sub-case mitigated PR #75; named-mono sub-case WP2a/b on `fix/pf024-named-mono-routing`, groq still owed |
 | PF-025 | Benchmark harness has no concurrency guard and overwrites `results.json` unconditionally — two runs destroy each other's evidence and share one rate limit | high | fixed | S4 Testing | `bench/run_benchmark.py:32-115,296-322` | 2026-07-27 | pending commit |
 | PF-026 | CI red on four consecutive pushes and no artifact in the loop reported it — the digest, the Broken list and `check.sh` were all silent | high | fixed | S4 Testing | `tools/status_digest.sh` | 2026-07-28 | pending commit |
 | PF-027 | `OfflineRenderTest` dies with SIGILL (exit 132) on the CI runner — missing MessageManager. **Its "not the CPU" conclusion was wrong; see PF-036** | high | fixed | S4 Testing | `host/tests/OfflineRenderTest.cpp` `main()` | 2026-07-28 | `144e023` (green run `30409357504`) |
@@ -69,16 +71,16 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-031 | The 25-prompt benchmark's noise floor is unmeasured — no delta can be called significant. **Measured: 4pp rate spread, and only 1 of 5 failing prompts reproduces its class** | medium | fixed | S4 Testing | `bench/run_benchmark.py` | 2026-07-28 | pending commit |
 | PF-033 | Reopening a saved project resets every knob to the patch defaults — the editor's seeding overwrites the restore | high | fixed | S3 Plugin UX | `ParamGridPanel.cpp` `refreshParamKnobs` | 2026-07-28 | `81fc75b` |
 | PF-034 | `EditorSessionTest` scenario 6 raced the message thread — green locally, red on the runner | medium | fixed | S4 Testing | `host/tests/EditorSessionTest.cpp` `loadAndSettle` | 2026-07-28 | pending commit |
-| PF-032 | 2 of 22 compiling patches render SILENT — a warm lowpass and a noise gate. **Measured 07-30: the lowpass (Hz contract) is fixed; the noise gate is not** | high | in-progress | S1 Backend | `llm/prompts/system_prompt.txt` | 2026-07-28 | lowpass closed `a4f942e`; gate open |
+| PF-032 | 2 of 22 compiling patches render SILENT — a warm lowpass and a noise gate. **Measured 07-30: the lowpass (Hz contract) is fixed; the noise gate is not.** **Re-measured 09-12: still silent, 5/6 fresh `ollama` gens — root cause corrected, it's the att/hold/rel time-unit contract.** **WP2 landed 09-15 (att/hold/rel SECONDS rule + gate few-shot): 6/6 free-tier pass, confound-corrected control re-confirmed 5/6 broken.** **Shipping-model (groq) re-measurement, 2026-10-20: 6 fresh `openai/gpt-oss-120b` generations for "a noise gate with threshold and hold time" against today's `system_prompt.txt`, each run through `bench/render_oracle.py`. 6/6 pass — thresh always a clean raw dB literal, hold always correctly `*(0.001)`'d from ms to seconds, none render silent. Closes the "groq still owed" gap WP2 left open.** | high | fixed | S1 Backend | `llm/prompts/system_prompt.txt` | 2026-07-28 | lowpass closed `a4f942e`; gate WP2 `fedb377`; groq confirmation this session |
 | PF-035 | `min_max_tokens` makes a per-call output budget unenforceable — the judge asks for 300 and silently gets 4096 | low | open | S4 Testing | `bench/score_efficacy.py:465`, `providers.py` `make_generator` | 2026-07-29 | — |
 | PF-036 | libfaust's JIT emits AVX-512 on CI runners that name the ISA but cannot execute it — SIGILL in `computemydsp`. It **was** the CPU; PF-027 closed that hypothesis wrongly | high | fixed | S4 Testing | `host/tools/pf_cpu_shim.cpp`, `.github/workflows/test.yml` | 2026-07-30 | pending commit |
 | PF-037 | Every parameter displays as a raw 0–1 slot number — 800 Hz reads `0.04`. `ParamMap` denormalizes into the DSP and nothing denormalizes for the display | medium | fixed | S3 Plugin UX | `ParamMap.h` `formatZone`, `ParamGridPanel.cpp` `applyPresentation` | 2026-07-28 | pending commit |
-| PF-038 | Knobs appear alphabetically, not in declaration order — a 40-param patch lists `P0, P1, P10, P11 … P2` | low | open | S3 Plugin UX | `ParamGridPanel.cpp` `refreshParamKnobs` | 2026-07-28 | — |
-| PF-039 | The rotary fallback in `refreshParamKnobs` is unreachable dead code; `docs/ui_design_plan.md` still describes it as the fallback widget | low | open | S3 Plugin UX | `ParamGridPanel.cpp`, `docs/ui_design_plan.md` | 2026-07-28 | — |
+| PF-038 | **Reclassified 2026-10-18, wontfix: knobs appear alphabetically, not in source declaration order.** Originally filed against `ParamGridPanel.cpp refreshParamKnobs`, but that citation is wrong — `FaustEngine.h:117-121`'s ordering note (written investigating this) states it directly: "Faust emits the groups ALPHABETICALLY, and the widgets alphabetically inside each. The editor does not sort — it preserves this order exactly. What has been recorded as 'lexicographic knob ordering' (PF-038) is therefore Faust's own path ordering, not anything ParamGridPanel does." `ParamCapture::params` (`FaustEngine.cpp`'s `addHorizontalSlider`/etc.) receives widgets in exactly the order libfaust's own generated `buildUserInterface()` calls them — by the time that call happens, the original Faust source's textual declaration order no longer exists to recover; `ParamIdentity.h`'s own comment on `disambiguate()` independently confirms "Faust emits groups alphabetically and widgets alphabetically inside each... so capture order is deterministic for a given patch." No code change in this codebase can produce "declaration order" from information libfaust has already discarded before the UI callback fires | low | wontfix | S3 Plugin UX | `host/Source/FaustEngine.h:117-121`, `host/Source/FaustEngine.cpp` (`ParamCapture`), `host/Source/ParamIdentity.h` (`disambiguate` comment) | 2026-07-28 | 2026-10-18 |
+| PF-039 | **Already fixed 2026-08-14, registry never reconciled.** The rotary fallback in `ParamGridPanel::applyPresentation`'s switch was removed in `2d11758` ("fix: soundfetch status tooltip + PF-039's dead rotary arm (T5)") — the `default:` arm was replaced with an exhaustive `switch` over all six `Kind` values, `jassertfalse` on the three structurally-unreachable ones (Button/CheckButton/Meter) instead of silently defaulting to a rotary. `docs/ui_design_plan.md` already carries two correction notes (2026-07-30 and the 2026-08-14 addendum) stating the rotary never renders. Verified then: `EditorSessionTest` 271/271 including a new scenario 36 asserting no control ever reports `WidgetKind::Rotary`. This row was simply never flipped to `fixed` after that commit landed | low | fixed | S3 Plugin UX | `host/Source/ParamGridPanel.cpp` (`applyPresentation`'s switch), `docs/ui_design_plan.md:143-160` | 2026-07-28 | 2026-08-14 |
 | PF-040 | Every macro slot was quantised to 100 positions — JUCE's `AudioParameterFloat` min/max convenience ctor hardcodes `interval 0.01`, so a patch default usually could not be represented (800 Hz became 819 Hz) | high | fixed | S1 Backend | `PluginProcessor.cpp` `createParameterLayout` | 2026-07-30 | pending commit |
 | PF-041 | ~~The semantic judge grades L4 against a ground truth **byte-identical to the L4 generation prompt** (10/10), so L4 scores 2.00/2.00 tautologically and the tier gradient is confounded~~ | high | fixed | S4 Testing | `bench/score_efficacy.py` `JUDGE_RUBRIC`, `run_judge`, `bench/prompts/acceptance_specs.json` | 2026-07-30 | 2026-08-16 |
 | PF-042 | ~~The judge's 0/1/2 rubric collapses to binary in practice — score `1` used **once in 44** gradings, so "partially implements" is not a category the instrument actually returns~~ | medium | fixed | S4 Testing | `bench/score_efficacy.py:458-490` | 2026-07-30 | 2026-08-16 |
-| PF-043 | ollama's stock 4096-token context cannot hold the ~3.3k system prompt plus the 4096 output floor (PF-035), leaving ~480 tokens of generation headroom on the repo's own declared default model | medium | open | S4 Testing | `llm/providers.py:330-343` | 2026-07-30 | — |
+| PF-043 | ollama's stock 4096-token context cannot hold the ~3.3k system prompt plus the 4096 output floor (PF-035), leaving ~480 tokens of generation headroom on the repo's own declared default model | medium | fixed | S4 Testing | `llm/providers.py:393-410,513` | 2026-07-30 | this session (2026-09-13) |
 | PF-044 | `run_benchmark.py` recorded `provider` but never `model`, so a cross-model study could not identify its own subject from its own archives — while `model_for()`'s docstring says numbers are "only comparable per model" | medium | fixed | S4 Testing | `bench/run_benchmark.py:267` | 2026-07-30 | pending commit |
 | PF-045 | Generated envelopes convert ms→samples for `en.*`, whose time arguments are in **seconds** — a 1000 ms release becomes 48000 s, so the patch holds sustain forever as DC | medium | open | S2 Prompt | `bench/results/results.json` (sawtooth+ADSR record) | 2026-07-31 | — |
 | PF-046 | `check.sh audio` gates on `bench/results/results.json`, which every benchmark run overwrites — so the level goes red on whatever the model last happened to emit, not on the change under test | medium | fixed | S4 Testing | `tools/check.sh` `level_audio`, `bench/ladder_corpus.json` | 2026-07-31 | `24e6064` |
@@ -92,7 +94,7 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-060 | `preflight_prior_source()` took no `provider` argument — every Add-mode refine, on EVERY provider, was gated by groq's fixed 8,000-token rate limit regardless of what the selected provider could actually hold. In surgical mode this is a hard refusal, so Add was silently broken on every large-context provider | high | fixed | S1 Backend | `providers.py:142,152` (was), `generate.py:520` | 2026-08-13 | this session |
 | PF-054 | Sample search resolved the bare name `"soundfetch"`, never on PATH on this machine (only ever installed inside venvs). `juce::ChildProcess::start()` returns true even when `execvp()` fails in the forked child, so the friendly "unavailable" message was dead code — every query, both providers, reported "Soundfetch returned no JSON." instead | critical | fixed | S1 Backend | `SoundfetchClient.cpp` `commandPrefix`/`run` | 2026-08-13 | `0694a32` |
 | PF-055 | Sample search merged soundfetch's stderr (unconditional INFO logging, Internet-Archive `"archive metadata: n/50"` progress) into the same pipe as stdout via JUCE's default `ChildProcess::start()` flags, corrupting the JSON for the DEFAULT provider even once PF-054 was fixed | critical | fixed | S1 Backend | `SoundfetchClient.cpp` `run` | 2026-08-13 | `0694a32` |
-| PF-056 | The configured Freesound API key is sent but rejected (HTTP 403). Not a code defect — needs a replacement key from freesound.org — but zero code anywhere surfaced *which* provider or *why*; a caller only ever saw "no JSON" (PF-054) masking this underneath | medium | open | S1 Backend | `SoundfetchClient.cpp` | 2026-08-13 | needs a new key; PF-054/PF-055 fixes make the real 403 message reach the user once this is resolved externally |
+| PF-056 | The configured Freesound API key is sent but rejected (HTTP 403). Not a code defect — needs a replacement key from freesound.org — but zero code anywhere surfaced *which* provider or *why*; a caller only ever saw "no JSON" (PF-054) masking this underneath | medium | open | S1 Backend | `SoundfetchClient.cpp` | 2026-08-13 | needs a new key; PF-054/PF-055 fixes make the real 403 message reach the user once this is resolved externally. **2026-09-13 (soundfetch 0.4.0 upgrade):** the second half is now closed by code — `SoundfetchClient::status()` runs a non-network `<provider> status --json` preflight (`api_key.configured`) before a Freesound search, and a 403 that gets through is now named ("Freesound rejected the configured API key...") instead of showing the raw message unattributed. The revoked-key half is unchanged and still needs the external replacement. Freesound is also no longer the sample browser's default provider — Openverse (credential-free, `soundfetch/providers/openverse/provider.py:134`) is, so a first run needs no key at all |
 | PF-057 | `KeyboardPanel`'s constructor called `setPlayable(false)`, but the member initializer already reads `false` and `setPlayable` early-returns on an unchanged value — the widget-disabling code (dim, disabled label) never ran on construction. A fresh editor's keyboard looked and felt fully playable while every note was silently discarded downstream | high | fixed | S3 Plugin UX | `KeyboardPanel.cpp` ctor / `applyPlayableVisuals` | 2026-08-13 | `410770b` |
 | PF-058 | Auto family resolution could route a prompt naming both generator-family language ("drone", "generative") AND a synth ("a generative synth") to the mute `generator` family — kind instrument, zero MIDI voice contract by design — silently, with nothing telling the user their "synth" request became an unplayable drone | medium | fixed | S2 Prompting UX | `generation_profiles.py` `resolve`; `GenerationProfiles.generated.h` `resolveAuto` | 2026-08-13 | `addfd57` |
 | PF-059 | `generate.py`'s voice-contract gate lowercased UI labels before the synth/drum_synth membership check, so `hslider("Freq", ...)` (or any other-cased spelling) passed generation validation while `FaustEngine::extractVoiceControls`'s exact-case match silently refused to recognise it — a "successful" generation with a dead keyboard | high | fixed | S1 Backend | `generate.py` `_validate_profile_metadata`; `voice_contract.py` | 2026-08-13 | `2b8d4e3` |
@@ -111,8 +113,17 @@ way to say "PF-003 is the one we fixed in `d10f59e`." This registry is that reco
 | PF-073 | Audible discontinuity when a 2nd generation swaps the live DSP in a host — the operator reported "there didn't seem to be a very smooth transition between the generates." Not characterised (click vs. gap vs. dropout length; no `setParamValue` flood seen). The swap protocol (`audioBusy` drain guard + compile-callback-before-`ready`) is a load-bearing invariant; a brief gap during recompile is expected, an audible click is not. Needs a captured repro to tell which | low | open | S1 Backend | `host/Source/FaustEngine.cpp` swap path, `docs/fixplan_pushtofaust_swap.md` | 2026-08-28 | — |
 | PF-074 | A generated **instrument patch produced NaN/Inf during normal play**, forcing a regeneration to recover. `OutputGuard` is designed to catch non-finite output and **latch-mute even for instruments** (`OutputGuard.h:89`, "NonFinite always latches regardless of policy"), so either it caught it (silence, regen cleared the latch) or it did not (a real hole). The operator saw "NaN/inf" — where (REAPER meter? the plugin?) and whether audio went silent or stayed broken was not captured. `OfflineSynthRenderTest` (184 checks, 0 failures) shows the synth audio path + OutputGuard are healthy on the tested fixtures, so this is a specific generated patch under a specific runtime condition. Needs the triggering patch + action captured | medium | open | S1 Backend | `host/Source/OutputGuard.{h,cpp}`, `host/Source/FaustEngine.cpp` | 2026-08-28 | — |
 | PF-075 | Instrument polyphony: `FaustEngine` is **strictly monophonic** (one `currentNote`, one gate, last-note priority, no per-voice cloning — `FaustEngine.cpp:547-562`), but the operator playing a chord in-host heard "more than 3 voices, up to 5". Most likely overlapping **release tails + reverb** from a mono voice (each note gated off when the next arrives, but its envelope/reverb keeps ringing) — which would confirm the mono model and be nice musical behaviour. The disambiguating test — hold a sustained 5-note chord: do all 5 sustain, or do 4 decay leaving 1 — has not been run | low | open | S3 Plugin UX | `host/Source/FaustEngine.cpp:547-562` | 2026-08-28 | — |
-| PF-076 | **faust-rs diagnostics fed to the repair loop *reduce* its success rate** (issue #26). A/B over 202 C++-rejected Faust programs, repaired from the identical start with raw C++ stderr vs `faust-rs --check` rendered: repaired-within-2 dropped from 75% to 44% (`qwen2.5-coder:3b`, n=202) and 72% to 50% (`7b` Q3, n=120), McNemar p<1e-3 both, arm A also fewer attempts. Trimming faust-rs to code+message+caret (arm C) changed nothing. Mechanism: precise localisation makes a weak model edit at the caret and re-break it (same-class-again ~75–80% vs ~45%); vague stderr provokes a broader rewrite that compiles. Not a defect in faust-rs (diagnostics are a human win — stable code + location 15/15 vs C++ 0/15 + 8/15); a finding about how to use it. Untested: frontier model, FRS code as a *branch* signal, resending the failing source | — (evidence) | closed | S4 Testing | `bench/run_repair_ab.py`, `bench/results/repair_ab/repair_ab_20260830{,_7b}.json` | 2026-08-30 | 2026-08-30 |
+| PF-076 | **faust-rs diagnostics fed to the repair loop *reduce* its success rate** (issue #26). A/B over 202 C++-rejected Faust programs, repaired from the identical start with raw C++ stderr vs `faust-rs --check` rendered: repaired-within-2 dropped from 75% to 44% (`qwen2.5-coder:3b`, n=202) and 72% to 50% (`7b` Q3, n=120), McNemar p<1e-3 both, arm A also fewer attempts. *(These are the raw-202/raw-120 percentages; `bench/repair_ab_repro/README.md` and the posted GitHub comment cite the program-screened 192/115 view — 74%→43% and 73%→49%. Checked 2026-09-24: both pairs are internally consistent, not a numeric error — raw A=151/202=75%, raw B=88/202=44%, matching this row; screened A=143/192=74%, matching the README. Two correct views of the same run, previously undocumented as such.)* Trimming faust-rs to code+message+caret (arm C) changed nothing. **The raw A/B numbers stand; the mechanism is now RESOLVED, not withdrawn — WP3, 2026-10-11, `docs/records/wp3-results-2026-10-11.md`.** ~~Mechanism: precise localisation makes a weak model edit at the caret and re-break it~~ (withdrawn 2026-09-24) — ~~regenerating from the spec with faust-rs's filtered diagnostic did worse than with raw C++ stderr, cause unknown~~ (superseded 2026-10-11). **The actual mechanism: it was never about faust-rs.** A pre-registered 5-arm factorial (matched wrapper, source-line visibility an explicit toggle) found faust-rs's diagnostic content alone shows NO effect (B2n vs A2, p=0.545); showing the model one caret-quoted line of its own broken source is the entire driver, independent of whose diagnostic that line comes from (B2 vs B2n p=5.32e-10, C2 vs C2n p=1.86e-13). Not a defect in faust-rs (diagnostics are a human win — stable code + location 15/15 vs C++ 0/15 + 8/15); not even a faust-rs-specific finding about automated repair — a finding about showing weak models their own broken source. Untested: frontier model, FRS code as a *branch* signal, resending the failing source (now filed as **PF-081**), faust-rs's own repair-sequence list (stripped by `_clean_message` in every arm — now a lower-priority question, since content alone is already shown inert) | — (evidence) | closed | S4 Testing | `bench/run_repair_ab.py`, `bench/results/repair_ab/repair_ab_20260830{,_7b}.json` | 2026-08-30 | 2026-08-30 |
 | PF-077 | The shipped `requirements.txt` omits `google-genai`, so a clean `install.sh` builds a venv that **cannot run the provider its own seeded `.env` defaults to** (`.env.example` sets `PLUGINFORGE_PROVIDER=gemini`). `providers.py`'s gemini adapter does `from google import genai` (`llm/providers.py:680,991`) → `ModuleNotFoundError: No module named 'google'` for a launcher-started DAW off a fresh install. groq / openrouter (both httpx) and ollama (local) work; anthropic is already pinned. `bench/requirements.txt:2` has carried `google-genai>=1.0.0` since the gemini adapter landed — the root file the installer ships was just never synced to it. Found during the PF-065 clean-machine install rehearsal (2026-09-01, scratch `HOME`, `install.sh` → venv → `providers.py --check gemini`) | medium | fixed | S1 Backend | `requirements.txt`, `llm/providers.py:680` | 2026-09-01 | this session |
+| PF-078 | The `UiDesignGallery` snapshot harness fired a **live `ui_face` LLM request per fixture** (8 fixtures × 3 styles = 24 per run). It renders the real editor, whose compile-success callback calls `PromptPanel::requestUiFace()` (`PluginEditor.cpp:378`), which guarded only on the script resolving (`PromptPanel.cpp:783-785`). `resolveGenerateScript()` walks up to the repo's own `llm/generate.py`, which `load_dotenv()`s `PluginForge/.env` (`llm/generate.py:35`) — so from the primary checkout every `tools/check.sh full` gallery run spent free-tier quota and put a network call inside a headless snapshot. CI has no `.env`, so it failed fast there and the leak stayed invisible. Arrived with #65 (`421821a`, ADR-035 A3b). **Fix:** a `PLUGINFORGE_NO_UI_FACE` guard read once into a member in the `PromptPanel` ctor; `UiDesignGallery.cpp` `main()` sets it before any panel is built. `EditorSessionTest` scenario 56 is the seen-failing evidence (guard on → 0 requests; guard off → ≥1). | medium | fixed | S5 Testing | `host/Source/PromptPanel.cpp:786`, `host/tests/UiDesignGallery.cpp` | 2026-09-08 | this session |
+| PF-079 | **The compile gate systematically overstates success — real render-safety is 25-40pp below compile rate, and two `dynamics`-category idioms fail identically across two independent generator models.** 2026-09-23 render-oracle pass over all 4 committed efficacy archives (325 compiled cells, `bench/render_oracle.py`, $0, no model calls): groq render-safe 56-68% vs. 84-96% compile; ollama 75-95% vs. similar. 26 compiled-but-broken patches found (silence, NaN/Inf, up to +715 dB runaway gain, DC offset up to 39.5, never-decays). Two failures are NOT one-offs — same effect concept, same failure signature, on `openai/gpt-oss-120b` (groq) *and* `qwen2.5-coder:7b` (ollama) independently: **"brick-wall limiter for mastering"** → DC offset ~0.95-0.98 + never-decays (loop gain ≥ unity) on both archives, and **"upward expander"** → runaway gain (+715 dB groq, +46.6 dB ollama) with peak far outside plausible range on both. `dynamics` is the worst category by render-safety on both archives (groq 12/19 = 63%, ollama 14/21 = 67%) — corroborates, on different grounds, the STATUS.md `dynamics`-weakness note this same review found under-powered on its original (compile-rate) evidence. `generative` is 15-18% of every archive and structurally unmeasured by this check (zero-input patches, `UnsupportedPatch`) — not this defect, but named so it isn't mistaken for a clean category. **Root-caused 2026-09-24, both from the Faust stdlib read directly, not inferred:** the expander's `gain_db = select2(level_db < threshold, 0, (threshold-level_db)*(ratio-1))` has no envelope floor before `ba.linear2db` (`= 20*log10(max(ma.MIN, g))`, `basics.lib:163`) — at single-precision `ma.MIN = 1.175494351e-38` (`maths.lib:276`) the floor is **−758.6 dB**, so at `threshold=−30, ratio=2` the makeup gain reaches **+728.6 dB** (measured: +715 dB). Class: *unbounded upward gain at the silence limit*. The limiter's `select2(x > thresh, thresh, x)` has its arms inverted — `ba.if(cond,then,else) = select2(cond,else,then)` (`basics.lib:1888`), so `select2(c,a,b)` returns `a` when `c` is **false**, meaning every sample at or below threshold is replaced by the threshold constant (0.98855 at the −0.1 dB default; measured DC 0.95–0.98). Class: *`select2` arm-order inversion* — silent, because it compiles and type-checks. Both are promptable (a rule + few-shot each) and both are render-oracle-detectable; fix owed as a `system_prompt.txt` change plus two `render_oracle.py --self-test` red cases — **the two red cases landed 2026-10-18** on `fix/pf079-oracle-red-cases` (`runaway_expander`, `inverted_limiter`), the prompt fix itself still not landed (drafted at `docs/records/pf079-prompt-fix-draft-2026-10-18.md`, blocked on quota to prove). **Addendum, 2026-10-18:** a third, NOT yet root-caused instance of the same compile≠render-safe pattern, found reviewing `bench/results/oracle_20261014_session_kit.json` (a replay of `bench/results/efficacy/efficacy_groq_20260831.json`, zero new LLM calls): `dynamics-01`/tier `L3`, prompt "a compressor with threshold, ratio, attack, and release", `openai/gpt-oss-120b` via groq — `first_try_compiles: true`, renders **completely silent** (`measurement.ok=False, codes=['silent'], rms=0.0`). Unlike the two mechanisms above, this patch calls the real `co.compressor_stereo` stdlib function rather than a hand-rolled `select2` formula, so it is evidence for the general PF-079 finding but a *different*, unexamined failure path — not yet traced to a specific stdlib line | high | open | S1 Backend | `bench/render_oracle.py`, `bench/score_efficacy_render.py`, `docs/records/efficacy-adversarial-review-2026-09-23.md` §B1, `/usr/share/faust/basics.lib:163,1888`, `/usr/share/faust/maths.lib:276`, `bench/results/oracle_20261014_session_kit.json` | 2026-09-23 | — |
+| PF-080 | **Both reproduction paths this project published to GRAME's Stéphane Letz (issue #26, 2026-09-08 comment) are broken for an external reader today.** (1) `make -C bench/repair_ab_repro docker-verify`: `Dockerfile:67` runs `pacman -Syu --noconfirm faust`, installing whatever Arch currently ships (**2.88.0** as of this check), then `:92` asserts `FAUST_VERSION=2.85.9` and hard-fails — by design (the comment says "fail rather than let the oracle drift silently"), but the practical effect is that the re-derive path has been dead for every external reader since Arch moved past 2.85.9, and nothing in the repo notices or reports this. (2) The posted comment's other instruction, `python3 bench/issue26/verify.py`, 404s on the default branch — PR #71 (`6fe6679`) renamed that directory to `bench/repair_ab_repro/`. The link only still works because the comment is pinned to commit `704963a`, which predates the rename. The pure-replay `verify.py` path at that pin is unaffected; only the *re-derive-from-source* half and the *default-branch-navigation* half are broken. **Fixed same day:** the Dockerfile now points pacman at a frozen `archive.archlinux.org` snapshot (`2026/07/05`) instead of the rolling repos, so dependency resolution is consistent and the version assertion becomes a secondary check rather than the reproducibility mechanism itself — verified end to end (`docker build` + `docker run … verify` → 367/367 checks green from a clean build, this session). `bench/issue26/README.md` now stubs to the current path | high | fixed | S1 Backend | `bench/repair_ab_repro/Dockerfile`, `bench/issue26/README.md` | 2026-09-24 | 2026-09-24 |
+| PF-081 | **The corrective retry loop — both the repair-loop A/B harness and the shipping Fresh-mode product path — asks the model to fix a compile error in a program it is never shown.** `bench/repair_ab_core.py:107`: `user_message = prompt + template.format(feedback=feedback_text)` — `prompt` is the natural-language request; the failing `code` (`:91`) is used only to compute the diagnostic (`:105`), never placed in the message, and there is no conversation history, so every corrective attempt **regenerates from the original spec** rather than editing a visible program. The product mirrors this exactly: `llm/generate.py:560` reads `prior_source` only from an Iterate/refine host request; a Fresh-mode compile-error retry sends `prompt + error_context` (`:301-302`) with the same blindness. Corroborating signal already on record without the cause named: `llm/generate.py:183-186`, *"a simple reverb" failed the IDENTICAL delay-range error 3 attempts in a row* despite the fix already being in the system prompt — exactly what blind regeneration from an unchanged spec produces. This is what falsified PF-076's caret-preservation mechanism (see that entry's 2026-09-24 correction) — discovered via an external adversarial review, verified against source directly rather than taken on the review's word. Fix: carry the prior failing source into Fresh-mode retries the same way Iterate mode already does; `preflight_prior_source` (`llm/generate.py:568`) is the existing token-budget guard to reuse | high | open | S1 Backend | `bench/repair_ab_core.py:107`, `llm/generate.py:297-302,560,568` | 2026-09-24 | — |
+| PF-083 | **`~PluginForgeEditor` never clears `processor.onFaustCompileSuccess`/`onFaustCompileFailure`/`onUiStyleChanged`.** Found during the PF-082 diagnosis. If a Faust compile completes on the compile thread while the editor window happens to be closed, the stored `std::function`s still fire; the `SafePointer` null check inside each (`PluginEditor.cpp:272` etc.) makes the call a silent no-op rather than a crash, so the compile result is simply dropped and never replayed when a new editor later appears — compounding with PF-082's own symptom rather than being fixed by its constructor replay (the replay reads the processor's *last published* snapshot, which is correct for the common case, but a compile that finishes *during* the closed window is the one case the snapshot by itself cannot surface until the editor is told to re-read it). Not fixed here; PF-082's scope was the constructor-time replay, not callback lifetime | medium | open | S3 Plugin UX | `PluginEditor.cpp:536-550` (destructor), `:272,293` (callback assignments) | 2026-10-09 | — |
+| PF-084 | **Two simultaneously-open editors over the same processor (a REAPER FX-chain editor plus a floating window, or two hosts embedding the same instance) silently race on the single-slot compile callbacks.** Found during the PF-082 diagnosis. `processor.onFaustCompileSuccess`/`onFaustCompileFailure`/`onUiStyleChanged` are each one `std::function` member on the processor; whichever editor constructed most recently overwrites the other's assignment, so only the last-constructed editor's grid/face ever updates on a subsequent compile. `onUiStyleChanged`'s own header comment (`PluginProcessor.h:284-288`) already anticipates a second open editor; the two compile callbacks do not. Out of scope for PF-082, which fixes the single-editor reopen case | low | open | S3 Plugin UX | `PluginProcessor.h:284-288`, `PluginEditor.cpp` (callback assignments) | 2026-10-09 | — |
+| PF-085 | **Generated patches can declare `min = 0` on resonance/Q-like parameters with no floor anywhere in the pipeline — no prompt rule, no generator-side check, no host-side floor.** `ParamMap::mapSlotToZone` (`host/Source/ParamMap.h:130`) delivers a declared minimum to the Faust zone verbatim. On the bare DSP this is an immediate, deterministic NaN: `fi.resonlp`'s `a1 = 1/Q` (`/usr/share/faust/filters.lib:2185-2193`) divides by zero the instant the bound parameter reaches its declared floor. Found during PF-074's first captured repro (`bench/repro/pf074/sweep_driver.cpp` reproduces the NaN on the bare DSP every time); the real host path is shielded at every timescale tried in that repro (`si.smoo`'s slew between the host's 0-1 control and the zone absorbs the jump before the filter sees an exact zero), so this has not been observed live — but the bare-DSP repro shows the hazard is real and only accidentally unobserved so far. Not fixed here: `ParamMap`'s mapping between APVTS and Faust is Tier 2 (COLLABORATION.md §3), and the actual fix is a range decision (a host-side floor, a generator-side rejection, or a prompt rule forbidding `min = 0` on resonance-like controls), not a bug with one obvious patch | medium | open | S1 Backend | `host/Source/ParamMap.h:130`, `bench/repro/pf074/sweep_driver.cpp`, `/usr/share/faust/filters.lib:2185-2193` | 2026-10-18 | — |
+| PF-086 | **`ubuntu-latest` rolled 24.04 -> 26.04 and `pf_cpu_shim` stopped controlling the JIT's ISA, so PF-036's protection is no longer in force in CI.** The shim still loads (its marker symbol resolves) but the CPU name no longer reaches codegen: on 26.04 both arms of `JitTargetTest` emit byte-identical census numbers (tremolo `evex=1 kmask=2 vex=54` under **both** `x86-64` and `znver4`), which is exactly the signature `host/tools/pf_cpu_shim.cpp`'s own docstring predicts -- "a shim that stopped working would make them identical." Not a repo regression: the green run `6c3adf3` (2026-10-21, image `ubuntu24/20261012.334`, `libfaust2t64 amd64 2.70.3+ds`) and the red run `85ca7b5` (2026-10-29, image `ubuntu26/20261025.179`, `libfaust2t64 amd64v3 2.81.10+ds`) have no repo change between them that touches the JIT, the shim, CMake or the workflow. Reproduced green on the dev box (faust 2.88.0, LLVM 23.1.3, `JitTargetTest` built standalone: `x86-64` evex=0/vex=0 vs `znver4` evex=1/vex=63), so the mechanism is sound and LLVM's `@LLVM_23.1` symbol-version bump is not the cause -- 26.04's `amd64v3` (x86-64-v3, AVX2 baseline) libfaust is the material difference. **Mitigated by pinning `runs-on: ubuntu-24.04`, not fixed.** Open question: does the AVX-512-masked EPYC 9V74 runner class that caused PF-036 still exist, i.e. is the shim still needed at all? | high | open | S4 Testing | `.github/workflows/test.yml:85`, `host/tools/pf_cpu_shim.cpp`, `host/tests/JitTargetTest.cpp` | 2026-10-29 | — |
+| PF-082 | **A VST3 host destroying and recreating the plug-in editor (tab-away/tab-back, not a project reload) loses the generated grid and face.** Reported live from a REAPER session. `JUCE/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp:1832-1848,2084-2091` (`removed()`) really does delete `PluginForgeEditor`; `:1781-1792,2266-2277` (`attached()`) really does construct a fresh one. The only code that has ever built `ParamGridPanel`'s controls or attached a generated face is the compile-success callback (`PluginEditor.cpp`'s `processor.onFaustCompileSuccess`, wired from `PluginProcessor.cpp:690-691`), and a bare re-construction is not a compile — `refreshParamKnobs` had exactly one caller in the whole repo before this fix. `currentUiIr`/`currentFaustSource`/the published params all survive in the processor untouched; the editor simply never asked for them, so a fresh one came up with an empty grid, no face, the literal title `"PluginForge"`, and a window shrunk by `updateWindowSizeForParams()` to its empty-grid height — which reads as "the GUI disappeared." `CodeEditorPanel`/`PromptPanel` already re-seed themselves from the processor in their own constructors for the identical reason (`PromptPanel.h:119-124` names the hazard by name); `ParamGridPanel` never got the same treatment. **Fixed:** `PluginProcessor` now keeps a zone-stripped replay snapshot (`lastPublishedParamsSnapshot`/`lastPublishedParamsForReplay()`), and `PluginForgeEditor`'s constructor replays it through a new shared `rebuildGridAndFace()` helper (also used by the compile-success callback) when non-empty. `EditorSessionTest` scenario 58 is the red-then-green proof: 4 checks fail without the constructor replay (grid count, face active, title, accent) and pass with it, with zero regressions across the other 57 scenarios (502 checks total). Filed separately, not folded in: (1) `~PluginForgeEditor` never clears `processor.onFaustCompileSuccess`/`onFaustCompileFailure`/`onUiStyleChanged`, so a compile completing while the window is closed is silently dropped; (2) two simultaneously-open editors overwrite each other's single-slot compile callbacks; (3) `ArchetypeLayout::Result::visuals` (ADR-041 step 1) has no consumer, so a `texture-field` face has a permanently blank display region, independent of this bug | high | fixed | S3 Plugin UX | `PluginEditor.cpp` (`rebuildGridAndFace`, constructor), `PluginEditor.h`, `PluginProcessor.h:333-342,480+`, `PluginProcessor.cpp` (compile-success critical section) | 2026-10-09 | 2026-10-09 |
 
 ---
 
@@ -632,6 +643,143 @@ it must be per-class rather than aggregate.
 tokens**; the stdlib block now needs only **10.8%** growth (was ~29%) to 413 every groq
 request. The calibration anchor is 7.9% stale and a re-measure is due — one live generation.
 
+**2026-09-15 — WP1 classified from stored data; WP2a fixed a real contradiction, WP2b
+extended the routing rule. Free-tier, mixed, per-observation.**
+
+Re-classifying every attempt (not just first errors) in `efficacy_ollama_20260828.json`
+finds 38 `routing_arity` failures; the largest single shape is a 2-out→1-in sequential
+composition (7, five outside dynamics) — a named mono definition fed a stereo signal, e.g.
+`dynamics-03`: `gate = ef.gate_mono(...); process = _,_ : gate;`.
+
+**WP2a (fixed):** the generated stdlib block rendered signatures with trailing audio params
+(`ef.gate_mono(thresh,att,hold,rel,x)`), contradicting STRICT RULES' composition-only rule
+two screens above — `dynamics-03` copied it verbatim. `gen_stdlib_block.py:find_signature()`
+now strips a trailing x/y; token-negative (+32); pinned by
+`test_no_curated_entry_ends_in_a_bare_audio_param`.
+
+**WP2b:** the mono-in-stereo rule now names a NAMED definition explicitly. Both halves
+compile-verified by hand (`faust`: broken form → exact claimed arity error; `par(i,2,gate)`
+form → exit 0) — **not** wired into `test_prompt_claims.py`'s fixture, its quoted-span
+extractor doesn't cover this clause. Recorded as the unverified-automation remainder.
+
+**Free-tier re-run, the 5 affected cells:** trivial-04, dynamics-03 now emit exactly the
+taught pattern, clean; trivial-03 now compiles (attribution unclear); trivial-05 fails
+differently (syntax, not arity); trivial-02 still fails the same arity class across all 3
+retries. **2/5 clear, 1 ambiguous, 1 shifted, 1 unchanged.**
+
+**Not measured:** groq. Out of scope: `recursive composition A~B`/Karplus-Strong.
+
+---
+
+**2026-09-12 — re-measured against today's prompt: still fails, but the standing
+hypothesis (the double `ba.db2linear` on `thresh`) was wrong.**
+
+Six fresh `ollama`/`qwen2.5-coder:7b` generations for "a noise gate with threshold and
+hold time" against the current `system_prompt.txt`: **5 of 6 render SILENT** (rms exactly
+`0.00e+00`). The 6th passes the oracle's `is_silent` check but is not actually gating — a
+stuck-open false pass (`ba.sec2samp` applied to `hold`, then the library's own internal
+`*ma.SR` scaling stretches the resulting hold to on the order of days; the render is loud,
+not silent, because the gate never closes). **Zero of six show a correctly functioning
+gate**; this WP1 measurement (`~/.claude/plans/phase3-pf032-silent-noise-gate.md`) lands
+on outcome (c), not (a) or (b).
+
+**The double-`ba.db2linear`-on-`thresh` hypothesis this entry has carried since 2026-07-30
+did not reproduce once.** In every one of the six generations, `thresh` was passed as a
+raw dB literal, untouched — the existing STRICT RULES clause aimed at exactly that mistake
+(`system_prompt.txt:19-22`) is working. The actual, repeating defect is on the **att/hold/rel
+time-constant arguments**, which `misceffects.lib:127-130` documents as **seconds** (its own
+worked example: `att=0.0001s, hold=0.1s, rel=0.02s`). Three variants, all present across the
+six generations (patches retained this session, not committed):
+
+- **ms→samples pre-conversion** (`*(ma.SR/1000.0)` or `ba.sec2samp`) applied to a value the
+  library will *itself* multiply by `ma.SR` again — a ~48,000× overshoot, the same
+  double-conversion shape as the standing hypothesis, just on a different variable (4/6).
+- **Implausible literal seconds** — `att`/`rel` hardcoded to `10` or `20` where the doc's
+  own example is `0.0001`–`0.02` (2/6).
+- **`ba.db2linear` applied to a `[unit:ms]` slider** — a mistake not seen in this entry
+  before: converting a *time* value through a *dB-to-gain* function (2/6, one of them
+  introduced mid-repair, replacing a compile error with this instead).
+
+**Why the existing rule doesn't catch it.** `system_prompt.txt:19-22`'s worked examples are
+Hz-vs-`ma.SR` and dB-vs-`db2linear`; nothing names seconds-vs-milliseconds-vs-samples for a
+time-constant argument, so the model isn't generalizing the rule's own general clause
+("units are whatever the reference says for that argument") to this stdlib function's
+specific contract. This is the same class PF-045 already names for `en.*` envelope times —
+the two defects should share one fix, per that plan's own note.
+
+**Not measured: groq (the shipping model).** This session's mandate didn't authorize a
+paid benchmark run; ollama's 7B has a known instruction-following ceiling (PF-012/PF-043),
+so this alone cannot rule out "fixed on groq, an ollama-only ceiling" (outcome b). Next
+step is WP2 from the drafted plan above, retargeted at the att/hold/rel unit contract
+instead of thresh/`db2linear`, plus the still-owed groq pass.
+
+**2026-09-15 — WP1's own baseline was confounded, re-measured clean, and WP2 (retargeted)
+landed with a free-tier result. Groq still owed.**
+
+**The 5/6-silent number above is not a clean baseline.** WP1 ran 2026-09-12 against
+ollama's stock `num_ctx=4096`; PF-043's fix (`c9655da`, 2026-09-13) raised the default
+model's context to 16384 because the prompt (~3,358 tokens) plus a 4,096-token output
+floor sat inside the truncation zone. Some fraction of WP1's failures could have been
+truncation, not a generation error.
+
+**Control arm re-run, 6 fresh generations against the current (still-unedited at the time)
+prompt, post-PF-043:** 5/6 still broken, using `rms_ratio_db`/`env_db_final` rather than
+bare `is_silent` — `is_silent`'s `rms < 1e-5` threshold under-reports a near-dead gate
+(one control generation measured `rms_ratio_db = -43.9 dB`, clearly non-functional, but
+`is_silent: false`). Confirms WP1's finding survives the confound correction. Failure
+modes, by grep + inspection of each source: `hold` (a `[unit:ms]` slider) reused raw,
+unconverted, for both `att` and `hold` (1); `hold` scaled `*(ma.SR/1000.0)` — samples
+conversion misapplied to a seconds argument (2); implausible whole-second literals for
+`att`/`rel` (2, one combined with the `ma.SR` case); `thresh` run through `ba.db2linear`
+— the *original* PF-032 hypothesis, reappearing once in 6 even though WP1's own 6-sample
+run saw it zero times, consistent with small-n sampling noise on both sides, not with the
+hypothesis being definitively closed either way. One generation, structured with its own
+declared `att`/`rel` sliders using `*(0.001)` (the pattern the existing compressor
+few-shot already teaches — `system_prompt.txt`'s "a stereo bus compressor" example),
+passed cleanly — the prompt's ms→seconds pattern transfers to a function's own fresh
+sliders but not reliably to a *reused* `[unit:ms]` slider or to the `hold` argument,
+which had no worked example anywhere in the prompt.
+
+**WP2 fix, landed (free-tier verified, `fix/pf032-gate-time-units` branch):** three parts
+— (a) `tools/gen_stdlib_block.py`'s Dynamics-group curated descriptions for
+`gate_mono`/`gate_stereo`/`compressor_mono`/`compressor_stereo`/`amp_follower_ar` now
+state `att/hold/rel SECONDS` explicitly (previously unannotated); (b) the STRICT RULES
+unit-contract clause (`system_prompt.txt`) extended to name the seconds case alongside
+the existing Hz/dB ones; (c) a new worked few-shot, "a noise gate with threshold and hold
+time," modelled on the existing compressor example. Paid for by dropping `ba.sec2samp`,
+`ma.PI`, and `ba.linear2db` from the *effect* profile's curated list — none used by any
+few-shot in either prompt, none asserted by a test, and `ba.midikey2hz`/`ba.db2linear`
+stay per this file's own standing "an absent entry invites an invented one" rule.
+`tests/test_prompt_headroom.py`'s full suite (6 tests, including the "mild growth guard"
+that the raw slack number alone does not satisfy) passes; base slack is 79 tokens.
+
+**Treatment arm, same 6 prompts against the edited prompt: 6/6 pass**
+(`rms_ratio_db ≈ 0 dB`, `env_db_final ≈ -220 dB` — a fully open gate on-signal, fully
+closed during the tail, on every generation). **Stated honestly, not just as a clean
+win:** 5 of the 6 passing generations reproduced the new few-shot **byte-for-byte**,
+including for a prompt ("a stereo noise gate") that was not the few-shot's own wording —
+a meaningful share of this result is "the model found and copied the closest worked
+example," not proven generalization. Only one generation (prompt: "a gate with attack and
+release") produced a structurally different patch — it declared its own `attack`/`release`
+sliders, put them in the `hold`/`rel` argument positions without `*(0.001)`, and still
+rendered correctly only because those particular slider ranges (≤50ms, ≤1000ms) didn't
+trip a visible failure inside the render's evaluation window. That is the single most
+meaningful data point for generalization and it is **n=1**.
+
+**What this does NOT verify:** the shipping model (groq) has not been measured against
+either the confound-corrected control or the fix — this free-tier result cannot rule out
+"fixed on ollama's copy-the-example behavior, unproven on groq's more varied phrasing."
+That is WP2's own next step, `bench/run_benchmark.py --provider groq
+--i-authorize-spend`, and per this project's consult gate it is not run without separate
+authorization.
+
+**The trailing-`_,_` probation above is closed, in the keep direction — do not revert
+it.** Its stated condition ("retained pending a groq run... reverted if a groq run shows
+no benefit") is met: PR #77 measured the exact targeted pattern
+(`X_stereo(...,_,_)`-family arity errors) going **8/25 → 0/25** on a groq re-run, and
+PR #75 hardened the rule's own wording to cover the compressor alongside the gate. Do not
+spend tokens reverting a rule with a measured effect.
+
 ---
 
 **2026-07-30 — a prompt rule was added, measured, and DID NOT WORK. Recorded because a
@@ -699,12 +847,27 @@ re-checked with `faust-rs 0.8.0 --check --error-format json` against the *same f
 C++ rejected. **Accept/reject agreement 15/15.** C++ carried a source location on 8/15
 *(re-derived 2026-08-30 as 8, recorded as 9 on 2026-08-28 — a stderr-scoring-heuristic
 difference plus Faust 2.85.5→2.85.9; not material)*; faust-rs on **15/15**, plus a stable
-`FRS-*` code on **15/15** (C++: 0). The 6 `routing_arity` failures — C++'s worst case, no
+`FRS-*` code on **15/15** (C++: 0 — ⚠ *`frs_rederive.py`'s `cpp_code += 0` is hard-coded, not
+counted from a scan of C++ stderr; near-certainly true (C++ stderr has no stable-code
+convention) but published as an observed count and it isn't one. Fix: scan for one before
+asserting it, or caveat the cell*). The 6 `routing_arity` failures — C++'s worst case, no
 location + a Box-expression dump — map 1:1 to `FRS-PROP-0002` with a caret and the arities as
-numbers. Reproducible from a clean checkout via `bench/frs_rederive_issue26.py`
+numbers. Reproducible from a clean checkout via `bench/frs_rederive.py`
 (replaces the uncommitted-and-lost `scratchpad/frs_annotate.py`; measurement-only, faust-rs
 is not a project dependency). The 36-program hand-built corpus behind the "51/51" figure was
-in the same lost scratchpad and is **not** recoverable — 15/51 re-derives.
+in the same lost scratchpad and is **not** recoverable — 15/51 re-derives. **This 15/51 figure
+and the hard-coded C++ code-count were posted externally (issue #26, 2026-08-29) and have
+never been corrected on that thread — see the correction draft, item 3.**
+
+**faust-rs's own repair-suggestion list is stripped from every arm that uses it** (`L13`,
+`bench/frs_check.py:185-193`, `_clean_message` truncates at `"Repair sequences found"`). Sized
+this session, not just asserted: of the 202 distinct failing programs, the `syntax` class (61
+raw / 52 screened) loses its *entire* remedy in **53/61 (87%)** of cases — `FRS-PARSE-0001`'s
+only actionable content for that class *is* the repair-sequence list, so those programs' arm-B
+feedback degraded to the bare message + caret, nothing else. `routing_arity` loses it in 2/81
+(2%); every other class 0. `syntax` is the #2 strongest significant per-class cell (3B: A
+44/52 vs B 21/52, McNemar p≈5.65e-06) — on 87% of that subgroup, arm B was never tested with
+faust-rs's actual suggested fix. See the correction draft, item 4.
 
 **Loop-level result (PF-076, 2026-08-30):** feeding those diagnostics *back to the model* in
 place of C++ stderr made the repair loop **worse** — 75%→44% repaired-within-2 on
@@ -718,16 +881,16 @@ A/B design had no artifact and are withdrawn: (1) `bench/build_repair_corpus.py`
 shows the only commit touching that string *added the comment*; the closest real measurement
 is the ~20% ollama temp-0 output-flip rate two sections above (`:659-660`). n=1 per cell is
 now flagged as an unaudited limitation, with a determinism audit pre-registered as WP5 in
-`bench/issue26/METHODOLOGY.md`. (2) The "~24% of arm A's wins shrink the program — arm A
-partly buys the compile with fidelity" line in `bench/issue26/README.md` compared each arm
+`bench/repair_ab_repro/METHODOLOGY.md`. (2) The "~24% of arm A's wins shrink the program — arm A
+partly buys the compile with fidelity" line in `bench/repair_ab_repro/README.md` compared each arm
 to its own (different) set of wins and reversed the sign. Recomputed paired on the **67
 programs both A and B repaired** (`bench/fidelity_gate.py`): arm A shrank 19/67 (28%),
 arm B 24/67 (36%); primitive-lost A 10/63, B 6/63. Arm A does not buy compiles with
 fidelity; the loop-level result above is unaffected.
 
-**Repro-package handoff (2026-09-02).** `bench/issue26/` + the harness are relicensed
+**Repro-package handoff (2026-09-02).** `bench/repair_ab_repro/` + the harness are relicensed
 (MIT; corpus CC-BY-4.0 — `/LICENSE` exceptions, `bench/corpora/LICENSE`,
-`bench/issue26/LICENSE`); `verify.py` gains a `verify_fidelity()` checksum of the
+`bench/repair_ab_repro/LICENSE`); `verify.py` gains a `verify_fidelity()` checksum of the
 committed sidecars; `METHODOLOGY.md` collects the WP1–WP5 follow-up; the Dockerfile
 asserts the Faust/faust-rs versions; CI now runs `verify.py`. The GRAME reply links an
 immutable commit SHA, not the `issue-26-repro` tag (which is not moved — a new tag is cut
@@ -748,7 +911,7 @@ block + the cap strata, all checked by `verify.py`, which now has an N-guard
 robustness in `repair_ab_standalone.py` (retry/backoff/Retry-After; a 429/timeout is
 `terminal_reason` and excluded, not scored as a repair failure; ≥25% aborts → exit 3).
 (5) the MIT harness is now legally runnable — `system_prompt.txt` + `frs_rederive_cells.json`
-vendored into `bench/issue26/`, the proprietary `COPY`s dropped from the Dockerfile.
+vendored into `bench/repair_ab_repro/`, the proprietary `COPY`s dropped from the Dockerfile.
 (6) `verify.py` had ZERO tests on `score_repair_ab.py` — `tests/test_score_repair_ab.py`
 (13) + `tests/test_corpus_screen.py` (10) added. Branch `issue26-integrity`, ~7 commits.
 
@@ -756,6 +919,61 @@ vendored into `bench/issue26/`, the proprietary `COPY`s dropped from the Dockerf
 sampled (a 2026-08-28 probe sweep got 4 PF-024 syntax classes clean on groq — no
 reproduction — and the `duplicate_symbol` residual once in 3, before the daily token limit
 stopped it).
+
+**Mechanism correction (2026-09-24, prompted by an external adversarial review — the
+project's own "inspect primary evidence for a decision-changing claim" rule applied to
+itself).** The published caret-preservation mechanism — *"the small model treats the quoted
+line as correct and rewrites around it"* — is **withdrawn**. Verified directly against
+`repair_ab_core.repair_loop` (`bench/repair_ab_core.py:107`): `user_message = prompt +
+template.format(feedback=feedback_text)`. `prompt` is the natural-language request; the
+failing `code` (`:91`) is used only to *compute* the diagnostic (`:105`), never placed in the
+message, and there is no conversation history — every attempt regenerates from the spec, it
+does not edit a program it can see. `feedback_for` (`:84`) passes `code` as `render()`'s
+`source` argument, which **splices the offending line into arm B/C's feedback only**
+(`frs_check.py:222` `_source_caret`). So arm B was *handed* the caret line; arm A never saw
+it. The 58%/4% figure measures whether that supplied line is copied, not whether the model
+"rewrites around" a program it can inspect.
+
+**Refinement, same day — "there was no program to inspect" for arm A overstates it.** An
+independent re-audit of this very correction (2026-09-24, before anything was built on top of
+it) found that arm A's raw C++ stderr is not a clean zero-visibility baseline: Faust's
+box-expression dump leaks literal widget-constructor text in **76/207 (37%)** of failing
+records, rising to **61/84 (73%) for `routing_arity`** — the class driving the strongest
+A-vs-B/C effect — and to **14/15 (93%) for `duplicate_symbol`**, where the compiler reprints
+*two full, syntactically valid Faust definition lines verbatim*, strictly more raw source than
+arm B/C's single spliced line. The `routing_arity` leak is a fragment buried in an unreadable
+desugared dump, not a readable line, so the qualitative "arm A sees prose about the program,
+arm B/C sees one line of it" distinction still holds for the dominant class — but the literal
+"arm A never sees any part of the program" claim (`bench/repair_ab_repro/METHODOLOGY.md` L12,
+now corrected) did not. See L14 in that file for the full breakdown and what it means for the
+WP3 re-run design.
+
+**The A/B result is unaffected — repaired-within-2 still drops 75%→44% (3B) / 72%→50% (7B),
+McNemar p<1e-3, confirmed via the Dockerfile provenance audit that the compiler build was not
+the variable (`docs/records/faust-rs-delta-2026-09-23.md`).** What changes is only the causal
+story. Corrected framing: *"regenerating from the spec plus faust-rs's filtered diagnostic
+succeeded less often than regenerating from the spec plus raw C++ stderr, on a weak local
+model with no visibility into its own prior output"* — not *"the model anchors on a precise
+caret and re-breaks the same spot."*
+
+**This also means the harness is not measuring a benchmark artifact — it is faithfully
+mirroring a real product gap.** `llm/generate.py:560` populates `prior_source` only from an
+**Iterate/refine** host request; a **Fresh-mode** compile-error retry sends `prompt +
+error_context` (`:301-302`) with the same blindness the A/B loop has. The project's own logs
+already recorded the symptom without naming the cause (`llm/generate.py:183-186`): *"a simple
+reverb" failed the IDENTICAL delay-range error 3 attempts in a row* even with the bounded-delay
+rule already in the system prompt — exactly what blind regeneration from an unchanged spec
+produces. Filed as **PF-081**.
+
+**Two further asymmetries found during this check, both narrowing rather than reversing the
+result:** arm A passes bare `cpp_stderr` (`repair_ab_core.py:77`) while the shipping loop adds
+a class-specific `RETRY_HINT` (`llm/generate.py:194`) — arm A is the product *minus* its hint,
+and arm A still won, so the headline is if anything conservative on this axis. And
+`frs_check._clean_message` (`:185-193`) strips every diagnostic's LR-parser repair-sequence
+list before either faust-rs arm sees it — for the 5/15 `FRS-PARSE-0001` cells with no `help`
+remedy, that list was the *only* actionable content faust-rs offered, so arms B and C were
+never tested with faust-rs's full repair-oriented output. Neither was in the original
+"Untested:" list; both are now.
 
 ---
 
@@ -955,7 +1173,8 @@ coverage is precautionary rather than a fix for an observed symptom.
 ---
 
 ### PF-037 / PF-038 / PF-039 — the parameter grid, as the harness photographed it.
-**PF-037 fixed 2026-07-30 · PF-038/PF-039 low, open · S3 Plugin UX · observed 2026-07-28, filed 2026-07-30**
+**PF-037 fixed 2026-07-30 · PF-038 wontfix 2026-10-18 · PF-039 fixed 2026-08-14, registry
+reconciled 2026-10-18 · S3 Plugin UX · observed 2026-07-28, filed 2026-07-30**
 
 All three were recorded in STATUS.md under *"Two things the harness measured that were
 nobody's claim either way"* and had no IDs, which means they were one STATUS.md rewrite away
@@ -967,11 +1186,18 @@ from disappearing. Visible in `artifacts/images/session_*.png`.
   this as "a design question, not a bug." It is a bug: the DSP is right, the readout is
   unreadable, and no user can tell what any knob is set to.
 - **PF-038 — knobs are ordered lexicographically, not by declaration.** A 40-param patch
-  lists `P0, P1, P10, P11 … P2`.
+  lists `P0, P1, P10, P11 … P2`. **Reclassified wontfix 2026-10-18**, see the registry row
+  above: this is libfaust's own alphabetical UI-emission order, documented directly in
+  `FaustEngine.h:117-121` and independently corroborated by `ParamIdentity.h`'s comment on
+  `disambiguate()` — not a `ParamGridPanel` defect, and not recoverable from information
+  libfaust still has by the time `buildUserInterface()` fires.
 - **PF-039 — the rotary fallback is dead code.** `FaustEngine::Kind` has five values and
   `refreshParamKnobs` handles all five explicitly, so the `default:` arm is unreachable.
   `docs/ui_design_plan.md` still describes it as the fallback widget, so the doc describes a
-  widget no generated plugin has ever shown.
+  widget no generated plugin has ever shown. **Fixed 2026-08-14 (`2d11758`), registry row
+  reconciled 2026-10-18** — see above; the fix made the switch exhaustive over all six
+  `Kind` values (`Meter` had been added since this was filed) with `jassertfalse` on the
+  unreachable arms, and `docs/ui_design_plan.md` already carries both correction notes.
 
 **PF-037 CLOSED 2026-07-30, and it found a bigger bug underneath.**
 `ParamMap::formatZone`/`parseZone` convert for the eye, installed on each slider's
@@ -1107,6 +1333,30 @@ document the requirement in the spec's `notes`.
 **Verified by canary, not assumed.** A token planted at the head of the system prompt was
 echoed back intact at 3,614 prompt tokens, which is how the no-truncation claim above is
 known rather than inferred from ollama's silence.
+
+**FIXED 2026-09-13 — the durable fix, not just the workaround.** `providers.py`'s ollama
+`ProviderSpec` now declares `default_model="qwen2.5-coder:7b-16k"` (was
+`"qwen2.5-coder:7b"`), and `_OLLAMA_NUM_CTX`'s own default changed from `"4096"` to
+`"16384"` to match — a developer who has not set `PLUGINFORGE_OLLAMA_NUM_CTX` now gets
+correct preflight admission math out of the box instead of the stock-4096 figure.
+
+**Verified by the server's own log, not assumed.** `PLUGINFORGE_PROVIDER=ollama python3
+llm/generate.py --prompt "a warm analog-style chorus effect with rate, depth, and mix
+controls"` returned `success: true`, `attempts: 1`, a syntactically complete patch (ends
+`process = chorusCh(rate), chorusCh(rate * 1.13);`, not a mid-token cutoff), and Faust
+compile validation passed. `journalctl -u ollama` for that request shows
+`n_ctx_slot = 16384` (the 16k Modelfile override was actually loaded, not just declared),
+`task.n_tokens = 3358` (the real system-prompt-sized request), and — the load-bearing
+line — `stop processing: n_tokens = 3573, truncated = 0`. Ollama's own scheduler is the
+authority on whether it truncated, and it reports it did not.
+
+`tests/test_providers_unit.py`'s `test_ollama_default_matches_pf_043_fix` (renamed from
+`test_ollama_stock_default_matches_pf_043`) now asserts the 16384 figure and the new default
+model, so a regression back to the stock model or context would fail loudly. The `-16k`
+model still has to be created once per machine (`README.md` "Known generation
+limitations" has the exact command) — PluginForge cannot read a Modelfile's `num_ctx` back
+from the running ollama server, so a machine that has only ever pulled the stock
+`qwen2.5-coder:7b` will fail to find `qwen2.5-coder:7b-16k` and needs that one-time step.
 
 **What this does and does not close.** PF-013 had two halves. *"`--judge` has never executed"*
 is closed. *"Semantic fidelity is unmeasured"* is **not**, for two independent reasons: the
@@ -2192,7 +2442,7 @@ resolves that ADR, and it is the reason this row stays open rather than being re
 
 ---
 
-### PF-032 — compiling is not working: two patches render silent. *(open, found 2026-07-28)*
+### PF-032 — compiling is not working: two patches render silent. *(fixed -- lowpass `a4f942e`, gate `fedb377` + groq re-measurement 2026-10-20, found 2026-07-28)*
 
 The render oracle over the fresh 2026-07-28 groq corpus:
 
@@ -2320,9 +2570,19 @@ was verified by pushing and reading CI rather than by constructing a delay. That
 cheap experiment PF-027 was closed with, and the same one three sessions avoided in favour of
 better hypotheses.
 
-### PF-032 — Two compiling patches render silent. *(diagnosed 2026-07-28, not fixed)*
+### PF-032 — Two compiling patches render silent. *(fixed, found 2026-07-28)*
 
-**high · open · S1 Backend · found by the render oracle 2026-07-28**
+**high · fixed · S1 Backend · found by the render oracle 2026-07-28**
+
+**Correction, 2026-09-14/15 (WP1, `7ba7d8c`):** the gate's root-cause hypothesis
+below (dB-to-linear double conversion via `ba.db2linear`) did **not** reproduce on
+re-measurement -- six fresh generations against the then-current prompt showed
+`thresh` was always a clean raw dB literal. The actual, repeating defect was
+att/hold/rel being documented as raw SECONDS and carrying no unit annotation
+anywhere in the prompt, fixed by WP2 (`fedb377`) and confirmed against groq
+2026-10-20 (`docs/records/pf032-groq-remeasurement-2026-10-20.md`). The low-pass
+diagnosis immediately below (Hz vs. sample-rate confusion) was correct and is
+unaffected by this correction.
 
 Both are **unit-contract errors on stdlib function arguments**, not audio-path faults, and
 both are one line from working. Verified by rendering the generated code and a one-argument
@@ -2726,3 +2986,60 @@ requirement set — a test that `pip install`s the actual `requirements.txt` int
 venv would have caught this and would catch the next omission; (b) nothing asserts
 `requirements.txt` ⊇ `bench/requirements.txt`, or that every provider adapter's imports are
 covered by a pinned dep.
+
+---
+
+### PF-086 — `pf_cpu_shim` stopped controlling the JIT's ISA when `ubuntu-latest` moved to 26.04. *(open 2026-10-29, pinned not fixed)*
+
+`main` went red on 2026-10-29 with `JitTargetTest` reporting 5 failures, and the cause was
+not in this repository.
+
+**The two runs, either side of the break.** No commit between them touches the JIT, the
+shim, CMake, `host/`, or the workflow:
+
+| | commit | runner image | libfaust | JitTargetTest |
+|---|---|---|---|---|
+| green | `6c3adf3` 2026-10-21 | `ubuntu-24.04` (`ubuntu24/20261012.334`) | `amd64` 2.70.3+ds-1.1build2 | PASSED — 0 failures |
+| red | `85ca7b5` 2026-10-29 | `ubuntu-26.04` (`ubuntu26/20261025.179`) | **`amd64v3`** 2.81.10+ds-1 | FAILED — 5 failures |
+
+**The signature is the one the shim predicted for itself.** `host/tools/pf_cpu_shim.cpp`
+closes with: *"If a future LLVM changes this signature, the symptom is a wrong-looking CPU
+name rather than a silent no-op — and JitTargetTest fails, because it asserts the two CPU
+settings produce DIFFERENT code. A shim that stopped working would make them identical."*
+On 26.04 they are identical — tremolo reports `evex=1 kmask=2 vex=54` under both `x86-64`
+and `znver4`. `pf_cpu_shim_present()` still resolves, so the `.so` loads; it is the
+`getHostCPUName` override that no longer reaches codegen.
+
+**What was ruled out.** Built `JitTargetTest` standalone on the dev box — it links libfaust
+only, no JUCE, so this needs no CMake or JUCE build — against faust 2.88.0 and LLVM 23.1.3:
+
+```
+conservative CPU (x86-64)   tremolo evex=0 kmask=0 vex=0
+AVX-512 CPU (znver4)        tremolo evex=1 kmask=2 vex=63
+PASSED -- 0 failure(s)
+```
+
+So the interposition mechanism still works, and the LLVM symbol-version bump from
+`@LLVM_22.1` (recorded in the shim's docstring) to `@LLVM_23.1` (what libfaust 2.88.0 now
+imports) is **not** the cause — an unversioned `LD_PRELOAD` definition still satisfies the
+versioned reference. libfaust 2.88.0 also still imports only `getHostCPUName`, not
+`getHostCPUFeatures`, so the name is still the documented mechanism.
+
+The material difference is that 26.04 ships libfaust as **`amd64v3`** — Ubuntu's
+x86-64-v3 variant, which requires an AVX2 baseline. Why that defeats interposition is not
+yet established, and establishing it is this defect's remaining work.
+
+**Mitigation, not a fix.** `runs-on` is pinned to `ubuntu-24.04` on both jobs
+(`.github/workflows/test.yml:27,85`), restoring the environment every harness here was
+verified against. Two things this does not do:
+
+1. It does not make PF-036's protection work on 26.04. That protection is **unverified**
+   there, and 24.04 runners will eventually be retired, so this has a deadline.
+2. It does not tell us whether the shim is still needed. PF-036 existed because GitHub's
+   EPYC 9V74 runners named AVX-512 while the hypervisor masked it. If that runner class is
+   gone from the fleet, the right answer may be to delete the shim rather than repair it —
+   and `JitTargetTest`'s red arm would then need re-baselining, because its green arm is
+   only meaningful while the red arm is live.
+
+**Do not bump `runs-on` back to `ubuntu-latest` to turn a red pipeline green.** That is the
+move this entry exists to prevent.

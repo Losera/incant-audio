@@ -17,7 +17,7 @@ generative-05/L1     reject   reject     FRS-PARSE-0001,FRS-PARSE-0001,FRS-PARSE
 generative-05/L0     reject   reject     FRS-PROP-0002                      yes
 ----------------------------------------------------------------------------------------
 
-n = 15 never-compiled cells (issue-#26 reproducible subset)
+n = 15 never-compiled cells (reproducible subset)
 
   accept/reject verdict agreement : 15/15
   source location present         : C++ 8/15   faust-rs 15/15
